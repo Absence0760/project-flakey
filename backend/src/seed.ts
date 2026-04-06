@@ -185,6 +185,18 @@ async function seed() {
   const client = await pool.connect();
 
   try {
+    // Ensure app role exists (for RLS)
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'flakey_app') THEN
+          CREATE ROLE flakey_app LOGIN PASSWORD 'flakey_app';
+        END IF;
+      END $$;
+    `);
+    await client.query("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flakey_app");
+    await client.query("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app");
+    await client.query("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO flakey_app");
+
     await client.query("TRUNCATE runs, specs, tests RESTART IDENTITY CASCADE");
     await client.query("TRUNCATE org_invites RESTART IDENTITY CASCADE");
     await client.query("DELETE FROM org_members");

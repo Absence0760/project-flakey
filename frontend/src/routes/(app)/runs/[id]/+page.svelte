@@ -224,10 +224,11 @@
         {#if !collapsedSpecs.has(spec.id)}
           <ul class="test-list">
             {#each spec.tests as test}
+              {@const hasArtifacts = test.video_path || (test.screenshot_paths && test.screenshot_paths.length > 0) || test.error_message}
               <li class="test-row">
                 <div class="test-main">
                   <span class="test-status-dot {test.status}"></span>
-                  {#if test.status === "failed"}
+                  {#if hasArtifacts}
                     <button class="test-name clickable" onclick={() => modalTestId = test.id}>
                       {test.title}
                     </button>
@@ -235,6 +236,11 @@
                     <span class="test-name">{test.title}</span>
                   {/if}
                   <div class="test-meta">
+                    {#if test.video_path}
+                      <button class="test-badge video-badge" title="View video" onclick={() => modalTestId = test.id}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5"/><path d="M10.5 6l4-2v8l-4-2"/></svg>
+                      </button>
+                    {/if}
                     {#if test.screenshot_paths && test.screenshot_paths.length > 0}
                       <span class="test-badge" title="{test.screenshot_paths.length} screenshot(s)">
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><circle cx="8" cy="8" r="2.5"/><circle cx="12" cy="5.5" r="0.75" fill="currentColor" stroke="none"/></svg>
@@ -715,6 +721,24 @@
 
   .test-badge svg {
     opacity: 0.7;
+  }
+
+  .video-badge {
+    background: none;
+    border: none;
+    padding: 0.15rem;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .video-badge:hover {
+    background: var(--bg-hover);
+  }
+
+  .video-badge:hover svg {
+    opacity: 1;
+    color: var(--link);
   }
 
   .test-dur {

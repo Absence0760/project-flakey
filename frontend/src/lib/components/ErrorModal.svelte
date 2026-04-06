@@ -32,13 +32,20 @@
   async function loadTest(id: number) {
     loading = true;
     error = null;
-    leftTab = "screenshot";
-    rightTab = "error";
     currentScreenshot = 0;
     stackExpanded = false;
     leftPct = 50;
     try {
       test = await fetchTest(id);
+      // Auto-select best tabs based on available content
+      if (test.screenshot_paths?.length) leftTab = "screenshot";
+      else if (test.video_path) leftTab = "video";
+      else leftTab = "screenshot";
+
+      if (test.error_message) rightTab = "error";
+      else if (test.command_log?.length) rightTab = "commands";
+      else if (test.test_code) rightTab = "code";
+      else rightTab = "error";
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load test";
     } finally {
@@ -114,25 +121,27 @@
         <!-- Top bar -->
         <header class="topbar">
           <div class="topbar-left">
-            <span class="badge failed">FAILED</span>
+            <span class="badge {test.status}">{test.status.toUpperCase()}</span>
             <h2>{test.title}</h2>
           </div>
           <div class="topbar-right">
-            <div class="nav-group">
-              <button
-                class="nav-arrow"
-                disabled={!test.prev_failed_id}
-                onclick={() => navigate(test?.prev_failed_id ?? null)}
-                title="Previous failure"
-              >&#8249;</button>
-              <span class="nav-label">{test.failed_index}/{test.failed_total}</span>
-              <button
-                class="nav-arrow"
-                disabled={!test.next_failed_id}
-                onclick={() => navigate(test?.next_failed_id ?? null)}
-                title="Next failure"
-              >&#8250;</button>
-            </div>
+            {#if test.failed_total > 0}
+              <div class="nav-group">
+                <button
+                  class="nav-arrow"
+                  disabled={!test.prev_failed_id}
+                  onclick={() => navigate(test?.prev_failed_id ?? null)}
+                  title="Previous failure"
+                >&#8249;</button>
+                <span class="nav-label">{test.failed_index}/{test.failed_total}</span>
+                <button
+                  class="nav-arrow"
+                  disabled={!test.next_failed_id}
+                  onclick={() => navigate(test?.next_failed_id ?? null)}
+                  title="Next failure"
+                >&#8250;</button>
+              </div>
+            {/if}
             <button class="close-btn" onclick={onclose}>&#10005;</button>
           </div>
         </header>
@@ -385,8 +394,7 @@
     flex-shrink: 0;
   }
 
-  .badge.failed {
-    background: var(--color-fail);
+  .badge {
     color: white;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
@@ -395,6 +403,10 @@
     letter-spacing: 0.03em;
     flex-shrink: 0;
   }
+
+  .badge.failed { background: var(--color-fail); }
+  .badge.passed { background: var(--color-pass); }
+  .badge.skipped, .badge.pending { background: var(--color-skip); }
 
   .nav-group {
     display: flex;

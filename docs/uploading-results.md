@@ -189,28 +189,49 @@ Collections Permissions -- READ X, WRITE ✓ -- Create collection (failed).png
 
 ### Matching algorithm
 
-During upload, Flakey normalizes both the screenshot filename and each test's title by stripping everything except lowercase letters and numbers:
+During upload, Flakey normalizes both the screenshot filename and each test's `full_title` by stripping everything except lowercase letters and numbers:
 
 ```
 Filename: "Collections Permissions -- Create collection (failed).png"
   → normalized: "collectionspermissionscreatecollectionfailed"
 
-Test title: "Create collection"
-  → normalized: "createcollection"
+Test full_title: "Collections Permissions > Create collection"
+  → normalized: "collectionspermissionscreatecollection"
 ```
 
-If the normalized test title is a substring of the normalized filename, the screenshot is assigned to that test. The matching checks both `test.title` and `test.full_title`.
+The matching logic (in order of priority):
+
+1. **Full title match (preferred)** — if the normalized `full_title` is a substring of the normalized filename, the screenshot is assigned. This is the most reliable match because it includes the suite path.
+2. **Short title fallback (disabled for short names)** — if the `full_title` doesn't match, the bare `title` is checked, but only if the normalized title is at least 15 characters. This prevents false positives like "Login" matching "Login with SSO (failed).png".
+
+### Videos
+
+Videos are assigned to **all tests in the same run** — not per-test. Cypress records one video per spec file, so all tests in that spec share the same video. When you click any test (passed or failed), the video tab shows the full spec recording.
 
 ### What this means in practice
 
 - Screenshots are matched automatically — no configuration needed
 - Each test can have multiple screenshots (e.g., `(failed).png` and `(failed) (1).png`)
 - If no match is found, screenshots from the reporter's `screenshot_paths` field are used as fallback
-- Videos are assigned to all tests in the same run (not per-test)
+- Files are stored per-run in `uploads/runs/{runId}/screenshots/` and `uploads/runs/{runId}/videos/` — no cross-run confusion even with identical test names
+- Cypress only captures screenshots on failure by default, so passing tests typically only have the Video tab in the viewer
+
+### Viewing artifacts in the UI
+
+Any test with a video, screenshot, or error message is clickable in the run detail view. Clicking opens a detail modal with:
+
+- **Screenshot tab** — shows when the test has screenshots (typically failed tests). Click to view in a zoomable lightbox.
+- **Video tab** — shows when the test has a video. Plays the full spec recording.
+- **Error tab** — shows the error message and expandable stack trace.
+- **Commands tab** — shows the Cypress command log (if captured).
+- **Source tab** — shows the test source code (if captured).
+
+The modal auto-selects the most relevant tab: screenshots if available, then video, then error.
 
 ### Edge cases
 
-- If two tests have very similar titles (one is a substring of the other), a screenshot could match both — the more specific test name usually wins because both the full_title check and title check must pass
+- If two tests have very similar titles, the `full_title` match (which includes the suite path) almost always distinguishes them
+- Short titles under 15 characters (like "Login") won't false-match via substring
 - Special characters (unicode, checkmarks, emoji) are stripped during normalization, so they don't affect matching
 - Filenames with mangled encoding (common with unicode in filenames) are handled because normalization strips non-alphanumeric characters
 

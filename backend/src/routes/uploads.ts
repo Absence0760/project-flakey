@@ -91,7 +91,13 @@ router.post("/", uploadFields, async (req, res) => {
 
           for (const [filename, relPath] of screenshotMap) {
             const fileNorm = normalizeForMatch(filename);
-            if (fileNorm.includes(testNorm) || fileNorm.includes(fullNorm)) {
+            // Prefer full_title match (more specific, includes suite path).
+            // Fall back to title match only if full_title doesn't match,
+            // and only if the title is long enough to avoid false positives
+            // (e.g. "Login" matching "Login with SSO").
+            if (fileNorm.includes(fullNorm) && fullNorm.length > 0) {
+              matchedScreenshots.push(relPath);
+            } else if (testNorm.length >= 15 && fileNorm.includes(testNorm)) {
               matchedScreenshots.push(relPath);
             }
           }

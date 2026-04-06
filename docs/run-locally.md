@@ -14,20 +14,7 @@
 docker compose up -d
 ```
 
-This starts PostgreSQL on port 5432 and runs the migrations in `backend/migrations/` automatically.
-
-After the container is up, create the non-superuser app role (required for RLS tenant isolation):
-
-```bash
-PGHOST=localhost PGUSER=flakey PGPASSWORD=flakey PGDATABASE=flakey psql -c "
-CREATE ROLE flakey_app LOGIN PASSWORD 'flakey_app';
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flakey_app;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO flakey_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO flakey_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO flakey_app;
-"
-```
+This starts PostgreSQL on port 5432 and runs all migrations in `backend/migrations/` automatically, including creating the `flakey_app` database role needed for RLS tenant isolation.
 
 ### 2. Install dependencies
 
