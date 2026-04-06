@@ -36,6 +36,7 @@
     rightTab = "error";
     currentScreenshot = 0;
     stackExpanded = false;
+    leftPct = 50;
     try {
       test = await fetchTest(id);
     } catch (e) {
@@ -70,6 +71,32 @@
   let hasVideo = $derived(!!test?.video_path);
   let hasCode = $derived(!!test?.test_code);
   let hasCommands = $derived((test?.command_log?.length ?? 0) > 0);
+
+  // Resizable split pane
+  let splitRef = $state<HTMLDivElement | null>(null);
+  let leftPct = $state(50);
+  let dragging = $state(false);
+
+  function onDragStart(e: MouseEvent) {
+    e.preventDefault();
+    dragging = true;
+
+    function onMove(e: MouseEvent) {
+      if (!splitRef) return;
+      const rect = splitRef.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      leftPct = Math.max(20, Math.min(80, pct));
+    }
+
+    function onUp() {
+      dragging = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -118,9 +145,9 @@
         </div>
 
         <!-- Split panes -->
-        <div class="split">
+        <div class="split" class:dragging bind:this={splitRef}>
           <!-- LEFT: Visual evidence -->
-          <div class="pane pane-left">
+          <div class="pane pane-left" style:width="calc({leftPct}% - 3px)">
             <div class="pane-tabs">
               {#if hasScreenshots}
                 <button class="pane-tab" class:active={leftTab === "screenshot"} onclick={() => leftTab = "screenshot"}>
@@ -176,8 +203,13 @@
             </div>
           </div>
 
+          <!-- Drag handle -->
+          <div class="drag-handle" onmousedown={onDragStart} role="separator" aria-orientation="vertical">
+            <div class="drag-line"></div>
+          </div>
+
           <!-- RIGHT: Debug tools -->
-          <div class="pane pane-right">
+          <div class="pane pane-right" style:width="calc({100 - leftPct}% - 3px)">
             <div class="pane-tabs">
               <button class="pane-tab" class:active={rightTab === "error"} onclick={() => rightTab = "error"}>
                 Error
@@ -443,19 +475,56 @@
     min-height: 0;
   }
 
+  .split.dragging {
+    cursor: col-resize;
+    user-select: none;
+  }
+
   .pane {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .pane-left {
-    flex: 1;
-    border-right: 1px solid var(--border);
+    flex: none;
   }
 
   .pane-right {
-    flex: 1;
+    flex: none;
+  }
+
+  .drag-handle {
+    width: 6px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  .drag-handle:hover,
+  .split.dragging .drag-handle {
+    background: var(--bg-hover);
+  }
+
+  .drag-line {
+    width: 2px;
+    height: 24px;
+    border-radius: 1px;
+    background: var(--border);
+    transition: background 0.1s;
+  }
+
+  .drag-handle:hover .drag-line,
+  .split.dragging .drag-line {
+    background: var(--link);
   }
 
   .pane-tabs {
