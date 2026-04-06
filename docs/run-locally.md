@@ -77,26 +77,66 @@ Or register a new account — a personal organization is created automatically.
 
 ### 6. Upload test results
 
-Create an API key in the Profile page, then use the CLI:
+All data endpoints require authentication. You have three options:
+
+#### Option A: Get a token and upload with curl (quickest)
+
+```bash
+# 1. Get a JWT token
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@flakey.dev","password":"admin"}' \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).token))")
+
+# 2. Upload a mochawesome report
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"meta\":{\"suite_name\":\"my-project\",\"branch\":\"main\",\"commit_sha\":\"\",\"ci_run_id\":\"\",\"started_at\":\"\",\"finished_at\":\"\",\"reporter\":\"mochawesome\"},\"raw\":$(cat path/to/mochawesome.json)}"
+```
+
+#### Option B: Create an API key and use curl (recommended for CI)
+
+1. Log in at http://localhost:7777
+2. Go to **Profile** (bottom of sidebar)
+3. Under **API Keys**, enter a label and click **Create key**
+4. Copy the key (starts with `fk_`) — it's only shown once
+
+```bash
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer fk_your_key_here" \
+  -d "{\"meta\":{\"suite_name\":\"my-project\",\"branch\":\"main\",\"commit_sha\":\"\",\"ci_run_id\":\"\",\"started_at\":\"\",\"finished_at\":\"\",\"reporter\":\"mochawesome\"},\"raw\":$(cat path/to/mochawesome.json)}"
+```
+
+#### Option C: Use the CLI uploader
 
 ```bash
 cd cli
+
+# With --api-key flag
 npx tsx src/index.ts \
   --report-dir /path/to/reports \
   --suite my-suite \
   --branch main \
   --reporter mochawesome \
   --api-key fk_your_key_here
-```
 
-Or set the key as an environment variable:
-
-```bash
+# Or with environment variable
 export FLAKEY_API_KEY=fk_your_key_here
-npx tsx src/index.ts --report-dir /path/to/reports --suite my-suite
+npx tsx src/index.ts \
+  --report-dir /path/to/reports \
+  --suite my-suite \
+  --branch main
 ```
 
-Supported reporters: `mochawesome`, `junit`, `playwright`.
+#### Supported reporters
+
+| Reporter | Flag | Report file |
+|---|---|---|
+| Mochawesome | `--reporter mochawesome` | `.json` (Cypress/Mocha) |
+| JUnit | `--reporter junit` | `.xml` (Jest, pytest, Go, Java, .NET) |
+| Playwright | `--reporter playwright` | `.json` (Playwright JSON reporter) |
 
 ## Useful commands
 
