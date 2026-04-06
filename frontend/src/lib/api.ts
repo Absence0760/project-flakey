@@ -207,6 +207,29 @@ export async function fetchTrends(filters?: { from?: string; to?: string }): Pro
   return res.json();
 }
 
+export interface CompareResult {
+  run_a: Run;
+  run_b: Run;
+  summary: Record<string, number>;
+  comparisons: CompareEntry[];
+}
+
+export interface CompareEntry {
+  key: string;
+  file_path: string;
+  title: string;
+  category: string;
+  a: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
+  b: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
+  duration_delta: number | null;
+}
+
+export async function fetchCompare(runIdA: number, runIdB: number): Promise<CompareResult> {
+  const res = await authFetch(`${API_URL}/compare?a=${runIdA}&b=${runIdB}`);
+  if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
+  return res.json();
+}
+
 export interface DashboardStats {
   total_runs: number;
   total_tests: number;

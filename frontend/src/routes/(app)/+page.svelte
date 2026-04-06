@@ -48,6 +48,7 @@
         {/each}
       </select>
     {/if}
+    <a href="/compare" class="compare-link">Compare runs</a>
   </div>
 
   {#if loading}
@@ -102,8 +103,24 @@
   .header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.75rem;
     margin-bottom: 1.5rem;
+  }
+
+  .compare-link {
+    margin-left: auto;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .compare-link:hover {
+    background: var(--bg-hover);
+    color: var(--text);
   }
 
   select {

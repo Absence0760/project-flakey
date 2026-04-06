@@ -11,6 +11,7 @@ import orgsRouter from "./routes/orgs.js";
 import suitesRouter from "./routes/suites.js";
 import webhooksRouter from "./routes/webhooks.js";
 import auditRouter from "./routes/audit.js";
+import compareRouter from "./routes/compare.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
 
@@ -63,6 +64,7 @@ app.use("/orgs", requireAuth, orgsRouter);
 app.use("/suites", requireAuth, suitesRouter);
 app.use("/webhooks", requireAuth, webhooksRouter);
 app.use("/audit", requireAuth, auditRouter);
+app.use("/compare", requireAuth, compareRouter);
 app.use("/runs/upload", requireAuth, uploadsRouter);
 app.use("/runs", requireAuth, runsRouter);
 app.use("/errors", requireAuth, errorsRouter);
