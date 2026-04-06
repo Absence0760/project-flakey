@@ -25,5 +25,8 @@ docker-compose.override.yml
 # Test coverage
 coverage/
 
+# SvelteKit
+.svelte-kit/
+
 # Uploaded assets (screenshots, videos)
 uploads/
