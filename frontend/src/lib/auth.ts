@@ -137,6 +137,23 @@ export async function register(email: string, password: string, name: string, in
   return data.user;
 }
 
+export async function acceptInvite(token: string): Promise<{ user: User; org_name: string }> {
+  const res = await authFetch(`${API_URL}/orgs/invites/${token}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "Failed to accept invite");
+  }
+
+  const data = await res.json() as { token: string; user: User; org_name: string };
+  setAuth(data.user, data.token);
+  return { user: data.user, org_name: data.org_name };
+}
+
 export function logout() {
   clearAuth();
 }

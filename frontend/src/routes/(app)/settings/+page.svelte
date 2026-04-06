@@ -19,6 +19,18 @@
   let inviteRole = $state<"admin" | "viewer">("viewer");
   let inviteResult = $state<{ invite_token: string } | null>(null);
   let inviteError = $state<string | null>(null);
+  let copied = $state(false);
+
+  function inviteUrl(token: string): string {
+    return `${window.location.origin}/invite/${token}`;
+  }
+
+  async function copyInviteLink() {
+    if (!inviteResult) return;
+    await navigator.clipboard.writeText(inviteUrl(inviteResult.invite_token));
+    copied = true;
+    setTimeout(() => copied = false, 2000);
+  }
 
   async function loadMembers() {
     membersLoading = true;
@@ -193,8 +205,12 @@
       {#if inviteError}<p class="form-error">{inviteError}</p>{/if}
       {#if inviteResult}
         <div class="success-banner">
-          <p>Invite created. Share this token: <code>{inviteResult.invite_token}</code></p>
-          <button class="btn-sm" onclick={() => inviteResult = null}>Dismiss</button>
+          <p>Invite created! Share this link with the user:</p>
+          <div class="invite-link-row">
+            <code class="invite-link">{inviteUrl(inviteResult.invite_token)}</code>
+            <button class="btn-sm" onclick={copyInviteLink}>{copied ? "Copied!" : "Copy"}</button>
+            <button class="btn-sm" onclick={() => { inviteResult = null; copied = false; }}>Dismiss</button>
+          </div>
         </div>
       {/if}
     {/if}
@@ -444,6 +460,15 @@
   }
   .success-banner p { margin: 0 0 0.4rem; }
   .success-banner code { font-size: 0.72rem; padding: 0.2rem 0.4rem; background: var(--bg-secondary); border-radius: 3px; word-break: break-all; }
+
+  .invite-link-row {
+    display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  }
+  .invite-link {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 0.35rem 0.5rem; background: var(--bg-secondary); border-radius: 4px; font-size: 0.72rem;
+    user-select: all;
+  }
 
   /* Lists */
   .list { display: flex; flex-direction: column; }

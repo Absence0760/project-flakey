@@ -1,6 +1,7 @@
 <script lang="ts">
   import { login, register } from "$lib/auth";
   import { goto } from "$app/navigation";
+  import { page } from "$app/stores";
 
   let mode = $state<"login" | "register">("login");
   let email = $state("");
@@ -9,6 +10,13 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
 
+  const inviteToken = $derived($page.url.searchParams.get("invite"));
+
+  // If arriving with an invite token, default to register mode
+  $effect(() => {
+    if (inviteToken) mode = "register";
+  });
+
   async function handleSubmit() {
     error = null;
     loading = true;
@@ -16,8 +24,10 @@
       if (mode === "login") {
         await login(email, password);
       } else {
-        await register(email, password, name);
+        await register(email, password, name, inviteToken ?? undefined);
       }
+      // Registration with an invite auto-accepts it via resolveOrg,
+      // so always go straight to dashboard
       goto("/dashboard");
     } catch (e) {
       error = e instanceof Error ? e.message : "Something went wrong";
@@ -31,6 +41,10 @@
   <div class="login-card">
     <div class="logo">Flakey</div>
     <p class="subtitle">{mode === "login" ? "Sign in to your account" : "Create a new account"}</p>
+
+    {#if inviteToken}
+      <p class="invite-banner">You've been invited to join an organization. {mode === "login" ? "Sign in" : "Create an account"} to accept.</p>
+    {/if}
 
     <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
       {#if mode === "register"}
@@ -190,5 +204,16 @@
 
   .switch button:hover {
     text-decoration: underline;
+  }
+
+  .invite-banner {
+    margin: 0 0 1rem;
+    padding: 0.5rem 0.75rem;
+    background: color-mix(in srgb, var(--link) 8%, transparent);
+    border: 1px solid var(--link);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--text);
+    text-align: center;
   }
 </style>
