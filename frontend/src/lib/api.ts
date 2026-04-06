@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 export async function fetchRuns(): Promise<Run[]> {
   const res = await fetch(`${API_URL}/runs`);
@@ -30,7 +30,7 @@ export interface Run {
   created_at: string;
 }
 
-export const UPLOADS_URL = "http://localhost:3000/uploads";
+export const UPLOADS_URL = `${API_URL}/uploads`;
 
 export interface TestResult {
   id: number;

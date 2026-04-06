@@ -1,4 +1,5 @@
 <script lang="ts">
+  const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 </script>
 
 <div class="page">
@@ -18,7 +19,7 @@
     <h2>API</h2>
     <div class="field">
       <label>Endpoint</label>
-      <code>http://localhost:3000</code>
+      <code>{apiUrl}</code>
     </div>
   </section>
 </div>

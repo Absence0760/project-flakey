@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fetchRuns, fetchRun } from "$lib/api";
 
   interface FlakyTest {
     title: string;
@@ -16,17 +17,10 @@
 
   onMount(async () => {
     try {
-      // Fetch recent runs with details to compute flakiness client-side for now
-      const res = await fetch("http://localhost:3000/runs");
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-      const runs: any[] = await res.json();
+      const runs = await fetchRuns();
 
-      // Fetch details for each run
       const details = await Promise.all(
-        runs.slice(0, 20).map(async (r: any) => {
-          const res = await fetch(`http://localhost:3000/runs/${r.id}`);
-          return res.json();
-        })
+        runs.slice(0, 20).map((r) => fetchRun(r.id))
       );
 
       // Track status history per test (by full_title)
