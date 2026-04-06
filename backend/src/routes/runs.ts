@@ -55,12 +55,13 @@ router.post("/", async (req, res) => {
 
         for (const test of spec.tests) {
           await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [specId, test.title, test.full_title, test.status, test.duration_ms,
              test.error?.message ?? null, test.error?.stack ?? null,
              test.screenshot_paths, test.video_path ?? null,
-             test.test_code ?? null, test.command_log ? JSON.stringify(test.command_log) : null]
+             test.test_code ?? null, test.command_log ? JSON.stringify(test.command_log) : null,
+             test.metadata ? JSON.stringify(test.metadata) : null]
           );
         }
       }

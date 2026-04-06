@@ -64,6 +64,21 @@ interface PlaywrightReport {
   errors?: PlaywrightError[];
 }
 
+interface PlaywrightMetadata {
+  retries?: {
+    attempt: number;
+    status: string;
+    duration: number;
+    error?: { message: string; stack?: string };
+  }[];
+  annotations?: { type: string; description?: string }[];
+  tags?: string[];
+  location?: { file: string; line: number; column: number };
+  stdout?: string[];
+  stderr?: string[];
+  error_snippet?: string;
+}
+
 function mapStatus(result: PlaywrightResult): NormalizedTest["status"] {
   switch (result.status) {
     case "passed": return "passed";
@@ -105,15 +120,56 @@ function collectFromSuite(
   const titlePath = suite.title ? [...parentPath, suite.title] : parentPath;
   const filePath = suite.file ?? titlePath.join(" > ");
 
-  // Process specs (Playwright "spec" = a describe/test grouping)
   for (const spec of suite.specs ?? []) {
     for (const test of spec.tests) {
-      // Use the last result (retries produce multiple results)
       const lastResult = test.results[test.results.length - 1];
       if (!lastResult) continue;
 
       const specFile = spec.file ?? suite.file ?? filePath;
       const fullTitle = [...titlePath, spec.title].filter(Boolean).join(" > ");
+
+      // Build metadata
+      const metadata: PlaywrightMetadata = {};
+
+      // Retry history (all attempts)
+      if (test.results.length > 1) {
+        metadata.retries = test.results.map((r, i) => ({
+          attempt: i + 1,
+          status: r.status,
+          duration: r.duration,
+          error: r.error ? { message: r.error.message ?? "Unknown error", stack: r.error.stack } : undefined,
+        }));
+      }
+
+      // Annotations
+      if (test.annotations?.length) {
+        metadata.annotations = test.annotations;
+      }
+
+      // Tags (merge from spec and test, deduplicate)
+      const allTags = [...(spec.tags ?? []), ...(test.tags ?? [])];
+      if (allTags.length) {
+        metadata.tags = [...new Set(allTags)];
+      }
+
+      // Source location
+      if (test.location) {
+        metadata.location = test.location;
+      }
+
+      // Console output (truncate to last 100 lines)
+      if (lastResult.stdout?.length) {
+        metadata.stdout = lastResult.stdout.slice(-100);
+      }
+      if (lastResult.stderr?.length) {
+        metadata.stderr = lastResult.stderr.slice(-100);
+      }
+
+      // Error snippet
+      const snippet = lastResult.error?.snippet ?? lastResult.errors?.[0]?.snippet;
+      if (snippet) {
+        metadata.error_snippet = snippet;
+      }
 
       const normalized: NormalizedTest = {
         title: spec.title,
@@ -123,6 +179,7 @@ function collectFromSuite(
         error: extractError(lastResult),
         screenshot_paths: extractScreenshots(lastResult),
         video_path: extractVideo(lastResult),
+        ...(Object.keys(metadata).length > 0 ? { metadata: metadata as Record<string, unknown> } : {}),
       };
 
       const existing = result.get(specFile) ?? [];
@@ -131,13 +188,12 @@ function collectFromSuite(
     }
   }
 
-  // Recurse into child suites
   for (const child of suite.suites ?? []) {
     const childResult = collectFromSuite(child, titlePath);
     for (const [key, tests] of childResult.specs) {
       const existing = result.get(key) ?? [];
       existing.push(...tests);
-      result.set(key, existing);
+      result.set(key, tests.length > 0 ? existing : []);
     }
   }
 
@@ -148,7 +204,6 @@ export function parsePlaywright(
   raw: PlaywrightReport,
   meta: NormalizedRun["meta"]
 ): NormalizedRun {
-  // Collect all tests grouped by file
   const allTests = new Map<string, NormalizedTest[]>();
 
   for (const suite of raw.suites ?? []) {
@@ -160,7 +215,6 @@ export function parsePlaywright(
     }
   }
 
-  // Build normalized specs
   const specs: NormalizedSpec[] = [];
   for (const [filePath, tests] of allTests) {
     const passed = tests.filter((t) => t.status === "passed").length;

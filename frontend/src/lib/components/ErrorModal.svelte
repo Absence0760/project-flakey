@@ -20,7 +20,7 @@
   let lightboxIndex = $state(0);
 
   // Right panel state
-  let rightTab = $state<"error" | "commands" | "code">("error");
+  let rightTab = $state<"error" | "commands" | "code" | "details">("error");
   let stackExpanded = $state(false);
 
   $effect(() => {
@@ -43,6 +43,7 @@
       else leftTab = "screenshot";
 
       if (test.error_message) rightTab = "error";
+      else if (test.metadata && Object.keys(test.metadata).length > 0) rightTab = "details";
       else if (test.command_log?.length) rightTab = "commands";
       else if (test.test_code) rightTab = "code";
       else rightTab = "error";
@@ -80,6 +81,15 @@
   let hasVideo = $derived(!!test?.video_path);
   let hasCode = $derived(!!test?.test_code);
   let hasCommands = $derived((test?.command_log?.length ?? 0) > 0);
+  let meta = $derived(test?.metadata);
+  let hasMetadata = $derived(!!meta && (
+    (meta.retries?.length ?? 0) > 0 ||
+    (meta.annotations?.length ?? 0) > 0 ||
+    (meta.tags?.length ?? 0) > 0 ||
+    (meta.stdout?.length ?? 0) > 0 ||
+    (meta.stderr?.length ?? 0) > 0 ||
+    !!meta.location
+  ));
 
   // Resizable split pane
   let splitRef = $state<HTMLDivElement | null>(null);
@@ -148,11 +158,22 @@
 
         <!-- Info strip -->
         <div class="info-strip">
-          <span class="info-item mono">{test.file_path}</span>
+          <span class="info-item mono">{test.file_path}{#if meta?.location}:{meta.location.line}{/if}</span>
           <span class="info-sep">|</span>
           <span class="info-item">{formatDuration(test.duration_ms)}</span>
           <span class="info-sep">|</span>
           <a href="/runs/{test.run_id}" class="info-link" onclick={onclose}>Run #{test.run_id}</a>
+          {#if meta?.tags?.length}
+            <span class="info-sep">|</span>
+            {#each meta.tags as tag}
+              <span class="tag-pill">{tag}</span>
+            {/each}
+          {/if}
+          {#if meta?.annotations?.length}
+            {#each meta.annotations as ann}
+              <span class="annotation-pill {ann.type}" title={ann.description ?? ""}>{ann.type}</span>
+            {/each}
+          {/if}
         </div>
 
         <!-- Split panes -->
@@ -233,6 +254,11 @@
                   Source
                 </button>
               {/if}
+              {#if hasMetadata}
+                <button class="pane-tab" class:active={rightTab === "details"} onclick={() => rightTab = "details"}>
+                  Details
+                </button>
+              {/if}
             </div>
 
             <div class="pane-content">
@@ -249,6 +275,11 @@
                     {#if stackExpanded}
                       <pre class="stack-trace">{test.error_stack}</pre>
                     {/if}
+                  {/if}
+
+                  {#if meta?.error_snippet}
+                    <div class="error-label">Code Snippet</div>
+                    <pre class="code-snippet">{meta.error_snippet}</pre>
                   {/if}
 
                   <div class="error-details">
@@ -305,6 +336,64 @@
                     <span class="code-lang">JavaScript</span>
                   </div>
                   <pre class="code-block"><code>{test.test_code}</code></pre>
+                </div>
+
+              {:else if rightTab === "details" && meta}
+                <div class="details-panel">
+                  {#if meta.retries && meta.retries.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Retry History</div>
+                      <div class="retry-timeline">
+                        {#each meta.retries as attempt}
+                          <div class="retry-row" class:retry-fail={attempt.status === "failed" || attempt.status === "timedOut"}>
+                            <span class="retry-attempt">Attempt {attempt.attempt}</span>
+                            <span class="retry-status {attempt.status}">{attempt.status}</span>
+                            <span class="retry-dur">{formatDuration(attempt.duration)}</span>
+                            {#if attempt.error}
+                              <span class="retry-error">{attempt.error.message}</span>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  {#if meta.annotations && meta.annotations.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Annotations</div>
+                      <div class="annotation-list">
+                        {#each meta.annotations as ann}
+                          <div class="annotation-row">
+                            <span class="annotation-type {ann.type}">{ann.type}</span>
+                            {#if ann.description}
+                              <span class="annotation-desc">{ann.description}</span>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  {#if meta.location}
+                    <div class="details-section">
+                      <div class="details-heading">Source Location</div>
+                      <code class="location-value">{meta.location.file}:{meta.location.line}:{meta.location.column}</code>
+                    </div>
+                  {/if}
+
+                  {#if meta.stdout && meta.stdout.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">stdout</div>
+                      <pre class="console-output">{meta.stdout.join("\n")}</pre>
+                    </div>
+                  {/if}
+
+                  {#if meta.stderr && meta.stderr.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">stderr</div>
+                      <pre class="console-output stderr">{meta.stderr.join("\n")}</pre>
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </div>
@@ -967,5 +1056,183 @@
   .empty-panel p {
     margin: 0;
     font-size: 0.85rem;
+  }
+
+  /* Info strip extras */
+  .tag-pill {
+    padding: 0.1rem 0.4rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    background: color-mix(in srgb, var(--link) 12%, transparent);
+    color: var(--link);
+  }
+
+  .annotation-pill {
+    padding: 0.1rem 0.4rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: white;
+  }
+
+  .annotation-pill.skip { background: var(--color-skip); }
+  .annotation-pill.fixme { background: #e06c00; }
+  .annotation-pill.slow { background: var(--link); }
+  .annotation-pill.fail { background: var(--color-fail); }
+
+  /* Error panel: code snippet */
+  .code-snippet {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  /* Details panel */
+  .details-panel {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+  }
+
+  .details-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .details-heading {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* Retry timeline */
+  .retry-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .retry-row {
+    display: grid;
+    grid-template-columns: 5rem 4.5rem 3.5rem 1fr;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: var(--bg-secondary);
+  }
+
+  .retry-row.retry-fail {
+    background: var(--error-bg);
+  }
+
+  .retry-attempt {
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+  }
+
+  .retry-status {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .retry-status.passed { color: var(--color-pass); }
+  .retry-status.failed, .retry-status.timedOut { color: var(--color-fail); }
+  .retry-status.skipped { color: var(--color-skip); }
+  .retry-status.interrupted { color: var(--color-fail); }
+
+  .retry-dur {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .retry-error {
+    font-size: 0.75rem;
+    color: var(--error-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  /* Annotations */
+  .annotation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .annotation-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+  }
+
+  .annotation-type {
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .annotation-type.skip { background: var(--color-skip); }
+  .annotation-type.fixme { background: #e06c00; }
+  .annotation-type.slow { background: var(--link); }
+  .annotation-type.fail { background: var(--color-fail); }
+
+  .annotation-desc {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+  }
+
+  /* Source location */
+  .location-value {
+    font-size: 0.8rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    display: inline-block;
+  }
+
+  /* Console output */
+  .console-output {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .console-output.stderr {
+    border-color: var(--error-border);
+    color: var(--error-text);
   }
 </style>

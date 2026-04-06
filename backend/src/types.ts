@@ -45,4 +45,5 @@ export interface NormalizedTest {
   video_path?: string;
   test_code?: string;
   command_log?: object[];
+  metadata?: Record<string, unknown>;
 }

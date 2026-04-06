@@ -47,6 +47,17 @@ export interface TestResult {
   video_path: string | null;
   test_code: string | null;
   command_log: CommandLogEntry[] | null;
+  metadata: TestMetadata | null;
+}
+
+export interface TestMetadata {
+  retries?: { attempt: number; status: string; duration: number; error?: { message: string; stack?: string } }[];
+  annotations?: { type: string; description?: string }[];
+  tags?: string[];
+  location?: { file: string; line: number; column: number };
+  stdout?: string[];
+  stderr?: string[];
+  error_snippet?: string;
 }
 
 export interface CommandLogEntry {
