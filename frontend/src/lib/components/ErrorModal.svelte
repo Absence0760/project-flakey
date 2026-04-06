@@ -88,7 +88,12 @@
     (meta.tags?.length ?? 0) > 0 ||
     (meta.stdout?.length ?? 0) > 0 ||
     (meta.stderr?.length ?? 0) > 0 ||
-    !!meta.location
+    !!meta.location ||
+    !!meta.classname ||
+    !!meta.error_type ||
+    !!meta.properties ||
+    !!meta.hostname ||
+    !!meta.skip_message
   ));
 
   // Resizable split pane
@@ -392,6 +397,44 @@
                     <div class="details-section">
                       <div class="details-heading">stderr</div>
                       <pre class="console-output stderr">{meta.stderr.join("\n")}</pre>
+                    </div>
+                  {/if}
+
+                  {#if meta.error_type || meta.classname || meta.hostname || meta.skip_message}
+                    <div class="details-section">
+                      <div class="details-heading">Test Info</div>
+                      <div class="info-grid">
+                        {#if meta.error_type}
+                          <span class="info-key">Exception</span>
+                          <code class="info-val">{meta.error_type}</code>
+                        {/if}
+                        {#if meta.classname}
+                          <span class="info-key">Class</span>
+                          <code class="info-val">{meta.classname}</code>
+                        {/if}
+                        {#if meta.hostname}
+                          <span class="info-key">Host</span>
+                          <span class="info-val">{meta.hostname}</span>
+                        {/if}
+                        {#if meta.skip_message}
+                          <span class="info-key">Skip reason</span>
+                          <span class="info-val">{meta.skip_message}</span>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+
+                  {#if meta.properties && Object.keys(meta.properties).length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Properties</div>
+                      <div class="props-table">
+                        {#each Object.entries(meta.properties) as [key, value]}
+                          <div class="prop-row">
+                            <span class="prop-key">{key}</span>
+                            <span class="prop-val">{value}</span>
+                          </div>
+                        {/each}
+                      </div>
                     </div>
                   {/if}
                 </div>
@@ -1234,5 +1277,56 @@
   .console-output.stderr {
     border-color: var(--error-border);
     color: var(--error-text);
+  }
+
+  /* Info grid (classname, error_type, hostname, skip_message) */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr;
+    gap: 0.35rem 0.75rem;
+    font-size: 0.82rem;
+  }
+
+  .info-key {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.78rem;
+  }
+
+  .info-val {
+    color: var(--text-secondary);
+    word-break: break-all;
+    font-size: 0.8rem;
+  }
+
+  /* Properties table */
+  .props-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .prop-row {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: var(--bg-secondary);
+  }
+
+  .prop-key {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 8rem;
+    flex-shrink: 0;
+  }
+
+  .prop-val {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--text);
+    word-break: break-all;
   }
 </style>

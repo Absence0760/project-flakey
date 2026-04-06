@@ -51,13 +51,21 @@ export interface TestResult {
 }
 
 export interface TestMetadata {
+  // Playwright-specific
   retries?: { attempt: number; status: string; duration: number; error?: { message: string; stack?: string } }[];
   annotations?: { type: string; description?: string }[];
   tags?: string[];
   location?: { file: string; line: number; column: number };
+  error_snippet?: string;
+  // JUnit-specific
+  classname?: string;
+  error_type?: string;
+  properties?: Record<string, string>;
+  hostname?: string;
+  skip_message?: string;
+  // Shared
   stdout?: string[];
   stderr?: string[];
-  error_snippet?: string;
 }
 
 export interface CommandLogEntry {

@@ -8,9 +8,15 @@ interface JUnitTestCase {
   "@_time"?: string;
   failure?: { "#text"?: string; "@_message"?: string; "@_type"?: string } | string;
   error?: { "#text"?: string; "@_message"?: string; "@_type"?: string } | string;
-  skipped?: unknown;
+  skipped?: { "@_message"?: string; "#text"?: string } | string | unknown;
   "system-out"?: string;
   "system-err"?: string;
+  properties?: { property?: JUnitProperty | JUnitProperty[] };
+}
+
+interface JUnitProperty {
+  "@_name"?: string;
+  "@_value"?: string;
 }
 
 interface JUnitTestSuite {
@@ -22,7 +28,21 @@ interface JUnitTestSuite {
   "@_time"?: string;
   "@_timestamp"?: string;
   "@_file"?: string;
+  "@_hostname"?: string;
   testcase?: JUnitTestCase | JUnitTestCase[];
+  "system-out"?: string;
+  "system-err"?: string;
+  properties?: { property?: JUnitProperty | JUnitProperty[] };
+}
+
+interface JUnitMetadata {
+  classname?: string;
+  error_type?: string;
+  stdout?: string[];
+  stderr?: string[];
+  properties?: Record<string, string>;
+  hostname?: string;
+  skip_message?: string;
 }
 
 interface JUnitReport {
@@ -56,23 +76,73 @@ function getFailureMessage(node: JUnitTestCase["failure"]): { message: string; s
   return { message, stack: stack !== message ? stack : undefined };
 }
 
-function parseTestCase(tc: JUnitTestCase, suiteName: string): NormalizedTest {
+function getErrorType(node: JUnitTestCase["failure"]): string | undefined {
+  if (node === undefined || node === null || typeof node === "string") return undefined;
+  return node["@_type"] || undefined;
+}
+
+function getSkipMessage(node: JUnitTestCase["skipped"]): string | undefined {
+  if (node === undefined || node === null) return undefined;
+  if (typeof node === "string") return node;
+  if (typeof node === "object" && node !== null) {
+    const obj = node as { "@_message"?: string; "#text"?: string };
+    return obj["@_message"] || obj["#text"] || undefined;
+  }
+  return undefined;
+}
+
+function parseProperties(props: { property?: JUnitProperty | JUnitProperty[] } | undefined): Record<string, string> | undefined {
+  if (!props) return undefined;
+  const entries = toArray(props.property);
+  if (entries.length === 0) return undefined;
+  const result: Record<string, string> = {};
+  for (const p of entries) {
+    if (p["@_name"]) result[p["@_name"]] = p["@_value"] ?? "";
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function parseTestCase(tc: JUnitTestCase, suiteName: string, suiteInfo?: { hostname?: string; stdout?: string; stderr?: string }): NormalizedTest {
   const title = tc["@_name"] ?? "Unknown test";
   const classname = tc["@_classname"] ?? suiteName;
   const durationMs = parseSeconds(tc["@_time"]);
 
   let status: NormalizedTest["status"] = "passed";
   let error: NormalizedTest["error"] | undefined;
+  let errorType: string | undefined;
+  let skipMessage: string | undefined;
 
   if (tc.skipped !== undefined && tc.skipped !== null) {
     status = "skipped";
+    skipMessage = getSkipMessage(tc.skipped);
   } else if (tc.failure !== undefined && tc.failure !== null) {
     status = "failed";
     error = getFailureMessage(tc.failure);
+    errorType = getErrorType(tc.failure);
   } else if (tc.error !== undefined && tc.error !== null) {
     status = "failed";
     error = getFailureMessage(tc.error);
+    errorType = getErrorType(tc.error);
   }
+
+  // Build metadata from JUnit-specific fields
+  const metadata: JUnitMetadata = {};
+
+  if (classname !== suiteName) metadata.classname = classname;
+  if (errorType) metadata.error_type = errorType;
+  if (skipMessage) metadata.skip_message = skipMessage;
+
+  // Test-level stdout/stderr (fall back to suite-level)
+  const stdout = tc["system-out"] || suiteInfo?.stdout;
+  const stderr = tc["system-err"] || suiteInfo?.stderr;
+  if (stdout) metadata.stdout = stdout.split("\n").slice(-100);
+  if (stderr) metadata.stderr = stderr.split("\n").slice(-100);
+
+  // Test-level properties
+  const props = parseProperties(tc.properties);
+  if (props) metadata.properties = props;
+
+  if (suiteInfo?.hostname) metadata.hostname = suiteInfo.hostname;
 
   return {
     title,
@@ -81,6 +151,7 @@ function parseTestCase(tc: JUnitTestCase, suiteName: string): NormalizedTest {
     duration_ms: durationMs,
     error,
     screenshot_paths: [],
+    ...(Object.keys(metadata).length > 0 ? { metadata: metadata as Record<string, unknown> } : {}),
   };
 }
 
@@ -89,7 +160,13 @@ function parseSuite(suite: JUnitTestSuite): NormalizedSpec {
   const suiteName = suite["@_name"] ?? "Unknown suite";
   const filePath = suite["@_file"] ?? suiteName;
 
-  const tests = testCases.map((tc) => parseTestCase(tc, suiteName));
+  const suiteInfo = {
+    hostname: suite["@_hostname"],
+    stdout: suite["system-out"],
+    stderr: suite["system-err"],
+  };
+
+  const tests = testCases.map((tc) => parseTestCase(tc, suiteName, suiteInfo));
 
   const passed = tests.filter((t) => t.status === "passed").length;
   const failed = tests.filter((t) => t.status === "failed").length;
