@@ -99,13 +99,13 @@ router.post("/:id/invites", async (req, res) => {
       "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
       [orgId, req.user!.id]
     );
-    if (check.rows.length === 0 || check.rows[0].role === "member") {
+    if (check.rows.length === 0 || check.rows[0].role === "viewer") {
       res.status(403).json({ error: "Admin or owner role required to invite" });
       return;
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const inviteRole = role === "admin" ? "admin" : "member";
+    const inviteRole = role === "admin" ? "admin" : "viewer";
 
     await pool.query(
       "INSERT INTO org_invites (org_id, email, role, token, invited_by) VALUES ($1, $2, $3, $4, $5)",
@@ -177,7 +177,7 @@ router.delete("/:id/members/:userId", async (req, res) => {
       "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
       [orgId, req.user!.id]
     );
-    if (check.rows.length === 0 || check.rows[0].role === "member") {
+    if (check.rows.length === 0 || check.rows[0].role === "viewer") {
       res.status(403).json({ error: "Admin or owner role required" });
       return;
     }
@@ -207,6 +207,59 @@ router.delete("/:id/members/:userId", async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     console.error("DELETE /orgs/:id/members/:userId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /orgs/:id/members/:userId — change role
+router.patch("/:id/members/:userId", async (req, res) => {
+  try {
+    const orgId = Number(req.params.id);
+    const targetUserId = Number(req.params.userId);
+    const { role } = req.body;
+
+    if (!role || !["admin", "viewer"].includes(role)) {
+      res.status(400).json({ error: "Role must be 'admin' or 'viewer'" });
+      return;
+    }
+
+    // Only owner can change roles
+    const check = await pool.query(
+      "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
+      [orgId, req.user!.id]
+    );
+    if (check.rows.length === 0 || check.rows[0].role !== "owner") {
+      res.status(403).json({ error: "Owner role required to change roles" });
+      return;
+    }
+
+    // Can't change own role
+    if (targetUserId === req.user!.id) {
+      res.status(400).json({ error: "Cannot change your own role" });
+      return;
+    }
+
+    // Can't change another owner's role
+    const target = await pool.query(
+      "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
+      [orgId, targetUserId]
+    );
+    if (target.rows.length === 0) {
+      res.status(404).json({ error: "Member not found" });
+      return;
+    }
+    if (target.rows[0].role === "owner") {
+      res.status(400).json({ error: "Cannot change an owner's role" });
+      return;
+    }
+
+    await pool.query(
+      "UPDATE org_members SET role = $1 WHERE org_id = $2 AND user_id = $3",
+      [role, orgId, targetUserId]
+    );
+    res.json({ updated: true, role });
+  } catch (err) {
+    console.error("PATCH /orgs/:id/members/:userId error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

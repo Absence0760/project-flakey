@@ -57,7 +57,7 @@ async function verifyApiKey(key: string): Promise<AuthUser | null> {
         "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
         [row.org_id, row.user_id]
       );
-      const orgRole = memberResult.rows[0]?.role ?? "member";
+      const orgRole = memberResult.rows[0]?.role ?? "viewer";
 
       return {
         id: row.user_id,

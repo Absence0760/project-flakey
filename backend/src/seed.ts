@@ -212,7 +212,7 @@ async function seed() {
       ["admin@flakey.dev", adminHash]
     );
     const demo = await client.query(
-      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'member') RETURNING id",
+      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'viewer') RETURNING id",
       ["demo@flakey.dev", demoHash]
     );
     const adminId = admin.rows[0].id;
