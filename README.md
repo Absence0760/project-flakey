@@ -1,1 +1,207 @@
-# project-flakey
+# Flakey
+
+A self-hosted, CI-agnostic test reporting dashboard. Collects test results from Cypress, Playwright, Jest, pytest, and any framework that outputs Mochawesome JSON, JUnit XML, or Playwright JSON. Displays results with trend charts, flaky test detection, and failure analysis.
+
+Multi-tenant with organization-based isolation via Postgres Row-Level Security. JWT + API key authentication.
+
+## Quick Start
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/) (for PostgreSQL)
+- [Node.js](https://nodejs.org/) v18+
+- [pnpm](https://pnpm.io/) (for the frontend)
+
+### 1. Start the database
+
+```bash
+docker compose up -d
+```
+
+### 2. Install dependencies
+
+```bash
+cd backend && npm install
+cd ../frontend && pnpm install
+cd ../cli && npm install
+```
+
+### 3. Seed sample data
+
+```bash
+cd backend && npm run seed
+```
+
+Creates two users, two orgs, and 56 sample test runs (Mochawesome, Playwright, JUnit).
+
+### 4. Start the app
+
+```bash
+npm run dev
+```
+
+- **Frontend:** http://localhost:7777
+- **API:** http://localhost:3000
+
+### 5. Log in
+
+- **Email:** `admin@flakey.dev`
+- **Password:** `admin`
+
+## Upload Test Results
+
+### Cypress (Mochawesome)
+
+```bash
+npx tsx cli/src/index.ts \
+  --report-dir cypress/reports \
+  --suite my-project \
+  --api-key $FLAKEY_API_KEY
+```
+
+### Playwright
+
+```bash
+npx tsx cli/src/index.ts \
+  --report-dir playwright-report \
+  --suite my-project \
+  --reporter playwright \
+  --api-key $FLAKEY_API_KEY
+```
+
+### JUnit XML (Jest, pytest, Go, etc.)
+
+```bash
+npx tsx cli/src/index.ts \
+  --report-dir test-results \
+  --suite my-project \
+  --reporter junit \
+  --api-key $FLAKEY_API_KEY
+```
+
+### curl
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@flakey.dev","password":"admin"}' \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).token))")
+
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"meta\":{\"suite_name\":\"my-project\",\"branch\":\"main\",\"commit_sha\":\"\",\"ci_run_id\":\"\",\"started_at\":\"\",\"finished_at\":\"\",\"reporter\":\"mochawesome\"},\"raw\":$(cat cypress/reports/mochawesome.json)}"
+```
+
+Create an API key from the Profile page for permanent access (no expiry).
+
+## Features
+
+### Dashboard
+- Metrics cards (total runs, tests, pass rate, failures)
+- Trend charts (pass rate, test volume, run duration, top failures)
+- Date range picker with presets and calendar
+
+### Test Analysis
+- **Run detail** — progress ring, status filters, test search, collapsible specs
+- **Error modal** — screenshots with zoomable lightbox, video player, command log, source code, stack trace, resizable split panes
+- **Flaky tests** — detects tests that alternate between pass and fail
+- **Slowest tests** — ranked by average duration with min/max range
+- **Error grouping** — failures aggregated by error message
+- **Test history** — pass/fail timeline for a single test across runs
+- **Compare runs** — side-by-side diff showing regressions, fixes, and unchanged tests
+
+### Reporter Metadata
+- **Playwright:** retry history, tags, annotations, source location, stdout/stderr, error snippets
+- **JUnit:** exception types, classnames, properties, hostname, skip reasons, stdout/stderr
+- **Mochawesome:** command logs, test source code
+
+### Auth & Multi-tenancy
+- JWT authentication (1hr access + 7d refresh tokens)
+- API keys for CI/programmatic access
+- Organization-based tenant isolation via Postgres Row-Level Security
+- Roles: Owner, Admin, Viewer
+- Invite-by-email flow
+- Rate limiting, httpOnly cookies, CORS whitelist, security headers
+
+### Admin
+- Team management (invite, roles, remove)
+- Suite management (rename, archive, delete)
+- Data retention (auto-delete runs older than N days)
+- Webhook notifications (Slack/Teams/Discord on failure)
+- Audit log
+
+## Architecture
+
+```
+Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) → Svelte dashboard
+```
+
+| Layer | Technology |
+|---|---|
+| Frontend | SvelteKit (Svelte 5) |
+| Backend | Express + Node.js |
+| Database | PostgreSQL 16 with Row-Level Security |
+| Auth | JWT + bcrypt + API keys |
+| Reporters | Mochawesome, JUnit XML, Playwright JSON |
+
+## CI Integration
+
+### GitHub Actions
+
+```yaml
+- name: Upload results
+  if: always()
+  run: npx tsx cli/src/index.ts --report-dir cypress/reports --suite my-project
+  env:
+    FLAKEY_API_URL: ${{ secrets.FLAKEY_API_URL }}
+    FLAKEY_API_KEY: ${{ secrets.FLAKEY_API_KEY }}
+    BRANCH: ${{ github.ref_name }}
+    COMMIT_SHA: ${{ github.sha }}
+    CI_RUN_ID: ${{ github.run_id }}
+```
+
+### Bitbucket Pipelines
+
+```yaml
+after-script:
+  - npx tsx cli/src/index.ts --report-dir cypress/reports --suite my-project
+```
+
+## Environment Variables
+
+### Backend
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET` | _(required in production)_ | JWT signing secret |
+| `DB_USER` | `flakey_app` | Database user (non-superuser for RLS) |
+| `DB_PASSWORD` | `flakey_app` | Database password |
+| `PORT` | `3000` | API port |
+| `CORS_ORIGINS` | `http://localhost:7777` | Allowed origins (comma-separated) |
+| `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
+| `NODE_ENV` | — | Set `production` to enforce JWT_SECRET and strict CORS |
+
+### Frontend
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:3000` | Backend API URL |
+
+### CLI
+
+| Variable | Default | Description |
+|---|---|---|
+| `FLAKEY_API_URL` | `http://localhost:3000` | Backend API URL |
+| `FLAKEY_API_KEY` | — | API key for authentication |
+
+## Documentation
+
+See the `docs/` directory:
+
+- [Run locally](docs/run-locally.md)
+- [Architecture](docs/architecture.md)
+- [Uploading results](docs/uploading-results.md)
+- [Reporters & normalizers](docs/normalizer.md)
+- [Roadmap](docs/roadmap.md)
+- [DOM snapshot plugin](docs/cypress-snapshot-plugin.md) (planned)

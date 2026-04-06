@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import runsRouter from "./routes/runs.js";
 import errorsRouter from "./routes/errors.js";
@@ -29,6 +30,7 @@ const PORT = Number(process.env.PORT ?? 3000);
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:7777,http://localhost:3000")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: IS_PROD
     ? (origin, callback) => {

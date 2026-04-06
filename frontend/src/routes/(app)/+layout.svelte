@@ -8,6 +8,7 @@
 		{ href: '/dashboard', label: 'Dashboard', icon: '◇' },
 		{ href: '/', label: 'Runs', icon: '▶' },
 		{ href: '/flaky', label: 'Flaky', icon: '⚡' },
+		{ href: '/slowest', label: 'Slowest', icon: '◷' },
 		{ href: '/errors', label: 'Errors', icon: '✗' },
 		{ href: '/settings', label: 'Settings', icon: '⚙' },
 	];

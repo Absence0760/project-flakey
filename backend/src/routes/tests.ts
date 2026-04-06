@@ -101,4 +101,47 @@ router.get("/:id/history", async (req, res) => {
   }
 });
 
+// GET /tests/slowest — slowest tests across recent runs
+router.get("/slowest/list", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const suite = req.query.suite as string | undefined;
+
+    let suiteFilter = "";
+    const params: unknown[] = [limit];
+
+    if (suite) {
+      suiteFilter = "AND r.suite_name = $2";
+      params.push(suite);
+    }
+
+    const result = await tenantQuery(orgId, `
+      SELECT
+        t.title,
+        s.file_path,
+        r.suite_name,
+        ROUND(AVG(t.duration_ms))::int AS avg_duration_ms,
+        MAX(t.duration_ms)::int AS max_duration_ms,
+        MIN(t.duration_ms)::int AS min_duration_ms,
+        COUNT(*)::int AS run_count,
+        MAX(r.created_at) AS last_seen
+      FROM tests t
+      JOIN specs s ON s.id = t.spec_id
+      JOIN runs r ON r.id = s.run_id
+      WHERE t.status = 'passed'
+      ${suiteFilter}
+      GROUP BY t.title, s.file_path, r.suite_name
+      HAVING COUNT(*) >= 2
+      ORDER BY avg_duration_ms DESC
+      LIMIT $1
+    `, params);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /tests/slowest error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

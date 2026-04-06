@@ -230,6 +230,24 @@ export async function fetchCompare(runIdA: number, runIdB: number): Promise<Comp
   return res.json();
 }
 
+export interface SlowestTest {
+  title: string;
+  file_path: string;
+  suite_name: string;
+  avg_duration_ms: number;
+  max_duration_ms: number;
+  min_duration_ms: number;
+  run_count: number;
+  last_seen: string;
+}
+
+export async function fetchSlowestTests(suite?: string): Promise<SlowestTest[]> {
+  const qs = suite ? `?suite=${encodeURIComponent(suite)}` : "";
+  const res = await authFetch(`${API_URL}/tests/slowest/list${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch slowest tests: ${res.status}`);
+  return res.json();
+}
+
 export interface DashboardStats {
   total_runs: number;
   total_tests: number;
