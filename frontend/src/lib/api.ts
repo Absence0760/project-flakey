@@ -118,6 +118,51 @@ export async function fetchStats(filters?: { from?: string; to?: string }): Prom
   return res.json();
 }
 
+export interface TrendPoint {
+  date: string;
+  runs: number;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  pass_rate: number;
+}
+
+export interface FailureTrendPoint {
+  date: string;
+  failures: number;
+}
+
+export interface DurationTrendPoint {
+  date: string;
+  avg_duration_ms: number;
+  max_duration_ms: number;
+}
+
+export interface TopFailure {
+  test_title: string;
+  file_path: string;
+  failure_count: number;
+  last_failed: string;
+}
+
+export interface TrendsData {
+  pass_rate: TrendPoint[];
+  failures: FailureTrendPoint[];
+  duration: DurationTrendPoint[];
+  top_failures: TopFailure[];
+}
+
+export async function fetchTrends(filters?: { from?: string; to?: string }): Promise<TrendsData> {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/stats/trends${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Failed to fetch trends: ${res.status}`);
+  return res.json();
+}
+
 export interface DashboardStats {
   total_runs: number;
   total_tests: number;

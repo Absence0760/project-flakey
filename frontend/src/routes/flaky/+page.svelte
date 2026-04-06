@@ -116,9 +116,8 @@
 
 <style>
   .page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+    max-width: 1100px;
+    padding: 2rem 2rem;
   }
 
   .description {

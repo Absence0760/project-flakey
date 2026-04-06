@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchStats, type DashboardStats } from "$lib/api";
+  import { fetchStats, fetchTrends, type DashboardStats, type TrendsData } from "$lib/api";
   import DateRangePicker from "$lib/components/DateRangePicker.svelte";
+  import TrendChart from "$lib/components/TrendChart.svelte";
+  import BarChart from "$lib/components/BarChart.svelte";
 
   let stats = $state<DashboardStats | null>(null);
+  let trends = $state<TrendsData | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let fromDate = $state<string | undefined>(undefined);
@@ -13,7 +16,11 @@
     loading = true;
     error = null;
     try {
-      stats = await fetchStats({ from: fromDate, to: toDate });
+      const filters = { from: fromDate, to: toDate };
+      [stats, trends] = await Promise.all([
+        fetchStats(filters),
+        fetchTrends(filters),
+      ]);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load stats";
     } finally {
@@ -28,6 +35,62 @@
   }
 
   onMount(() => loadStats());
+
+  function formatMs(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${(ms / 60000).toFixed(1)}m`;
+  }
+
+  let passRateSeries = $derived.by(() => {
+    if (!trends) return [];
+    return [{
+      label: "Pass Rate",
+      color: "var(--color-pass)",
+      data: trends.pass_rate.map((p) => ({ label: p.date, value: Number(p.pass_rate) })),
+    }];
+  });
+
+  let volumeSeries = $derived.by(() => {
+    if (!trends) return [];
+    return [
+      {
+        label: "Passed",
+        color: "var(--color-pass)",
+        data: trends.pass_rate.map((p) => ({ label: p.date, value: p.passed })),
+      },
+      {
+        label: "Failed",
+        color: "var(--color-fail)",
+        data: trends.pass_rate.map((p) => ({ label: p.date, value: p.failed })),
+      },
+    ];
+  });
+
+  let durationSeries = $derived.by(() => {
+    if (!trends) return [];
+    return [
+      {
+        label: "Avg Duration",
+        color: "var(--link)",
+        data: trends.duration.map((d) => ({ label: d.date, value: d.avg_duration_ms })),
+      },
+      {
+        label: "Max Duration",
+        color: "var(--text-muted)",
+        data: trends.duration.map((d) => ({ label: d.date, value: d.max_duration_ms })),
+      },
+    ];
+  });
+
+  let topFailureBars = $derived.by(() => {
+    if (!trends) return [];
+    return trends.top_failures.map((f) => ({
+      label: f.test_title,
+      subtitle: f.file_path,
+      value: f.failure_count,
+    }));
+  });
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -67,6 +130,47 @@
         <span class="metric-label">Total Failures</span>
       </div>
     </div>
+
+    {#if trends}
+      <div class="charts">
+        <section class="chart-card wide">
+          <h2>Pass Rate Over Time</h2>
+          <TrendChart
+            series={passRateSeries}
+            height={220}
+            yMax={100}
+            formatY={(v) => `${v}%`}
+          />
+        </section>
+
+        <section class="chart-card">
+          <h2>Test Volume</h2>
+          <TrendChart
+            series={volumeSeries}
+            height={200}
+            formatY={(v) => String(v)}
+          />
+        </section>
+
+        <section class="chart-card">
+          <h2>Run Duration</h2>
+          <TrendChart
+            series={durationSeries}
+            height={200}
+            formatY={formatMs}
+            formatTooltip={(p) => formatMs(p.value)}
+          />
+        </section>
+
+        <section class="chart-card wide">
+          <h2>Top Failing Tests</h2>
+          <BarChart
+            bars={topFailureBars}
+            formatValue={(v) => `${v}x`}
+          />
+        </section>
+      </div>
+    {/if}
 
     <div class="panels">
       <section class="panel">
@@ -115,9 +219,7 @@
 
 <style>
   .page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+    padding: 2rem 2rem;
   }
 
   .header {
@@ -158,6 +260,32 @@
     font-size: 0.8rem;
     color: var(--text-muted);
     text-transform: uppercase;
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .chart-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .chart-card.wide {
+    grid-column: 1 / -1;
+  }
+
+  .chart-card h2 {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
   }
 
   .panels {

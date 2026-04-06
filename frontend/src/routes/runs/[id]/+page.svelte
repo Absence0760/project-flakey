@@ -264,9 +264,8 @@
 
 <style>
   .page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 1.5rem 1rem 3rem;
+    max-width: 1100px;
+    padding: 1.5rem 2rem 3rem;
   }
 
   .status-msg { color: var(--text-secondary); }

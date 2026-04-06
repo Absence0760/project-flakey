@@ -74,4 +74,102 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /stats/trends — time-series data for charts
+router.get("/trends", async (req, res) => {
+  try {
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+
+    let dateFilter = "";
+    let dateFilterWhere = "";
+    const params: string[] = [];
+
+    if (from && to) {
+      params.push(from, to);
+      dateFilter = `WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day')`;
+      dateFilterWhere = `AND r.created_at >= $1::date AND r.created_at < ($2::date + INTERVAL '1 day')`;
+    } else if (from) {
+      params.push(from);
+      dateFilter = `WHERE created_at >= $1::date`;
+      dateFilterWhere = `AND r.created_at >= $1::date`;
+    } else if (to) {
+      params.push(to);
+      dateFilter = `WHERE created_at < ($1::date + INTERVAL '1 day')`;
+      dateFilterWhere = `AND r.created_at < ($1::date + INTERVAL '1 day')`;
+    }
+
+    // Pass rate over time (per day)
+    const passRate = await pool.query(`
+      SELECT
+        created_at::date AS date,
+        COUNT(*)::int AS runs,
+        COALESCE(SUM(total), 0)::int AS total,
+        COALESCE(SUM(passed), 0)::int AS passed,
+        COALESCE(SUM(failed), 0)::int AS failed,
+        COALESCE(SUM(skipped), 0)::int AS skipped,
+        CASE WHEN SUM(total) > 0
+          THEN ROUND((SUM(passed)::numeric / SUM(total)) * 100, 1)
+          ELSE 0
+        END AS pass_rate
+      FROM runs
+      ${dateFilter}
+      GROUP BY created_at::date
+      ORDER BY date
+    `, params);
+
+    // Failures by day
+    const failuresTrend = await pool.query(`
+      SELECT
+        r.created_at::date AS date,
+        COUNT(*)::int AS failures
+      FROM tests t
+      JOIN specs s ON s.id = t.spec_id
+      JOIN runs r ON r.id = s.run_id
+      WHERE t.status = 'failed'
+      ${dateFilterWhere}
+      GROUP BY r.created_at::date
+      ORDER BY date
+    `, params);
+
+    // Duration trend (avg per day)
+    const durationTrend = await pool.query(`
+      SELECT
+        created_at::date AS date,
+        ROUND(AVG(duration_ms))::int AS avg_duration_ms,
+        MAX(duration_ms)::int AS max_duration_ms
+      FROM runs
+      ${dateFilter}
+      GROUP BY created_at::date
+      ORDER BY date
+    `, params);
+
+    // Top failing tests
+    const topFailures = await pool.query(`
+      SELECT
+        t.title AS test_title,
+        s.file_path,
+        COUNT(*)::int AS failure_count,
+        MAX(r.created_at) AS last_failed
+      FROM tests t
+      JOIN specs s ON s.id = t.spec_id
+      JOIN runs r ON r.id = s.run_id
+      WHERE t.status = 'failed'
+      ${dateFilterWhere}
+      GROUP BY t.title, s.file_path
+      ORDER BY failure_count DESC
+      LIMIT 10
+    `, params);
+
+    res.json({
+      pass_rate: passRate.rows,
+      failures: failuresTrend.rows,
+      duration: durationTrend.rows,
+      top_failures: topFailures.rows,
+    });
+  } catch (err) {
+    console.error("GET /stats/trends error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
