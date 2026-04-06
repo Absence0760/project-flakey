@@ -13,6 +13,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.3.2",
     "fast-xml-parser": "^5.5.10",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",

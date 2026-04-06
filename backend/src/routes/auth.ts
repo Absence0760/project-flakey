@@ -1,9 +1,13 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
-import { signToken, requireAuth } from "../auth.js";
+import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth } from "../auth.js";
+
+// Fix 6: Controlled registration — only allow when ALLOW_REGISTRATION=true or via invite
+const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION !== "false";
 
 const router = Router();
 
@@ -72,8 +76,10 @@ router.post("/login", async (req, res) => {
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
     const token = signToken(authUser);
+    const refreshToken = signRefreshToken(user.id);
 
-    res.json({ token, user: authUser });
+    setTokenCookie(res, token, refreshToken);
+    res.json({ token, refreshToken, user: authUser });
   } catch (err) {
     console.error("POST /auth/login error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -83,15 +89,28 @@ router.post("/login", async (req, res) => {
 // POST /auth/register
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, invite_token } = req.body;
+
+    // Fix 6: Check if open registration is allowed, or if they have an invite
+    if (!ALLOW_OPEN_REGISTRATION && !invite_token) {
+      // Check if there's a pending invite for this email
+      const pendingInvite = await pool.query(
+        "SELECT id FROM org_invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1",
+        [email]
+      );
+      if (pendingInvite.rows.length === 0) {
+        res.status(403).json({ error: "Registration is by invite only. Contact your admin." });
+        return;
+      }
+    }
 
     if (!email || !password) {
       res.status(400).json({ error: "Email and password are required" });
       return;
     }
 
-    if (password.length < 6) {
-      res.status(400).json({ error: "Password must be at least 6 characters" });
+    if (password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
       return;
     }
 
@@ -101,7 +120,7 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    const hash = bcrypt.hashSync(password, 10);
+    const hash = bcrypt.hashSync(password, 12);
     const result = await pool.query(
       "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, role",
       [email, hash, name ?? ""]
@@ -111,12 +130,64 @@ router.post("/register", async (req, res) => {
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
     const token = signToken(authUser);
+    const refreshToken = signRefreshToken(user.id);
 
-    res.status(201).json({ token, user: authUser });
+    setTokenCookie(res, token, refreshToken);
+    res.status(201).json({ token, refreshToken, user: authUser });
   } catch (err) {
     console.error("POST /auth/register error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// POST /auth/refresh — exchange refresh token for new access token
+router.post("/refresh", async (req, res) => {
+  try {
+    // Check cookie first, then body
+    const cookieHeader = req.headers.cookie;
+    let refreshTokenValue = req.body.refreshToken;
+    if (!refreshTokenValue && cookieHeader) {
+      const match = cookieHeader.split(";").map((c) => c.trim()).find((c) => c.startsWith("flakey_refresh="));
+      if (match) refreshTokenValue = match.split("=").slice(1).join("=");
+    }
+
+    if (!refreshTokenValue) {
+      res.status(400).json({ error: "Refresh token required" });
+      return;
+    }
+
+    const payload = jwt.verify(refreshTokenValue, process.env.JWT_SECRET ?? "flakey-dev-secret-change-me") as any;
+    if (payload.type !== "refresh") {
+      res.status(401).json({ error: "Invalid refresh token" });
+      return;
+    }
+
+    const userResult = await pool.query(
+      "SELECT id, email, name, role FROM users WHERE id = $1",
+      [payload.id]
+    );
+    if (userResult.rows.length === 0) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+
+    const user = userResult.rows[0];
+    const { orgId, orgRole } = await resolveOrg(user.id, user.email);
+    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
+    const token = signToken(authUser);
+    const newRefresh = signRefreshToken(user.id);
+
+    setTokenCookie(res, token, newRefresh);
+    res.json({ token, refreshToken: newRefresh, user: authUser });
+  } catch {
+    res.status(401).json({ error: "Invalid or expired refresh token" });
+  }
+});
+
+// POST /auth/logout — clear cookies
+router.post("/logout", (_req, res) => {
+  clearTokenCookies(res);
+  res.json({ ok: true });
 });
 
 // GET /auth/me

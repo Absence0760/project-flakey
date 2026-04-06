@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import runsRouter from "./routes/runs.js";
 import errorsRouter from "./routes/errors.js";
 import statsRouter from "./routes/stats.js";
@@ -13,18 +14,49 @@ import auditRouter from "./routes/audit.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
 
+// Fix 1: Refuse to start without JWT_SECRET in production
+const IS_PROD = process.env.NODE_ENV === "production";
+if (IS_PROD && !process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET environment variable is required in production.");
+  process.exit(1);
+}
+
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
-app.use(cors({ origin: true, credentials: true }));
+// Fix 2: CORS whitelist — only allow configured origins (default: localhost for dev)
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:7777,http://localhost:3000")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+app.use(cors({
+  origin: IS_PROD
+    ? (origin, callback) => {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+        else callback(new Error("CORS not allowed"));
+      }
+    : true, // Allow all in development
+  credentials: true,
+}));
+
 app.use(express.json({ limit: "50mb" }));
+
+// Fix 4: Cookie parser for httpOnly token cookies
 app.use("/uploads", express.static("uploads"));
+
+// Fix 3: Rate limiting on auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 20,                    // 20 attempts per window
+  message: { error: "Too many attempts. Try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Public routes
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
-app.use("/auth", authRouter);
+app.use("/auth", authLimiter, authRouter);
 
 // Protected routes
 app.use("/orgs", requireAuth, orgsRouter);
@@ -39,6 +71,7 @@ app.use("/tests", requireAuth, testsRouter);
 
 app.listen(PORT, () => {
   console.log(`Flakey API running on http://localhost:${PORT}`);
+  if (IS_PROD) console.log(`CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
 
   // Run retention cleanup daily
   setTimeout(runRetentionCleanup, 10000);
