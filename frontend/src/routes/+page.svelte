@@ -2,13 +2,19 @@
   import { onMount } from "svelte";
   import { fetchRuns, type Run } from "$lib/api";
 
-  let runs = $state<Run[]>([]);
+  let allRuns = $state<Run[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let selectedSuite = $state("all");
+
+  let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
+  let runs = $derived(
+    selectedSuite === "all" ? allRuns : allRuns.filter((r) => r.suite_name === selectedSuite)
+  );
 
   onMount(async () => {
     try {
-      runs = await fetchRuns();
+      allRuns = await fetchRuns();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load runs";
     } finally {
@@ -33,10 +39,17 @@
 </script>
 
 <div class="page">
-  <header>
-    <h1>Flakey</h1>
-    <p class="subtitle">Test Run Dashboard</p>
-  </header>
+  <div class="header">
+    <h1>Runs</h1>
+    {#if suites.length > 1}
+      <select bind:value={selectedSuite}>
+        <option value="all">All suites</option>
+        {#each suites as suite}
+          <option value={suite}>{suite}</option>
+        {/each}
+      </select>
+    {/if}
+  </div>
 
   {#if loading}
     <p class="status">Loading runs...</p>
@@ -88,18 +101,25 @@
     padding: 2rem 1rem;
   }
 
-  header {
-    margin-bottom: 2rem;
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
   }
 
   h1 {
     margin: 0;
-    font-size: 1.75rem;
+    font-size: 1.5rem;
   }
 
-  .subtitle {
-    margin: 0.25rem 0 0;
-    color: var(--text-secondary);
+  select {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.85rem;
   }
 
   .status {

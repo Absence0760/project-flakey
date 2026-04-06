@@ -1,0 +1,259 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { fetchErrors, type ErrorGroup } from "$lib/api";
+
+  let errors = $state<ErrorGroup[]>([]);
+  let loading = $state(true);
+  let loadError = $state<string | null>(null);
+  let expanded = $state<Set<number>>(new Set());
+
+  onMount(async () => {
+    try {
+      errors = await fetchErrors();
+    } catch (e) {
+      loadError = e instanceof Error ? e.message : "Failed to load errors";
+    } finally {
+      loading = false;
+    }
+  });
+
+  function toggleExpand(index: number) {
+    const next = new Set(expanded);
+    if (next.has(index)) {
+      next.delete(index);
+    } else {
+      next.add(index);
+    }
+    expanded = next;
+  }
+
+  function timeAgo(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+</script>
+
+<div class="page">
+  <h1>Errors</h1>
+  <p class="description">Failures grouped by error message across all runs.</p>
+
+  {#if loading}
+    <p class="status">Loading...</p>
+  {:else if loadError}
+    <p class="status error">{loadError}</p>
+  {:else if errors.length === 0}
+    <div class="empty">
+      <p>No errors found.</p>
+      <p class="hint">Errors appear here when test runs have failures.</p>
+    </div>
+  {:else}
+    <div class="error-list">
+      {#each errors as err, i}
+        <div class="error-card" class:open={expanded.has(i)}>
+          <button class="error-header" onclick={() => toggleExpand(i)}>
+            <div class="error-main">
+              <span class="error-count">{err.count}x</span>
+              <div class="error-info">
+                <span class="error-test">{err.test_title}</span>
+                <span class="error-message">{err.error_message}</span>
+              </div>
+            </div>
+            <div class="error-meta">
+              <span class="error-spec">{err.file_path}</span>
+              <span class="error-time">{timeAgo(err.latest_run_date)}</span>
+            </div>
+          </button>
+
+          {#if expanded.has(i)}
+            <div class="error-detail">
+              <div class="detail-section">
+                <h3>Full Error</h3>
+                <pre class="error-full">{err.error_message}</pre>
+              </div>
+              <div class="detail-section">
+                <h3>Affected Runs</h3>
+                <div class="run-links">
+                  {#each err.run_ids as runId}
+                    <a href="/runs/{runId}">Run #{runId}</a>
+                  {/each}
+                </div>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+
+  .description {
+    margin: 0.25rem 0 1.5rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .status { color: var(--text-secondary); }
+  .status.error { color: var(--color-fail); }
+
+  .empty {
+    padding: 3rem 0;
+    text-align: center;
+    color: var(--text-secondary);
+  }
+
+  .hint {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .error-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .error-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .error-card.open {
+    border-color: var(--color-fail);
+  }
+
+  .error-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+    transition: background 0.1s;
+  }
+
+  .error-header:hover {
+    background: var(--bg-hover);
+  }
+
+  .error-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .error-count {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--color-fail);
+    min-width: 2rem;
+    padding-top: 0.1rem;
+  }
+
+  .error-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .error-test {
+    font-weight: 500;
+    font-size: 0.875rem;
+  }
+
+  .error-message {
+    font-size: 0.8rem;
+    color: var(--color-fail);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .error-meta {
+    display: flex;
+    justify-content: space-between;
+    padding-left: 2.75rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .error-spec {
+    font-family: monospace;
+  }
+
+  .error-detail {
+    border-top: 1px solid var(--border);
+    padding: 1rem;
+    background: var(--bg-secondary);
+  }
+
+  .detail-section {
+    margin-bottom: 1rem;
+  }
+
+  .detail-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .detail-section h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .error-full {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--error-text);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+
+  .run-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .run-links a {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--link);
+    text-decoration: none;
+    transition: background 0.1s;
+  }
+
+  .run-links a:hover {
+    background: var(--bg-hover);
+  }
+</style>

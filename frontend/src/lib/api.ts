@@ -57,3 +57,35 @@ export interface Spec {
 export interface RunDetail extends Run {
   specs: Spec[];
 }
+
+export interface ErrorGroup {
+  error_message: string;
+  count: number;
+  latest_run_id: number;
+  latest_run_date: string;
+  test_title: string;
+  file_path: string;
+  run_ids: number[];
+}
+
+export async function fetchErrors(): Promise<ErrorGroup[]> {
+  const res = await fetch(`${API_URL}/errors`);
+  if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchStats(): Promise<DashboardStats> {
+  const res = await fetch(`${API_URL}/stats`);
+  if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
+  return res.json();
+}
+
+export interface DashboardStats {
+  total_runs: number;
+  total_tests: number;
+  total_passed: number;
+  total_failed: number;
+  pass_rate: number;
+  recent_runs: Run[];
+  recent_failures: { test_title: string; error_message: string; run_id: number; file_path: string }[];
+}
