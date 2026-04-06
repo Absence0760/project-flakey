@@ -75,7 +75,6 @@
 </script>
 
 <div class="page">
-  <h1>Flaky Tests</h1>
   <p class="description">Tests that alternate between passing and failing across recent runs.</p>
 
   {#if loading}
@@ -120,11 +119,6 @@
     max-width: 960px;
     margin: 0 auto;
     padding: 2rem 1rem;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
   }
 
   .description {

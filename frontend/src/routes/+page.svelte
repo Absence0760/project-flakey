@@ -40,7 +40,6 @@
 
 <div class="page">
   <div class="header">
-    <h1>Runs</h1>
     {#if suites.length > 1}
       <select bind:value={selectedSuite}>
         <option value="all">All suites</option>
@@ -106,11 +105,6 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 1.5rem;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
   }
 
   select {

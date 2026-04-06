@@ -1,20 +1,33 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fetchStats, type DashboardStats } from "$lib/api";
+  import DateRangePicker from "$lib/components/DateRangePicker.svelte";
 
   let stats = $state<DashboardStats | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let fromDate = $state<string | undefined>(undefined);
+  let toDate = $state<string | undefined>(undefined);
 
-  onMount(async () => {
+  async function loadStats() {
+    loading = true;
+    error = null;
     try {
-      stats = await fetchStats();
+      stats = await fetchStats({ from: fromDate, to: toDate });
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load stats";
     } finally {
       loading = false;
     }
-  });
+  }
+
+  function handleDateChange(from: string | undefined, to: string | undefined) {
+    fromDate = from;
+    toDate = to;
+    loadStats();
+  }
+
+  onMount(() => loadStats());
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -27,7 +40,9 @@
 </script>
 
 <div class="page">
-  <h1>Dashboard</h1>
+  <div class="header">
+    <DateRangePicker from={fromDate} to={toDate} onchange={handleDateChange} />
+  </div>
 
   {#if loading}
     <p class="status">Loading...</p>
@@ -105,9 +120,11 @@
     padding: 2rem 1rem;
   }
 
-  h1 {
-    margin: 0 0 1.5rem;
-    font-size: 1.5rem;
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
   }
 
   .status { color: var(--text-secondary); }

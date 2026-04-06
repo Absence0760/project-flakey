@@ -186,14 +186,31 @@ async function seed() {
   try {
     await client.query("TRUNCATE runs, specs, tests RESTART IDENTITY CASCADE");
 
-    const numRuns = 25;
+    const numRuns = 50;
     const now = Date.now();
+    const DAY_MS = 86400000;
+
+    // Spread runs across different time periods for date filter testing:
+    //  - 5 runs today
+    //  - 5 runs yesterday
+    //  - 10 runs in the last 7 days
+    //  - 10 runs in the last 30 days
+    //  - 10 runs in the last 6 months
+    //  - 10 runs 6-18 months ago
+    const runOffsets: number[] = [];
+    for (let i = 0; i < 5; i++) runOffsets.push(randomInt(0, DAY_MS * 0.5));              // today
+    for (let i = 0; i < 5; i++) runOffsets.push(DAY_MS + randomInt(0, DAY_MS * 0.8));     // yesterday
+    for (let i = 0; i < 10; i++) runOffsets.push(DAY_MS * randomInt(2, 7));                // last week
+    for (let i = 0; i < 10; i++) runOffsets.push(DAY_MS * randomInt(8, 30));               // last month
+    for (let i = 0; i < 10; i++) runOffsets.push(DAY_MS * randomInt(31, 180));             // last 6 months
+    for (let i = 0; i < 10; i++) runOffsets.push(DAY_MS * randomInt(181, 540));            // 6-18 months ago
+    runOffsets.sort((a, b) => b - a); // oldest first
 
     for (let r = 0; r < numRuns; r++) {
       const suite = pick(suites);
       const branch = pick(branches);
       const sha = Math.random().toString(16).slice(2, 10);
-      const startedAt = new Date(now - (numRuns - r) * 3600000 * randomInt(2, 8));
+      const startedAt = new Date(now - runOffsets[r]);
       const durationMs = randomInt(30000, 180000);
       const finishedAt = new Date(startedAt.getTime() + durationMs);
 
@@ -220,10 +237,10 @@ async function seed() {
       }[] = [];
 
       const runResult = await client.query(
-        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING id`,
-        [suite, branch, sha, `ci-${r + 1}`, "mochawesome", startedAt.toISOString(), finishedAt.toISOString(), 0, 0, 0, 0, 0, durationMs]
+        [suite, branch, sha, `ci-${r + 1}`, "mochawesome", startedAt.toISOString(), finishedAt.toISOString(), 0, 0, 0, 0, 0, durationMs, startedAt.toISOString()]
       );
       const runId = runResult.rows[0].id;
 
@@ -328,7 +345,20 @@ async function seed() {
       }
     }
 
+    // Log date distribution for verification
+    const counts = { today: 0, yesterday: 0, week: 0, month: 0, sixMonths: 0, older: 0 };
+    const res = await client.query("SELECT created_at FROM runs ORDER BY created_at DESC");
+    for (const row of res.rows) {
+      const age = now - new Date(row.created_at).getTime();
+      if (age < DAY_MS) counts.today++;
+      else if (age < DAY_MS * 2) counts.yesterday++;
+      else if (age < DAY_MS * 7) counts.week++;
+      else if (age < DAY_MS * 30) counts.month++;
+      else if (age < DAY_MS * 180) counts.sixMonths++;
+      else counts.older++;
+    }
     console.log(`Seeded ${numRuns} runs across ${suites.length} suites with screenshots.`);
+    console.log(`Distribution: today=${counts.today}, yesterday=${counts.yesterday}, last7d=${counts.week}, last30d=${counts.month}, last6mo=${counts.sixMonths}, older=${counts.older}`);
   } finally {
     client.release();
     await pool.end();

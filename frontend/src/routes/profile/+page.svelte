@@ -2,7 +2,6 @@
 </script>
 
 <div class="page">
-  <h1>Profile</h1>
   <p class="description">Your account settings and preferences.</p>
 
   <section class="card">
@@ -30,11 +29,6 @@
     max-width: 960px;
     margin: 0 auto;
     padding: 2rem 1rem;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
   }
 
   .description {

@@ -64,10 +64,7 @@
 
 <div class="page">
   <div class="header">
-    <div>
-      <h1>Errors</h1>
-      <p class="description">Failures grouped by error message.</p>
-    </div>
+    <p class="description">Failures grouped by error message.</p>
     <div class="filters">
       <select bind:value={selectedSuite} onchange={onSuiteChange}>
         <option value="all">All suites</option>
@@ -135,11 +132,6 @@
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 1.5rem;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
   }
 
   .description {

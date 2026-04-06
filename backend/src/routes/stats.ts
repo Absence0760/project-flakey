@@ -4,8 +4,29 @@ import pool from "../db.js";
 const router = Router();
 
 // GET /stats — dashboard overview
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+
+    let dateFilter = "";
+    let dateFilterJoin = "";
+    const params: string[] = [];
+
+    if (from && to) {
+      params.push(from, to);
+      dateFilter = `WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day')`;
+      dateFilterJoin = `AND r.created_at >= $1::date AND r.created_at < ($2::date + INTERVAL '1 day')`;
+    } else if (from) {
+      params.push(from);
+      dateFilter = `WHERE created_at >= $1::date`;
+      dateFilterJoin = `AND r.created_at >= $1::date`;
+    } else if (to) {
+      params.push(to);
+      dateFilter = `WHERE created_at < ($1::date + INTERVAL '1 day')`;
+      dateFilterJoin = `AND r.created_at < ($1::date + INTERVAL '1 day')`;
+    }
+
     const runsResult = await pool.query(`
       SELECT
         COUNT(*)::int AS total_runs,
@@ -13,7 +34,8 @@ router.get("/", async (_req, res) => {
         COALESCE(SUM(passed), 0)::int AS total_passed,
         COALESCE(SUM(failed), 0)::int AS total_failed
       FROM runs
-    `);
+      ${dateFilter}
+    `, params);
 
     const stats = runsResult.rows[0];
     const passRate = stats.total_tests > 0
@@ -21,7 +43,8 @@ router.get("/", async (_req, res) => {
       : 0;
 
     const recentRuns = await pool.query(
-      "SELECT * FROM runs ORDER BY created_at DESC LIMIT 5"
+      `SELECT * FROM runs ${dateFilter} ORDER BY created_at DESC LIMIT 5`,
+      params
     );
 
     const recentFailures = await pool.query(`
@@ -34,9 +57,10 @@ router.get("/", async (_req, res) => {
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
       WHERE t.status = 'failed' AND t.error_message IS NOT NULL
+      ${dateFilterJoin}
       ORDER BY r.created_at DESC, t.id DESC
       LIMIT 10
-    `);
+    `, params);
 
     res.json({
       ...stats,

@@ -239,11 +239,11 @@
                       {#each test.command_log ?? [] as cmd, i}
                         <li class="cmd" class:cmd-failed={cmd.state === "failed"}>
                           <span class="cmd-num">{i + 1}</span>
-                          <span class="cmd-icon">{cmd.state === "failed" ? "&#10007;" : "&#10003;"}</span>
-                          <span class="cmd-name">cy.{cmd.name}</span>
-                          {#if cmd.message}
-                            <span class="cmd-arg">{cmd.message}</span>
-                          {/if}
+                          <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
+                          <span class="cmd-body">
+                            <span class="cmd-name">cy.{cmd.name}</span>
+                            {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
+                          </span>
                         </li>
                       {/each}
                     </ol>
@@ -748,9 +748,9 @@
 
   .cmd {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 1rem;
+    align-items: baseline;
+    gap: 0;
+    padding: 0.45rem 1rem;
     font-size: 0.82rem;
     border-bottom: 1px solid var(--border-light);
     transition: background 0.1s;
@@ -771,9 +771,11 @@
   .cmd-num {
     color: var(--text-muted);
     font-size: 0.7rem;
-    min-width: 1.5rem;
+    width: 1.5rem;
     text-align: right;
     font-family: monospace;
+    flex-shrink: 0;
+    margin-right: 0.5rem;
   }
 
   .cmd-icon {
@@ -781,10 +783,20 @@
     width: 1rem;
     text-align: center;
     color: var(--color-pass);
+    flex-shrink: 0;
+    margin-right: 0.5rem;
   }
 
   .cmd-failed .cmd-icon {
     color: var(--color-fail);
+  }
+
+  .cmd-body {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+    flex: 1;
   }
 
   .cmd-name {
@@ -793,6 +805,7 @@
     font-size: 0.8rem;
     color: var(--text);
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .cmd-arg {
@@ -802,6 +815,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
 
   .cmd-failed .cmd-name,

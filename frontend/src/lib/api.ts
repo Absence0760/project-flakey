@@ -108,8 +108,12 @@ export async function fetchErrors(filters?: { suite?: string; run_id?: number })
   return res.json();
 }
 
-export async function fetchStats(): Promise<DashboardStats> {
-  const res = await fetch(`${API_URL}/stats`);
+export async function fetchStats(filters?: { from?: string; to?: string }): Promise<DashboardStats> {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/stats${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
   return res.json();
 }
