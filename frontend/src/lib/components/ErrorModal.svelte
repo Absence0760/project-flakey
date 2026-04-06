@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchTest, UPLOADS_URL, type TestDetail } from "$lib/api";
+  import { fetchTest, fetchTestHistory, UPLOADS_URL, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import Lightbox from "./Lightbox.svelte";
 
   interface Props {
@@ -20,7 +20,9 @@
   let lightboxIndex = $state(0);
 
   // Right panel state
-  let rightTab = $state<"error" | "commands" | "code" | "details">("error");
+  let rightTab = $state<"error" | "commands" | "code" | "details" | "history">("error");
+  let history = $state<TestHistoryEntry[]>([]);
+  let historyLoaded = $state(false);
   let stackExpanded = $state(false);
 
   $effect(() => {
@@ -35,9 +37,10 @@
     currentScreenshot = 0;
     stackExpanded = false;
     leftPct = 50;
+    history = [];
+    historyLoaded = false;
     try {
       test = await fetchTest(id);
-      // Auto-select best tabs based on available content
       if (test.screenshot_paths?.length) leftTab = "screenshot";
       else if (test.video_path) leftTab = "video";
       else leftTab = "screenshot";
@@ -58,6 +61,22 @@
     if (id) loadTest(id);
   }
 
+  async function loadHistory() {
+    if (historyLoaded || !test) return;
+    try {
+      const data = await fetchTestHistory(test.id);
+      history = data.history;
+    } catch {
+      history = [];
+    }
+    historyLoaded = true;
+  }
+
+  function selectHistoryTab() {
+    rightTab = "history";
+    loadHistory();
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (lightboxOpen) return;
     if (!testId) return;
@@ -69,6 +88,18 @@
   function formatDuration(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  function timeAgo(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return "yesterday";
+    return `${days}d ago`;
   }
 
   let screenshotUrls = $derived(
@@ -264,6 +295,9 @@
                   Details
                 </button>
               {/if}
+              <button class="pane-tab" class:active={rightTab === "history"} onclick={selectHistoryTab}>
+                History
+              </button>
             </div>
 
             <div class="pane-content">
@@ -435,6 +469,37 @@
                           </div>
                         {/each}
                       </div>
+                    </div>
+                  {/if}
+                </div>
+
+              {:else if rightTab === "history"}
+                <div class="history-panel">
+                  {#if !historyLoaded}
+                    <p class="history-loading">Loading history...</p>
+                  {:else if history.length === 0}
+                    <p class="history-empty">No history found for this test.</p>
+                  {:else}
+                    <div class="history-timeline">
+                      {#each history as entry}
+                        <a href="/runs/{entry.run_id}" class="history-entry" class:current={entry.test_id === test?.id} onclick={onclose}>
+                          <div class="history-dot {entry.status}"></div>
+                          <div class="history-content">
+                            <div class="history-top">
+                              <span class="history-status {entry.status}">{entry.status}</span>
+                              <span class="history-dur">{formatDuration(entry.duration_ms)}</span>
+                              <span class="history-time">{timeAgo(entry.created_at)}</span>
+                            </div>
+                            <div class="history-bottom">
+                              <span class="history-run">Run #{entry.run_id}</span>
+                              <span class="history-branch">{entry.branch || "—"}</span>
+                              {#if entry.error_message}
+                                <span class="history-error">{entry.error_message}</span>
+                              {/if}
+                            </div>
+                          </div>
+                        </a>
+                      {/each}
                     </div>
                   {/if}
                 </div>
@@ -1277,6 +1342,126 @@
   .console-output.stderr {
     border-color: var(--error-border);
     color: var(--error-text);
+  }
+
+  /* History panel */
+  .history-panel {
+    padding: 0.75rem;
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  .history-loading, .history-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 2rem 0;
+    margin: 0;
+  }
+
+  .history-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .history-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.55rem 0.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.1s;
+    position: relative;
+  }
+
+  .history-entry:hover {
+    background: var(--bg-hover);
+  }
+
+  .history-entry.current {
+    background: color-mix(in srgb, var(--link) 6%, transparent);
+  }
+
+  .history-entry + .history-entry {
+    border-top: 1px solid var(--border-light);
+  }
+
+  .history-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 0.3rem;
+  }
+
+  .history-dot.passed { background: var(--color-pass); }
+  .history-dot.failed { background: var(--color-fail); }
+  .history-dot.skipped, .history-dot.pending { background: var(--color-skip); }
+
+  .history-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .history-top {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+
+  .history-status {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-family: monospace;
+  }
+
+  .history-status.passed { color: var(--color-pass); }
+  .history-status.failed { color: var(--color-fail); }
+  .history-status.skipped { color: var(--color-skip); }
+
+  .history-dur {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+
+  .history-time {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .history-bottom {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .history-run {
+    color: var(--link);
+    font-weight: 500;
+  }
+
+  .history-branch {
+    color: var(--text-muted);
+  }
+
+  .history-error {
+    color: var(--error-text);
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
   /* Info grid (classname, error_type, hostname, skip_message) */

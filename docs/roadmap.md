@@ -2,8 +2,6 @@
 
 ## Phase 1 — MVP
 
-Goal: working end-to-end pipeline from Cypress run to visible results.
-
 - [x] Node CLI uploader script
 - [x] Express API with `POST /runs` endpoint
 - [x] Mochawesome parser + normalizer
@@ -16,49 +14,66 @@ Goal: working end-to-end pipeline from Cypress run to visible results.
 - [x] JUnit XML parser
 - [x] Playwright JSON parser
 - [x] Screenshot serving (stored on disk, served via static middleware)
-- [x] Video serving
+- [x] Video serving (mp4 + webm)
+- [x] Playwright attachment extraction (auto-discover screenshots/videos from report)
 - [x] Branch and suite filtering in the dashboard
 - [x] Run metadata (commit SHA, CI run ID, duration) displayed in UI
 - [x] Error modal with screenshots, video, command log, source code, stack trace
 - [x] Flaky test detection (tests that alternate pass/fail across runs)
+- [x] Reporter-specific metadata (Playwright: retries, tags, annotations, stdout; JUnit: classname, error_type, properties)
 
 ## Phase 3 — Analytics + auth + multi-tenancy
 
 - [x] Trend charts — pass rate over time, test volume, run duration, top failures
 - [x] Date range picker with presets and calendar
 - [x] Dashboard metrics cards (total runs, tests, pass rate, failures)
-- [x] API authentication (JWT + API key)
+- [x] API authentication (JWT + API keys + httpOnly cookies)
+- [x] Refresh tokens (1hr access + 7d refresh)
 - [x] User registration and login
 - [x] Multi-tenancy with Postgres Row-Level Security
-- [x] Organization management (create, invite members, roles)
+- [x] Organization management (create, invite members, roles: owner/admin/viewer)
 - [x] API key management (create, list, delete) in Profile page
 - [x] Configurable API URL via environment variable
-- [x] Seed script with realistic multi-org data
+- [x] Seed script with realistic multi-org data (mochawesome + playwright + junit)
+
+## Phase 4 — Admin + hardening
+
+- [x] Rate limiting on auth endpoints (20 req / 15 min)
+- [x] httpOnly cookie token storage
+- [x] Controlled registration (invite-only mode via `ALLOW_REGISTRATION=false`)
+- [x] CORS whitelist in production (`CORS_ORIGINS` env var)
+- [x] JWT secret validation (refuses to start without it in production)
+- [x] Bcrypt cost factor 12, 8-char minimum password
+- [x] Audit log (tracks all mutations: uploads, settings, members, webhooks)
+- [x] Suite management (rename, archive, delete)
+- [x] Data retention (auto-delete runs older than N days per org)
+- [x] Webhook notifications (Slack/Teams/Discord on run failure)
+- [x] Team management UI (invite, change roles, remove members)
+- [x] Resizable split panes in error modal
+- [x] Zoomable/pannable screenshot lightbox
 - [ ] Slowest tests view
-- [ ] GitHub Actions integration docs
-
-## Phase 4 — Polish + hardening
-
-- [ ] Rate limiting on auth endpoints
-- [ ] httpOnly cookie token storage (replace localStorage)
 - [ ] Email verification for registration
 - [ ] Password reset flow
 - [ ] Security headers (helmet.js)
-- [ ] Org settings page (rename, manage invites)
 - [ ] Org switcher in the frontend sidebar
 - [ ] README with quick-start guide
+
+## Phase 5 — Deployment + distribution
+
 - [ ] Docker image published to Docker Hub
 - [ ] CI integration examples (Bitbucket, GitHub Actions, GitLab CI)
+- [ ] S3/cloud storage for artifacts
+- [ ] Helm chart for Kubernetes
 
-## Phase 5 — Advanced features
+## Phase 6 — Advanced features
 
 - [ ] DOM snapshot plugin for Cypress (see `cypress-snapshot-plugin.md`)
-- [ ] Slack/webhook notifications on failure
-- [ ] S3/cloud storage for artifacts
-- [ ] Additional reporter parsers (Jest, WebdriverIO)
-- [ ] Test history per test (pass/fail timeline)
+- [ ] Test history per test (pass/fail timeline across runs)
 - [ ] Compare runs side-by-side
-- [ ] Customizable retention policies
+- [ ] Additional reporter parsers (Jest, WebdriverIO)
+- [ ] Flaky test webhook notifications
+- [ ] Scheduled reports (weekly email digest)
+- [ ] Custom dashboards / saved filters
 
 ## What this will not do (by design)
 

@@ -90,6 +90,29 @@ export async function fetchTest(id: number): Promise<TestDetail> {
   return res.json();
 }
 
+export interface TestHistoryEntry {
+  test_id: number;
+  status: string;
+  duration_ms: number;
+  error_message: string | null;
+  run_id: number;
+  suite_name: string;
+  branch: string;
+  created_at: string;
+}
+
+export interface TestHistory {
+  title: string;
+  file_path: string;
+  history: TestHistoryEntry[];
+}
+
+export async function fetchTestHistory(id: number): Promise<TestHistory> {
+  const res = await authFetch(`${API_URL}/tests/${id}/history`);
+  if (!res.ok) throw new Error(`Failed to fetch test history: ${res.status}`);
+  return res.json();
+}
+
 export interface Spec {
   id: number;
   run_id: number;
