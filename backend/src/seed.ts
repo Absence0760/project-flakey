@@ -284,6 +284,7 @@ async function seed() {
           code: string | null;
           commandLog: object[] | null;
           screenshotPaths: string[];
+          metadata: object | null;
         }[];
       }[] = [];
 
@@ -336,7 +337,7 @@ async function seed() {
 
           specData.push({
             file: specFile,
-            tests: [{ title: testTitle, status, duration, error, errorStack, code, commandLog, screenshotPaths }],
+            tests: [{ title: testTitle, status, duration, error, errorStack, code, commandLog, screenshotPaths, metadata: null }],
           });
 
           runTotal++;
@@ -376,8 +377,8 @@ async function seed() {
 
         for (const test of tests) {
           await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
               specId,
               test.title,
@@ -390,11 +391,198 @@ async function seed() {
               null,
               test.code,
               test.commandLog ? JSON.stringify(test.commandLog) : null,
+              test.metadata ? JSON.stringify(test.metadata) : null,
             ]
           );
         }
       }
     }
+
+    // --- Playwright seed runs ---
+    const pwSpecs = [
+      {
+        file: "tests/auth/login.spec.ts",
+        tests: [
+          { title: "should login with valid credentials", status: "passed", duration: 1200, tags: ["@smoke", "@auth"], annotations: [], location: { file: "tests/auth/login.spec.ts", line: 8, column: 5 }, retries: null, stdout: ["Navigating to /login", "Login form rendered"], stderr: null },
+          { title: "should show error for invalid password", status: "failed", duration: 3500, tags: ["@auth"], annotations: [], location: { file: "tests/auth/login.spec.ts", line: 22, column: 5 },
+            retries: [
+              { attempt: 1, status: "failed", duration: 3200, error: { message: "Timeout: locator.click resolved to hidden element", stack: "at login.spec.ts:30:5" } },
+              { attempt: 2, status: "failed", duration: 3500, error: { message: "Timeout: locator.click resolved to hidden element", stack: "at login.spec.ts:30:5" } },
+            ],
+            stdout: ["Navigating to /login"], stderr: ["Warning: element not interactable"],
+            errorSnippet: "  await page.locator('#submit-btn').click();\n> await expect(page.locator('.error-msg')).toBeVisible();\n  await expect(page.locator('.error-msg')).toHaveText('Invalid password');" },
+          { title: "should handle SSO redirect", status: "passed", duration: 4200, tags: ["@auth", "@sso"], annotations: [{ type: "slow", description: "involves external SSO provider redirect" }], location: { file: "tests/auth/login.spec.ts", line: 45, column: 5 },
+            retries: [
+              { attempt: 1, status: "failed", duration: 5000, error: { message: "Navigation timeout" } },
+              { attempt: 2, status: "passed", duration: 4200 },
+            ],
+            stdout: ["SSO redirect initiated", "SSO callback received", "Dashboard loaded"], stderr: null },
+          { title: "should remember me checkbox", status: "skipped", duration: 0, tags: ["@auth"], annotations: [{ type: "skip", description: "Feature not implemented yet" }, { type: "fixme", description: "Blocked by AUTH-234" }], location: { file: "tests/auth/login.spec.ts", line: 70, column: 5 }, retries: null, stdout: null, stderr: null },
+        ]
+      },
+      {
+        file: "tests/checkout/payment.spec.ts",
+        tests: [
+          { title: "should complete checkout with credit card", status: "passed", duration: 6800, tags: ["@checkout", "@smoke"], annotations: [{ type: "slow", description: "waits for payment gateway" }], location: { file: "tests/checkout/payment.spec.ts", line: 12, column: 5 }, retries: null, stdout: ["Cart total: $99.99", "Payment processed", "Confirmation email sent"], stderr: null },
+          { title: "should apply discount code", status: "passed", duration: 2100, tags: ["@checkout"], annotations: [], location: { file: "tests/checkout/payment.spec.ts", line: 35, column: 5 }, retries: null, stdout: ["Discount SAVE20 applied: -$20.00"], stderr: null },
+          { title: "should reject expired card", status: "failed", duration: 8500, tags: ["@checkout", "@negative"], annotations: [], location: { file: "tests/checkout/payment.spec.ts", line: 52, column: 5 }, retries: null, stdout: null, stderr: ["Error: PaymentGateway returned 402"],
+            errorSnippet: "  await page.fill('#card-expiry', '01/20');\n  await page.click('#pay-btn');\n> await expect(page.locator('.error-banner')).toContainText('expired');" },
+        ]
+      },
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      const pwStart = new Date(now - DAY_MS * randomInt(1, 14));
+      const pwDuration = randomInt(20000, 60000);
+      const pwRun = await client.query(
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+        ["e2e-playwright", pick(branches), Math.random().toString(16).slice(2, 10), `pw-${i + 1}`, "playwright",
+         pwStart.toISOString(), new Date(pwStart.getTime() + pwDuration).toISOString(),
+         0, 0, 0, 0, 0, pwDuration, pwStart.toISOString(), orgId]
+      );
+      const pwRunId = pwRun.rows[0].id;
+      let pwTotal = 0, pwPassed = 0, pwFailed = 0, pwSkipped = 0;
+
+      for (const spec of pwSpecs) {
+        const specTests = spec.tests.map((t) => {
+          // Randomize some statuses for variety across runs
+          let status = t.status;
+          if (t.retries && Math.random() < 0.5) status = "passed"; // sometimes the retry succeeds
+          return { ...t, status };
+        });
+        const sp = specTests.filter((t) => t.status === "passed").length;
+        const sf = specTests.filter((t) => t.status === "failed").length;
+        const ss = specTests.filter((t) => t.status === "skipped").length;
+
+        const specResult = await client.query(
+          `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [pwRunId, spec.file, spec.file.split("/").pop()?.replace(".spec.ts", "") ?? spec.file,
+           specTests.length, sp, sf, ss, specTests.reduce((s, t) => s + t.duration, 0)]
+        );
+
+        for (const t of specTests) {
+          const metadata: Record<string, unknown> = {};
+          if (t.tags.length) metadata.tags = t.tags;
+          if (t.annotations.length) metadata.annotations = t.annotations;
+          if (t.location) metadata.location = t.location;
+          if (t.retries) metadata.retries = t.retries;
+          if (t.stdout) metadata.stdout = t.stdout;
+          if (t.stderr) metadata.stderr = t.stderr;
+          if ((t as any).errorSnippet) metadata.error_snippet = (t as any).errorSnippet;
+
+          const errMsg = t.status === "failed" ? (t.retries?.[t.retries.length - 1]?.error?.message ?? pick(errors)) : null;
+          const errStack = t.status === "failed" ? `at ${spec.file}:${t.location?.line ?? 0}` : null;
+
+          await client.query(
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [specResult.rows[0].id, t.title, `${spec.file} > ${t.title}`, t.status, t.duration,
+             errMsg, errStack, [], null, null, null,
+             Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null]
+          );
+          pwTotal++;
+          if (t.status === "passed") pwPassed++;
+          else if (t.status === "failed") pwFailed++;
+          else pwSkipped++;
+        }
+      }
+      await client.query("UPDATE runs SET total=$1, passed=$2, failed=$3, skipped=$4 WHERE id=$5",
+        [pwTotal, pwPassed, pwFailed, pwSkipped, pwRunId]);
+    }
+    console.log("Seeded 3 Playwright runs with metadata (tags, annotations, retries, stdout).");
+
+    // --- JUnit seed runs ---
+    const junitSuites = [
+      {
+        name: "com.example.UserServiceTest",
+        file: "src/test/java/com/example/UserServiceTest.java",
+        hostname: "ci-runner-42",
+        properties: { "java.version": "17.0.2", "os.name": "Linux", "junit.version": "5.9.3" },
+        tests: [
+          { title: "testCreateUser", classname: "com.example.UserServiceTest", status: "passed", duration: 520, stdout: "Creating user: john@test.com\nUser created with ID: 42", stderr: null, errorType: null, skipMessage: null },
+          { title: "testGetUserById", classname: "com.example.UserServiceTest", status: "passed", duration: 180, stdout: "Fetching user ID=42\nUser found: john@test.com", stderr: null, errorType: null, skipMessage: null },
+          { title: "testDeleteUser", classname: "com.example.UserServiceTest", status: "failed", duration: 850, stdout: "Attempting to delete user ID=42", stderr: "WARN: Foreign key constraint on orders table", errorType: "java.lang.AssertionError", skipMessage: null },
+          { title: "testUpdateEmail", classname: "com.example.UserServiceTest", status: "failed", duration: 300, stdout: null, stderr: "ERROR: Email validation failed", errorType: "java.lang.NullPointerException", skipMessage: null },
+          { title: "testBulkImport", classname: "com.example.UserServiceTest", status: "skipped", duration: 0, stdout: null, stderr: null, errorType: null, skipMessage: "Requires external CSV service" },
+        ]
+      },
+      {
+        name: "com.example.OrderServiceTest",
+        file: "src/test/java/com/example/OrderServiceTest.java",
+        hostname: "ci-runner-42",
+        properties: { "java.version": "17.0.2", "db.dialect": "PostgreSQL" },
+        tests: [
+          { title: "testCreateOrder", classname: "com.example.OrderServiceTest", status: "passed", duration: 1200, stdout: "Order created: ORD-001\nTotal: $149.99", stderr: null, errorType: null, skipMessage: null },
+          { title: "testCancelOrder", classname: "com.example.OrderServiceTest", status: "passed", duration: 650, stdout: "Order ORD-001 cancelled\nRefund initiated: $149.99", stderr: null, errorType: null, skipMessage: null },
+          { title: "testOrderHistory", classname: "com.example.OrderServiceTest", status: "failed", duration: 2100, stdout: "Querying order history for user 42", stderr: "WARN: Slow query detected (>1s)", errorType: "org.opentest4j.AssertionFailedError", skipMessage: null },
+        ]
+      },
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      const jStart = new Date(now - DAY_MS * randomInt(1, 14));
+      const jDuration = randomInt(5000, 15000);
+      const jRun = await client.query(
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+        ["api-tests", pick(branches), Math.random().toString(16).slice(2, 10), `junit-${i + 1}`, "junit",
+         jStart.toISOString(), new Date(jStart.getTime() + jDuration).toISOString(),
+         0, 0, 0, 0, 0, jDuration, jStart.toISOString(), orgId]
+      );
+      const jRunId = jRun.rows[0].id;
+      let jTotal = 0, jPassed = 0, jFailed = 0, jSkipped = 0;
+
+      for (const suite of junitSuites) {
+        const suiteTests = suite.tests.map((t) => {
+          let status = t.status;
+          if (status === "failed" && Math.random() < 0.3) status = "passed";
+          return { ...t, status };
+        });
+        const sp = suiteTests.filter((t) => t.status === "passed").length;
+        const sf = suiteTests.filter((t) => t.status === "failed").length;
+        const ss = suiteTests.filter((t) => t.status === "skipped").length;
+
+        const specResult = await client.query(
+          `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [jRunId, suite.file, suite.name, suiteTests.length, sp, sf, ss,
+           suiteTests.reduce((s, t) => s + t.duration, 0)]
+        );
+
+        for (const t of suiteTests) {
+          const metadata: Record<string, unknown> = {};
+          if (t.classname) metadata.classname = t.classname;
+          if (t.errorType && t.status === "failed") metadata.error_type = t.errorType;
+          if (t.stdout) metadata.stdout = t.stdout.split("\n");
+          if (t.stderr) metadata.stderr = t.stderr.split("\n");
+          if (t.skipMessage) metadata.skip_message = t.skipMessage;
+          metadata.hostname = suite.hostname;
+          metadata.properties = suite.properties;
+
+          const errMsg = t.status === "failed" ? `Expected condition not met in ${t.title}` : null;
+          const errStack = t.status === "failed"
+            ? `${t.errorType ?? "AssertionError"}: Expected condition not met\n    at ${t.classname}.${t.title}(${suite.file.split("/").pop()}:${randomInt(20, 150)})\n    at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)`
+            : null;
+
+          await client.query(
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [specResult.rows[0].id, t.title, `${t.classname} > ${t.title}`, t.status, t.duration,
+             errMsg, errStack, [], null, null, null,
+             Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null]
+          );
+          jTotal++;
+          if (t.status === "passed") jPassed++;
+          else if (t.status === "failed") jFailed++;
+          else jSkipped++;
+        }
+      }
+      await client.query("UPDATE runs SET total=$1, passed=$2, failed=$3, skipped=$4 WHERE id=$5",
+        [jTotal, jPassed, jFailed, jSkipped, jRunId]);
+    }
+    console.log("Seeded 3 JUnit runs with metadata (classname, error_type, stdout/stderr, properties, hostname).");
 
     // Log date distribution for verification
     const counts = { today: 0, yesterday: 0, week: 0, month: 0, sixMonths: 0, older: 0 };
