@@ -40,12 +40,30 @@ function parseArgs(): UploadOptions {
   };
 }
 
-function findReportFile(dir: string): string | null {
+function findReportFile(dir: string, reporter: string): { path: string; isXml: boolean } | null {
   if (!existsSync(dir)) return null;
+
+  if (reporter === "junit") {
+    // Look for XML files for JUnit
+    const xmlFiles = readdirSync(dir).filter((f) => f.endsWith(".xml"));
+    if (xmlFiles.length > 0) return { path: join(dir, xmlFiles[0]), isXml: true };
+    return null;
+  }
+
+  if (reporter === "playwright") {
+    // Playwright uses JSON reporter output
+    const pwFile = join(dir, "results.json");
+    if (existsSync(pwFile)) return { path: pwFile, isXml: false };
+    const jsonFiles = readdirSync(dir).filter((f) => f.endsWith(".json"));
+    if (jsonFiles.length > 0) return { path: join(dir, jsonFiles[0]), isXml: false };
+    return null;
+  }
+
+  // Mochawesome (default)
   const merged = join(dir, "mochawesome.json");
-  if (existsSync(merged)) return merged;
+  if (existsSync(merged)) return { path: merged, isXml: false };
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
-  return files.length > 0 ? join(dir, files[0]) : null;
+  return files.length > 0 ? { path: join(dir, files[0]), isXml: false } : null;
 }
 
 function findFiles(dir: string, ext: string): string[] {
@@ -69,16 +87,18 @@ function findFiles(dir: string, ext: string): string[] {
 }
 
 async function upload(opts: UploadOptions): Promise<void> {
-  const reportFile = findReportFile(opts.reportDir);
+  const reportFile = findReportFile(opts.reportDir, opts.reporter);
 
   if (!reportFile) {
-    console.error(`No report files found in ${opts.reportDir}`);
+    console.error(`No report files found in ${opts.reportDir} for reporter "${opts.reporter}"`);
     process.exit(1);
   }
 
-  console.log(`Found report: ${reportFile}`);
+  console.log(`Found ${opts.reporter} report: ${reportFile.path}`);
 
-  const raw = JSON.parse(readFileSync(reportFile, "utf-8"));
+  // JUnit reports are XML strings passed as-is; JSON reports are parsed
+  const fileContent = readFileSync(reportFile.path, "utf-8");
+  const raw = reportFile.isXml ? fileContent : JSON.parse(fileContent);
   const payload = {
     reporter: opts.reporter,
     meta: {

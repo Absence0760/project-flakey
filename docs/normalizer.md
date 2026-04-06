@@ -1,10 +1,85 @@
-# Normalizer
+# Reporters & Normalizers
 
-## Purpose
+## Overview
 
-Each test reporter outputs a different format. The normalizer converts any supported format into a single unified internal schema so the rest of the app doesn't care which reporter was used.
+Flakey supports multiple test reporters. Each reporter outputs a different format — the normalizer layer converts any supported format into a single unified schema so the rest of the app (database, API, frontend) doesn't care which reporter was used.
 
-## Unified schema
+### Supported Reporters
+
+| Reporter | Format | Test Frameworks | Status |
+|---|---|---|---|
+| **Mochawesome** | JSON | Cypress, Mocha | Implemented |
+| **JUnit** | XML | Jest, pytest, PHPUnit, Go, Java, .NET, most CI systems | Implemented |
+| **Playwright** | JSON | Playwright | Implemented |
+
+## Usage
+
+### CLI Upload
+
+```bash
+# Mochawesome (Cypress default)
+flakey-upload \
+  --reporter mochawesome \
+  --report-dir cypress/reports \
+  --suite my-e2e \
+  --branch main
+
+# JUnit XML
+flakey-upload \
+  --reporter junit \
+  --report-dir test-results \
+  --suite api-tests \
+  --branch main
+
+# Playwright JSON
+flakey-upload \
+  --reporter playwright \
+  --report-dir playwright-report \
+  --suite e2e-playwright \
+  --branch main
+```
+
+### API Upload
+
+POST raw report data to `/runs` with the `reporter` field set:
+
+```bash
+# JSON reporters (mochawesome, playwright)
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meta": {
+      "suite_name": "my-suite",
+      "branch": "main",
+      "commit_sha": "abc123",
+      "ci_run_id": "ci-42",
+      "started_at": "",
+      "finished_at": "",
+      "reporter": "playwright"
+    },
+    "raw": { ... }
+  }'
+
+# JUnit XML (pass XML as a string in the "raw" field)
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meta": {
+      "suite_name": "api-tests",
+      "branch": "main",
+      "commit_sha": "abc123",
+      "ci_run_id": "ci-42",
+      "started_at": "",
+      "finished_at": "",
+      "reporter": "junit"
+    },
+    "raw": "<?xml version=\"1.0\"?><testsuites>...</testsuites>"
+  }'
+```
+
+## Unified Schema
+
+All reporters are normalized into this structure before being stored:
 
 ```typescript
 interface NormalizedRun {
@@ -15,7 +90,7 @@ interface NormalizedRun {
     ci_run_id: string
     started_at: string       // ISO 8601
     finished_at: string      // ISO 8601
-    reporter: string         // "mochawesome" | "junit" | ...
+    reporter: string         // "mochawesome" | "junit" | "playwright"
   }
   stats: {
     total: number
@@ -52,53 +127,201 @@ interface NormalizedTest {
   }
   screenshot_paths: string[]
   video_path?: string
+  test_code?: string
+  command_log?: object[]
 }
 ```
 
-## Parsers
+## Reporter Details
 
-### mochawesome parser
+### Mochawesome
 
-Mochawesome outputs a custom JSON schema based on Mocha's internal structure.
+**Source:** `backend/src/normalizers/mochawesome.ts`
 
-Key fields to extract:
-- `stats.start` / `stats.end` → `started_at` / `finished_at`
-- `stats.passes` / `stats.failures` / `stats.pending` / `stats.skipped`
-- `stats.duration` → `duration_ms`
-- `results[]` → array of spec files
-- `results[].suites[].tests[]` → individual test results
-- `results[].suites[].tests[].pass` / `.fail` / `.pending` → status
-- `results[].suites[].tests[].duration` → test duration
-- `results[].suites[].tests[].err.message` → error message
+Mochawesome is the default reporter for Cypress. It outputs a JSON file with a nested suite/test structure.
 
-Mochawesome merges multiple spec files into a single JSON when using `mochawesome-merge`. Handle both single-file and merged formats.
+**Input format:** JSON (`.json`)
 
-### JUnit XML parser
+**File discovery:** The CLI looks for `mochawesome.json` first, then falls back to any `.json` file in the report directory. Handles both single-file and merged formats (via `mochawesome-merge`).
 
-JUnit outputs XML, not JSON. Use a library like `fast-xml-parser` or `xml2js` to convert before normalizing.
+**Mapping:**
 
-Key fields:
-- `<testsuites>` root element → run-level stats
-- `<testsuite name="..." tests="..." failures="..." time="...">` → spec-level
-- `<testcase name="..." classname="..." time="...">` → individual test
-- `<failure message="...">` child element → test failed with this message
-- `<skipped />` child element → test was skipped
-- No child element → test passed
+| Mochawesome Field | Normalized Field |
+|---|---|
+| `stats.start` / `stats.end` | `meta.started_at` / `meta.finished_at` |
+| `stats.passes` / `stats.failures` / `stats.pending` / `stats.skipped` | `stats.*` |
+| `stats.duration` | `stats.duration_ms` |
+| `results[]` | One `NormalizedSpec` per entry |
+| `results[].file` or `results[].fullFile` | `spec.file_path` |
+| `results[].suites[].tests[]` | `NormalizedTest[]` (recursively collected) |
+| `test.pass` / `test.fail` / `test.pending` | `test.status` |
+| `test.duration` | `test.duration_ms` |
+| `test.err.message` / `test.err.estack` | `test.error.message` / `test.error.stack` |
+| `test.code` | `test.test_code` |
 
-Time values in JUnit are in seconds — multiply by 1000 for `duration_ms`.
+**Generating reports:**
 
-## Adding a new reporter
+```bash
+# cypress.config.ts
+export default defineConfig({
+  reporter: 'mochawesome',
+  reporterOptions: {
+    reportDir: 'cypress/reports',
+    overwrite: false,
+    html: false,
+    json: true,
+  },
+});
 
-1. Create `/src/normalizer/parsers/{reporter-name}.ts`
-2. Export a `parse(raw: unknown): NormalizedRun` function
-3. Register it in `/src/normalizer/index.ts` under the reporter key
-4. Add the reporter name to the `reporter` union type
-5. Write a unit test with a sample output file from that reporter
+# After running tests, merge reports:
+npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
+```
 
-## Reporter detection
+---
 
-The CLI uploader should detect the format automatically based on file extension and content:
+### JUnit XML
 
-- `.json` with a `stats.passes` key → mochawesome
-- `.xml` with a `<testsuites>` root → JUnit
-- Fall back to explicit `--reporter` flag if detection fails
+**Source:** `backend/src/normalizers/junit.ts`
+
+JUnit XML is the most widely supported test result format. Nearly every test framework and CI system can produce or consume it.
+
+**Input format:** XML (`.xml`)
+
+**Dependencies:** `fast-xml-parser` for XML parsing.
+
+**File discovery:** The CLI looks for any `.xml` file in the report directory.
+
+**Supported XML structures:**
+
+```xml
+<!-- Wrapped in <testsuites> (most common) -->
+<testsuites tests="10" failures="2" errors="0" time="5.2">
+  <testsuite name="UserAPI" tests="5" failures="1" file="tests/user.test.ts">
+    <testcase name="should list users" classname="UserAPI" time="0.12"/>
+    <testcase name="should validate input" classname="UserAPI" time="0.25">
+      <failure message="Expected 400">Stack trace here</failure>
+    </testcase>
+    <testcase name="should skip old test" classname="UserAPI">
+      <skipped/>
+    </testcase>
+  </testsuite>
+</testsuites>
+
+<!-- Standalone <testsuite> (also supported) -->
+<testsuite name="AuthTests" tests="3" failures="0">
+  <testcase name="login" classname="AuthTests" time="0.5"/>
+</testsuite>
+```
+
+**Mapping:**
+
+| JUnit Element/Attribute | Normalized Field |
+|---|---|
+| `<testsuite name>` | `spec.title` |
+| `<testsuite file>` | `spec.file_path` (falls back to `name`) |
+| `<testcase name>` | `test.title` |
+| `<testcase classname>` + `name` | `test.full_title` |
+| `<testcase time>` (seconds) | `test.duration_ms` (converted to ms) |
+| No child elements | `status: "passed"` |
+| `<failure message="...">text</failure>` | `status: "failed"`, `error.message`, `error.stack` |
+| `<error message="...">text</error>` | `status: "failed"`, `error.message`, `error.stack` |
+| `<skipped/>` | `status: "skipped"` |
+
+**Generating reports by framework:**
+
+```bash
+# Jest
+jest --reporters=jest-junit
+# Output: junit.xml
+
+# pytest
+pytest --junitxml=results.xml
+
+# Go
+go test -v ./... 2>&1 | go-junit-report > results.xml
+
+# PHPUnit
+phpunit --log-junit results.xml
+
+# .NET
+dotnet test --logger "junit;LogFilePath=results.xml"
+
+# Java (Maven)
+mvn test  # Surefire generates XML in target/surefire-reports/
+```
+
+---
+
+### Playwright JSON
+
+**Source:** `backend/src/normalizers/playwright.ts`
+
+Playwright's built-in JSON reporter produces a structured report with suites, specs, tests, and results.
+
+**Input format:** JSON (`.json`)
+
+**File discovery:** The CLI looks for `results.json` first, then falls back to any `.json` file in the report directory.
+
+**Key behaviors:**
+
+- **Retries:** Playwright may produce multiple results per test (retries). The normalizer uses the **last result** (the final attempt).
+- **Status mapping:** `passed` and `skipped` map directly. `failed`, `timedOut`, and `interrupted` all map to `failed`.
+- **Attachments:** Screenshots and videos are extracted from the `attachments` array by content type (`image/*` → screenshots, `video/*` → video).
+- **Nested suites:** Playwright nests suites by `describe()` blocks. The normalizer walks the tree recursively and groups tests by source file.
+
+**Mapping:**
+
+| Playwright Field | Normalized Field |
+|---|---|
+| `stats.startTime` | `meta.started_at` |
+| `stats.duration` | `stats.duration_ms` |
+| `suites[].file` | `spec.file_path` |
+| `suites[].specs[].title` | `test.title` |
+| Suite title path joined with ` > ` | `test.full_title` |
+| `result.status` | `test.status` (timedOut/interrupted → failed) |
+| `result.duration` | `test.duration_ms` |
+| `result.error.message` / `.stack` | `test.error.message` / `.stack` |
+| `result.attachments` (image/*) | `test.screenshot_paths` |
+| `result.attachments` (video/*) | `test.video_path` |
+
+**Generating reports:**
+
+```bash
+# playwright.config.ts
+export default defineConfig({
+  reporter: [
+    ['json', { outputFile: 'playwright-report/results.json' }],
+    ['html'],  # optional: keep the HTML report too
+  ],
+});
+
+# Or via CLI
+npx playwright test --reporter=json > playwright-report/results.json
+```
+
+---
+
+## Adding a New Reporter
+
+1. Create `backend/src/normalizers/{reporter-name}.ts`
+2. Export a `parse{ReporterName}(raw, meta) => NormalizedRun` function
+3. Register it in `backend/src/normalizers/index.ts`:
+   ```typescript
+   import { parseMyReporter } from "./my-reporter.js";
+
+   const parsers: Record<string, Parser> = {
+     mochawesome: parseMochawesome as Parser,
+     junit: parseJUnit as Parser,
+     playwright: parsePlaywright as Parser,
+     "my-reporter": parseMyReporter as Parser,  // add here
+   };
+   ```
+4. Update `cli/src/index.ts` `findReportFile()` to handle the new reporter's file format
+5. Test with a real report file from the target framework
+
+The normalizer should:
+- Handle missing/optional fields gracefully with sensible defaults
+- Convert all durations to milliseconds
+- Convert all timestamps to ISO 8601 strings
+- Compute spec-level stats from individual test results
+- Set `reporter` in meta to the reporter name
