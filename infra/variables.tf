@@ -22,18 +22,6 @@ variable "db_instance_class" {
   default     = "db.t4g.micro"
 }
 
-variable "db_password" {
-  description = "Database password"
-  type        = string
-  sensitive   = true
-}
-
-variable "jwt_secret" {
-  description = "JWT signing secret"
-  type        = string
-  sensitive   = true
-}
-
 variable "allow_registration" {
   description = "Allow open user registration"
   type        = bool

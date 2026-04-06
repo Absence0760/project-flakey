@@ -41,8 +41,9 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   backup_retention_period = 7
-  skip_final_snapshot     = true
-  deletion_protection     = true
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.app_name}-${var.environment}-final"
+  deletion_protection       = true
   storage_encrypted       = true
   multi_az                = false
 

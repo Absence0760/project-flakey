@@ -2,6 +2,7 @@ aws_region         = "ap-southeast-2"
 environment        = "production"
 app_name           = "flakey"
 db_instance_class  = "db.t4g.micro"
-db_password        = "CHANGE_ME_strong_password_here"
-jwt_secret         = "CHANGE_ME_random_64_char_string"
 allow_registration = false
+
+# Passwords are auto-generated and stored in AWS Secrets Manager.
+# No manual secrets to configure.

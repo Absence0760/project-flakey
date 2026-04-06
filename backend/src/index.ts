@@ -13,6 +13,7 @@ import suitesRouter from "./routes/suites.js";
 import webhooksRouter from "./routes/webhooks.js";
 import auditRouter from "./routes/audit.js";
 import compareRouter from "./routes/compare.js";
+import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
 
@@ -56,8 +57,13 @@ const authLimiter = rateLimit({
 });
 
 // Public routes
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+app.get("/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ status: "ok" });
+  } catch {
+    res.status(503).json({ status: "degraded", error: "database unreachable" });
+  }
 });
 app.use("/auth", authLimiter, authRouter);
 

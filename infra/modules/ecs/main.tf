@@ -8,7 +8,7 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# IAM
+# IAM — Execution role (pull images, read secrets)
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.app_name}-${var.environment}-ecs-execution"
 
@@ -27,6 +27,21 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+resource "aws_iam_role_policy" "ecs_execution_secrets" {
+  name = "${var.app_name}-${var.environment}-secrets-access"
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action   = ["secretsmanager:GetSecretValue"]
+      Effect   = "Allow"
+      Resource = [var.db_password_arn, var.jwt_secret_arn]
+    }]
+  })
+}
+
+# IAM — Task role (S3 access at runtime)
 resource "aws_iam_role" "ecs_task" {
   name = "${var.app_name}-${var.environment}-ecs-task"
 
@@ -54,7 +69,7 @@ resource "aws_iam_role_policy" "ecs_task_s3" {
   })
 }
 
-# CloudWatch log groups
+# CloudWatch
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.app_name}-${var.environment}/backend"
   retention_in_days = 30
@@ -148,7 +163,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Task definition — backend
+# Task definition — secrets via Secrets Manager, not plaintext
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.app_name}-${var.environment}-backend"
   requires_compatibilities = ["FARGATE"]
@@ -175,10 +190,15 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "DB_PORT", value = tostring(var.db_port) },
       { name = "DB_NAME", value = var.db_name },
       { name = "DB_USER", value = "flakey_app" },
-      { name = "DB_PASSWORD", value = var.db_password },
-      { name = "JWT_SECRET", value = var.jwt_secret },
+      { name = "DB_MIGRATION_USER", value = var.db_username },
       { name = "CORS_ORIGINS", value = var.frontend_url },
       { name = "ALLOW_REGISTRATION", value = tostring(var.allow_registration) },
+    ]
+
+    secrets = [
+      { name = "DB_PASSWORD", valueFrom = var.db_password_arn },
+      { name = "DB_MIGRATION_PASSWORD", valueFrom = var.db_password_arn },
+      { name = "JWT_SECRET", valueFrom = var.jwt_secret_arn },
     ]
 
     logConfiguration = {
@@ -192,7 +212,7 @@ resource "aws_ecs_task_definition" "backend" {
   }])
 }
 
-# ECS Service — backend
+# ECS Service
 resource "aws_ecs_service" "backend" {
   name            = "${var.app_name}-${var.environment}-backend"
   cluster         = aws_ecs_cluster.main.id
@@ -213,4 +233,67 @@ resource "aws_ecs_service" "backend" {
   }
 
   depends_on = [aws_lb_listener.http]
+}
+
+# --- Auto-scaling ---
+resource "aws_appautoscaling_target" "backend" {
+  max_capacity       = 4
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.backend.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "backend_cpu" {
+  name               = "${var.app_name}-${var.environment}-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.backend.resource_id
+  scalable_dimension = aws_appautoscaling_target.backend.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.backend.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 70.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# --- Monitoring & alerts ---
+resource "aws_sns_topic" "alerts" {
+  name = "${var.app_name}-${var.environment}-alerts"
+}
+
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
+  alarm_name          = "${var.app_name}-${var.environment}-unhealthy-hosts"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "UnHealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 0
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  dimensions = {
+    TargetGroup  = aws_lb_target_group.backend.arn_suffix
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "high_5xx" {
+  alarm_name          = "${var.app_name}-${var.environment}-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 10
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
 }
