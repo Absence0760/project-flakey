@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { fetchRuns, type Run } from "$lib/api";
 
   let runs = $state<Run[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  async function load() {
+  onMount(async () => {
     try {
       runs = await fetchRuns();
     } catch (e) {
@@ -13,9 +14,7 @@
     } finally {
       loading = false;
     }
-  }
-
-  load();
+  });
 
   function statusColor(run: Run): string {
     if (run.failed > 0) return "var(--color-fail)";

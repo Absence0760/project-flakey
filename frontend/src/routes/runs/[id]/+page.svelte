@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { fetchRun, type RunDetail } from "$lib/api";
 
@@ -6,13 +7,15 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  $effect(() => {
+  onMount(async () => {
     const id = Number($page.params.id);
-    loading = true;
-    fetchRun(id)
-      .then((r) => (run = r))
-      .catch((e) => (error = e instanceof Error ? e.message : "Failed to load run"))
-      .finally(() => (loading = false));
+    try {
+      run = await fetchRun(id);
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to load run";
+    } finally {
+      loading = false;
+    }
   });
 
   function formatDuration(ms: number): string {
