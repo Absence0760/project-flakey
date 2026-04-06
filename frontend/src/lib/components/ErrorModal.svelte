@@ -64,7 +64,9 @@
   }
 
   let screenshotUrls = $derived(
-    (test?.screenshot_paths ?? []).map((p) => `${UPLOADS_URL}/${p}`)
+    (test?.screenshot_paths ?? []).map((p) =>
+      `${UPLOADS_URL}/${p.split("/").map(encodeURIComponent).join("/")}`
+    )
   );
 
   let hasScreenshots = $derived(screenshotUrls.length > 0);
