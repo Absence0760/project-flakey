@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "fs";
 import { join, resolve, basename } from "path";
 
 const API_URL = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
+const API_KEY = process.env.FLAKEY_API_KEY ?? "";
 
 interface UploadOptions {
   reportDir: string;
@@ -14,6 +15,7 @@ interface UploadOptions {
   reporter: string;
   screenshotsDir: string;
   videosDir: string;
+  apiKey: string;
 }
 
 function parseArgs(): UploadOptions {
@@ -37,6 +39,7 @@ function parseArgs(): UploadOptions {
     reporter: opts["reporter"] ?? "mochawesome",
     screenshotsDir: resolve(opts["screenshots-dir"] ?? "cypress/screenshots"),
     videosDir: resolve(opts["videos-dir"] ?? "cypress/videos"),
+    apiKey: opts["api-key"] ?? API_KEY,
   };
 }
 
@@ -118,17 +121,23 @@ async function upload(opts: UploadOptions): Promise<void> {
 
   if (screenshots.length > 0 || videos.length > 0) {
     console.log(`Found ${screenshots.length} screenshot(s), ${videos.length} video(s)`);
-    await uploadMultipart(payload, screenshots, videos);
+    await uploadMultipart(payload, screenshots, videos, opts.apiKey);
   } else {
     console.log("No screenshots or videos found, uploading JSON only");
-    await uploadJson(payload);
+    await uploadJson(payload, opts.apiKey);
   }
 }
 
-async function uploadJson(payload: object): Promise<void> {
+function authHeaders(apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  return headers;
+}
+
+async function uploadJson(payload: object, apiKey: string): Promise<void> {
   const res = await fetch(`${API_URL}/runs`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(apiKey) },
     body: JSON.stringify(payload),
   });
 
@@ -142,7 +151,7 @@ async function uploadJson(payload: object): Promise<void> {
   console.log(`Uploaded run #${(result as { id: number }).id} to ${API_URL}`);
 }
 
-async function uploadMultipart(payload: object, screenshots: string[], videos: string[]): Promise<void> {
+async function uploadMultipart(payload: object, screenshots: string[], videos: string[], apiKey: string): Promise<void> {
   const formData = new FormData();
   formData.append("payload", JSON.stringify(payload));
 
@@ -160,6 +169,7 @@ async function uploadMultipart(payload: object, screenshots: string[], videos: s
 
   const res = await fetch(`${API_URL}/runs/upload`, {
     method: "POST",
+    headers: authHeaders(apiKey),
     body: formData,
   });
 

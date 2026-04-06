@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool from "../db.js";
+import { tenantQuery } from "../db.js";
 
 const router = Router();
 
@@ -26,7 +26,7 @@ router.get("/", async (req, res) => {
 
     const where = conditions.join(" AND ");
 
-    const result = await pool.query(
+    const result = await tenantQuery(req.user!.orgId,
       `SELECT
         t.error_message,
         t.title AS test_title,

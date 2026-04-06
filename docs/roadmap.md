@@ -1,47 +1,64 @@
 # Roadmap
 
-## Phase 1 — MVP (1–2 weeks)
+## Phase 1 — MVP
 
 Goal: working end-to-end pipeline from Cypress run to visible results.
 
-- [ ] Node CLI uploader script
-- [ ] Express API with `POST /runs` endpoint
-- [ ] mochawesome parser + normalizer
-- [ ] PostgreSQL schema (runs, specs, tests tables)
-- [ ] Basic Svelte dashboard — run list + run detail view
-- [ ] Test against real `encor-tests` Bitbucket pipeline
+- [x] Node CLI uploader script
+- [x] Express API with `POST /runs` endpoint
+- [x] Mochawesome parser + normalizer
+- [x] PostgreSQL schema (runs, specs, tests tables)
+- [x] Basic Svelte dashboard — run list + run detail view
+- [x] Docker Compose setup for local development
 
-Milestone: a Cypress run in Bitbucket uploads its results and you can see pass/fail in a browser.
+## Phase 2 — Multi-reporter + artifacts
 
-## Phase 2 — Multi-reporter + storage (1 week)
+- [x] JUnit XML parser
+- [x] Playwright JSON parser
+- [x] Screenshot serving (stored on disk, served via static middleware)
+- [x] Video serving
+- [x] Branch and suite filtering in the dashboard
+- [x] Run metadata (commit SHA, CI run ID, duration) displayed in UI
+- [x] Error modal with screenshots, video, command log, source code, stack trace
+- [x] Flaky test detection (tests that alternate pass/fail across runs)
 
-- [ ] JUnit XML parser
-- [ ] Screenshot serving (store paths, serve via API or S3)
-- [ ] Video serving
-- [ ] Branch and suite filtering in the dashboard
-- [ ] Run metadata (commit SHA, CI run ID, duration) displayed in UI
+## Phase 3 — Analytics + auth + multi-tenancy
 
-Milestone: works for both mochawesome and JUnit, screenshots visible on failure.
-
-## Phase 3 — Trends + flakiness (2 weeks)
-
-- [ ] Flakiness detection (spec/test that alternates pass/fail across runs)
-- [ ] Trend charts — pass rate over time per suite
+- [x] Trend charts — pass rate over time, test volume, run duration, top failures
+- [x] Date range picker with presets and calendar
+- [x] Dashboard metrics cards (total runs, tests, pass rate, failures)
+- [x] API authentication (JWT + API key)
+- [x] User registration and login
+- [x] Multi-tenancy with Postgres Row-Level Security
+- [x] Organization management (create, invite members, roles)
+- [x] API key management (create, list, delete) in Profile page
+- [x] Configurable API URL via environment variable
+- [x] Seed script with realistic multi-org data
 - [ ] Slowest tests view
-- [ ] GitHub Actions integration example
-- [ ] API authentication (token-based)
-- [ ] Docker compose setup for self-hosting
+- [ ] GitHub Actions integration docs
 
-Milestone: actionable insights beyond just pass/fail, usable by other teams.
+## Phase 4 — Polish + hardening
 
-## Phase 4 — Polish + open source (ongoing)
-
-- [ ] Choose and finalize app name
+- [ ] Rate limiting on auth endpoints
+- [ ] httpOnly cookie token storage (replace localStorage)
+- [ ] Email verification for registration
+- [ ] Password reset flow
+- [ ] Security headers (helmet.js)
+- [ ] Org settings page (rename, manage invites)
+- [ ] Org switcher in the frontend sidebar
 - [ ] README with quick-start guide
 - [ ] Docker image published to Docker Hub
-- [ ] CI integration docs (Bitbucket, GitHub Actions, GitLab CI)
-- [ ] Additional reporter parsers (Playwright, Jest, WebdriverIO)
+- [ ] CI integration examples (Bitbucket, GitHub Actions, GitLab CI)
+
+## Phase 5 — Advanced features
+
+- [ ] DOM snapshot plugin for Cypress (see `cypress-snapshot-plugin.md`)
 - [ ] Slack/webhook notifications on failure
+- [ ] S3/cloud storage for artifacts
+- [ ] Additional reporter parsers (Jest, WebdriverIO)
+- [ ] Test history per test (pass/fail timeline)
+- [ ] Compare runs side-by-side
+- [ ] Customizable retention policies
 
 ## What this will not do (by design)
 

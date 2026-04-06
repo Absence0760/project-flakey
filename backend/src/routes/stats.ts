@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool from "../db.js";
+import { tenantQuery } from "../db.js";
 
 const router = Router();
 
@@ -27,7 +27,9 @@ router.get("/", async (req, res) => {
       dateFilterJoin = `AND r.created_at < ($1::date + INTERVAL '1 day')`;
     }
 
-    const runsResult = await pool.query(`
+    const orgId = req.user!.orgId;
+
+    const runsResult = await tenantQuery(orgId, `
       SELECT
         COUNT(*)::int AS total_runs,
         COALESCE(SUM(total), 0)::int AS total_tests,
@@ -42,12 +44,12 @@ router.get("/", async (req, res) => {
       ? Math.round((stats.total_passed / stats.total_tests) * 100)
       : 0;
 
-    const recentRuns = await pool.query(
+    const recentRuns = await tenantQuery(orgId,
       `SELECT * FROM runs ${dateFilter} ORDER BY created_at DESC LIMIT 5`,
       params
     );
 
-    const recentFailures = await pool.query(`
+    const recentFailures = await tenantQuery(orgId, `
       SELECT
         t.title AS test_title,
         t.error_message,
@@ -98,8 +100,10 @@ router.get("/trends", async (req, res) => {
       dateFilterWhere = `AND r.created_at < ($1::date + INTERVAL '1 day')`;
     }
 
+    const orgId = req.user!.orgId;
+
     // Pass rate over time (per day)
-    const passRate = await pool.query(`
+    const passRate = await tenantQuery(orgId, `
       SELECT
         created_at::date AS date,
         COUNT(*)::int AS runs,
@@ -118,7 +122,7 @@ router.get("/trends", async (req, res) => {
     `, params);
 
     // Failures by day
-    const failuresTrend = await pool.query(`
+    const failuresTrend = await tenantQuery(orgId, `
       SELECT
         r.created_at::date AS date,
         COUNT(*)::int AS failures
@@ -132,7 +136,7 @@ router.get("/trends", async (req, res) => {
     `, params);
 
     // Duration trend (avg per day)
-    const durationTrend = await pool.query(`
+    const durationTrend = await tenantQuery(orgId, `
       SELECT
         created_at::date AS date,
         ROUND(AVG(duration_ms))::int AS avg_duration_ms,
@@ -144,7 +148,7 @@ router.get("/trends", async (req, res) => {
     `, params);
 
     // Top failing tests
-    const topFailures = await pool.query(`
+    const topFailures = await tenantQuery(orgId, `
       SELECT
         t.title AS test_title,
         s.file_path,

@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { mkdirSync, renameSync } from "fs";
 import { join, basename } from "path";
-import pool from "../db.js";
+import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import type { NormalizedRun } from "../types.js";
 
@@ -35,34 +35,34 @@ router.post("/", uploadFields, async (req, res) => {
       return;
     }
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    const orgId = req.user!.orgId;
+    let runId: number;
 
+    // Move uploaded files before the transaction
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const screenshotFiles = files?.screenshots ?? [];
+    const videoFiles = files?.videos ?? [];
+
+    await tenantTransaction(orgId, async (client) => {
       const runResult = await client.query(
-        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING id`,
         [
           run.meta.suite_name, run.meta.branch, run.meta.commit_sha, run.meta.ci_run_id,
           run.meta.reporter, run.meta.started_at, run.meta.finished_at,
           run.stats.total, run.stats.passed, run.stats.failed, run.stats.skipped, run.stats.pending, run.stats.duration_ms,
+          orgId,
         ]
       );
-      const runId = runResult.rows[0].id;
+      runId = runResult.rows[0].id;
 
-      // Create upload directories
       const screenshotDir = join("uploads", "runs", String(runId), "screenshots");
       const videoDir = join("uploads", "runs", String(runId), "videos");
       mkdirSync(screenshotDir, { recursive: true });
       mkdirSync(videoDir, { recursive: true });
 
-      // Move uploaded files
-      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
-      const screenshotFiles = files?.screenshots ?? [];
-      const videoFiles = files?.videos ?? [];
-
-      const screenshotMap = new Map<string, string>(); // originalname → relative path
+      const screenshotMap = new Map<string, string>();
       for (const file of screenshotFiles) {
         const dest = join(screenshotDir, file.originalname);
         renameSync(file.path, dest);
@@ -76,18 +76,15 @@ router.post("/", uploadFields, async (req, res) => {
         videoPath = `runs/${runId}/videos/${file.originalname}`;
       }
 
-      // Insert specs and tests, matching screenshots
       for (const spec of run.specs) {
         const specResult = await client.query(
           `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-           RETURNING id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
           [runId, spec.file_path, spec.title, spec.stats.total, spec.stats.passed, spec.stats.failed, spec.stats.skipped, spec.stats.duration_ms]
         );
         const specId = specResult.rows[0].id;
 
         for (const test of spec.tests) {
-          // Match screenshots to test by filename
           const matchedScreenshots: string[] = [];
           const testNorm = normalizeForMatch(test.title);
           const fullNorm = normalizeForMatch(test.full_title);
@@ -102,26 +99,18 @@ router.post("/", uploadFields, async (req, res) => {
           await client.query(
             `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-            [
-              specId, test.title, test.full_title, test.status, test.duration_ms,
-              test.error?.message ?? null, test.error?.stack ?? null,
-              matchedScreenshots.length > 0 ? matchedScreenshots : test.screenshot_paths,
-              videoPath ?? test.video_path ?? null,
-              test.test_code ?? null,
-              test.command_log ? JSON.stringify(test.command_log) : null,
-            ]
+            [specId, test.title, test.full_title, test.status, test.duration_ms,
+             test.error?.message ?? null, test.error?.stack ?? null,
+             matchedScreenshots.length > 0 ? matchedScreenshots : test.screenshot_paths,
+             videoPath ?? test.video_path ?? null,
+             test.test_code ?? null,
+             test.command_log ? JSON.stringify(test.command_log) : null]
           );
         }
       }
+    });
 
-      await client.query("COMMIT");
-      res.status(201).json({ id: runId });
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    res.status(201).json({ id: runId! });
   } catch (err) {
     console.error("POST /runs/upload error:", err);
     res.status(500).json({ error: "Internal server error" });

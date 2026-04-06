@@ -1,4 +1,5 @@
 import pg from "pg";
+import bcrypt from "bcryptjs";
 import { copyFileSync, mkdirSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -8,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pool = new pg.Pool({
   host: process.env.DB_HOST ?? "localhost",
   port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USER ?? "flakey",
+  user: process.env.DB_USER ?? "flakey",        // Use superuser for seeding (bypasses RLS)
   password: process.env.DB_PASSWORD ?? "flakey",
   database: process.env.DB_NAME ?? "flakey",
 });
@@ -185,6 +186,44 @@ async function seed() {
 
   try {
     await client.query("TRUNCATE runs, specs, tests RESTART IDENTITY CASCADE");
+    await client.query("TRUNCATE org_invites RESTART IDENTITY CASCADE");
+    await client.query("DELETE FROM org_members");
+    await client.query("DELETE FROM api_keys");
+    await client.query("DELETE FROM organizations");
+    await client.query("DELETE FROM users");
+
+    // Seed users
+    const adminHash = bcrypt.hashSync("admin", 10);
+    const demoHash = bcrypt.hashSync("demo123", 10);
+    const admin = await client.query(
+      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Admin', 'admin') RETURNING id",
+      ["admin@flakey.dev", adminHash]
+    );
+    const demo = await client.query(
+      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'member') RETURNING id",
+      ["demo@flakey.dev", demoHash]
+    );
+    const adminId = admin.rows[0].id;
+    const demoId = demo.rows[0].id;
+
+    // Seed orgs
+    const org1 = await client.query(
+      "INSERT INTO organizations (name, slug) VALUES ('Acme Corp', 'acme') RETURNING id"
+    );
+    const org2 = await client.query(
+      "INSERT INTO organizations (name, slug) VALUES ('Demo Team', 'demo-team') RETURNING id"
+    );
+    const orgId = org1.rows[0].id;
+    const org2Id = org2.rows[0].id;
+
+    // Admin owns Acme Corp, Demo User owns Demo Team
+    await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [orgId, adminId]);
+    await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [org2Id, demoId]);
+
+    console.log("Seeded users: admin@flakey.dev/admin (Acme Corp), demo@flakey.dev/demo123 (Demo Team)");
+
+    // Set RLS context for seeded runs
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
 
     const numRuns = 50;
     const now = Date.now();
@@ -237,10 +276,10 @@ async function seed() {
       }[] = [];
 
       const runResult = await client.query(
-        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING id`,
-        [suite, branch, sha, `ci-${r + 1}`, "mochawesome", startedAt.toISOString(), finishedAt.toISOString(), 0, 0, 0, 0, 0, durationMs, startedAt.toISOString()]
+        [suite, branch, sha, `ci-${r + 1}`, "mochawesome", startedAt.toISOString(), finishedAt.toISOString(), 0, 0, 0, 0, 0, durationMs, startedAt.toISOString(), orgId]
       );
       const runId = runResult.rows[0].id;
 

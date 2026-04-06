@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool from "../db.js";
+import { tenantQuery } from "../db.js";
 
 const router = Router();
 
@@ -8,7 +8,9 @@ router.get("/:id", async (req, res) => {
   try {
     const testId = req.params.id;
 
-    const testResult = await pool.query(
+    const orgId = req.user!.orgId;
+
+    const testResult = await tenantQuery(orgId,
       `SELECT t.*, s.file_path, s.run_id, s.title AS spec_title
        FROM tests t
        JOIN specs s ON s.id = t.spec_id
@@ -24,7 +26,7 @@ router.get("/:id", async (req, res) => {
     const test = testResult.rows[0];
 
     // Get prev/next failed tests within the same run
-    const failedInRun = await pool.query(
+    const failedInRun = await tenantQuery(orgId,
       `SELECT t.id FROM tests t
        JOIN specs s ON s.id = t.spec_id
        WHERE s.run_id = $1 AND t.status = 'failed'

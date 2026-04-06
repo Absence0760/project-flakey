@@ -1,13 +1,15 @@
+import { authFetch } from "./auth";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 export async function fetchRuns(): Promise<Run[]> {
-  const res = await fetch(`${API_URL}/runs`);
+  const res = await authFetch(`${API_URL}/runs`);
   if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
   return res.json();
 }
 
 export async function fetchRun(id: number): Promise<RunDetail> {
-  const res = await fetch(`${API_URL}/runs/${id}`);
+  const res = await authFetch(`${API_URL}/runs/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch run: ${res.status}`);
   return res.json();
 }
@@ -64,7 +66,7 @@ export interface TestDetail extends TestResult {
 }
 
 export async function fetchTest(id: number): Promise<TestDetail> {
-  const res = await fetch(`${API_URL}/tests/${id}`);
+  const res = await authFetch(`${API_URL}/tests/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch test: ${res.status}`);
   return res.json();
 }
@@ -103,7 +105,7 @@ export async function fetchErrors(filters?: { suite?: string; run_id?: number })
   if (filters?.suite) params.set("suite", filters.suite);
   if (filters?.run_id) params.set("run_id", String(filters.run_id));
   const qs = params.toString();
-  const res = await fetch(`${API_URL}/errors${qs ? `?${qs}` : ""}`);
+  const res = await authFetch(`${API_URL}/errors${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
   return res.json();
 }
@@ -113,7 +115,7 @@ export async function fetchStats(filters?: { from?: string; to?: string }): Prom
   if (filters?.from) params.set("from", filters.from);
   if (filters?.to) params.set("to", filters.to);
   const qs = params.toString();
-  const res = await fetch(`${API_URL}/stats${qs ? `?${qs}` : ""}`);
+  const res = await authFetch(`${API_URL}/stats${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
   return res.json();
 }
@@ -158,7 +160,7 @@ export async function fetchTrends(filters?: { from?: string; to?: string }): Pro
   if (filters?.from) params.set("from", filters.from);
   if (filters?.to) params.set("to", filters.to);
   const qs = params.toString();
-  const res = await fetch(`${API_URL}/stats/trends${qs ? `?${qs}` : ""}`);
+  const res = await authFetch(`${API_URL}/stats/trends${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch trends: ${res.status}`);
   return res.json();
 }
