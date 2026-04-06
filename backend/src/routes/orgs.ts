@@ -2,6 +2,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import pool from "../db.js";
 import { requireAuth, signToken } from "../auth.js";
+import { logAudit } from "../audit.js";
 
 const router = Router();
 
@@ -260,6 +261,46 @@ router.patch("/:id/members/:userId", async (req, res) => {
     res.json({ updated: true, role });
   } catch (err) {
     console.error("PATCH /orgs/:id/members/:userId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /orgs/:id/settings
+router.get("/:id/settings", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT retention_days FROM organizations WHERE id = $1",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Org not found" });
+      return;
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET /orgs/:id/settings error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /orgs/:id/settings
+router.patch("/:id/settings", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const { retention_days } = req.body;
+    const value = retention_days === null || retention_days === "" ? null : Number(retention_days);
+
+    await pool.query(
+      "UPDATE organizations SET retention_days = $1 WHERE id = $2",
+      [value, req.params.id]
+    );
+    await logAudit(req.user!.orgId, req.user!.id, "settings.update", "settings", "retention", { retention_days: value });
+    res.json({ updated: true, retention_days: value });
+  } catch (err) {
+    console.error("PATCH /orgs/:id/settings error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
