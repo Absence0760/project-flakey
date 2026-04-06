@@ -48,6 +48,7 @@ export interface TestResult {
   test_code: string | null;
   command_log: CommandLogEntry[] | null;
   metadata: TestMetadata | null;
+  snapshot_path: string | null;
 }
 
 export interface TestMetadata {

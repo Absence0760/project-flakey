@@ -14,6 +14,7 @@ const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 10
 const uploadFields = upload.fields([
   { name: "screenshots", maxCount: 100 },
   { name: "videos", maxCount: 10 },
+  { name: "snapshots", maxCount: 500 },
 ]);
 
 // POST /runs/upload — multipart upload with screenshots and videos
@@ -44,6 +45,7 @@ router.post("/", uploadFields, async (req, res) => {
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
     const screenshotFiles = files?.screenshots ?? [];
     const videoFiles = files?.videos ?? [];
+    const snapshotFiles = files?.snapshots ?? [];
 
     await tenantTransaction(orgId, async (client) => {
       const runResult = await client.query(
@@ -61,8 +63,21 @@ router.post("/", uploadFields, async (req, res) => {
 
       const screenshotDir = join("uploads", "runs", String(runId), "screenshots");
       const videoDir = join("uploads", "runs", String(runId), "videos");
+      const snapshotDir = join("uploads", "runs", String(runId), "snapshots");
       mkdirSync(screenshotDir, { recursive: true });
       mkdirSync(videoDir, { recursive: true });
+      mkdirSync(snapshotDir, { recursive: true });
+
+      // Move snapshot files and build a lookup by test title
+      const snapshotMap = new Map<string, string>(); // normalized test title → relative path
+      for (const file of snapshotFiles) {
+        const dest = join(snapshotDir, file.originalname);
+        renameSync(file.path, dest);
+        const relPath = `runs/${runId}/snapshots/${file.originalname}`;
+        // Filename format: specFile--testTitle.json.gz
+        const titlePart = file.originalname.replace(/\.json\.gz$/, "").split("--").pop() ?? "";
+        snapshotMap.set(normalizeForMatch(titlePart), relPath);
+      }
 
       const screenshotMap = new Map<string, string>();
       for (const file of screenshotFiles) {
@@ -115,16 +130,26 @@ router.post("/", uploadFields, async (req, res) => {
             }
           }
 
+          // Match snapshot file to test
+          let snapshotPath: string | null = null;
+          for (const [snapshotNorm, snapshotRelPath] of snapshotMap) {
+            if (snapshotNorm.includes(testNorm) && testNorm.length > 5) {
+              snapshotPath = snapshotRelPath;
+              break;
+            }
+          }
+
           await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [specId, test.title, test.full_title, test.status, test.duration_ms,
              test.error?.message ?? null, test.error?.stack ?? null,
              matchedScreenshots.length > 0 ? matchedScreenshots : test.screenshot_paths,
              videoPath ?? test.video_path ?? null,
              test.test_code ?? null,
              test.command_log ? JSON.stringify(test.command_log) : null,
-             test.metadata ? JSON.stringify(test.metadata) : null]
+             test.metadata ? JSON.stringify(test.metadata) : null,
+             snapshotPath]
           );
         }
       }

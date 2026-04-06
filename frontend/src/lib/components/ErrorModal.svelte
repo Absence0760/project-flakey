@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import Lightbox from "./Lightbox.svelte";
+  import SnapshotViewer from "./SnapshotViewer.svelte";
 
   interface Props {
     testId: number | null;
@@ -14,7 +15,7 @@
   let error = $state<string | null>(null);
 
   // Left panel state
-  let leftTab = $state<"screenshot" | "video">("screenshot");
+  let leftTab = $state<"screenshot" | "video" | "snapshot">("screenshot");
   let currentScreenshot = $state(0);
   let lightboxOpen = $state(false);
   let lightboxIndex = $state(0);
@@ -39,9 +40,11 @@
     leftPct = 50;
     history = [];
     historyLoaded = false;
+    snapshotStep = 0;
     try {
       test = await fetchTest(id);
-      if (test.screenshot_paths?.length) leftTab = "screenshot";
+      if (test.snapshot_path) leftTab = "snapshot";
+      else if (test.screenshot_paths?.length) leftTab = "screenshot";
       else if (test.video_path) leftTab = "video";
       else leftTab = "screenshot";
 
@@ -112,6 +115,8 @@
   let hasVideo = $derived(!!test?.video_path);
   let hasCode = $derived(!!test?.test_code);
   let hasCommands = $derived((test?.command_log?.length ?? 0) > 0);
+  let hasSnapshot = $derived(!!test?.snapshot_path);
+  let snapshotStep = $state(0);
   let meta = $derived(test?.metadata);
   let hasMetadata = $derived(!!meta && (
     (meta.retries?.length ?? 0) > 0 ||
@@ -227,7 +232,12 @@
                   Video
                 </button>
               {/if}
-              {#if !hasScreenshots && !hasVideo}
+              {#if hasSnapshot}
+                <button class="pane-tab" class:active={leftTab === "snapshot"} onclick={() => leftTab = "snapshot"}>
+                  Snapshot
+                </button>
+              {/if}
+              {#if !hasScreenshots && !hasVideo && !hasSnapshot}
                 <span class="pane-tab active">Visual</span>
               {/if}
             </div>
@@ -260,6 +270,9 @@
                     <track kind="captions" />
                   </video>
                 </div>
+
+              {:else if leftTab === "snapshot" && hasSnapshot}
+                <SnapshotViewer snapshotPath={test.snapshot_path!} selectedStep={snapshotStep} />
 
               {:else}
                 <div class="empty-visual">
@@ -350,7 +363,13 @@
                     </div>
                     <ol class="command-list">
                       {#each test.command_log ?? [] as cmd, i}
-                        <li class="cmd" class:cmd-failed={cmd.state === "failed"}>
+                        <li
+                          class="cmd"
+                          class:cmd-failed={cmd.state === "failed"}
+                          class:cmd-active={hasSnapshot && snapshotStep === i}
+                          class:cmd-clickable={hasSnapshot}
+                          onclick={() => { if (hasSnapshot) { snapshotStep = i; leftTab = "snapshot"; } }}
+                        >
                           <span class="cmd-num">{i + 1}</span>
                           <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
                           <span class="cmd-body">
@@ -1101,6 +1120,16 @@
   .cmd-failed .cmd-name,
   .cmd-failed .cmd-arg {
     color: var(--error-text);
+  }
+
+  .cmd-clickable {
+    cursor: pointer;
+  }
+
+  .cmd-active {
+    background: color-mix(in srgb, var(--link) 10%, transparent) !important;
+    border-left: 2px solid var(--link);
+    padding-left: calc(1rem - 2px);
   }
 
   /* RIGHT: Code panel */

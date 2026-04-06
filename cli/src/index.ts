@@ -15,6 +15,7 @@ interface UploadOptions {
   reporter: string;
   screenshotsDir: string;
   videosDir: string;
+  snapshotsDir: string;
   apiKey: string;
 }
 
@@ -39,6 +40,7 @@ function parseArgs(): UploadOptions {
     reporter: opts["reporter"] ?? "mochawesome",
     screenshotsDir: resolve(opts["screenshots-dir"] ?? "cypress/screenshots"),
     videosDir: resolve(opts["videos-dir"] ?? "cypress/videos"),
+    snapshotsDir: resolve(opts["snapshots-dir"] ?? "cypress/snapshots"),
     apiKey: opts["api-key"] ?? API_KEY,
   };
 }
@@ -131,9 +133,12 @@ async function upload(opts: UploadOptions): Promise<void> {
   const webmVideos = findFiles(opts.videosDir, ".webm");
   videos = [...videos, ...webmVideos];
 
-  if (screenshots.length > 0 || videos.length > 0) {
-    console.log(`Found ${screenshots.length} screenshot(s), ${videos.length} video(s)`);
-    await uploadMultipart(payload, screenshots, videos, opts.apiKey);
+  // Snapshot files
+  const snapshots = findFiles(opts.snapshotsDir, ".json.gz");
+
+  if (screenshots.length > 0 || videos.length > 0 || snapshots.length > 0) {
+    console.log(`Found ${screenshots.length} screenshot(s), ${videos.length} video(s), ${snapshots.length} snapshot(s)`);
+    await uploadMultipart(payload, screenshots, videos, snapshots, opts.apiKey);
   } else {
     console.log("No screenshots or videos found, uploading JSON only");
     await uploadJson(payload, opts.apiKey);
@@ -200,7 +205,7 @@ async function uploadJson(payload: object, apiKey: string): Promise<void> {
   console.log(`Uploaded run #${(result as { id: number }).id} to ${API_URL}`);
 }
 
-async function uploadMultipart(payload: object, screenshots: string[], videos: string[], apiKey: string): Promise<void> {
+async function uploadMultipart(payload: object, screenshots: string[], videos: string[], snapshots: string[], apiKey: string): Promise<void> {
   const formData = new FormData();
   formData.append("payload", JSON.stringify(payload));
 
@@ -215,6 +220,12 @@ async function uploadMultipart(payload: object, screenshots: string[], videos: s
     const type = file.endsWith(".webm") ? "video/webm" : "video/mp4";
     const blob = new Blob([data], { type });
     formData.append("videos", blob, basename(file));
+  }
+
+  for (const file of snapshots) {
+    const data = readFileSync(file);
+    const blob = new Blob([data], { type: "application/gzip" });
+    formData.append("snapshots", blob, basename(file));
   }
 
   const res = await fetch(`${API_URL}/runs/upload`, {

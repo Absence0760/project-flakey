@@ -1,0 +1,20 @@
+{
+  "name": "@flakey/cypress-snapshots",
+  "version": "0.1.0",
+  "description": "Cypress plugin that captures DOM snapshots at each command step for Flakey",
+  "type": "module",
+  "main": "dist/plugin.js",
+  "exports": {
+    "./plugin": "./dist/plugin.js",
+    "./support": "./dist/support.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": ["dist"],
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "cypress": "^13.0.0"
+  }
+}
