@@ -85,7 +85,7 @@
   }
 
   .back {
-    color: #0066cc;
+    color: var(--link);
     text-decoration: none;
     font-size: 0.875rem;
   }
@@ -105,7 +105,7 @@
   .meta {
     display: flex;
     gap: 1.5rem;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.875rem;
     margin-bottom: 0.75rem;
   }
@@ -125,7 +125,7 @@
   .stat.pass { background: var(--color-pass); color: white; }
   .stat.fail { background: var(--color-fail); color: white; }
   .stat.skip { background: var(--color-skip); color: white; }
-  .stat.total { background: #666; color: white; }
+  .stat.total { background: var(--badge-total); color: white; }
 
   .spec {
     margin-bottom: 2rem;
@@ -134,8 +134,8 @@
   .spec h2 {
     font-size: 1rem;
     font-family: monospace;
-    color: #333;
-    border-bottom: 1px solid #eee;
+    color: var(--text);
+    border-bottom: 1px solid var(--border-light);
     padding-bottom: 0.5rem;
   }
 
@@ -151,7 +151,7 @@
     align-items: baseline;
     gap: 0.5rem;
     padding: 0.4rem 0;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .test-status {
@@ -173,22 +173,22 @@
   .test-duration {
     font-family: monospace;
     font-size: 0.8rem;
-    color: #999;
+    color: var(--text-muted);
   }
 
   .test-error {
     width: 100%;
     margin: 0.5rem 0 0 3.5rem;
     padding: 0.75rem;
-    background: #fff5f5;
-    border: 1px solid #ffdddd;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
     border-radius: 4px;
     font-size: 0.8rem;
-    color: #c00;
+    color: var(--error-text);
     white-space: pre-wrap;
     overflow-x: auto;
   }
 
-  .status { color: #666; }
+  .status { color: var(--text-secondary); }
   .status.error { color: var(--color-fail); }
 </style>

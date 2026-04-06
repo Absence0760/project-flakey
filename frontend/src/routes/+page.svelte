@@ -99,11 +99,11 @@
 
   .subtitle {
     margin: 0.25rem 0 0;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .status {
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .status.error {
@@ -113,12 +113,12 @@
   .empty {
     padding: 3rem 0;
     text-align: center;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .hint {
     font-size: 0.875rem;
-    color: #999;
+    color: var(--text-muted);
   }
 
   table {
@@ -129,15 +129,15 @@
   th {
     text-align: left;
     padding: 0.5rem;
-    border-bottom: 2px solid #e0e0e0;
+    border-bottom: 2px solid var(--border);
     font-size: 0.8rem;
     text-transform: uppercase;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   td {
     padding: 0.5rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .mono {
@@ -146,7 +146,7 @@
   }
 
   a {
-    color: #0066cc;
+    color: var(--link);
     text-decoration: none;
   }
 
