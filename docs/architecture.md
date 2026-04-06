@@ -6,13 +6,16 @@
 |---|---|
 | Test runner | Cypress, Playwright, Jest, or any framework |
 | Reporters | Mochawesome (JSON), JUnit (XML), Playwright (JSON) |
-| Upload CLI | Node.js CLI (`flakey-upload`) |
+| Upload CLI | `@flakey/cli` (npm package) |
+| Snapshot plugin | `@flakey/cypress-snapshots` (npm package) |
 | Backend API | Node.js + Express |
 | Normalizer | Per-reporter parser -> unified schema |
-| Database | PostgreSQL with Row-Level Security |
-| Auth | JWT + API keys, bcrypt password hashing |
+| Database | PostgreSQL 16 with Row-Level Security |
+| Auth | JWT + API keys, bcrypt, httpOnly cookies, refresh tokens |
 | Multi-tenancy | Organization-based isolation via Postgres RLS |
-| Frontend | SvelteKit (Svelte 5) |
+| Frontend | SvelteKit (Svelte 5), static-hosted on S3/CloudFront |
+| Infrastructure | Terraform (AWS: ECS Fargate, RDS, S3, CloudFront) |
+| CI/CD | GitHub Actions (deploy + npm publish) |
 
 ## System flow
 

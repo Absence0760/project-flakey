@@ -29,7 +29,22 @@ cd frontend && pnpm install
 cd cli && npm install
 ```
 
-### 3. Seed sample data (optional)
+### 3. Set up environment variables
+
+```bash
+# Backend
+cp backend/.env.example backend/.env
+
+# Frontend (defaults work out of the box)
+cp frontend/.env.example frontend/.env
+
+# CLI (optional)
+cp cli/.env.example cli/.env
+```
+
+The defaults work for local development. No changes needed unless you're using non-standard ports.
+
+### 4. Seed sample data (optional)
 
 ```bash
 cd backend && npm run seed
@@ -40,7 +55,7 @@ This creates:
 - Two organizations: Acme Corp (admin's) and Demo Team (demo's)
 - 50 sample test runs spread across 18 months (assigned to Acme Corp)
 
-### 4. Start the backend and frontend
+### 5. Start the backend and frontend
 
 From the project root:
 
@@ -53,7 +68,7 @@ This starts both services concurrently:
 - **Backend API** — http://localhost:3000
 - **Frontend** — http://localhost:7777
 
-### 5. Log in
+### 6. Log in
 
 Open http://localhost:7777 and log in with:
 
@@ -62,7 +77,7 @@ Open http://localhost:7777 and log in with:
 
 Or register a new account — a personal organization is created automatically.
 
-### 6. Upload test results
+### 7. Upload test results
 
 All data endpoints require authentication. You have three options:
 

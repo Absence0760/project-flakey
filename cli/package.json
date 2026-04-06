@@ -1,14 +1,23 @@
 {
-  "name": "flakey-cli",
-  "version": "0.0.1",
-  "private": true,
+  "name": "@flakey/cli",
+  "version": "0.1.0",
+  "description": "CLI tool for uploading test results to Flakey",
   "type": "module",
   "bin": {
     "flakey-upload": "dist/index.js"
   },
+  "main": "dist/index.js",
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts"
+  },
+  "keywords": ["testing", "cypress", "playwright", "junit", "test-reporting", "ci"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "cli"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

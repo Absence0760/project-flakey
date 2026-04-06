@@ -1,0 +1,99 @@
+name: Publish Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - "packages/cypress-snapshots/**"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - cli
+          - cypress-snapshots
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.filter.outputs.cli }}
+      snapshots: ${{ steps.filter.outputs.snapshots }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cli:
+              - 'cli/src/**'
+              - 'cli/package.json'
+            snapshots:
+              - 'packages/cypress-snapshots/src/**'
+              - 'packages/cypress-snapshots/package.json'
+
+  publish-cli:
+    needs: [changes]
+    if: >
+      always() && (
+        needs.changes.outputs.cli == 'true' ||
+        github.event.inputs.package == 'cli' ||
+        github.event.inputs.package == 'all'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: cli
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish to npm
+        working-directory: cli
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-cypress-snapshots:
+    needs: [changes]
+    if: >
+      always() && (
+        needs.changes.outputs.snapshots == 'true' ||
+        github.event.inputs.package == 'cypress-snapshots' ||
+        github.event.inputs.package == 'all'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: packages/cypress-snapshots
+        run: |
+          npm install
+          npm run build
+
+      - name: Publish to npm
+        working-directory: packages/cypress-snapshots
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

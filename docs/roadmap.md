@@ -51,25 +51,29 @@
 - [x] Team management UI (invite, change roles, remove members)
 - [x] Resizable split panes in error modal
 - [x] Zoomable/pannable screenshot lightbox
-- [ ] Slowest tests view
+- [x] Slowest tests view
+- [x] Security headers (helmet.js)
+- [x] README with quick-start guide
 - [ ] Email verification for registration
 - [ ] Password reset flow
-- [ ] Security headers (helmet.js)
 - [ ] Org switcher in the frontend sidebar
-- [ ] README with quick-start guide
 
 ## Phase 5 — Deployment + distribution
 
-- [ ] Docker image published to Docker Hub
-- [ ] CI integration examples (Bitbucket, GitHub Actions, GitLab CI)
-- [ ] S3/cloud storage for artifacts
+- [x] Terraform infrastructure (AWS: ECS Fargate, RDS, S3, CloudFront)
+- [x] Backend Dockerfile
+- [x] Frontend static hosting on S3/CloudFront (no Docker needed)
+- [x] GitHub Actions deploy pipeline (path-filtered, backend + frontend independent)
+- [x] GitHub Actions npm publish pipeline (@flakey/cli, @flakey/cypress-snapshots)
+- [x] CI integration examples (GitHub Actions, Bitbucket Pipelines)
+- [ ] S3 storage adapter for artifacts (currently local disk)
 - [ ] Helm chart for Kubernetes
 
 ## Phase 6 — Advanced features
 
-- [ ] DOM snapshot plugin for Cypress (see `cypress-snapshot-plugin.md`)
-- [ ] Test history per test (pass/fail timeline across runs)
-- [ ] Compare runs side-by-side
+- [x] DOM snapshot plugin for Cypress (`@flakey/cypress-snapshots`)
+- [x] Test history per test (pass/fail timeline across runs)
+- [x] Compare runs side-by-side
 - [ ] Additional reporter parsers (Jest, WebdriverIO)
 - [ ] Flaky test webhook notifications
 - [ ] Scheduled reports (weekly email digest)

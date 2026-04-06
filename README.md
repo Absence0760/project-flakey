@@ -195,6 +195,30 @@ after-script:
 | `FLAKEY_API_URL` | `http://localhost:3000` | Backend API URL |
 | `FLAKEY_API_KEY` | — | API key for authentication |
 
+## Deployment
+
+Deploy to AWS with Terraform (ECS Fargate + RDS + S3/CloudFront):
+
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars
+terraform init && terraform apply
+```
+
+See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (~$72/month).
+
+**CI/CD pipelines** (GitHub Actions):
+- `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
+- `publish.yml` — publishes `@flakey/cli` and `@flakey/cypress-snapshots` to npm when their source changes
+
+## npm Packages
+
+| Package | Description | Install |
+|---|---|---|
+| `@flakey/cli` | CLI for uploading test results | `npm install @flakey/cli` |
+| `@flakey/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakey/cypress-snapshots` |
+
 ## Documentation
 
 See the `docs/` directory:
@@ -203,5 +227,6 @@ See the `docs/` directory:
 - [Architecture](docs/architecture.md)
 - [Uploading results](docs/uploading-results.md)
 - [Reporters & normalizers](docs/normalizer.md)
+- [AWS deployment](infra/README.md)
 - [Roadmap](docs/roadmap.md)
-- [DOM snapshot plugin](docs/cypress-snapshot-plugin.md) (planned)
+- [DOM snapshot plugin](docs/cypress-snapshot-plugin.md)

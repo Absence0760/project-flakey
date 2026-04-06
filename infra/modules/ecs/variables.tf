@@ -1,0 +1,16 @@
+variable "app_name" { type = string }
+variable "environment" { type = string }
+variable "aws_region" { type = string }
+variable "vpc_id" { type = string }
+variable "public_subnet_ids" { type = list(string) }
+variable "private_subnet_ids" { type = list(string) }
+variable "backend_image" { type = string }
+variable "db_host" { type = string }
+variable "db_port" { type = number }
+variable "db_name" { type = string }
+variable "db_username" { type = string }
+variable "db_password" { type = string; sensitive = true }
+variable "jwt_secret" { type = string; sensitive = true }
+variable "s3_bucket" { type = string }
+variable "allow_registration" { type = bool }
+variable "frontend_url" { type = string }
