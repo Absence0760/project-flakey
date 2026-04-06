@@ -9,9 +9,13 @@
 
   // Selection state (when no query params)
   let runs = $state<Run[]>([]);
+  let selectedSuite = $state<string>("");
   let selectedA = $state<string>("");
   let selectedB = $state<string>("");
   let selecting = $state(false);
+
+  let suites = $derived([...new Set(runs.map((r) => r.suite_name))].sort());
+  let suiteRuns = $derived(selectedSuite ? runs.filter((r) => r.suite_name === selectedSuite) : []);
 
   let categoryFilter = $state<string>("all");
 
@@ -108,25 +112,42 @@
         <p class="error-msg">{error}</p>
       {:else}
         <div class="select-form">
-          <div class="select-col">
-            <label>Base run (A)</label>
-            <select bind:value={selectedA}>
-              <option value="">Select a run...</option>
-              {#each runs as run}
-                <option value={String(run.id)}>#{run.id} — {run.suite_name} ({run.branch || "—"}) · {timeAgo(run.created_at)}</option>
+          <div class="select-col suite-col">
+            <label>Suite</label>
+            <select bind:value={selectedSuite} onchange={() => { selectedA = ""; selectedB = ""; }}>
+              <option value="">Select a suite...</option>
+              {#each suites as suite}
+                <option value={suite}>{suite}</option>
               {/each}
             </select>
           </div>
-          <div class="select-arrow">vs</div>
-          <div class="select-col">
-            <label>Compare run (B)</label>
-            <select bind:value={selectedB}>
-              <option value="">Select a run...</option>
-              {#each runs as run}
-                <option value={String(run.id)}>#{run.id} — {run.suite_name} ({run.branch || "—"}) · {timeAgo(run.created_at)}</option>
-              {/each}
-            </select>
+        </div>
+
+        {#if selectedSuite}
+          <div class="select-form">
+            <div class="select-col">
+              <label>Base run (A)</label>
+              <select bind:value={selectedA}>
+                <option value="">Select a run...</option>
+                {#each suiteRuns as run}
+                  <option value={String(run.id)}>#{run.id} — {run.branch || "—"} · {run.passed}/{run.total} passed · {timeAgo(run.created_at)}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="select-arrow">vs</div>
+            <div class="select-col">
+              <label>Compare run (B)</label>
+              <select bind:value={selectedB}>
+                <option value="">Select a run...</option>
+                {#each suiteRuns.filter(r => String(r.id) !== selectedA) as run}
+                  <option value={String(run.id)}>#{run.id} — {run.branch || "—"} · {run.passed}/{run.total} passed · {timeAgo(run.created_at)}</option>
+                {/each}
+              </select>
+            </div>
           </div>
+        {/if}
+
+        <div class="select-form">
           <button class="compare-btn" onclick={startCompare} disabled={!selectedA || !selectedB || selectedA === selectedB}>
             Compare
           </button>
@@ -248,6 +269,7 @@
   }
 
   .select-col { display: flex; flex-direction: column; gap: 0.35rem; flex: 1; min-width: 200px; }
+  .suite-col { flex: none; min-width: 250px; }
   .select-col label { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
   .select-col select {
     padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
