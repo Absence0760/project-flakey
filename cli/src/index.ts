@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync, existsSync } from "fs";
-import { join, resolve } from "path";
+import { readFileSync, readdirSync, existsSync, statSync } from "fs";
+import { join, resolve, basename } from "path";
 
 const API_URL = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
 
@@ -12,6 +12,8 @@ interface UploadOptions {
   commitSha: string;
   ciRunId: string;
   reporter: string;
+  screenshotsDir: string;
+  videosDir: string;
 }
 
 function parseArgs(): UploadOptions {
@@ -33,19 +35,37 @@ function parseArgs(): UploadOptions {
     commitSha: opts["commit"] ?? process.env.COMMIT_SHA ?? "",
     ciRunId: opts["ci-run-id"] ?? process.env.CI_RUN_ID ?? "",
     reporter: opts["reporter"] ?? "mochawesome",
+    screenshotsDir: resolve(opts["screenshots-dir"] ?? "cypress/screenshots"),
+    videosDir: resolve(opts["videos-dir"] ?? "cypress/videos"),
   };
 }
 
 function findReportFile(dir: string): string | null {
   if (!existsSync(dir)) return null;
-
-  // Look for merged mochawesome report first
   const merged = join(dir, "mochawesome.json");
   if (existsSync(merged)) return merged;
-
-  // Fall back to any JSON file
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
   return files.length > 0 ? join(dir, files[0]) : null;
+}
+
+function findFiles(dir: string, ext: string): string[] {
+  if (!existsSync(dir)) return [];
+  const results: string[] = [];
+
+  function walk(d: string) {
+    for (const entry of readdirSync(d)) {
+      const full = join(d, entry);
+      const stat = statSync(full);
+      if (stat.isDirectory()) {
+        walk(full);
+      } else if (entry.endsWith(ext)) {
+        results.push(full);
+      }
+    }
+  }
+
+  walk(dir);
+  return results;
 }
 
 async function upload(opts: UploadOptions): Promise<void> {
@@ -59,7 +79,6 @@ async function upload(opts: UploadOptions): Promise<void> {
   console.log(`Found report: ${reportFile}`);
 
   const raw = JSON.parse(readFileSync(reportFile, "utf-8"));
-
   const payload = {
     reporter: opts.reporter,
     meta: {
@@ -74,6 +93,19 @@ async function upload(opts: UploadOptions): Promise<void> {
     raw,
   };
 
+  const screenshots = findFiles(opts.screenshotsDir, ".png");
+  const videos = findFiles(opts.videosDir, ".mp4");
+
+  if (screenshots.length > 0 || videos.length > 0) {
+    console.log(`Found ${screenshots.length} screenshot(s), ${videos.length} video(s)`);
+    await uploadMultipart(payload, screenshots, videos);
+  } else {
+    console.log("No screenshots or videos found, uploading JSON only");
+    await uploadJson(payload);
+  }
+}
+
+async function uploadJson(payload: object): Promise<void> {
   const res = await fetch(`${API_URL}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -88,6 +120,37 @@ async function upload(opts: UploadOptions): Promise<void> {
 
   const result = await res.json();
   console.log(`Uploaded run #${(result as { id: number }).id} to ${API_URL}`);
+}
+
+async function uploadMultipart(payload: object, screenshots: string[], videos: string[]): Promise<void> {
+  const formData = new FormData();
+  formData.append("payload", JSON.stringify(payload));
+
+  for (const file of screenshots) {
+    const data = readFileSync(file);
+    const blob = new Blob([data], { type: "image/png" });
+    formData.append("screenshots", blob, basename(file));
+  }
+
+  for (const file of videos) {
+    const data = readFileSync(file);
+    const blob = new Blob([data], { type: "video/mp4" });
+    formData.append("videos", blob, basename(file));
+  }
+
+  const res = await fetch(`${API_URL}/runs/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`Upload failed (${res.status}): ${text}`);
+    process.exit(1);
+  }
+
+  const result = await res.json();
+  console.log(`Uploaded run #${(result as { id: number }).id} with artifacts to ${API_URL}`);
 }
 
 const opts = parseArgs();

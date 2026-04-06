@@ -43,4 +43,6 @@ export interface NormalizedTest {
   };
   screenshot_paths: string[];
   video_path?: string;
+  test_code?: string;
+  command_log?: object[];
 }

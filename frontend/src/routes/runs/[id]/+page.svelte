@@ -2,10 +2,12 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { fetchRun, type RunDetail } from "$lib/api";
+  import ErrorModal from "$lib/components/ErrorModal.svelte";
 
   let run = $state<RunDetail | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let modalTestId = $state<number | null>(null);
 
   onMount(async () => {
     const id = Number($page.params.id);
@@ -64,10 +66,21 @@
           {#each spec.tests as test}
             <li class="test {test.status}">
               <span class="test-status">{statusIcon(test.status)}</span>
-              <span class="test-title">{test.title}</span>
+              {#if test.status === "failed"}
+                <button class="test-title clickable" onclick={() => modalTestId = test.id}>
+                  {test.title}
+                  {#if test.screenshot_paths && test.screenshot_paths.length > 0}
+                    <span class="screenshot-indicator" title="{test.screenshot_paths.length} screenshot(s)">&#128247;</span>
+                  {/if}
+                </button>
+              {:else}
+                <span class="test-title">{test.title}</span>
+              {/if}
               <span class="test-duration">{formatDuration(test.duration_ms)}</span>
               {#if test.error_message}
-                <pre class="test-error">{test.error_message}</pre>
+                <button class="test-error" onclick={() => modalTestId = test.id}>
+                  {test.error_message}
+                </button>
               {/if}
             </li>
           {/each}
@@ -76,6 +89,8 @@
     {/each}
   {/if}
 </div>
+
+<ErrorModal testId={modalTestId} onclose={() => modalTestId = null} />
 
 <style>
   .page {
@@ -170,6 +185,28 @@
     flex: 1;
   }
 
+  .test-title.clickable {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--link);
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .test-title.clickable:hover {
+    text-decoration: underline;
+  }
+
+  .screenshot-indicator {
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+
   .test-duration {
     font-family: monospace;
     font-size: 0.8rem;
@@ -184,9 +221,17 @@
     border: 1px solid var(--error-border);
     border-radius: 4px;
     font-size: 0.8rem;
+    font-family: monospace;
     color: var(--error-text);
     white-space: pre-wrap;
     overflow-x: auto;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.1s;
+  }
+
+  .test-error:hover {
+    border-color: var(--color-fail);
   }
 
   .status { color: var(--text-secondary); }

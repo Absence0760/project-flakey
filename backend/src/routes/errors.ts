@@ -35,7 +35,12 @@ router.get("/", async (req, res) => {
         COUNT(*)::int AS count,
         MAX(r.id) AS latest_run_id,
         MAX(r.created_at) AS latest_run_date,
-        ARRAY_AGG(DISTINCT r.id ORDER BY r.id DESC) AS run_ids
+        ARRAY_AGG(DISTINCT r.id ORDER BY r.id DESC) AS run_ids,
+        (SELECT t2.id FROM tests t2
+         JOIN specs s2 ON s2.id = t2.spec_id
+         JOIN runs r2 ON r2.id = s2.run_id
+         WHERE t2.error_message = t.error_message AND t2.title = t.title AND t2.status = 'failed'
+         ORDER BY r2.created_at DESC LIMIT 1) AS latest_test_id
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id

@@ -30,6 +30,8 @@ export interface Run {
   created_at: string;
 }
 
+export const UPLOADS_URL = "http://localhost:3000/uploads";
+
 export interface TestResult {
   id: number;
   spec_id: number;
@@ -39,6 +41,32 @@ export interface TestResult {
   duration_ms: number;
   error_message: string | null;
   error_stack: string | null;
+  screenshot_paths: string[];
+  video_path: string | null;
+  test_code: string | null;
+  command_log: CommandLogEntry[] | null;
+}
+
+export interface CommandLogEntry {
+  name: string;
+  message: string;
+  state: string;
+}
+
+export interface TestDetail extends TestResult {
+  file_path: string;
+  run_id: number;
+  spec_title: string;
+  prev_failed_id: number | null;
+  next_failed_id: number | null;
+  failed_index: number;
+  failed_total: number;
+}
+
+export async function fetchTest(id: number): Promise<TestDetail> {
+  const res = await fetch(`${API_URL}/tests/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch test: ${res.status}`);
+  return res.json();
 }
 
 export interface Spec {
@@ -63,6 +91,7 @@ export interface ErrorGroup {
   count: number;
   latest_run_id: number;
   latest_run_date: string;
+  latest_test_id: number | null;
   test_title: string;
   file_path: string;
   suite_name: string;

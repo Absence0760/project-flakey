@@ -9,6 +9,7 @@ interface MochawesomeTest {
   skipped?: boolean;
   duration?: number;
   err?: { message?: string; estack?: string };
+  code?: string;
 }
 
 interface MochawesomeSuite {
@@ -65,6 +66,7 @@ function collectTests(suite: MochawesomeSuite, parentTitle: string = ""): Normal
         : undefined,
       screenshot_paths: [],
       video_path: undefined,
+      test_code: test.code,
     });
   }
 
