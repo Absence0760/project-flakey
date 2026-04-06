@@ -1,21 +1,56 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchErrors, type ErrorGroup } from "$lib/api";
+  import { fetchErrors, fetchRuns, type ErrorGroup, type Run } from "$lib/api";
 
   let errors = $state<ErrorGroup[]>([]);
+  let allRuns = $state<Run[]>([]);
   let loading = $state(true);
   let loadError = $state<string | null>(null);
   let expanded = $state<Set<number>>(new Set());
 
+  let selectedSuite = $state("all");
+  let selectedRunId = $state("all");
+
+  let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
+  let filteredRuns = $derived(
+    selectedSuite === "all" ? allRuns : allRuns.filter((r) => r.suite_name === selectedSuite)
+  );
+
   onMount(async () => {
     try {
-      errors = await fetchErrors();
+      const [errs, runs] = await Promise.all([fetchErrors(), fetchRuns()]);
+      errors = errs;
+      allRuns = runs;
     } catch (e) {
       loadError = e instanceof Error ? e.message : "Failed to load errors";
     } finally {
       loading = false;
     }
   });
+
+  async function applyFilters() {
+    loading = true;
+    expanded = new Set();
+    try {
+      errors = await fetchErrors({
+        suite: selectedSuite !== "all" ? selectedSuite : undefined,
+        run_id: selectedRunId !== "all" ? Number(selectedRunId) : undefined,
+      });
+    } catch (e) {
+      loadError = e instanceof Error ? e.message : "Failed to load errors";
+    } finally {
+      loading = false;
+    }
+  }
+
+  function onSuiteChange() {
+    selectedRunId = "all";
+    applyFilters();
+  }
+
+  function onRunChange() {
+    applyFilters();
+  }
 
   function toggleExpand(index: number) {
     const next = new Set(expanded);
@@ -38,8 +73,26 @@
 </script>
 
 <div class="page">
-  <h1>Errors</h1>
-  <p class="description">Failures grouped by error message across all runs.</p>
+  <div class="header">
+    <div>
+      <h1>Errors</h1>
+      <p class="description">Failures grouped by error message.</p>
+    </div>
+    <div class="filters">
+      <select bind:value={selectedSuite} onchange={onSuiteChange}>
+        <option value="all">All suites</option>
+        {#each suites as suite}
+          <option value={suite}>{suite}</option>
+        {/each}
+      </select>
+      <select bind:value={selectedRunId} onchange={onRunChange}>
+        <option value="all">All runs</option>
+        {#each filteredRuns as run}
+          <option value={String(run.id)}>Run #{run.id} — {run.branch}</option>
+        {/each}
+      </select>
+    </div>
+  </div>
 
   {#if loading}
     <p class="status">Loading...</p>
@@ -48,7 +101,13 @@
   {:else if errors.length === 0}
     <div class="empty">
       <p>No errors found.</p>
-      <p class="hint">Errors appear here when test runs have failures.</p>
+      <p class="hint">
+        {#if selectedSuite !== "all" || selectedRunId !== "all"}
+          Try changing the filters or selecting "All suites" / "All runs".
+        {:else}
+          Errors appear here when test runs have failures.
+        {/if}
+      </p>
     </div>
   {:else}
     <div class="error-list">
@@ -64,6 +123,7 @@
             </div>
             <div class="error-meta">
               <span class="error-spec">{err.file_path}</span>
+              <span class="error-suite">{err.suite_name}</span>
               <span class="error-time">{timeAgo(err.latest_run_date)}</span>
             </div>
           </button>
@@ -97,15 +157,37 @@
     padding: 2rem 1rem;
   }
 
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+  }
+
   h1 {
     margin: 0;
     font-size: 1.5rem;
   }
 
   .description {
-    margin: 0.25rem 0 1.5rem;
+    margin: 0.25rem 0 0;
     color: var(--text-secondary);
     font-size: 0.875rem;
+  }
+
+  .filters {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  select {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.85rem;
   }
 
   .status { color: var(--text-secondary); }
@@ -193,7 +275,7 @@
 
   .error-meta {
     display: flex;
-    justify-content: space-between;
+    gap: 1rem;
     padding-left: 2.75rem;
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -201,6 +283,11 @@
 
   .error-spec {
     font-family: monospace;
+    flex: 1;
+  }
+
+  .error-suite {
+    font-weight: 500;
   }
 
   .error-detail {

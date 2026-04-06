@@ -65,11 +65,16 @@ export interface ErrorGroup {
   latest_run_date: string;
   test_title: string;
   file_path: string;
+  suite_name: string;
   run_ids: number[];
 }
 
-export async function fetchErrors(): Promise<ErrorGroup[]> {
-  const res = await fetch(`${API_URL}/errors`);
+export async function fetchErrors(filters?: { suite?: string; run_id?: number }): Promise<ErrorGroup[]> {
+  const params = new URLSearchParams();
+  if (filters?.suite) params.set("suite", filters.suite);
+  if (filters?.run_id) params.set("run_id", String(filters.run_id));
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/errors${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
   return res.json();
 }

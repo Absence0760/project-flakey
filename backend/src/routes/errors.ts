@@ -4,13 +4,34 @@ import pool from "../db.js";
 const router = Router();
 
 // GET /errors — aggregated error groups
-router.get("/", async (_req, res) => {
+// Query params: ?suite=name&run_id=123
+router.get("/", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
+    const suite = req.query.suite as string | undefined;
+    const runId = req.query.run_id as string | undefined;
+
+    const conditions: string[] = ["t.status = 'failed'", "t.error_message IS NOT NULL"];
+    const params: (string | number)[] = [];
+    let paramIndex = 1;
+
+    if (suite) {
+      conditions.push(`r.suite_name = $${paramIndex++}`);
+      params.push(suite);
+    }
+
+    if (runId) {
+      conditions.push(`r.id = $${paramIndex++}`);
+      params.push(Number(runId));
+    }
+
+    const where = conditions.join(" AND ");
+
+    const result = await pool.query(
+      `SELECT
         t.error_message,
         t.title AS test_title,
         s.file_path,
+        r.suite_name,
         COUNT(*)::int AS count,
         MAX(r.id) AS latest_run_id,
         MAX(r.created_at) AS latest_run_date,
@@ -18,11 +39,12 @@ router.get("/", async (_req, res) => {
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
-      WHERE t.status = 'failed' AND t.error_message IS NOT NULL
-      GROUP BY t.error_message, t.title, s.file_path
+      WHERE ${where}
+      GROUP BY t.error_message, t.title, s.file_path, r.suite_name
       ORDER BY count DESC, latest_run_date DESC
-      LIMIT 100
-    `);
+      LIMIT 100`,
+      params
+    );
     res.json(result.rows);
   } catch (err) {
     console.error("GET /errors error:", err);
