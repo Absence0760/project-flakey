@@ -57,7 +57,7 @@
   {:else if runs.length === 0}
     <div class="empty">
       <p>No test runs yet.</p>
-      <p class="hint">Run your Cypress tests and upload results to see them here.</p>
+      <p class="hint">Run your tests and upload results to see them here.</p>
     </div>
   {:else}
     <table>

@@ -62,6 +62,10 @@ npx tsx /path/to/flakey/cli/src/index.ts \
   --api-key fk_your_key_here
 ```
 
+For Playwright, you **don't need** `--screenshots-dir` or `--videos-dir`. The CLI reads the JSON report and automatically extracts all screenshot and video file paths from the `attachments` field in each test result. It resolves both absolute and relative paths, then uploads the files alongside the report.
+
+Playwright records videos as `.webm` by default — this format is fully supported.
+
 ### JUnit XML (Jest, pytest, Go, etc.)
 
 ```bash
@@ -95,8 +99,8 @@ npx tsx /path/to/flakey/cli/src/index.ts \
 | `--commit` | `$COMMIT_SHA` env | Git commit SHA |
 | `--ci-run-id` | `$CI_RUN_ID` env | CI pipeline run ID |
 | `--reporter` | `mochawesome` | Reporter format: `mochawesome`, `junit`, or `playwright` |
-| `--screenshots-dir` | `cypress/screenshots` | Directory to search for `.png` files |
-| `--videos-dir` | `cypress/videos` | Directory to search for `.mp4` files |
+| `--screenshots-dir` | `cypress/screenshots` | Directory to search for `.png` files (not needed for Playwright) |
+| `--videos-dir` | `cypress/videos` | Directory to search for `.mp4`/`.webm` files (not needed for Playwright) |
 | `--api-key` | `$FLAKEY_API_KEY` env | Authentication token (JWT or API key) |
 
 ---
@@ -170,70 +174,96 @@ curl -X POST http://localhost:3000/runs/upload \
 
 ---
 
-## How screenshots are matched to tests
+## How screenshots and videos are handled
 
-Flakey automatically matches screenshots to the correct failed test using filename matching. Here's how it works:
+Each reporter handles artifacts differently. Flakey supports all of them automatically.
 
-### Cypress screenshot naming convention
+### Per-reporter artifact handling
 
-When a Cypress test fails, it saves a screenshot with a filename like:
+| Reporter | Screenshots | Videos | How artifacts are found |
+|---|---|---|---|
+| **Mochawesome (Cypress)** | On failure, saved to `cypress/screenshots/` | Per-spec `.mp4` in `cypress/videos/` | CLI scans `--screenshots-dir` and `--videos-dir` |
+| **Playwright** | On failure + custom `page.screenshot()`, saved as attachments | Per-spec `.webm` as attachments | CLI reads attachment paths from the JSON report automatically |
+| **JUnit** | Not built-in (framework-dependent) | Not built-in | CLI scans `--screenshots-dir` and `--videos-dir` if provided |
+
+### Playwright attachments
+
+Playwright embeds screenshot and video paths in its JSON report under `result.attachments`:
+
+```json
+{
+  "attachments": [
+    { "name": "screenshot", "contentType": "image/png", "path": "test-results/login-test/screenshot.png" },
+    { "name": "video", "contentType": "video/webm", "path": "test-results/login-test/video.webm" }
+  ]
+}
+```
+
+The CLI automatically:
+1. Walks the JSON report and extracts all attachment file paths
+2. Resolves relative paths (relative to the report file) and absolute paths
+3. Checks that the files exist on disk
+4. Uploads them as part of the multipart request
+
+You don't need to specify `--screenshots-dir` or `--videos-dir` for Playwright — it's all handled from the report.
+
+### Cypress screenshot matching
+
+Cypress saves screenshots with filenames like:
 
 ```
 Suite Name -- Nested Describe -- test title (failed).png
 ```
 
-For example:
-```
-Collections Permissions -- READ X, WRITE ✓ -- Create collection (failed).png
-```
+The backend matches these to tests using a normalized substring algorithm:
 
-### Matching algorithm
-
-During upload, Flakey normalizes both the screenshot filename and each test's `full_title` by stripping everything except lowercase letters and numbers:
-
-```
-Filename: "Collections Permissions -- Create collection (failed).png"
-  → normalized: "collectionspermissionscreatecollectionfailed"
-
-Test full_title: "Collections Permissions > Create collection"
-  → normalized: "collectionspermissionscreatecollection"
-```
-
-The matching logic (in order of priority):
-
-1. **Full title match (preferred)** — if the normalized `full_title` is a substring of the normalized filename, the screenshot is assigned. This is the most reliable match because it includes the suite path.
-2. **Short title fallback (disabled for short names)** — if the `full_title` doesn't match, the bare `title` is checked, but only if the normalized title is at least 15 characters. This prevents false positives like "Login" matching "Login with SSO (failed).png".
+1. **Full title match (preferred)** — strips both the filename and `full_title` to lowercase alphanumeric, checks if one is a substring of the other. This includes the suite path so it's very specific.
+2. **Short title fallback (disabled for short names)** — the bare `title` is checked only if it's at least 15 characters, preventing false positives like "Login" matching "Login with SSO (failed).png".
+3. **Basename match (Playwright fallback)** — if title matching fails, the backend checks if any uploaded file's name matches the basename of the original attachment path from the report.
 
 ### Videos
 
-Videos are assigned to **all tests in the same run** — not per-test. Cypress records one video per spec file, so all tests in that spec share the same video. When you click any test (passed or failed), the video tab shows the full spec recording.
+- **Cypress** records one `.mp4` per spec file — assigned to all tests in that spec
+- **Playwright** records one `.webm` per spec file — linked via the report's attachments
+- Both formats are supported by the video player in the UI
 
-### What this means in practice
+### Storage
 
-- Screenshots are matched automatically — no configuration needed
-- Each test can have multiple screenshots (e.g., `(failed).png` and `(failed) (1).png`)
-- If no match is found, screenshots from the reporter's `screenshot_paths` field are used as fallback
-- Files are stored per-run in `uploads/runs/{runId}/screenshots/` and `uploads/runs/{runId}/videos/` — no cross-run confusion even with identical test names
-- Cypress only captures screenshots on failure by default, so passing tests typically only have the Video tab in the viewer
+All artifacts are stored per-run in isolated directories:
+
+```
+uploads/
+  runs/
+    42/
+      screenshots/
+        test-name (failed).png
+      videos/
+        spec-file.mp4
+    43/
+      screenshots/
+        ...
+```
+
+No cross-run confusion even with identical test names.
 
 ### Viewing artifacts in the UI
 
 Any test with a video, screenshot, or error message is clickable in the run detail view. Clicking opens a detail modal with:
 
-- **Screenshot tab** — shows when the test has screenshots (typically failed tests). Click to view in a zoomable lightbox.
-- **Video tab** — shows when the test has a video. Plays the full spec recording.
-- **Error tab** — shows the error message and expandable stack trace.
-- **Commands tab** — shows the Cypress command log (if captured).
-- **Source tab** — shows the test source code (if captured).
+- **Screenshot tab** — shows when the test has screenshots. Click to view in a zoomable/pannable lightbox with keyboard navigation.
+- **Video tab** — shows when the test has a video (`.mp4` or `.webm`). Available for both passing and failing tests.
+- **Error tab** — error message, expandable stack trace, and code snippet (Playwright).
+- **Commands tab** — command log steps with pass/fail indicators.
+- **Source tab** — test source code (if captured).
+- **Details tab** — reporter-specific metadata: retry history, annotations, tags, stdout/stderr, properties (Playwright and JUnit only).
 
-The modal auto-selects the most relevant tab: screenshots if available, then video, then error.
+The modal auto-selects the most relevant tab: screenshots if available, then video, then error, then details.
 
-### Edge cases
+### Tips
 
-- If two tests have very similar titles, the `full_title` match (which includes the suite path) almost always distinguishes them
-- Short titles under 15 characters (like "Login") won't false-match via substring
-- Special characters (unicode, checkmarks, emoji) are stripped during normalization, so they don't affect matching
-- Filenames with mangled encoding (common with unicode in filenames) are handled because normalization strips non-alphanumeric characters
+- Cypress only captures screenshots on failure by default. Passing tests will only have the Video tab.
+- Playwright captures screenshots on failure by default. You can capture on every test with `screenshot: 'on'` in the config.
+- For JUnit, screenshots are not built-in — you'll need a framework-specific plugin and pass the directory via `--screenshots-dir`.
 
 ---
 

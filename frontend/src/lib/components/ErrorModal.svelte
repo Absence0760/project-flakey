@@ -234,7 +234,7 @@
                 <div class="empty-visual">
                   <div class="empty-icon">&#128247;</div>
                   <p>No visual evidence captured.</p>
-                  <p class="empty-hint">Screenshots are captured on failure by default.<br/>Enable video recording in cypress.config.ts.</p>
+                  <p class="empty-hint">Screenshots are captured on failure by default.<br/>Enable video recording in your test config.</p>
                 </div>
               {/if}
             </div>
@@ -311,7 +311,7 @@
                 {#if hasCommands}
                   <div class="commands-panel">
                     <div class="commands-header">
-                      <span class="commands-title">Cypress Command Log</span>
+                      <span class="commands-title">Command Log</span>
                       <span class="commands-count">{test.command_log?.length} steps</span>
                     </div>
                     <ol class="command-list">
@@ -320,7 +320,7 @@
                           <span class="cmd-num">{i + 1}</span>
                           <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
                           <span class="cmd-body">
-                            <span class="cmd-name">cy.{cmd.name}</span>
+                            <span class="cmd-name">{cmd.name}</span>
                             {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
                           </span>
                         </li>
@@ -330,7 +330,7 @@
                 {:else}
                   <div class="empty-panel">
                     <p>No command log available.</p>
-                    <p class="empty-hint">Add a custom Cypress plugin to capture<br/>cy.state('commands') on failure.</p>
+                    <p class="empty-hint">No command log was captured for this test.</p>
                   </div>
                 {/if}
 

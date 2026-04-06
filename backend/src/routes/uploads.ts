@@ -102,6 +102,17 @@ router.post("/", uploadFields, async (req, res) => {
             }
           }
 
+          // For Playwright: match by original attachment filename from the report.
+          // test.screenshot_paths contains local paths like "/Users/.../test-results/img.png"
+          // Check if any uploaded file has the same basename.
+          if (matchedScreenshots.length === 0 && test.screenshot_paths.length > 0) {
+            for (const origPath of test.screenshot_paths) {
+              const origBasename = origPath.split("/").pop() ?? "";
+              const mapped = screenshotMap.get(origBasename);
+              if (mapped) matchedScreenshots.push(mapped);
+            }
+          }
+
           await client.query(
             `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync, readdirSync, existsSync, statSync } from "fs";
-import { join, resolve, basename } from "path";
+import { join, resolve, basename, dirname, isAbsolute } from "path";
 
 const API_URL = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
 const API_KEY = process.env.FLAKEY_API_KEY ?? "";
@@ -116,8 +116,20 @@ async function upload(opts: UploadOptions): Promise<void> {
     raw,
   };
 
-  const screenshots = findFiles(opts.screenshotsDir, ".png");
-  const videos = findFiles(opts.videosDir, ".mp4");
+  let screenshots = findFiles(opts.screenshotsDir, ".png");
+  let videos = findFiles(opts.videosDir, ".mp4");
+
+  // For Playwright, also extract attachment paths from the report itself
+  if (opts.reporter === "playwright" && !reportFile.isXml) {
+    const reportDir = dirname(reportFile.path);
+    const extracted = extractPlaywrightAttachments(raw, reportDir);
+    screenshots = [...screenshots, ...extracted.screenshots];
+    videos = [...videos, ...extracted.videos];
+  }
+
+  // Also look for .webm videos (Playwright default format)
+  const webmVideos = findFiles(opts.videosDir, ".webm");
+  videos = [...videos, ...webmVideos];
 
   if (screenshots.length > 0 || videos.length > 0) {
     console.log(`Found ${screenshots.length} screenshot(s), ${videos.length} video(s)`);
@@ -126,6 +138,43 @@ async function upload(opts: UploadOptions): Promise<void> {
     console.log("No screenshots or videos found, uploading JSON only");
     await uploadJson(payload, opts.apiKey);
   }
+}
+
+/**
+ * Walk the Playwright JSON report and extract all attachment file paths.
+ * Paths in the report can be absolute or relative to the report directory.
+ */
+function extractPlaywrightAttachments(report: any, reportDir: string): { screenshots: string[]; videos: string[] } {
+  const screenshots: string[] = [];
+  const videos: string[] = [];
+  const seen = new Set<string>();
+
+  function walkSuites(suites: any[]) {
+    for (const suite of suites ?? []) {
+      for (const spec of suite.specs ?? []) {
+        for (const test of spec.tests ?? []) {
+          for (const result of test.results ?? []) {
+            for (const att of result.attachments ?? []) {
+              if (!att.path) continue;
+              const fullPath = isAbsolute(att.path) ? att.path : resolve(reportDir, att.path);
+              if (seen.has(fullPath) || !existsSync(fullPath)) continue;
+              seen.add(fullPath);
+
+              if (att.contentType?.startsWith("image/")) {
+                screenshots.push(fullPath);
+              } else if (att.contentType?.startsWith("video/")) {
+                videos.push(fullPath);
+              }
+            }
+          }
+        }
+      }
+      if (suite.suites) walkSuites(suite.suites);
+    }
+  }
+
+  walkSuites(report.suites ?? []);
+  return { screenshots, videos };
 }
 
 function authHeaders(apiKey: string): Record<string, string> {
@@ -163,7 +212,8 @@ async function uploadMultipart(payload: object, screenshots: string[], videos: s
 
   for (const file of videos) {
     const data = readFileSync(file);
-    const blob = new Blob([data], { type: "video/mp4" });
+    const type = file.endsWith(".webm") ? "video/webm" : "video/mp4";
+    const blob = new Blob([data], { type });
     formData.append("videos", blob, basename(file));
   }
 
