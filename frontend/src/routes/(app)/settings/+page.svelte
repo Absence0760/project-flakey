@@ -138,44 +138,63 @@
     setTimeout(() => { if (testResult?.id === id) testResult = null; }, 3000);
   }
 
-  // --- GitHub Integration ---
-  let githubRepo = $state("");
-  let githubToken = $state("");
-  let hasGithubToken = $state(false);
-  let githubSaved = $state(false);
-  let githubError = $state<string | null>(null);
+  // --- Git Integration ---
+  let gitProvider = $state("");
+  let gitRepo = $state("");
+  let gitToken = $state("");
+  let gitBaseUrl = $state("");
+  let hasGitToken = $state(false);
+  let gitSaved = $state(false);
+  let gitError = $state<string | null>(null);
 
-  async function loadGithub() {
+  const gitPlatforms = [
+    { value: "github", label: "GitHub", repoPlaceholder: "owner/repo", tokenLabel: "GitHub token (PAT or fine-grained)", tokenUrl: "https://github.com/settings/tokens", scope: "repo scope" },
+    { value: "gitlab", label: "GitLab", repoPlaceholder: "group/project", tokenLabel: "GitLab personal access token", tokenUrl: "https://gitlab.com/-/user_settings/personal_access_tokens", scope: "api scope" },
+    { value: "bitbucket", label: "Bitbucket", repoPlaceholder: "workspace/repo", tokenLabel: "Bitbucket app password", tokenUrl: "https://bitbucket.org/account/settings/app-passwords/", scope: "Pull requests: read+write" },
+  ];
+
+  let activePlatform = $derived(gitPlatforms.find(p => p.value === gitProvider) ?? gitPlatforms[0]);
+
+  async function loadGitProvider() {
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`);
     if (res.ok) {
       const data = await res.json();
-      githubRepo = data.github_repo ?? "";
-      hasGithubToken = data.has_github_token ?? false;
+      gitProvider = data.git_provider ?? "";
+      gitRepo = data.git_repo ?? "";
+      gitBaseUrl = data.git_base_url ?? "";
+      hasGitToken = data.has_git_token ?? false;
     }
   }
 
-  async function saveGithub() {
-    githubError = null;
-    if (githubRepo && !/^[^/]+\/[^/]+$/.test(githubRepo)) {
-      githubError = "Format: owner/repo";
+  async function saveGitProvider() {
+    gitError = null;
+    if (!gitProvider) { gitError = "Select a platform"; return; }
+    if (gitRepo && gitProvider !== "gitlab" && !/^[^/]+\/[^/]+$/.test(gitRepo)) {
+      gitError = "Format: owner/repo";
       return;
     }
-    const body: Record<string, string | null> = { github_repo: githubRepo || null };
-    if (githubToken) body.github_token = githubToken;
+    const body: Record<string, string | null> = {
+      git_provider: gitProvider,
+      git_repo: gitRepo || null,
+      git_base_url: gitBaseUrl || null,
+    };
+    if (gitToken) body.git_token = gitToken;
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
     if (res.ok) {
-      githubSaved = true;
-      githubToken = "";
-      hasGithubToken = !!body.github_token || hasGithubToken;
-      setTimeout(() => githubSaved = false, 2000);
+      gitSaved = true;
+      gitToken = "";
+      hasGitToken = !!body.git_token || hasGitToken;
+      setTimeout(() => gitSaved = false, 2000);
     }
   }
 
-  async function removeGithub() {
-    await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ github_token: null, github_repo: null }) });
-    githubRepo = "";
-    githubToken = "";
-    hasGithubToken = false;
+  async function removeGitProvider() {
+    await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
+    gitProvider = "";
+    gitRepo = "";
+    gitToken = "";
+    gitBaseUrl = "";
+    hasGitToken = false;
   }
 
   // --- Retention ---
@@ -231,7 +250,7 @@
     loadMembers();
     loadSuites();
     loadRetention();
-    if (isAdmin) { loadWebhooks(); loadGithub(); loadAudit(); }
+    if (isAdmin) { loadWebhooks(); loadGitProvider(); loadAudit(); }
   });
 </script>
 
@@ -401,27 +420,40 @@
     </section>
   {/if}
 
-  <!-- GitHub Integration -->
+  <!-- Git Integration -->
   {#if isAdmin}
     <section class="card">
-      <h2>GitHub PR Comments</h2>
-      <p class="card-desc">Automatically post test results as PR comments when runs include a commit SHA or branch.</p>
+      <h2>PR Comments</h2>
+      <p class="card-desc">Automatically post test results as PR/MR comments when runs include a commit SHA or branch.</p>
 
       <div class="row-form">
-        <input type="text" bind:value={githubRepo} placeholder="owner/repo" style="max-width: 220px" />
-        <input type="password" bind:value={githubToken} placeholder={hasGithubToken ? "Token saved (enter new to replace)" : "GitHub token (PAT or fine-grained)"} />
-        <button class="btn-primary" onclick={saveGithub}>
-          {githubSaved ? "Saved" : "Save"}
+        <select bind:value={gitProvider} style="min-width: 110px">
+          <option value="">Select platform</option>
+          {#each gitPlatforms as p}
+            <option value={p.value}>{p.label}</option>
+          {/each}
+        </select>
+        <input type="text" bind:value={gitRepo} placeholder={activePlatform.repoPlaceholder} style="max-width: 220px" />
+        <input type="password" bind:value={gitToken} placeholder={hasGitToken ? "Token saved (enter new to replace)" : activePlatform.tokenLabel} />
+        <button class="btn-primary" onclick={saveGitProvider}>
+          {gitSaved ? "Saved" : "Save"}
         </button>
-        {#if hasGithubToken}
-          <button class="btn-sm danger" onclick={removeGithub}>Remove</button>
+        {#if hasGitToken}
+          <button class="btn-sm danger" onclick={removeGitProvider}>Remove</button>
         {/if}
       </div>
-      {#if githubError}<p class="form-error">{githubError}</p>{/if}
-      {#if hasGithubToken && githubRepo}
-        <p class="muted" style="margin-top: 0.25rem">Connected to <strong>{githubRepo}</strong>. PR comments will be posted on test uploads.</p>
+      {#if gitProvider === "gitlab" || gitProvider === "bitbucket"}
+        <div class="row-form" style="margin-top: 0">
+          <input type="url" bind:value={gitBaseUrl} placeholder="Base URL (leave empty for {gitProvider === 'gitlab' ? 'gitlab.com' : 'bitbucket.org'})" style="flex: 1" />
+        </div>
+      {/if}
+      {#if gitError}<p class="form-error">{gitError}</p>{/if}
+      {#if hasGitToken && gitRepo}
+        <p class="muted" style="margin-top: 0.25rem">Connected to <strong>{gitRepo}</strong> via {activePlatform.label}. PR comments will be posted on test uploads.</p>
+      {:else if gitProvider}
+        <p class="muted" style="margin-top: 0.25rem">Create a <a href={activePlatform.tokenUrl} target="_blank" rel="noopener">{activePlatform.label} token</a> with <code>{activePlatform.scope}</code>.</p>
       {:else}
-        <p class="muted" style="margin-top: 0.25rem">Create a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">GitHub token</a> with <code>repo</code> scope (or fine-grained with Issues/PRs read+write).</p>
+        <p class="muted" style="margin-top: 0.25rem">Select a platform to configure PR comments.</p>
       {/if}
     </section>
   {/if}

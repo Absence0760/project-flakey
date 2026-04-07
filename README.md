@@ -125,7 +125,7 @@ Create an API key from the Profile page for permanent access (no expiry).
 - Rate limiting, httpOnly cookies, CORS whitelist, security headers
 
 ### Integrations
-- **GitHub PR comments** — auto-posts test summary (pass rate, failures, flaky tests, trend) as a PR comment; updates existing comment on re-runs
+- **PR/MR comments** — auto-posts test summary (pass rate, failures, flaky tests, trend) as a PR/MR comment on GitHub, GitLab, or Bitbucket; updates existing comment on re-runs
 - **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
 
 ### Admin

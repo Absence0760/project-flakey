@@ -6,7 +6,7 @@ import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
-import { postPRComment } from "../github.js";
+import { postPRComment } from "../git-providers/index.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();

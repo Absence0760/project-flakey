@@ -269,7 +269,7 @@ router.patch("/:id/members/:userId", async (req, res) => {
 router.get("/:id/settings", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT retention_days, github_repo, github_token IS NOT NULL AS has_github_token FROM organizations WHERE id = $1",
+      "SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token FROM organizations WHERE id = $1",
       [req.params.id]
     );
     if (result.rows.length === 0) {
@@ -300,13 +300,21 @@ router.patch("/:id/settings", async (req, res) => {
       sets.push(`retention_days = $${i++}`);
       params.push(value);
     }
-    if (req.body.github_token !== undefined) {
-      sets.push(`github_token = $${i++}`);
-      params.push(req.body.github_token || null);
+    if (req.body.git_provider !== undefined) {
+      sets.push(`git_provider = $${i++}`);
+      params.push(req.body.git_provider || null);
     }
-    if (req.body.github_repo !== undefined) {
-      sets.push(`github_repo = $${i++}`);
-      params.push(req.body.github_repo || null);
+    if (req.body.git_token !== undefined) {
+      sets.push(`git_token = $${i++}`);
+      params.push(req.body.git_token || null);
+    }
+    if (req.body.git_repo !== undefined) {
+      sets.push(`git_repo = $${i++}`);
+      params.push(req.body.git_repo || null);
+    }
+    if (req.body.git_base_url !== undefined) {
+      sets.push(`git_base_url = $${i++}`);
+      params.push(req.body.git_base_url || null);
     }
 
     if (sets.length === 0) {

@@ -76,8 +76,38 @@
 - [x] Compare runs side-by-side
 - [ ] Additional reporter parsers (Jest, WebdriverIO)
 - [ ] Flaky test webhook notifications
-- [ ] Scheduled reports (weekly email digest)
 - [ ] Custom dashboards / saved filters
+
+## Phase 7 — CI/PR integration
+
+- [ ] GitHub PR status checks (pass/fail the PR based on test results)
+- [ ] GitHub PR comments with test result summary
+- [ ] GitLab merge request integration
+- [ ] Bitbucket PR integration
+
+## Phase 8 — Intelligent analysis
+
+- [ ] AI failure classification (auto-categorize: product bug, automation bug, system issue)
+- [ ] ML-based failure pattern recognition (surface historically similar failures)
+- [ ] AI-generated error summaries with probable root causes
+- [ ] Flaky test quarantining (isolate flaky tests so they don't block CI)
+- [ ] Predictive test selection (ML picks which tests to run based on code changes)
+
+## Phase 9 — Integrations + workflows
+
+- [ ] Jira integration (auto-create tickets from failures, link results to issues)
+- [ ] PagerDuty integration (trigger incidents from test failures)
+- [ ] Scheduled reports (daily/weekly email or Slack digests)
+- [ ] Code coverage tracking with PR gating
+- [ ] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
+
+## Phase 10 — Extended testing capabilities
+
+- [ ] Accessibility testing (auto-check with historical scores and trend tracking)
+- [ ] Visual regression testing support
+- [ ] UI coverage mapping (identify untested pages/components)
+- [ ] Manual + automated test management (unified platform)
+- [ ] Release checklists with sign-off workflows
 
 ## What this will not do (by design)
 
