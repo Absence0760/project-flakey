@@ -24,6 +24,9 @@ docker-compose.override.yml
 .vscode/
 .idea/
 
+# Claude Code local settings (may contain credentials)
+.claude/settings.local.json
+
 # Test coverage
 coverage/
 
