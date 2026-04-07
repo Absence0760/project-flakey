@@ -1,0 +1,48 @@
+{
+  "name": "@flakey/reporter",
+  "version": "0.1.0",
+  "description": "Cypress and Playwright reporter for Flakey dashboard",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./cypress": "./dist/cypress-reporter.cjs",
+    "./playwright": "./dist/playwright-reporter.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');const code=fs.readFileSync('dist/cypress-reporter.js','utf8');fs.writeFileSync('dist/cypress-reporter.cjs',code.replace(/^export /gm,'').replace(/import .+ from .+;\\n/g,''));\""
+  },
+  "keywords": [
+    "cypress",
+    "playwright",
+    "testing",
+    "reporter",
+    "flakey"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/reporter"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.30.0",
+    "cypress": ">=12.0.0"
+  },
+  "peerDependenciesMeta": {
+    "cypress": {
+      "optional": true
+    },
+    "@playwright/test": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^25.5.2",
+    "typescript": "^5.5.4"
+  }
+}

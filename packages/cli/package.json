@@ -7,12 +7,21 @@
     "flakey-upload": "dist/index.js"
   },
   "main": "dist/index.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts"
   },
-  "keywords": ["testing", "cypress", "playwright", "junit", "test-reporting", "ci"],
+  "keywords": [
+    "testing",
+    "cypress",
+    "playwright",
+    "junit",
+    "test-reporting",
+    "ci"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -20,6 +29,7 @@
     "directory": "packages/cli"
   },
   "devDependencies": {
+    "@types/node": "^25.5.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4"
   }

@@ -8,8 +8,7 @@
     "declaration": true,
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "types": ["cypress", "node"]
+    "skipLibCheck": true
   },
   "include": ["src"]
 }

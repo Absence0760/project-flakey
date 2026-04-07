@@ -8,12 +8,20 @@
     "./plugin": "./dist/plugin.js",
     "./support": "./dist/support.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
   },
-  "keywords": ["cypress", "testing", "dom-snapshots", "debugging", "flakey"],
+  "keywords": [
+    "cypress",
+    "testing",
+    "dom-snapshots",
+    "debugging",
+    "flakey"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -24,7 +32,8 @@
     "cypress": ">=12.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
-    "cypress": "^13.0.0"
+    "@types/node": "^25.5.2",
+    "cypress": "^13.0.0",
+    "typescript": "^5.5.4"
   }
 }
