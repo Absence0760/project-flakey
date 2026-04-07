@@ -13,7 +13,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');const code=fs.readFileSync('dist/cypress-reporter.js','utf8');fs.writeFileSync('dist/cypress-reporter.cjs',code.replace(/^export /gm,'').replace(/import .+ from .+;\\n/g,''));\""
+    "build": "tsc && node -e \"const fs=require('fs');const c=fs.readFileSync('dist/cypress-reporter.js','utf8');const req='const{readFileSync,readdirSync,statSync,existsSync}=require(\\\"fs\\\");const{join,basename}=require(\\\"path\\\");\\n';fs.writeFileSync('dist/cypress-reporter.cjs',req+c.replace(/^import .+ from .+;$/gm,''));\""
   },
   "keywords": [
     "cypress",

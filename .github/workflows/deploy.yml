@@ -1,12 +1,13 @@
 name: Build & Deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - "frontend/**"
   workflow_dispatch:
+  # Disabled automatic deploy — uncomment to re-enable
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "backend/**"
+  #     - "frontend/**"
 
 env:
   AWS_REGION: ap-southeast-2
