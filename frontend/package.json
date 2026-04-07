@@ -1,0 +1,43 @@
+{
+	"$schema": "https://json.schemastore.org/package.json",
+	"name": "flakey",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"dev": "vite dev --port 7777",
+		"build": "vite build",
+		"preview": "vite preview --port 8888",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"storybook": "storybook dev -p 9999 --no-open",
+		"build-storybook": "storybook build"
+	},
+	"devDependencies": {
+		"@iconify-json/material-symbols": "1.1.89",
+		"@storybook/addon-a11y": "8.2.9",
+		"@storybook/addon-essentials": "8.2.9",
+		"@storybook/addon-interactions": "8.2.9",
+		"@storybook/addon-links": "8.2.9",
+		"@storybook/addon-svelte-csf": "v5.0.0-next.2",
+		"@storybook/blocks": "8.2.9",
+		"@storybook/svelte": "8.2.9",
+		"@storybook/sveltekit": "8.2.9",
+		"@storybook/test": "8.2.9",
+		"@sveltejs/adapter-static": "3.0.8",
+		"@sveltejs/adapter-vercel": "5.4.2",
+		"@sveltejs/kit": "2.5.21",
+		"@sveltejs/vite-plugin-svelte": "3.1.1",
+		"mdsvex": "^0.12.7",
+		"normalize.css": "8.0.1",
+		"storybook": "8.2.9",
+		"svelte": "5.0.0-next.218",
+		"svelte-check": "3.8.5",
+		"typescript": "5.5.4",
+		"unplugin-icons": "0.19.2",
+		"vite": "5.4.0"
+	},
+	"type": "module",
+	"dependencies": {
+		"isomorphic-dompurify": "^2.35.0"
+	}
+}

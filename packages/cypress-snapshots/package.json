@@ -1,0 +1,39 @@
+{
+  "name": "@flakey/cypress-snapshots",
+  "version": "0.1.0",
+  "description": "Cypress plugin that captures DOM snapshots at each command step for Flakey",
+  "type": "module",
+  "main": "dist/plugin.js",
+  "exports": {
+    "./plugin": "./dist/plugin.js",
+    "./support": "./dist/support.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "cypress",
+    "testing",
+    "dom-snapshots",
+    "debugging",
+    "flakey"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/cypress-snapshots"
+  },
+  "peerDependencies": {
+    "cypress": ">=12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "cypress": "^13.0.0",
+    "typescript": "^5.5.4"
+  }
+}

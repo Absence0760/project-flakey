@@ -1,0 +1,3 @@
+ALTER TABLE tests ADD COLUMN IF NOT EXISTS test_code TEXT;
+ALTER TABLE tests ADD COLUMN IF NOT EXISTS command_log JSONB;
+CREATE INDEX IF NOT EXISTS idx_tests_status ON tests(status);

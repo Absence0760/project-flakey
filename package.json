@@ -1,0 +1,16 @@
+{
+  "name": "project-flakey",
+  "private": true,
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "upload": "cd cli && node dist/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

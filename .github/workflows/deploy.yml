@@ -1,0 +1,139 @@
+name: Build & Deploy
+
+on:
+  workflow_dispatch:
+  # Disabled automatic deploy — uncomment to re-enable
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "backend/**"
+  #     - "frontend/**"
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_BACKEND: flakey-backend
+  ECS_CLUSTER: flakey-production
+  ECS_SERVICE_BACKEND: flakey-production-backend
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/src/**'
+              - 'backend/package.json'
+              - 'backend/migrations/**'
+              - 'backend/Dockerfile'
+            frontend:
+              - 'frontend/src/**'
+              - 'frontend/package.json'
+
+  deploy-backend:
+    needs: [changes]
+    if: >
+      always() && (
+        needs.changes.outputs.backend == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/$ECR_BACKEND:${{ github.sha }} \
+                        -t $REGISTRY/$ECR_BACKEND:latest \
+                        ./backend
+          docker push $REGISTRY/$ECR_BACKEND --all-tags
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE_BACKEND \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE_BACKEND \
+            --region $AWS_REGION
+
+  deploy-frontend:
+    needs: [changes]
+    if: >
+      always() && (
+        needs.changes.outputs.frontend == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install and build
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ secrets.API_URL }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync frontend/build s3://${{ secrets.FRONTEND_BUCKET }} \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*.html" \
+            --exclude "*.json"
+
+          aws s3 sync frontend/build s3://${{ secrets.FRONTEND_BUCKET }} \
+            --cache-control "public, max-age=0, must-revalidate" \
+            --include "*.html" \
+            --include "*.json"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"

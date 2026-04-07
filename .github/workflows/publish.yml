@@ -1,0 +1,127 @@
+name: Publish Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - cli
+          - cypress-snapshots
+          - reporter
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  detect-package:
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.check.outputs.cli }}
+      snapshots: ${{ steps.check.outputs.snapshots }}
+      reporter: ${{ steps.check.outputs.reporter }}
+    steps:
+      - id: check
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          MANUAL="${{ github.event.inputs.package }}"
+
+          # Release tags: cli@0.1.0, cypress-snapshots@0.1.0, reporter@0.1.0
+          if [[ "$TAG" == cli@* ]] || [[ "$MANUAL" == "cli" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "cli=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == cypress-snapshots@* ]] || [[ "$MANUAL" == "cypress-snapshots" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "snapshots=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == reporter@* ]] || [[ "$MANUAL" == "reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "reporter=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish-cli:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: packages/cli
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-cypress-snapshots:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.snapshots == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: packages/cypress-snapshots
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Publish to npm
+        working-directory: packages/cypress-snapshots
+        run: pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-reporter:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.reporter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: packages/reporter
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Publish to npm
+        working-directory: packages/reporter
+        run: pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
