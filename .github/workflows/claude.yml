@@ -13,7 +13,7 @@ on:
 jobs:
   claude:
     if: |
-      github.actor == 'Absence0760' && (
+      contains(vars.CLAUDE_ALLOWED_USERS, github.actor) && (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
