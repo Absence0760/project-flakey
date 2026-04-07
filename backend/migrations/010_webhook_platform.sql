@@ -1,0 +1,1 @@
+ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'generic';

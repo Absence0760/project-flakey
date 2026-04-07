@@ -90,13 +90,21 @@
   }
 
   // --- Webhooks ---
-  interface Webhook { id: number; name: string; url: string; events: string[]; active: boolean; }
+  interface Webhook { id: number; name: string; url: string; events: string[]; active: boolean; platform: string; }
   let webhooks = $state<Webhook[]>([]);
   let webhooksLoading = $state(true);
   let newWhName = $state("");
   let newWhUrl = $state("");
   let newWhEvents = $state<string[]>(["run.failed"]);
+  let newWhPlatform = $state("generic");
   let testResult = $state<{ id: number; ok: boolean } | null>(null);
+
+  function detectPlatform(url: string): string {
+    if (url.includes("hooks.slack.com")) return "slack";
+    if (url.includes("webhook.office.com") || url.includes("logic.azure.com")) return "teams";
+    if (url.includes("discord.com/api/webhooks")) return "discord";
+    return "generic";
+  }
 
   async function loadWebhooks() {
     webhooksLoading = true;
@@ -107,8 +115,8 @@
 
   async function createWebhook() {
     if (!newWhUrl) return;
-    await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents }) });
-    newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"];
+    await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
+    newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"]; newWhPlatform = "generic";
     loadWebhooks();
   }
 
@@ -293,7 +301,13 @@
 
       <div class="row-form">
         <input type="text" bind:value={newWhName} placeholder="Name (optional)" />
-        <input type="url" bind:value={newWhUrl} placeholder="Webhook URL" />
+        <input type="url" bind:value={newWhUrl} placeholder="Webhook URL" oninput={() => { newWhPlatform = detectPlatform(newWhUrl); }} />
+        <select bind:value={newWhPlatform}>
+          <option value="generic">Generic JSON</option>
+          <option value="slack">Slack</option>
+          <option value="teams">Teams</option>
+          <option value="discord">Discord</option>
+        </select>
         <label class="checkbox-label">
           <input type="checkbox" checked={newWhEvents.includes("run.failed")} onchange={() => {
             newWhEvents = newWhEvents.includes("run.failed") ? newWhEvents.filter(e => e !== "run.failed") : [...newWhEvents, "run.failed"];
@@ -319,6 +333,9 @@
                 <span class="list-primary">{wh.name || "Unnamed"}</span>
                 <span class="list-secondary mono">{wh.url.replace(/^https?:\/\//, "").slice(0, 40)}...</span>
               </div>
+              {#if wh.platform && wh.platform !== "generic"}
+                <span class="pill platform">{wh.platform}</span>
+              {/if}
               <div class="wh-events">
                 {#each wh.events as ev}
                   <span class="pill event">{ev}</span>
@@ -499,6 +516,7 @@
   .pill.viewer { background: var(--bg-hover); color: var(--text-secondary); }
   .pill.archived { background: var(--bg-hover); color: var(--text-muted); font-size: 0.65rem; }
   .pill.event { background: var(--bg-secondary); color: var(--text-secondary); font-size: 0.65rem; font-family: monospace; }
+  .pill.platform { background: color-mix(in srgb, var(--link) 10%, transparent); color: var(--link); font-size: 0.65rem; text-transform: capitalize; }
 
   .inline-select {
     padding: 0.2rem 0.35rem; border: 1px solid var(--border); border-radius: 4px;

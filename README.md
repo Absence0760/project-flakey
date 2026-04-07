@@ -179,6 +179,7 @@ after-script:
 | `DB_PASSWORD` | `flakey_app` | Database password |
 | `PORT` | `3000` | API port |
 | `CORS_ORIGINS` | `http://localhost:7777` | Allowed origins (comma-separated) |
+| `FRONTEND_URL` | `http://localhost:7777` | Frontend URL (used in webhook notification links) |
 | `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
 | `NODE_ENV` | — | Set `production` to enforce JWT_SECRET and strict CORS |
 

@@ -5,7 +5,7 @@ import { join, basename } from "path";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
-import { dispatchWebhooks } from "../webhooks.js";
+import { dispatchRunFailed } from "../webhooks.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -158,11 +158,7 @@ router.post("/", uploadFields, async (req, res) => {
     logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed });
 
     if (run.stats.failed > 0) {
-      dispatchWebhooks(req.user!.orgId, "run.failed", {
-        text: `Run #${runId!} failed: ${run.stats.failed}/${run.stats.total} tests failed in suite '${run.meta.suite_name}'`,
-        event: "run.failed",
-        run: { id: runId!, suite_name: run.meta.suite_name, failed: run.stats.failed, total: run.stats.total },
-      });
+      dispatchRunFailed(req.user!.orgId, runId!, run);
     }
 
     res.status(201).json({ id: runId! });
