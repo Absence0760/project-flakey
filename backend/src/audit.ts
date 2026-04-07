@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import { tenantQuery } from "./db.js";
 
 export async function logAudit(
   orgId: number,
@@ -9,7 +9,7 @@ export async function logAudit(
   detail?: object
 ): Promise<void> {
   try {
-    await pool.query(
+    await tenantQuery(orgId,
       `INSERT INTO audit_log (org_id, user_id, action, target_type, target_id, detail)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [orgId, userId, action, targetType ?? null, targetId ?? null, detail ? JSON.stringify(detail) : null]

@@ -132,24 +132,63 @@ export interface RunDetail extends Run {
 }
 
 export interface ErrorGroup {
+  fingerprint: string;
   error_message: string;
-  count: number;
+  occurrence_count: number;
+  affected_tests: number;
+  affected_runs: number;
+  first_seen: string;
+  last_seen: string;
   latest_run_id: number;
-  latest_run_date: string;
   latest_test_id: number | null;
   test_title: string;
-  file_path: string;
+  file_paths: string[];
   suite_name: string;
-  run_ids: number[];
+  group_id: number | null;
+  status: string;
+  note_count: number;
 }
 
-export async function fetchErrors(filters?: { suite?: string; run_id?: number }): Promise<ErrorGroup[]> {
+export interface ErrorNote {
+  id: number;
+  body: string;
+  created_at: string;
+  user_name: string | null;
+  user_email: string;
+}
+
+export async function fetchErrors(filters?: { suite?: string; status?: string }): Promise<ErrorGroup[]> {
   const params = new URLSearchParams();
   if (filters?.suite) params.set("suite", filters.suite);
-  if (filters?.run_id) params.set("run_id", String(filters.run_id));
+  if (filters?.status) params.set("status", filters.status);
   const qs = params.toString();
   const res = await authFetch(`${API_URL}/errors${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
+  return res.json();
+}
+
+export async function updateErrorStatus(fingerprint: string, status: string): Promise<void> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(`Failed to update status: ${res.status}`);
+}
+
+export async function fetchErrorNotes(fingerprint: string): Promise<ErrorNote[]> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}/notes`);
+  if (!res.ok) throw new Error(`Failed to fetch notes: ${res.status}`);
+  return res.json();
+}
+
+export async function addErrorNote(fingerprint: string, body: string): Promise<ErrorNote> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error(`Failed to add note: ${res.status}`);
   return res.json();
 }
 
