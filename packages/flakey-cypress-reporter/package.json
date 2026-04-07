@@ -1,0 +1,35 @@
+{
+  "name": "@flakeytesting/cypress-reporter",
+  "version": "0.1.0",
+  "description": "Cypress reporter for Flakey — uploads results, screenshots, videos, and DOM snapshots",
+  "type": "module",
+  "main": "dist/reporter.cjs",
+  "exports": {
+    ".": "./dist/reporter.cjs",
+    "./plugin": "./dist/plugin.js",
+    "./support": "./dist/support.js",
+    "./dist/*": "./dist/*"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc && node scripts/build-cjs.cjs"
+  },
+  "keywords": ["cypress", "testing", "reporter", "flakey"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/flakey-cypress-reporter"
+  },
+  "peerDependencies": {
+    "cypress": ">=12.0.0"
+  },
+  "dependencies": {
+    "@flakeytesting/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^25.5.2",
+    "typescript": "^5.5.4"
+  }
+}

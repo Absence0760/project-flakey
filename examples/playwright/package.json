@@ -2,7 +2,7 @@
   "name": "@flakeytesting/example-playwright",
   "private": true,
   "comments": {
-    "deps": "To use published npm packages instead of local links, replace the link: entry with: \"@flakeytesting/reporter\": \"latest\""
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/playwright-reporter\": \"latest\""
   },
   "scripts": {
     "test:smoke": "SUITE=smoke playwright test --config playwright.config.ts",
@@ -11,7 +11,7 @@
     "test:all": "SUITE=smoke playwright test; SUITE=sanity playwright test; SUITE=regression playwright test"
   },
   "devDependencies": {
-    "@flakeytesting/reporter": "link:../../packages/reporter",
+    "@flakeytesting/playwright-reporter": "link:../../packages/flakey-playwright-reporter",
     "@playwright/test": "latest",
     "typescript": "latest"
   }

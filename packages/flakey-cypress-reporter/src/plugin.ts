@@ -3,9 +3,9 @@
  * Collects buffered spec results and uploads once after the entire run.
  *
  * cypress.config.ts:
- *   import { flakeyReporter } from "@flakeytesting/reporter/dist/cypress-plugin.js";
+ *   import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
  *   export default defineConfig({
- *     reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+ *     reporter: "@flakeytesting/cypress-reporter",
  *     reporterOptions: { url, apiKey, suite },
  *     e2e: {
  *       setupNodeEvents(on, config) {

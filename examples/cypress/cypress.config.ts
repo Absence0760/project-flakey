@@ -1,5 +1,5 @@
 import { defineConfig } from "cypress";
-import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
 import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 import { readFileSync, existsSync } from "fs";
 
@@ -22,7 +22,7 @@ const specPatterns: Record<string, string> = {
 };
 
 export default defineConfig({
-  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporter: "@flakeytesting/cypress-reporter",
   reporterOptions: {
     url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY ?? "",

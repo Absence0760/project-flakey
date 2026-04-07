@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/cypress-snapshots",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Cypress plugin that captures DOM snapshots at each command step for Flakey",
   "type": "module",
   "main": "dist/plugin.js",
@@ -29,7 +29,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jaredhoward/project-flakey.git",
-    "directory": "packages/cypress-snapshots"
+    "directory": "packages/flakey-cypress-snapshots"
   },
   "peerDependencies": {
     "cypress": ">=12.0.0"

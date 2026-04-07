@@ -3,7 +3,7 @@
  *
  * playwright.config.ts:
  *   reporter: [
- *     ['@flakey/reporter/playwright', {
+ *     ['@flakeytesting/playwright-reporter', {
  *       url: 'http://localhost:3000',
  *       apiKey: process.env.FLAKEY_API_KEY,
  *       suite: 'my-project',
@@ -11,8 +11,8 @@
  *   ],
  */
 
-import type { ReporterOptions, NormalizedRun, NormalizedSpec, NormalizedTest } from "./schema.js";
-import { ApiClient } from "./api-client.js";
+import type { ReporterOptions, NormalizedRun, NormalizedSpec, NormalizedTest } from "@flakeytesting/core";
+import { ApiClient } from "@flakeytesting/core";
 
 // Playwright reporter types — we define them inline to avoid requiring
 // @playwright/test as a runtime dependency

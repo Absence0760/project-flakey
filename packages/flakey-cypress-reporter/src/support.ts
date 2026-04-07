@@ -1,7 +1,7 @@
 /**
  * Cypress support file for command log capture.
  * Import in cypress/support/e2e.ts:
- *   import "@flakeytesting/reporter/support";
+ *   import "@flakeytesting/cypress-reporter/support";
  */
 
 declare const Cypress: any;

@@ -8,9 +8,9 @@ importers:
 
   .:
     devDependencies:
-      '@flakeytesting/reporter':
-        specifier: link:../../packages/reporter
-        version: link:../../packages/reporter
+      '@flakeytesting/playwright-reporter':
+        specifier: link:../../packages/flakey-playwright-reporter
+        version: link:../../packages/flakey-playwright-reporter
       '@playwright/test':
         specifier: latest
         version: 1.59.1

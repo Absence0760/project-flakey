@@ -2,9 +2,9 @@
  * Cypress reporter for Flakey.
  *
  * cypress.config.ts:
- *   import { flakeyReporter } from "@flakeytesting/reporter/dist/cypress-plugin.js";
+ *   import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
  *   export default defineConfig({
- *     reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+ *     reporter: "@flakeytesting/cypress-reporter",
  *     reporterOptions: {
  *       url: 'http://localhost:3000',
  *       apiKey: process.env.FLAKEY_API_KEY,

@@ -29,7 +29,7 @@ export default defineConfig({
   },
   reporter: [
     ["list"],
-    ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+    ["@flakeytesting/playwright-reporter", {
       url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `playwright-example-${suite}`,

@@ -1,0 +1,35 @@
+{
+  "name": "@flakeytesting/playwright-reporter",
+  "version": "0.1.0",
+  "description": "Playwright reporter for Flakey — uploads results, screenshots, and videos",
+  "type": "module",
+  "main": "dist/reporter.js",
+  "exports": {
+    ".": "./dist/reporter.js",
+    "./dist/*": "./dist/*"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["playwright", "testing", "reporter", "flakey"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/flakey-playwright-reporter"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.30.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": { "optional": true }
+  },
+  "dependencies": {
+    "@flakeytesting/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.5.4"
+  }
+}
