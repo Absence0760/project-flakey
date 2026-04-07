@@ -50,34 +50,62 @@ npm run dev
 
 ## Upload Test Results
 
-### Cypress (Mochawesome)
+### Cypress (recommended)
+
+```bash
+npm install --save-dev @flakeytesting/reporter
+```
+
+```typescript
+// cypress.config.ts
+import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+
+export default defineConfig({
+  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporterOptions: {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  },
+  e2e: {
+    setupNodeEvents(on, config) {
+      flakeyReporter(on, config);
+      return config;
+    },
+  },
+});
+```
+
+Results, screenshots, and videos are uploaded automatically when the run finishes.
+
+### Playwright
+
+```bash
+npm install --save-dev @flakeytesting/reporter
+```
+
+```typescript
+// playwright.config.ts
+reporter: [
+  ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  }],
+],
+```
+
+### CLI (alternative for any framework)
 
 ```bash
 npx tsx packages/cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
+  --reporter mochawesome \
   --api-key $FLAKEY_API_KEY
 ```
 
-### Playwright
-
-```bash
-npx tsx packages/cli/src/index.ts \
-  --report-dir playwright-report \
-  --suite my-project \
-  --reporter playwright \
-  --api-key $FLAKEY_API_KEY
-```
-
-### JUnit XML (Jest, pytest, Go, etc.)
-
-```bash
-npx tsx packages/cli/src/index.ts \
-  --report-dir test-results \
-  --suite my-project \
-  --reporter junit \
-  --api-key $FLAKEY_API_KEY
-```
+Also supports `--reporter playwright` and `--reporter junit`.
 
 ### curl
 

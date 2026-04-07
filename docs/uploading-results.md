@@ -25,7 +25,76 @@ TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
 
 ---
 
-## Method 1: CLI Uploader (recommended)
+## Method 1: Direct Reporter (recommended)
+
+The simplest way to get results into Flakey. Install the reporter package, add it to your config, and results are uploaded automatically when the run finishes — including screenshots, videos, and DOM snapshots. No extra steps.
+
+### Cypress
+
+```bash
+npm install --save-dev @flakeytesting/reporter @flakeytesting/cypress-snapshots
+```
+
+```typescript
+// cypress.config.ts
+import { defineConfig } from "cypress";
+import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
+
+export default defineConfig({
+  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporterOptions: {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  },
+  e2e: {
+    setupNodeEvents(on, config) {
+      flakeyReporter(on, config);
+      flakeySnapshots(on, config);  // optional: DOM snapshot capture
+      return config;
+    },
+  },
+});
+```
+
+```typescript
+// cypress/support/e2e.ts
+import "@flakeytesting/cypress-snapshots/support";  // only if using snapshots
+```
+
+Then just run your tests:
+
+```bash
+FLAKEY_API_KEY=fk_your_key npx cypress run
+```
+
+Everything is uploaded in a single request after the run finishes — report, screenshots, videos, and DOM snapshots. One run, no merge step, no CLI.
+
+### Playwright
+
+```bash
+npm install --save-dev @flakeytesting/reporter
+```
+
+```typescript
+// playwright.config.ts
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  reporter: [
+    ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+      url: "http://localhost:3000",
+      apiKey: process.env.FLAKEY_API_KEY,
+      suite: "my-project",
+    }],
+  ],
+});
+```
+
+---
+
+## Method 2: CLI Uploader
 
 The CLI finds report files, discovers screenshots and videos, matches them to tests, and uploads everything in one multipart request.
 
@@ -267,7 +336,9 @@ The modal auto-selects the most relevant tab: screenshots if available, then vid
 
 ---
 
-## Generating reports
+## Generating reports (for CLI method only)
+
+If using the direct reporter (Method 1), skip this section — no report generation is needed.
 
 ### Cypress + Mochawesome
 

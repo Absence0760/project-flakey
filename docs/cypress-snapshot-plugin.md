@@ -78,7 +78,7 @@ interface SnapshotStep {
 ### Installation
 
 ```bash
-npm install @flakey/cypress-snapshots
+npm install --save-dev @flakeytesting/cypress-snapshots
 ```
 
 ### Setup
@@ -86,7 +86,7 @@ npm install @flakey/cypress-snapshots
 **cypress.config.ts:**
 
 ```typescript
-import { flakeySnapshots } from "@flakey/cypress-snapshots/plugin";
+import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 
 export default defineConfig({
   e2e: {
@@ -116,7 +116,7 @@ export default defineConfig({
 **cypress/support/e2e.ts:**
 
 ```typescript
-import "@flakey/cypress-snapshots/support";
+import "@flakeytesting/cypress-snapshots/support";
 ```
 
 ### How Capture Works
