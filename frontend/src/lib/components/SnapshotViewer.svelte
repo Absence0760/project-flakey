@@ -31,6 +31,8 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let iframeEl = $state<HTMLIFrameElement | null>(null);
+  let frameEl = $state<HTMLDivElement | null>(null);
+  let scale = $state(1);
 
   let currentStep = $derived.by(() => {
     if (!bundle) return null;
@@ -45,7 +47,6 @@
   $effect(() => {
     if (currentStep && iframeEl) {
       iframeEl.srcdoc = currentStep.html;
-      // Scroll to the saved position after the iframe loads
       iframeEl.onload = () => {
         try {
           iframeEl?.contentWindow?.scrollTo(currentStep!.scrollX, currentStep!.scrollY);
@@ -53,6 +54,23 @@
       };
     }
   });
+
+  $effect(() => {
+    if (bundle && frameEl) {
+      computeScale();
+    }
+  });
+
+  function computeScale() {
+    if (!bundle || !frameEl) return;
+    const containerWidth = frameEl.clientWidth;
+    const containerHeight = frameEl.clientHeight;
+    if (containerWidth === 0 || containerHeight === 0) return;
+
+    const scaleX = containerWidth / bundle.viewportWidth;
+    const scaleY = containerHeight / bundle.viewportHeight;
+    scale = Math.min(scaleX, scaleY, 1);
+  }
 
   async function loadSnapshot(path: string) {
     loading = true;
@@ -64,7 +82,6 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch snapshot: ${res.status}`);
 
-      // Decompress gzip
       const ds = new DecompressionStream("gzip");
       const decompressed = res.body!.pipeThrough(ds);
       const reader = decompressed.getReader();
@@ -87,20 +104,24 @@
   }
 </script>
 
+<svelte:window onresize={computeScale} />
+
 <div class="snapshot-viewer">
   {#if loading}
     <div class="snapshot-status">Loading snapshot...</div>
   {:else if error}
     <div class="snapshot-status error">{error}</div>
   {:else if bundle && currentStep}
-    <div class="snapshot-frame">
-      <iframe
-        bind:this={iframeEl}
-        sandbox="allow-same-origin"
-        title="DOM Snapshot"
-        width={bundle.viewportWidth}
-        height={bundle.viewportHeight}
-      ></iframe>
+    <div class="snapshot-frame" bind:this={frameEl}>
+      <div class="snapshot-scaler" style="transform: scale({scale}); width: {bundle.viewportWidth}px; height: {bundle.viewportHeight}px;">
+        <iframe
+          bind:this={iframeEl}
+          sandbox="allow-same-origin"
+          title="DOM Snapshot"
+          width={bundle.viewportWidth}
+          height={bundle.viewportHeight}
+        ></iframe>
+      </div>
     </div>
   {:else}
     <div class="snapshot-status">No snapshot data available.</div>
@@ -129,17 +150,21 @@
 
   .snapshot-frame {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
     background: #fff;
     display: flex;
     align-items: flex-start;
     justify-content: center;
+    position: relative;
+  }
+
+  .snapshot-scaler {
+    transform-origin: top center;
+    flex-shrink: 0;
   }
 
   iframe {
     border: none;
-    transform-origin: top left;
-    flex-shrink: 0;
+    display: block;
   }
-
 </style>

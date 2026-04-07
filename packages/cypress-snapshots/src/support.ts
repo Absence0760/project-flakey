@@ -96,7 +96,28 @@ Cypress.on("command:end", (command: any) => {
   } catch {}
 });
 
-afterEach(() => {
+afterEach(function () {
+  // Capture the final DOM state if the test failed (the failing command's command:end doesn't fire)
+  const testState = (this as any).currentTest?.state ?? (Cypress as any).state?.("runnable")?.state;
+  if (testState === "failed") {
+    const doc = getAppDocument();
+    if (doc) {
+      try {
+        const html = serializeDOM(doc);
+        const win = doc.defaultView;
+        steps.push({
+          index: commandIndex++,
+          commandName: "failure",
+          commandMessage: "Test failed — final DOM state",
+          timestamp: Date.now() - testStartTime,
+          html,
+          scrollX: win?.scrollX ?? 0,
+          scrollY: win?.scrollY ?? 0,
+        });
+      } catch {}
+    }
+  }
+
   if (steps.length === 0) return;
 
   const bundle = {

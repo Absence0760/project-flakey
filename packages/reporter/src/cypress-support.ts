@@ -15,20 +15,32 @@ interface CommandEntry {
 
 let currentCommands: CommandEntry[] = [];
 
+const skip = new Set(["xhr", "request", "route", "new url", "page load", "task"]);
+
 // Buffer commands as they're logged
 Cypress.on("log:added" as any, (log: any) => {
   const name = log.name;
-  if (!name) return;
-
-  // Skip internal/noise commands
-  const skip = new Set(["xhr", "request", "route", "new url", "page load", "task"]);
-  if (skip.has(name)) return;
+  if (!name || skip.has(name)) return;
 
   currentCommands.push({
     name,
     message: log.message ?? "",
     state: log.state ?? "passed",
   });
+});
+
+// Update command state when it changes (e.g. assertion fails)
+Cypress.on("log:changed" as any, (log: any) => {
+  const name = log.name;
+  if (!name || skip.has(name)) return;
+
+  // Find the last command with this name and update its state
+  for (let i = currentCommands.length - 1; i >= 0; i--) {
+    if (currentCommands[i].name === name && currentCommands[i].message === (log.message ?? "")) {
+      currentCommands[i].state = log.state ?? currentCommands[i].state;
+      break;
+    }
+  }
 });
 
 // Reset before each test
