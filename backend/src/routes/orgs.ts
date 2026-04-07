@@ -269,7 +269,7 @@ router.patch("/:id/members/:userId", async (req, res) => {
 router.get("/:id/settings", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT retention_days FROM organizations WHERE id = $1",
+      "SELECT retention_days, github_repo, github_token IS NOT NULL AS has_github_token FROM organizations WHERE id = $1",
       [req.params.id]
     );
     if (result.rows.length === 0) {
@@ -290,15 +290,37 @@ router.patch("/:id/settings", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const { retention_days } = req.body;
-    const value = retention_days === null || retention_days === "" ? null : Number(retention_days);
 
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+
+    if (req.body.retention_days !== undefined) {
+      const value = req.body.retention_days === null || req.body.retention_days === "" ? null : Number(req.body.retention_days);
+      sets.push(`retention_days = $${i++}`);
+      params.push(value);
+    }
+    if (req.body.github_token !== undefined) {
+      sets.push(`github_token = $${i++}`);
+      params.push(req.body.github_token || null);
+    }
+    if (req.body.github_repo !== undefined) {
+      sets.push(`github_repo = $${i++}`);
+      params.push(req.body.github_repo || null);
+    }
+
+    if (sets.length === 0) {
+      res.status(400).json({ error: "Nothing to update" });
+      return;
+    }
+
+    params.push(req.params.id);
     await pool.query(
-      "UPDATE organizations SET retention_days = $1 WHERE id = $2",
-      [value, req.params.id]
+      `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`,
+      params
     );
-    await logAudit(req.user!.orgId, req.user!.id, "settings.update", "settings", "retention", { retention_days: value });
-    res.json({ updated: true, retention_days: value });
+    await logAudit(req.user!.orgId, req.user!.id, "settings.update", "settings", "org", {});
+    res.json({ updated: true });
   } catch (err) {
     console.error("PATCH /orgs/:id/settings error:", err);
     res.status(500).json({ error: "Internal server error" });

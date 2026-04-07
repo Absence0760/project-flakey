@@ -3,6 +3,7 @@ import { tenantQuery, tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
+import { postPRComment } from "../github.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -74,6 +75,8 @@ router.post("/", async (req, res) => {
     if (run.stats.failed > 0) {
       dispatchRunFailed(req.user!.orgId, runId!, run);
     }
+
+    postPRComment(req.user!.orgId, runId!, run);
 
     res.status(201).json({ id: runId! });
   } catch (err) {

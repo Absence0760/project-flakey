@@ -124,11 +124,14 @@ Create an API key from the Profile page for permanent access (no expiry).
 - Invite-by-email flow
 - Rate limiting, httpOnly cookies, CORS whitelist, security headers
 
+### Integrations
+- **GitHub PR comments** — auto-posts test summary (pass rate, failures, flaky tests, trend) as a PR comment; updates existing comment on re-runs
+- **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
+
 ### Admin
 - Team management (invite, roles, remove)
 - Suite management (rename, archive, delete)
 - Data retention (auto-delete runs older than N days)
-- Webhook notifications (Slack/Teams/Discord on failure)
 - Audit log
 
 ## Architecture

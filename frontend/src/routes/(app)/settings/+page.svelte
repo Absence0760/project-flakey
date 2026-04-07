@@ -138,6 +138,46 @@
     setTimeout(() => { if (testResult?.id === id) testResult = null; }, 3000);
   }
 
+  // --- GitHub Integration ---
+  let githubRepo = $state("");
+  let githubToken = $state("");
+  let hasGithubToken = $state(false);
+  let githubSaved = $state(false);
+  let githubError = $state<string | null>(null);
+
+  async function loadGithub() {
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`);
+    if (res.ok) {
+      const data = await res.json();
+      githubRepo = data.github_repo ?? "";
+      hasGithubToken = data.has_github_token ?? false;
+    }
+  }
+
+  async function saveGithub() {
+    githubError = null;
+    if (githubRepo && !/^[^/]+\/[^/]+$/.test(githubRepo)) {
+      githubError = "Format: owner/repo";
+      return;
+    }
+    const body: Record<string, string | null> = { github_repo: githubRepo || null };
+    if (githubToken) body.github_token = githubToken;
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
+    if (res.ok) {
+      githubSaved = true;
+      githubToken = "";
+      hasGithubToken = !!body.github_token || hasGithubToken;
+      setTimeout(() => githubSaved = false, 2000);
+    }
+  }
+
+  async function removeGithub() {
+    await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ github_token: null, github_repo: null }) });
+    githubRepo = "";
+    githubToken = "";
+    hasGithubToken = false;
+  }
+
   // --- Retention ---
   let retentionDays = $state<string>("");
   let retentionSaved = $state(false);
@@ -191,7 +231,7 @@
     loadMembers();
     loadSuites();
     loadRetention();
-    if (isAdmin) { loadWebhooks(); loadAudit(); }
+    if (isAdmin) { loadWebhooks(); loadGithub(); loadAudit(); }
   });
 </script>
 
@@ -357,6 +397,31 @@
             </div>
           {/each}
         </div>
+      {/if}
+    </section>
+  {/if}
+
+  <!-- GitHub Integration -->
+  {#if isAdmin}
+    <section class="card">
+      <h2>GitHub PR Comments</h2>
+      <p class="card-desc">Automatically post test results as PR comments when runs include a commit SHA or branch.</p>
+
+      <div class="row-form">
+        <input type="text" bind:value={githubRepo} placeholder="owner/repo" style="max-width: 220px" />
+        <input type="password" bind:value={githubToken} placeholder={hasGithubToken ? "Token saved (enter new to replace)" : "GitHub token (PAT or fine-grained)"} />
+        <button class="btn-primary" onclick={saveGithub}>
+          {githubSaved ? "Saved" : "Save"}
+        </button>
+        {#if hasGithubToken}
+          <button class="btn-sm danger" onclick={removeGithub}>Remove</button>
+        {/if}
+      </div>
+      {#if githubError}<p class="form-error">{githubError}</p>{/if}
+      {#if hasGithubToken && githubRepo}
+        <p class="muted" style="margin-top: 0.25rem">Connected to <strong>{githubRepo}</strong>. PR comments will be posted on test uploads.</p>
+      {:else}
+        <p class="muted" style="margin-top: 0.25rem">Create a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">GitHub token</a> with <code>repo</code> scope (or fine-grained with Issues/PRs read+write).</p>
       {/if}
     </section>
   {/if}
