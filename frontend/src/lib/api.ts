@@ -321,8 +321,14 @@ export interface SlowestTest {
   avg_duration_ms: number;
   max_duration_ms: number;
   min_duration_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
   run_count: number;
   last_seen: string;
+  first_seen: string;
+  duration_history: number[];
+  trend_pct: number;
 }
 
 export async function fetchSlowestTests(suite?: string): Promise<SlowestTest[]> {

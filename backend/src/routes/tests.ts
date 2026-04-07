@@ -101,7 +101,7 @@ router.get("/:id/history", async (req, res) => {
   }
 });
 
-// GET /tests/slowest — slowest tests across recent runs
+// GET /tests/slowest — slowest tests with percentiles, trend, and duration timeline
 router.get("/slowest/list", async (req, res) => {
   try {
     const orgId = req.user!.orgId;
@@ -124,8 +124,13 @@ router.get("/slowest/list", async (req, res) => {
         ROUND(AVG(t.duration_ms))::int AS avg_duration_ms,
         MAX(t.duration_ms)::int AS max_duration_ms,
         MIN(t.duration_ms)::int AS min_duration_ms,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.duration_ms))::int AS p50_ms,
+        ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY t.duration_ms))::int AS p95_ms,
+        ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY t.duration_ms))::int AS p99_ms,
         COUNT(*)::int AS run_count,
-        MAX(r.created_at) AS last_seen
+        MAX(r.created_at) AS last_seen,
+        MIN(r.created_at) AS first_seen,
+        ARRAY_AGG(t.duration_ms ORDER BY r.created_at ASC) AS duration_history
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
@@ -137,7 +142,22 @@ router.get("/slowest/list", async (req, res) => {
       LIMIT $1
     `, params);
 
-    res.json(result.rows);
+    // Compute trend: compare avg of first half vs second half of duration_history
+    const rows = result.rows.map((row) => {
+      const history: number[] = row.duration_history;
+      const mid = Math.floor(history.length / 2);
+      if (mid === 0) {
+        return { ...row, trend_pct: 0 };
+      }
+      const firstHalf = history.slice(0, mid);
+      const secondHalf = history.slice(mid);
+      const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+      const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+      const trendPct = avgFirst > 0 ? Math.round(((avgSecond - avgFirst) / avgFirst) * 100) : 0;
+      return { ...row, trend_pct: trendPct };
+    });
+
+    res.json(rows);
   } catch (err) {
     console.error("GET /tests/slowest error:", err);
     res.status(500).json({ error: "Internal server error" });
