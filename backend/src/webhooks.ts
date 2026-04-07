@@ -6,6 +6,7 @@ import type { NormalizedRun } from "./types.js";
 export type { WebhookRunFailedPayload };
 
 export async function dispatchWebhooks(orgId: number, event: string, payload: WebhookRunFailedPayload): Promise<void> {
+  if (!orgId) return;
   try {
     const result = await pool.query(
       "SELECT url, platform FROM webhooks WHERE org_id = $1 AND active = true AND $2 = ANY(events)",
