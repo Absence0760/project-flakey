@@ -168,6 +168,40 @@ export interface ErrorNote {
   user_email: string;
 }
 
+export interface Note {
+  id: number;
+  body: string;
+  target_type: string;
+  target_key: string;
+  created_at: string;
+  user_name: string | null;
+  user_email: string;
+}
+
+export async function fetchNotes(targetType: string, targetKey: string): Promise<Note[]> {
+  const params = new URLSearchParams({ target_type: targetType, target_key: targetKey });
+  const res = await authFetch(`${API_URL}/notes?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch notes: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchNoteCounts(targetType: string, targetKeys: string[]): Promise<Record<string, number>> {
+  const params = new URLSearchParams({ target_type: targetType, target_keys: targetKeys.join(",") });
+  const res = await authFetch(`${API_URL}/notes/counts?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch note counts: ${res.status}`);
+  return res.json();
+}
+
+export async function addNote(targetType: string, targetKey: string, body: string): Promise<Note> {
+  const res = await authFetch(`${API_URL}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_type: targetType, target_key: targetKey, body }),
+  });
+  if (!res.ok) throw new Error(`Failed to add note: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchErrors(filters?: { suite?: string; status?: string }): Promise<ErrorGroup[]> {
   const params = new URLSearchParams();
   if (filters?.suite) params.set("suite", filters.suite);

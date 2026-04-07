@@ -2,6 +2,7 @@
   import { fetchTest, fetchTestHistory, UPLOADS_URL, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import Lightbox from "./Lightbox.svelte";
   import SnapshotViewer from "./SnapshotViewer.svelte";
+  import NotesPanel from "./NotesPanel.svelte";
 
   interface Props {
     testId: number | null;
@@ -21,7 +22,7 @@
   let lightboxIndex = $state(0);
 
   // Right panel state
-  let rightTab = $state<"error" | "commands" | "code" | "details" | "history">("error");
+  let rightTab = $state<"error" | "commands" | "code" | "details" | "history" | "notes">("error");
   let history = $state<TestHistoryEntry[]>([]);
   let historyLoaded = $state(false);
   let stackExpanded = $state(false);
@@ -311,6 +312,9 @@
               <button class="pane-tab" class:active={rightTab === "history"} onclick={selectHistoryTab}>
                 History
               </button>
+              <button class="pane-tab" class:active={rightTab === "notes"} onclick={() => rightTab = "notes"}>
+                Notes
+              </button>
             </div>
 
             <div class="pane-content">
@@ -521,6 +525,13 @@
                       {/each}
                     </div>
                   {/if}
+                </div>
+
+              {:else if rightTab === "notes"}
+                <div class="notes-tab">
+                  {#key test.id}
+                    <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
+                  {/key}
                 </div>
               {/if}
             </div>
@@ -1375,6 +1386,12 @@
 
   /* History panel */
   .history-panel {
+    padding: 0.75rem;
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  .notes-tab {
     padding: 0.75rem;
     overflow-y: auto;
     height: 100%;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
+  import NotesPanel from "$lib/components/NotesPanel.svelte";
 
   let tests = $state<SlowestTest[]>([]);
   let loading = $state(true);
@@ -194,6 +195,10 @@
                   <span class="legend-line">avg {formatMs(test.avg_duration_ms)}</span>
                 </div>
               </div>
+
+              <div class="test-notes">
+                <NotesPanel targetType="test" targetKey={test.title + '|' + test.file_path} />
+              </div>
             </div>
           {/if}
         </div>
@@ -319,4 +324,6 @@
   .legend-bar.normal { background: var(--color-skip); }
   .legend-bar.hot { background: var(--color-fail); }
   .legend-line { margin-left: auto; font-family: monospace; }
+
+  .test-notes { margin-top: 0.75rem; }
 </style>

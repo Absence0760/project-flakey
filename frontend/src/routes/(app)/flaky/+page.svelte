@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fetchFlakyTests, fetchRuns, type FlakyTest, type Run } from "$lib/api";
+  import NotesPanel from "$lib/components/NotesPanel.svelte";
 
   let tests = $state<FlakyTest[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -13,6 +14,7 @@
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
 
   let sortBy = $state<"flaky_rate" | "flip_count" | "fail_count" | "last_seen">("flaky_rate");
+  let expandedIndex = $state<number | null>(null);
   let sorted = $derived(
     [...tests].sort((a, b) => {
       if (sortBy === "last_seen") return new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime();
@@ -114,8 +116,9 @@
     </div>
 
     <div class="flaky-list">
-      {#each sorted as test}
-        <div class="flaky-card">
+      {#each sorted as test, i}
+        <div class="flaky-card" class:expanded={expandedIndex === i}>
+          <button class="card-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
           <div class="card-top">
             <div class="rate-ring" style="--rate: {test.flaky_rate}; --rate-color: {rateColor(test.flaky_rate)}">
               <span class="rate-value">{test.flaky_rate}%</span>
@@ -145,6 +148,13 @@
               <span>last {timeAgo(test.last_seen)}</span>
             </div>
           </div>
+          </button>
+
+          {#if expandedIndex === i}
+            <div class="card-detail">
+              <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -190,10 +200,19 @@
   .flaky-list { display: flex; flex-direction: column; gap: 0.5rem; }
 
   .flaky-card {
-    border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem;
-    background: var(--bg); transition: border-color 0.1s;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); transition: border-color 0.1s; overflow: hidden;
   }
-  .flaky-card:hover { border-color: color-mix(in srgb, var(--color-skip) 60%, var(--border)); }
+  .flaky-card:hover, .flaky-card.expanded { border-color: color-mix(in srgb, var(--color-skip) 60%, var(--border)); }
+
+  .card-header {
+    display: block; width: 100%; padding: 0.75rem 1rem; cursor: pointer;
+    text-align: left; color: var(--text); font: inherit; background: none; border: none;
+  }
+
+  .card-detail {
+    border-top: 1px solid var(--border); padding: 0.75rem 1rem; background: var(--bg-secondary);
+  }
 
   .card-top { display: flex; align-items: center; gap: 0.75rem; }
 

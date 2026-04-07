@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
+  import NotesPanel from "$lib/components/NotesPanel.svelte";
 
   let run = $state<RunDetail | null>(null);
   let loading = $state(true);
@@ -178,6 +179,11 @@
         </div>
       </div>
     </header>
+
+    <!-- Run notes -->
+    <div class="run-notes">
+      <NotesPanel targetType="run" targetKey={String(run.id)} compact />
+    </div>
 
     <!-- Filter toolbar -->
     <div class="toolbar">
@@ -464,6 +470,11 @@
     width: 1px;
     height: 28px;
     background: var(--border-light);
+  }
+
+  .run-notes {
+    margin-bottom: 1rem; padding: 0.75rem 1rem;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
   }
 
   /* Toolbar */

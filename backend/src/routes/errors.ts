@@ -43,7 +43,7 @@ router.get("/", async (req, res) => {
          ORDER BY r2.created_at DESC LIMIT 1) AS latest_test_id,
         eg.id AS group_id,
         COALESCE(eg.status, 'open') AS status,
-        (SELECT COUNT(*)::int FROM error_notes en WHERE en.error_group_id = eg.id) AS note_count
+        (SELECT COUNT(*)::int FROM notes n WHERE n.target_type = 'error' AND n.target_key = md5(t.error_message || '|' || r.suite_name)) AS note_count
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
@@ -131,20 +131,16 @@ router.get("/:fingerprint/tests", async (req, res) => {
   }
 });
 
-// GET /errors/:fingerprint/notes — get notes for an error group
+// GET /errors/:fingerprint/notes — get notes for an error group (delegates to universal notes)
 router.get("/:fingerprint/notes", async (req, res) => {
   try {
-    const orgId = req.user!.orgId;
-    const fingerprint = req.params.fingerprint;
-
-    const result = await tenantQuery(orgId,
-      `SELECT en.id, en.body, en.created_at, u.name AS user_name, u.email AS user_email
-       FROM error_notes en
-       JOIN error_groups eg ON eg.id = en.error_group_id
-       LEFT JOIN users u ON u.id = en.user_id
-       WHERE eg.fingerprint = $1
-       ORDER BY en.created_at ASC`,
-      [fingerprint]
+    const result = await tenantQuery(req.user!.orgId,
+      `SELECT n.id, n.body, n.created_at, u.name AS user_name, u.email AS user_email
+       FROM notes n
+       LEFT JOIN users u ON u.id = n.user_id
+       WHERE n.target_type = 'error' AND n.target_key = $1
+       ORDER BY n.created_at ASC`,
+      [req.params.fingerprint]
     );
     res.json(result.rows);
   } catch (err) {
@@ -153,7 +149,7 @@ router.get("/:fingerprint/notes", async (req, res) => {
   }
 });
 
-// POST /errors/:fingerprint/notes — add a note to an error group
+// POST /errors/:fingerprint/notes — add a note to an error group (delegates to universal notes)
 router.post("/:fingerprint/notes", async (req, res) => {
   try {
     const { body } = req.body;
@@ -166,23 +162,21 @@ router.post("/:fingerprint/notes", async (req, res) => {
     const fingerprint = req.params.fingerprint;
 
     // Ensure error group exists
-    const groupResult = await tenantQuery(orgId,
+    await tenantQuery(orgId,
       `INSERT INTO error_groups (org_id, fingerprint)
        VALUES ($1, $2)
-       ON CONFLICT (org_id, fingerprint) DO UPDATE SET updated_at = NOW()
-       RETURNING id`,
+       ON CONFLICT (org_id, fingerprint) DO UPDATE SET updated_at = NOW()`,
       [orgId, fingerprint]
     );
-    const groupId = groupResult.rows[0].id;
 
     const noteResult = await tenantQuery(orgId,
-      `INSERT INTO error_notes (error_group_id, org_id, user_id, body)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO notes (org_id, user_id, target_type, target_key, body)
+       VALUES ($1, $2, 'error', $3, $4)
        RETURNING id, created_at`,
-      [groupId, orgId, req.user!.id, body.trim()]
+      [orgId, req.user!.id, fingerprint, body.trim()]
     );
 
-    await logAudit(orgId, req.user!.id, "error.note", "error_group", fingerprint);
+    await logAudit(orgId, req.user!.id, "note.create", "error", fingerprint);
 
     res.status(201).json({
       id: noteResult.rows[0].id,

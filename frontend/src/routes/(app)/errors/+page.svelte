@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchErrors, fetchRuns, fetchErrorNotes, addErrorNote, updateErrorStatus, fetchAffectedTests, type ErrorGroup, type ErrorNote, type AffectedTest, type Run } from "$lib/api";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, type ErrorGroup, type AffectedTest, type Run } from "$lib/api";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
+  import NotesPanel from "$lib/components/NotesPanel.svelte";
 
   let errors = $state<ErrorGroup[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -16,11 +17,8 @@
 
   // Expanded error detail
   let expandedFingerprint = $state<string | null>(null);
-  let notes = $state<ErrorNote[]>([]);
   let affectedTests = $state<AffectedTest[]>([]);
-  let notesLoading = $state(false);
   let testsLoading = $state(false);
-  let newNote = $state("");
 
   const statuses = [
     { value: "open", label: "Open", color: "var(--color-fail)" },
@@ -69,20 +67,11 @@
       return;
     }
     expandedFingerprint = err.fingerprint;
-    notes = [];
     affectedTests = [];
-    newNote = "";
-    notesLoading = true;
     testsLoading = true;
     try {
-      const [n, t] = await Promise.all([
-        fetchErrorNotes(err.fingerprint),
-        fetchAffectedTests(err.fingerprint),
-      ]);
-      notes = n;
-      affectedTests = t;
+      affectedTests = await fetchAffectedTests(err.fingerprint);
     } catch { /* ignore */ }
-    notesLoading = false;
     testsLoading = false;
   }
 
@@ -94,17 +83,6 @@
     } catch { /* ignore */ }
   }
 
-  async function submitNote(fingerprint: string) {
-    if (!newNote.trim()) return;
-    try {
-      const note = await addErrorNote(fingerprint, newNote.trim());
-      notes = [...notes, note];
-      newNote = "";
-      // Update note count
-      const err = errors.find((e) => e.fingerprint === fingerprint);
-      if (err) { err.note_count++; errors = [...errors]; }
-    } catch { /* ignore */ }
-  }
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -242,30 +220,7 @@
                 {/if}
               </div>
 
-              <div class="notes-section">
-                <h4>Notes ({notes.length})</h4>
-                {#if notesLoading}
-                  <p class="muted">Loading...</p>
-                {:else if notes.length === 0}
-                  <p class="muted">No notes yet. Add one to start a discussion.</p>
-                {:else}
-                  <div class="notes-list">
-                    {#each notes as note}
-                      <div class="note">
-                        <div class="note-header">
-                          <span class="note-author">{note.user_name || note.user_email}</span>
-                          <span class="note-time">{timeAgo(note.created_at)}</span>
-                        </div>
-                        <p class="note-body">{note.body}</p>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-                <form class="note-form" onsubmit={(e) => { e.preventDefault(); submitNote(err.fingerprint); }}>
-                  <input type="text" bind:value={newNote} placeholder="Add a note..." />
-                  <button type="submit" class="btn-primary" disabled={!newNote.trim()}>Post</button>
-                </form>
-              </div>
+              <NotesPanel targetType="error" targetKey={err.fingerprint} />
             </div>
           {/if}
         </div>
@@ -376,31 +331,5 @@
   .at-file { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .at-count { font-weight: 600; color: var(--color-fail); }
 
-  /* Notes */
-  .notes-section { border-top: 1px solid var(--border); padding-top: 0.75rem; }
-  .notes-section h4 { margin: 0 0 0.5rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .muted { color: var(--text-muted); font-size: 0.8rem; margin: 0 0 0.5rem; }
-
-  .notes-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
-  .note {
-    padding: 0.5rem 0.65rem; background: var(--bg); border-radius: 6px; border: 1px solid var(--border);
-  }
-  .note-header { display: flex; justify-content: space-between; margin-bottom: 0.2rem; }
-  .note-author { font-size: 0.78rem; font-weight: 600; color: var(--text); }
-  .note-time { font-size: 0.7rem; color: var(--text-muted); }
-  .note-body { margin: 0; font-size: 0.82rem; color: var(--text-secondary); white-space: pre-wrap; }
-
-  .note-form { display: flex; gap: 0.4rem; }
-  .note-form input {
-    flex: 1; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg); color: var(--text); font-size: 0.82rem; outline: none;
-  }
-  .note-form input:focus { border-color: var(--link); }
-  .note-form input::placeholder { color: var(--text-muted); }
-  .btn-primary {
-    padding: 0.4rem 0.75rem; border: none; border-radius: 6px; background: var(--link);
-    color: #fff; font-size: 0.78rem; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:hover { opacity: 0.9; }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

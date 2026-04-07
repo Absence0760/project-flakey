@@ -15,6 +15,7 @@ import auditRouter from "./routes/audit.js";
 import compareRouter from "./routes/compare.js";
 import badgeRouter from "./routes/badge.js";
 import flakyRouter from "./routes/flaky.js";
+import notesRouter from "./routes/notes.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -80,6 +81,7 @@ app.use("/runs/upload", requireAuth, uploadsRouter);
 app.use("/runs", requireAuth, runsRouter);
 app.use("/errors", requireAuth, errorsRouter);
 app.use("/flaky", requireAuth, flakyRouter);
+app.use("/notes", requireAuth, notesRouter);
 app.use("/stats", requireAuth, statsRouter);
 app.use("/tests", requireAuth, testsRouter);
 
