@@ -1,9 +1,9 @@
-# flakey-reporter — custom reporter package
+# @flakeytesting/reporter — custom reporter package
 
 ## Concept
 
 Instead of generating mochawesome/JUnit output and normalizing it afterwards,
-`flakey-reporter` is a custom npm/pnpm package that plugs directly into Cypress
+`@flakeytesting/reporter` is a custom npm/pnpm package that plugs directly into Cypress
 or Playwright and POSTs results to the Flakey API in the unified schema.
 
 No intermediate files. No normalizer needed. One package, two frameworks.
@@ -13,7 +13,7 @@ No intermediate files. No normalizer needed. One package, two frameworks.
 ## Package structure
 
 ```
-flakey-reporter/
+@flakeytesting/reporter/
 ├── package.json
 ├── src/
 │   ├── index.ts              # entry — auto-detects or exports named reporters
@@ -31,10 +31,10 @@ flakey-reporter/
 
 ```bash
 # npm
-npm install --save-dev flakey-reporter
+npm install --save-dev @flakeytesting/reporter
 
 # pnpm
-pnpm add -D flakey-reporter
+pnpm add -D @flakeytesting/reporter
 ```
 
 ---
@@ -49,7 +49,7 @@ Cypress uses Mocha under the hood. Custom reporters receive Mocha runner events.
 import { defineConfig } from 'cypress'
 
 export default defineConfig({
-  reporter: 'flakey-reporter/cypress',
+  reporter: '@flakeytesting/reporter/cypress',
   reporterOptions: {
     url: 'https://your-flakey-instance.com',
     token: process.env.FLAKEY_TOKEN,
@@ -135,7 +135,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   reporter: [
-    ['flakey-reporter/playwright', {
+    ['@flakeytesting/reporter/playwright', {
       url: 'https://your-flakey-instance.com',
       token: process.env.FLAKEY_TOKEN,
       suite: 'playwright-suite',
@@ -235,7 +235,7 @@ export class ApiClient {
 
 ```json
 {
-  "name": "flakey-reporter",
+  "name": "@flakeytesting/reporter",
   "version": "0.1.0",
   "description": "Cypress and Playwright reporter for Flakey dashboard",
   "main": "dist/index.js",
@@ -273,10 +273,10 @@ Both peer dependencies are optional so you only need whichever framework you use
 | Approach | Pros | Cons |
 |---|---|---|
 | Post-run normalizer | Works with existing reporter configs | Extra step, relies on file output, format can change |
-| flakey-reporter package | Direct to API, no files, typed schema, real-time on `end` event | Teams must install and configure the package |
+| @flakeytesting/reporter package | Direct to API, no files, typed schema, real-time on `end` event | Teams must install and configure the package |
 
 The normalizer approach (mochawesome/JUnit) is still worth keeping as a fallback
-for teams that can't or won't change their reporter config. The `flakey-reporter`
+for teams that can't or won't change their reporter config. The `@flakeytesting/reporter`
 package is the first-class path for teams fully buying into Flakey.
 
 ---
@@ -291,7 +291,7 @@ pnpm build
 npm publish --access public
 
 # or scope it
-# name: @flakey/reporter
+# name: @flakeytesting/reporter
 # npm publish --access public
 ```
 
@@ -304,7 +304,7 @@ Once published, any team can install it and point it at their self-hosted Flakey
 ```
 Cypress / Playwright test run
         ↓
-flakey-reporter intercepts lifecycle events
+@flakeytesting/reporter intercepts lifecycle events
         ↓
 Builds NormalizedRun in memory
         ↓

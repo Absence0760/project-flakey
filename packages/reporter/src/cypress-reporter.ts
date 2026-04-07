@@ -2,18 +2,27 @@
  * Cypress reporter for Flakey.
  *
  * cypress.config.ts:
- *   reporter: '@flakey/reporter/cypress',
- *   reporterOptions: {
- *     url: 'http://localhost:3000',
- *     apiKey: process.env.FLAKEY_API_KEY,
- *     suite: 'my-project',
- *   },
+ *   import { flakeyReporter } from "@flakeytesting/reporter/dist/cypress-plugin.js";
+ *   export default defineConfig({
+ *     reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+ *     reporterOptions: {
+ *       url: 'http://localhost:3000',
+ *       apiKey: process.env.FLAKEY_API_KEY,
+ *       suite: 'my-project',
+ *     },
+ *     e2e: {
+ *       setupNodeEvents(on, config) {
+ *         flakeyReporter(on, config);
+ *       },
+ *     },
+ *   });
  */
 
-import { readFileSync, readdirSync, statSync, existsSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
 import { join, basename } from "path";
+import { tmpdir } from "os";
 
-// ---- Types (inlined to keep CJS build self-contained) ----
+// ---- Types ----
 
 interface ReporterOptions {
   url: string;
@@ -50,65 +59,9 @@ interface NormalizedTest {
   video_path?: string;
 }
 
-// ---- API Client (inlined) ----
+// ---- Shared temp directory for buffering spec results ----
 
-function findFiles(dir: string | undefined, exts: string[]): string[] {
-  if (!dir || !existsSync(dir)) return [];
-  const results: string[] = [];
-  function walk(d: string) {
-    for (const entry of readdirSync(d)) {
-      const full = join(d, entry);
-      try {
-        const stat = statSync(full);
-        if (stat.isDirectory()) walk(full);
-        else if (exts.some((ext) => entry.endsWith(ext))) results.push(full);
-      } catch {}
-    }
-  }
-  walk(dir);
-  return results;
-}
-
-async function postRunWithArtifacts(
-  url: string,
-  apiKey: string,
-  run: NormalizedRun,
-  artifactDirs: { screenshotsDir?: string; videosDir?: string; snapshotsDir?: string }
-): Promise<{ id: number }> {
-  const screenshots = findFiles(artifactDirs.screenshotsDir, [".png"]);
-  const snapshots = findFiles(artifactDirs.snapshotsDir, [".json.gz"]);
-  const videos = findFiles(artifactDirs.videosDir, [".mp4", ".webm"]);
-
-  const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
-
-  if (screenshots.length === 0 && snapshots.length === 0 && videos.length === 0) {
-    const res = await fetch(`${url}/runs`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(run),
-    });
-    if (!res.ok) throw new Error(`Flakey API error ${res.status}: ${await res.text()}`);
-    return res.json() as Promise<{ id: number }>;
-  }
-
-  const formData = new FormData();
-  formData.append("payload", JSON.stringify(run));
-
-  for (const file of screenshots) {
-    formData.append("screenshots", new Blob([readFileSync(file)], { type: "image/png" }), basename(file));
-  }
-  for (const file of videos) {
-    const type = file.endsWith(".webm") ? "video/webm" : "video/mp4";
-    formData.append("videos", new Blob([readFileSync(file)], { type }), basename(file));
-  }
-  for (const file of snapshots) {
-    formData.append("snapshots", new Blob([readFileSync(file)], { type: "application/gzip" }), basename(file));
-  }
-
-  const res = await fetch(`${url}/runs/upload`, { method: "POST", headers, body: formData });
-  if (!res.ok) throw new Error(`Flakey API error ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<{ id: number }>;
-}
+const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
 
 // ---- Mocha types ----
 
@@ -154,24 +107,21 @@ function getSpecTitle(test: MochaTest): string {
   return topSuite?.title ?? "unknown";
 }
 
-// ---- Reporter ----
+// ---- Reporter (Mocha) — buffers results per spec to temp files ----
 
 class FlakeyCypressReporter {
   private options: ReporterOptions;
-  private startedAt: Date;
   private specMap = new Map<string, { spec: NormalizedSpec; tests: NormalizedTest[] }>();
 
   constructor(runner: MochaRunner, options: { reporterOptions: ReporterOptions }) {
-    const opts = options.reporterOptions;
-    this.options = opts;
-    this.startedAt = new Date();
+    this.options = options.reporterOptions;
 
     runner.on("pass", (test: MochaTest) => this.addTest(test, "passed"));
     runner.on("fail", (test: MochaTest, err: Error) => this.addTest(test, "failed", err));
     runner.on("pending", (test: MochaTest) => this.addTest(test, "skipped"));
 
     runner.on("end", () => {
-      this.flush();
+      this.saveToTmp();
     });
   }
 
@@ -215,45 +165,15 @@ class FlakeyCypressReporter {
     else entry.spec.stats.skipped++;
   }
 
-  private flush() {
-    const specs: NormalizedSpec[] = [];
-    let total = 0, passed = 0, failed = 0, skipped = 0, duration = 0;
+  private saveToTmp() {
+    mkdirSync(FLAKEY_TMP_DIR, { recursive: true });
 
     for (const { spec, tests } of this.specMap.values()) {
       spec.tests = tests;
-      specs.push(spec);
-      total += spec.stats.total;
-      passed += spec.stats.passed;
-      failed += spec.stats.failed;
-      skipped += spec.stats.skipped;
-      duration += spec.stats.duration_ms;
+      const safeName = spec.file_path.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 100);
+      const filePath = join(FLAKEY_TMP_DIR, `${safeName}_${Date.now()}.json`);
+      writeFileSync(filePath, JSON.stringify(spec));
     }
-
-    const run: NormalizedRun = {
-      meta: {
-        suite_name: this.options.suite,
-        branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
-        commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
-        ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
-        started_at: this.startedAt.toISOString(),
-        finished_at: new Date().toISOString(),
-        reporter: "cypress",
-      },
-      stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
-      specs,
-    };
-
-    const url = this.options.url.replace(/\/$/, "");
-
-    postRunWithArtifacts(url, this.options.apiKey, run, {
-      screenshotsDir: this.options.screenshotsDir ?? "cypress/screenshots",
-      videosDir: this.options.videosDir ?? "cypress/videos",
-      snapshotsDir: this.options.snapshotsDir ?? "cypress/snapshots",
-    }).then((result) => {
-      console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${url}`);
-    }).catch((err) => {
-      console.error(`\n  [flakey] Failed to upload: ${err.message}`);
-    });
   }
 }
 

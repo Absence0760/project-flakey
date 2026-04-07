@@ -1,19 +1,22 @@
 {
   "name": "@flakeytesting/reporter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cypress and Playwright reporter for Flakey dashboard",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
     "./cypress": "./dist/cypress-reporter.cjs",
-    "./playwright": "./dist/playwright-reporter.js"
+    "./plugin": "./plugin.js",
+    "./playwright": "./dist/playwright-reporter.js",
+    "./dist/*": "./dist/*"
   },
   "files": [
-    "dist"
+    "dist",
+    "plugin.js"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');const c=fs.readFileSync('dist/cypress-reporter.js','utf8');const req='const{readFileSync,readdirSync,statSync,existsSync}=require(\\\"fs\\\");const{join,basename}=require(\\\"path\\\");\\n';fs.writeFileSync('dist/cypress-reporter.cjs',req+c.replace(/^import .+ from .+;$/gm,''));\""
+    "build": "tsc && node -e \"const fs=require('fs');const c=fs.readFileSync('dist/cypress-reporter.js','utf8');const req='const{readFileSync,writeFileSync,mkdirSync,readdirSync,statSync,existsSync}=require(\\\"fs\\\");const{join,basename}=require(\\\"path\\\");const{tmpdir}=require(\\\"os\\\");\\n';fs.writeFileSync('dist/cypress-reporter.cjs',req+c.replace(/^import .+ from .+;$/gm,''));\""
   },
   "keywords": [
     "cypress",
