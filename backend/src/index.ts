@@ -13,6 +13,7 @@ import suitesRouter from "./routes/suites.js";
 import webhooksRouter from "./routes/webhooks.js";
 import auditRouter from "./routes/audit.js";
 import compareRouter from "./routes/compare.js";
+import badgeRouter from "./routes/badge.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -66,6 +67,7 @@ app.get("/health", async (_req, res) => {
   }
 });
 app.use("/auth", authLimiter, authRouter);
+app.use("/badge", badgeRouter);
 
 // Protected routes
 app.use("/orgs", requireAuth, orgsRouter);

@@ -127,6 +127,7 @@ Create an API key from the Profile page for permanent access (no expiry).
 ### Integrations
 - **PR/MR comments** — auto-posts test summary (pass rate, failures, flaky tests, trend) as a PR/MR comment on GitHub, GitLab, or Bitbucket; updates existing comment on re-runs
 - **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
+- **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-flakey/badge/my-suite)`
 
 ### Admin
 - Team management (invite, roles, remove)
