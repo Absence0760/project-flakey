@@ -105,7 +105,7 @@ Create an API key from the Profile page for permanent access (no expiry).
 ### Test Analysis
 - **Run detail** — progress ring, status filters, test search, collapsible specs
 - **Error modal** — screenshots with zoomable lightbox, video player, command log, source code, stack trace, resizable split panes
-- **Flaky tests** — detects tests that alternate between pass and fail
+- **Flaky tests** — server-side detection with flakiness rate, flip count, visual pass/fail timeline, suite filter, and sortable rankings
 - **Slowest tests** — ranked by average duration with min/max range
 - **Error tracking** — failures grouped by error message with status (open/investigating/known/fixed/ignored), first/last seen, affected run count, and team notes thread
 - **Test history** — pass/fail timeline for a single test across runs

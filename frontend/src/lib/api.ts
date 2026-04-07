@@ -192,6 +192,33 @@ export async function addErrorNote(fingerprint: string, body: string): Promise<E
   return res.json();
 }
 
+export interface FlakyTest {
+  full_title: string;
+  title: string;
+  file_path: string;
+  suite_name: string;
+  total_runs: number;
+  pass_count: number;
+  fail_count: number;
+  flip_count: number;
+  flaky_rate: number;
+  first_seen: string;
+  last_seen: string;
+  timeline: string[];
+  run_ids: number[];
+  latest_run_id: number;
+}
+
+export async function fetchFlakyTests(filters?: { suite?: string; runs?: number }): Promise<FlakyTest[]> {
+  const params = new URLSearchParams();
+  if (filters?.suite) params.set("suite", filters.suite);
+  if (filters?.runs) params.set("runs", String(filters.runs));
+  const qs = params.toString();
+  const res = await authFetch(`${API_URL}/flaky${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Failed to fetch flaky tests: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchStats(filters?: { from?: string; to?: string }): Promise<DashboardStats> {
   const params = new URLSearchParams();
   if (filters?.from) params.set("from", filters.from);

@@ -14,6 +14,7 @@ import webhooksRouter from "./routes/webhooks.js";
 import auditRouter from "./routes/audit.js";
 import compareRouter from "./routes/compare.js";
 import badgeRouter from "./routes/badge.js";
+import flakyRouter from "./routes/flaky.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -78,6 +79,7 @@ app.use("/compare", requireAuth, compareRouter);
 app.use("/runs/upload", requireAuth, uploadsRouter);
 app.use("/runs", requireAuth, runsRouter);
 app.use("/errors", requireAuth, errorsRouter);
+app.use("/flaky", requireAuth, flakyRouter);
 app.use("/stats", requireAuth, statsRouter);
 app.use("/tests", requireAuth, testsRouter);
 
