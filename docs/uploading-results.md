@@ -298,6 +298,12 @@ npx cypress run
 npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
 ```
 
+If your reports end up in a `mochawesome/` subdirectory (common with default config), use:
+
+```bash
+npx mochawesome-merge cypress/reports/mochawesome/*.json > cypress/reports/mochawesome.json
+```
+
 ### Playwright
 
 Configure in `playwright.config.ts`:

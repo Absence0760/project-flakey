@@ -134,12 +134,12 @@ export function parseMochawesome(
       reporter: "mochawesome",
     },
     stats: {
-      total: stats.tests ?? 0,
-      passed: stats.passes ?? 0,
-      failed: stats.failures ?? 0,
-      skipped: stats.skipped ?? 0,
+      total: specs.reduce((s, sp) => s + sp.stats.total, 0),
+      passed: specs.reduce((s, sp) => s + sp.stats.passed, 0),
+      failed: specs.reduce((s, sp) => s + sp.stats.failed, 0),
+      skipped: specs.reduce((s, sp) => s + sp.stats.skipped, 0),
       pending: stats.pending ?? 0,
-      duration_ms: stats.duration ?? 0,
+      duration_ms: specs.reduce((s, sp) => s + sp.stats.duration_ms, 0),
     },
     specs,
   };

@@ -126,4 +126,58 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /compare/suites — latest 2 runs per suite, with summary diffs
+router.get("/suites", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+
+    // Get latest 2 runs per suite using window function
+    const result = await tenantQuery(orgId, `
+      SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY suite_name ORDER BY created_at DESC) AS rn
+        FROM runs
+      ) sub
+      WHERE rn <= 2
+      ORDER BY suite_name, rn
+    `);
+
+    // Group by suite
+    const suiteMap = new Map<string, typeof result.rows>();
+    for (const row of result.rows) {
+      const list = suiteMap.get(row.suite_name) || [];
+      list.push(row);
+      suiteMap.set(row.suite_name, list);
+    }
+
+    const suites = [];
+    for (const [suite_name, runs] of suiteMap) {
+      const latest = runs[0];
+      const previous = runs[1] ?? null;
+
+      const diff: Record<string, number> = {};
+      if (previous) {
+        diff.total = latest.total - previous.total;
+        diff.passed = latest.passed - previous.passed;
+        diff.failed = latest.failed - previous.failed;
+        diff.skipped = latest.skipped - previous.skipped;
+        diff.duration_ms = latest.duration_ms - previous.duration_ms;
+        diff.pass_rate = (latest.total > 0 ? latest.passed / latest.total : 0) - (previous.total > 0 ? previous.passed / previous.total : 0);
+        diff.pass_rate = Math.round(diff.pass_rate * 1000) / 10; // one decimal
+      }
+
+      suites.push({
+        suite_name,
+        latest: { id: latest.id, total: latest.total, passed: latest.passed, failed: latest.failed, skipped: latest.skipped, duration_ms: latest.duration_ms, branch: latest.branch, created_at: latest.created_at },
+        previous: previous ? { id: previous.id, total: previous.total, passed: previous.passed, failed: previous.failed, skipped: previous.skipped, duration_ms: previous.duration_ms, branch: previous.branch, created_at: previous.created_at } : null,
+        diff: previous ? diff : null,
+      });
+    }
+
+    res.json(suites);
+  } catch (err) {
+    console.error("GET /compare/suites error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

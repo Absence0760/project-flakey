@@ -348,6 +348,19 @@ export async function fetchCompare(runIdA: number, runIdB: number): Promise<Comp
   return res.json();
 }
 
+export interface SuiteComparison {
+  suite_name: string;
+  latest: { id: number; total: number; passed: number; failed: number; skipped: number; duration_ms: number; branch: string; created_at: string };
+  previous: { id: number; total: number; passed: number; failed: number; skipped: number; duration_ms: number; branch: string; created_at: string } | null;
+  diff: { total: number; passed: number; failed: number; skipped: number; duration_ms: number; pass_rate: number } | null;
+}
+
+export async function fetchSuiteComparisons(): Promise<SuiteComparison[]> {
+  const res = await authFetch(`${API_URL}/compare/suites`);
+  if (!res.ok) throw new Error(`Failed to fetch suite comparisons: ${res.status}`);
+  return res.json();
+}
+
 export interface SlowestTest {
   title: string;
   file_path: string;

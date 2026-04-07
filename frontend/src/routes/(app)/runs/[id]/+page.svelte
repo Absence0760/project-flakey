@@ -66,15 +66,34 @@
 
   let filteredSpecs = $derived.by(() => {
     if (!run) return [];
+    const q = searchQuery.toLowerCase();
     return run.specs.map((spec) => {
+      const specMatches = q && (
+        spec.file_path?.toLowerCase().includes(q) ||
+        spec.title?.toLowerCase().includes(q)
+      );
       const tests = spec.tests.filter((t) => {
-        if (statusFilter !== "all" && t.status !== statusFilter) return false;
-        if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        if (statusFilter !== "all") {
+          if (statusFilter === "skipped") {
+            if (t.status !== "skipped" && t.status !== "pending") return false;
+          } else if (t.status !== statusFilter) return false;
+        }
+        if (q && !specMatches && !t.title.toLowerCase().includes(q) && !t.full_title?.toLowerCase().includes(q)) return false;
         return true;
       });
       return { ...spec, tests };
     }).filter((spec) => spec.tests.length > 0);
   });
+
+  let allCollapsed = $derived(filteredSpecs.length > 0 && filteredSpecs.every((s) => collapsedSpecs.has(s.id)));
+
+  function toggleAll() {
+    if (allCollapsed) {
+      collapsedSpecs = new Set();
+    } else {
+      collapsedSpecs = new Set(filteredSpecs.map((s) => s.id));
+    }
+  }
 
   let filterCounts = $derived.by(() => {
     if (!run) return { all: 0, passed: 0, failed: 0, skipped: 0 };
@@ -201,9 +220,17 @@
           <span class="dot skip"></span> Skipped <span class="tab-count">{filterCounts.skipped}</span>
         </button>
       </div>
+      <div class="toolbar-right">
+      <button class="collapse-all-btn" onclick={toggleAll} title={allCollapsed ? "Expand all" : "Collapse all"}>
+        <svg class="chevron-icon" class:collapsed={allCollapsed} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 4.5L6 7.5L9 4.5"/>
+        </svg>
+        {allCollapsed ? "Expand all" : "Collapse all"}
+      </button>
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
         <input type="text" placeholder="Filter tests..." bind:value={searchQuery} />
+      </div>
       </div>
     </div>
 
@@ -414,7 +441,7 @@
   }
 
   .ring-fill.good { stroke: var(--color-pass); }
-  .ring-fill.warn { stroke: var(--color-skip); }
+  .ring-fill.warn { stroke: var(--link); }
   .ring-fill.bad { stroke: var(--color-fail); }
 
   .ring-label {
@@ -536,6 +563,41 @@
   .dot.pass { background: var(--color-pass); }
   .dot.fail { background: var(--color-fail); }
   .dot.skip { background: var(--color-skip); }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .collapse-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+
+  .collapse-all-btn:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+  }
+
+  .chevron-icon {
+    transition: transform 0.15s;
+    color: var(--text-muted);
+  }
+
+  .chevron-icon.collapsed {
+    transform: rotate(-90deg);
+  }
 
   .search-box {
     display: flex;

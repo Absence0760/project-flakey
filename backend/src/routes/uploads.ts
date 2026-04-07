@@ -10,7 +10,7 @@ import { postPRComment } from "../git-providers/index.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
-const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 1024 } });
+const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 1024, fieldSize: 50 * 1024 * 1024 } });
 
 const uploadFields = upload.fields([
   { name: "screenshots", maxCount: 100 },
