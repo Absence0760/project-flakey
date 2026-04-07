@@ -14,7 +14,7 @@ const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 10
 
 const uploadFields = upload.fields([
   { name: "screenshots", maxCount: 100 },
-  { name: "videos", maxCount: 10 },
+  { name: "videos", maxCount: 100 },
   { name: "snapshots", maxCount: 500 },
 ]);
 

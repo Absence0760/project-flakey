@@ -39,6 +39,8 @@ export default class FlakeyPlaywrightReporter {
   private options: ReporterOptions;
   private startedAt = new Date();
   private specMap = new Map<string, { spec: NormalizedSpec; tests: NormalizedTest[] }>();
+  private allScreenshots: string[] = [];
+  private allVideos: string[] = [];
 
   constructor(options: ReporterOptions) {
     this.options = options;
@@ -78,6 +80,10 @@ export default class FlakeyPlaywrightReporter {
     const videos = result.attachments
       .filter((a) => a.contentType.startsWith("video/") && a.path)
       .map((a) => a.path!);
+
+    // Collect all attachment file paths for upload
+    this.allScreenshots.push(...screenshots);
+    this.allVideos.push(...videos);
 
     const normalizedTest: NormalizedTest = {
       title: test.title,
@@ -132,10 +138,10 @@ export default class FlakeyPlaywrightReporter {
     };
 
     try {
-      const result = await this.client.postRunWithArtifacts(run, {
-        screenshotsDir: this.options.screenshotsDir,
-        videosDir: this.options.videosDir,
-        snapshotsDir: this.options.snapshotsDir,
+      const result = await this.client.postRunWithFiles(run, {
+        screenshots: this.allScreenshots,
+        videos: this.allVideos,
+        snapshots: [],
       });
       console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${this.options.url}`);
     } catch (err: any) {
