@@ -1,12 +1,8 @@
 name: Publish Packages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/cli/**"
-      - "packages/cypress-snapshots/**"
-      - "packages/reporter/**"
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       package:
@@ -23,37 +19,32 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    if: github.event_name == 'push'
+  detect-package:
     runs-on: ubuntu-latest
     outputs:
-      cli: ${{ steps.filter.outputs.cli }}
-      snapshots: ${{ steps.filter.outputs.snapshots }}
-      reporter: ${{ steps.filter.outputs.reporter }}
+      cli: ${{ steps.check.outputs.cli }}
+      snapshots: ${{ steps.check.outputs.snapshots }}
+      reporter: ${{ steps.check.outputs.reporter }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            cli:
-              - 'packages/cli/src/**'
-              - 'packages/cli/package.json'
-            snapshots:
-              - 'packages/cypress-snapshots/src/**'
-              - 'packages/cypress-snapshots/package.json'
-            reporter:
-              - 'packages/reporter/src/**'
-              - 'packages/reporter/package.json'
+      - id: check
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          MANUAL="${{ github.event.inputs.package }}"
+
+          # Release tags: cli@0.1.0, cypress-snapshots@0.1.0, reporter@0.1.0
+          if [[ "$TAG" == cli@* ]] || [[ "$MANUAL" == "cli" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "cli=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == cypress-snapshots@* ]] || [[ "$MANUAL" == "cypress-snapshots" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "snapshots=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == reporter@* ]] || [[ "$MANUAL" == "reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "reporter=true" >> "$GITHUB_OUTPUT"
+          fi
 
   publish-cli:
-    needs: [changes]
-    if: >
-      always() && (
-        needs.changes.outputs.cli == 'true' ||
-        github.event.inputs.package == 'cli' ||
-        github.event.inputs.package == 'all'
-      )
+    needs: [detect-package]
+    if: needs.detect-package.outputs.cli == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,13 +71,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-cypress-snapshots:
-    needs: [changes]
-    if: >
-      always() && (
-        needs.changes.outputs.snapshots == 'true' ||
-        github.event.inputs.package == 'cypress-snapshots' ||
-        github.event.inputs.package == 'all'
-      )
+    needs: [detect-package]
+    if: needs.detect-package.outputs.snapshots == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,13 +99,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-reporter:
-    needs: [changes]
-    if: >
-      always() && (
-        needs.changes.outputs.reporter == 'true' ||
-        github.event.inputs.package == 'reporter' ||
-        github.event.inputs.package == 'all'
-      )
+    needs: [detect-package]
+    if: needs.detect-package.outputs.reporter == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
