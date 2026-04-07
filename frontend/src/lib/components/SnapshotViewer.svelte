@@ -97,22 +97,10 @@
       <iframe
         bind:this={iframeEl}
         sandbox="allow-same-origin"
-        title="DOM Snapshot - Step {currentStep.index + 1}"
+        title="DOM Snapshot"
         width={bundle.viewportWidth}
         height={bundle.viewportHeight}
       ></iframe>
-    </div>
-    <div class="snapshot-toolbar">
-      <span class="step-info">
-        Step {Math.min(selectedStep + 1, bundle.steps.length)} of {bundle.steps.length}
-      </span>
-      <span class="step-command">
-        {currentStep.commandName}
-        {#if currentStep.commandMessage}
-          <span class="step-arg">{currentStep.commandMessage}</span>
-        {/if}
-      </span>
-      <span class="step-time">{currentStep.timestamp}ms</span>
     </div>
   {:else}
     <div class="snapshot-status">No snapshot data available.</div>
@@ -154,36 +142,4 @@
     flex-shrink: 0;
   }
 
-  .snapshot-toolbar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.4rem 0.75rem;
-    border-top: 1px solid var(--border);
-    background: var(--bg-secondary);
-    font-size: 0.75rem;
-  }
-
-  .step-info {
-    color: var(--text-muted);
-    font-family: monospace;
-  }
-
-  .step-command {
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .step-arg {
-    font-weight: 400;
-    color: var(--text-muted);
-    margin-left: 0.25rem;
-  }
-
-  .step-time {
-    margin-left: auto;
-    color: var(--text-muted);
-    font-family: monospace;
-  }
 </style>

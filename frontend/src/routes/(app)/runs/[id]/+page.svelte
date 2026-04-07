@@ -257,17 +257,12 @@
         {#if !collapsedSpecs.has(spec.id)}
           <ul class="test-list">
             {#each spec.tests as test}
-              {@const hasArtifacts = test.video_path || (test.screenshot_paths && test.screenshot_paths.length > 0) || test.error_message}
               <li class="test-row">
                 <div class="test-main">
                   <span class="test-status-dot {test.status}"></span>
-                  {#if hasArtifacts}
-                    <button class="test-name clickable" onclick={() => modalTestId = test.id}>
-                      {test.title}
-                    </button>
-                  {:else}
-                    <span class="test-name">{test.title}</span>
-                  {/if}
+                  <button class="test-name clickable" onclick={() => modalTestId = test.id}>
+                    {test.title}
+                  </button>
                   <div class="test-meta">
                     {#if test.video_path}
                       <button class="test-badge video-badge" title="View video" onclick={() => modalTestId = test.id}>

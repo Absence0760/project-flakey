@@ -1,0 +1,17 @@
+{
+  "name": "@flakeytesting/example-cypress",
+  "private": true,
+  "scripts": {
+    "test:smoke": "SUITE=smoke cypress run",
+    "test:sanity": "SUITE=sanity cypress run",
+    "test:regression": "SUITE=regression cypress run",
+    "test:all": "SUITE=smoke cypress run; SUITE=sanity cypress run; SUITE=regression cypress run",
+    "open": "cypress open"
+  },
+  "devDependencies": {
+    "@flakeytesting/cypress-snapshots": "^0.2.0",
+    "@flakeytesting/reporter": "latest",
+    "cypress": "^13.0.0",
+    "typescript": "^5.9.3"
+  }
+}
