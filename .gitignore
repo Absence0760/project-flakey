@@ -35,3 +35,11 @@ coverage/
 
 # Uploaded assets (screenshots, videos)
 uploads/
+
+# Example test artifacts
+examples/*/cypress/screenshots/
+examples/*/cypress/videos/
+examples/*/cypress/reports/
+examples/*/cypress/snapshots/
+examples/*/test-results/
+examples/*/playwright-report/

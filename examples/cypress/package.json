@@ -1,6 +1,9 @@
 {
   "name": "@flakeytesting/example-cypress",
   "private": true,
+  "comments": {
+    "deps": "To use published npm packages instead of local links, replace the link: entries with: \"@flakeytesting/reporter\": \"latest\", \"@flakeytesting/cypress-snapshots\": \"latest\""
+  },
   "scripts": {
     "test:smoke": "SUITE=smoke cypress run",
     "test:sanity": "SUITE=sanity cypress run",
@@ -9,8 +12,8 @@
     "open": "cypress open"
   },
   "devDependencies": {
-    "@flakeytesting/cypress-snapshots": "^0.2.0",
-    "@flakeytesting/reporter": "latest",
+    "@flakeytesting/reporter": "link:../../packages/reporter",
+    "@flakeytesting/cypress-snapshots": "link:../../packages/cypress-snapshots",
     "cypress": "^13.0.0",
     "typescript": "^5.9.3"
   }

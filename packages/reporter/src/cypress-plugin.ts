@@ -15,11 +15,12 @@
  *   });
  */
 
-import { readFileSync, readdirSync, existsSync, rmSync, statSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync, statSync } from "fs";
 import { join, basename } from "path";
 import { tmpdir } from "os";
 
 const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
+const FLAKEY_CMD_DIR = join(tmpdir(), "flakey-commands");
 
 interface NormalizedSpec {
   file_path: string;
@@ -33,6 +34,7 @@ interface NormalizedSpec {
     error?: { message: string; stack?: string };
     screenshot_paths: string[];
     video_path?: string;
+    command_log?: object[];
   }[];
 }
 
@@ -73,10 +75,23 @@ export function flakeyReporter(
   const videosDir = opts.videosDir ?? "cypress/videos";
   const snapshotsDir = opts.snapshotsDir ?? "cypress/snapshots";
 
-  // Clean up temp dir before run starts
+  // Register task for saving command logs from the support file
+  on("task", {
+    "flakey:saveCommandLog"(data: { testTitle: string; specFile: string; commands: object[] }) {
+      mkdirSync(FLAKEY_CMD_DIR, { recursive: true });
+      const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
+      writeFileSync(join(FLAKEY_CMD_DIR, `${safeName}.json`), JSON.stringify(data));
+      return null;
+    },
+  });
+
+  // Clean up temp dirs before run starts
   on("before:run", () => {
     if (existsSync(FLAKEY_TMP_DIR)) {
       rmSync(FLAKEY_TMP_DIR, { recursive: true, force: true });
+    }
+    if (existsSync(FLAKEY_CMD_DIR)) {
+      rmSync(FLAKEY_CMD_DIR, { recursive: true, force: true });
     }
   });
 
@@ -99,6 +114,26 @@ export function flakeyReporter(
         const content = readFileSync(join(FLAKEY_TMP_DIR, file), "utf-8");
         specs.push(JSON.parse(content));
       } catch {}
+    }
+
+    // Merge command logs into test results
+    if (existsSync(FLAKEY_CMD_DIR)) {
+      const cmdFiles = readdirSync(FLAKEY_CMD_DIR).filter((f) => f.endsWith(".json"));
+      const cmdMap = new Map<string, object[]>();
+      for (const f of cmdFiles) {
+        try {
+          const data = JSON.parse(readFileSync(join(FLAKEY_CMD_DIR, f), "utf-8"));
+          cmdMap.set(`${data.specFile}::${data.testTitle}`, data.commands);
+        } catch {}
+      }
+      for (const spec of specs) {
+        for (const test of spec.tests) {
+          const key = `${spec.file_path}::${test.title}`;
+          const cmds = cmdMap.get(key);
+          if (cmds) test.command_log = cmds;
+        }
+      }
+      rmSync(FLAKEY_CMD_DIR, { recursive: true, force: true });
     }
 
     // Clean up temp files

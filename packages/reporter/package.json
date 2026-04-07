@@ -8,12 +8,14 @@
     ".": "./dist/index.js",
     "./cypress": "./dist/cypress-reporter.cjs",
     "./plugin": "./plugin.js",
+    "./support": "./support.js",
     "./playwright": "./dist/playwright-reporter.js",
     "./dist/*": "./dist/*"
   },
   "files": [
     "dist",
-    "plugin.js"
+    "plugin.js",
+    "support.js"
   ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const c=fs.readFileSync('dist/cypress-reporter.js','utf8');const req='const{readFileSync,writeFileSync,mkdirSync,readdirSync,statSync,existsSync}=require(\\\"fs\\\");const{join,basename}=require(\\\"path\\\");const{tmpdir}=require(\\\"os\\\");\\n';fs.writeFileSync('dist/cypress-reporter.cjs',req+c.replace(/^import .+ from .+;$/gm,''));\""

@@ -9,11 +9,11 @@ importers:
   .:
     devDependencies:
       '@flakeytesting/cypress-snapshots':
-        specifier: ^0.2.0
-        version: 0.2.0(cypress@13.17.0)
+        specifier: link:../../packages/cypress-snapshots
+        version: link:../../packages/cypress-snapshots
       '@flakeytesting/reporter':
-        specifier: latest
-        version: 0.2.0(cypress@13.17.0)
+        specifier: link:../../packages/reporter
+        version: link:../../packages/reporter
       cypress:
         specifier: ^13.0.0
         version: 13.17.0
@@ -33,22 +33,6 @@ packages:
 
   '@cypress/xvfb@1.2.4':
     resolution: {integrity: sha512-skbBzPggOVYCbnGgV+0dmBdW/s77ZkAOXIC1knS8NagwDjBrNC1LuXtQJeiN6l+m7lzmHtaoUw/ctJKdqkG57Q==}
-
-  '@flakeytesting/cypress-snapshots@0.2.0':
-    resolution: {integrity: sha512-nd3tjZzWk+ohxWJTyHhSd9sOX4IK79NVnlf7H2qauSQXU/lEaE5/mUVYWkz7iSfL57V+gDYv5febNUKrg17aDA==}
-    peerDependencies:
-      cypress: '>=12.0.0'
-
-  '@flakeytesting/reporter@0.2.0':
-    resolution: {integrity: sha512-2GNpPkk/ckFDrv5DzCFBjORrqzT3WsoJ5/Im7mwx0zc26qlNb4O0doofg2oc70sFo5JaBF2ogkkiOR8RVREbFw==}
-    peerDependencies:
-      '@playwright/test': '>=1.30.0'
-      cypress: '>=12.0.0'
-    peerDependenciesMeta:
-      '@playwright/test':
-        optional: true
-      cypress:
-        optional: true
 
   '@types/node@25.5.2':
     resolution: {integrity: sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg==}
@@ -728,14 +712,6 @@ snapshots:
       lodash.once: 4.1.1
     transitivePeerDependencies:
       - supports-color
-
-  '@flakeytesting/cypress-snapshots@0.2.0(cypress@13.17.0)':
-    dependencies:
-      cypress: 13.17.0
-
-  '@flakeytesting/reporter@0.2.0(cypress@13.17.0)':
-    optionalDependencies:
-      cypress: 13.17.0
 
   '@types/node@25.5.2':
     dependencies:
