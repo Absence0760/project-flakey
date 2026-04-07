@@ -76,8 +76,10 @@ router.post("/", uploadFields, async (req, res) => {
         const dest = join(snapshotDir, name);
         renameSync(file.path, dest);
         const relPath = `runs/${runId}/snapshots/${name}`;
-        // Filename format: specFile--testTitle.json.gz
-        const titlePart = name.replace(/\.json\.gz$/, "").split("--").pop() ?? "";
+        // Filename format: specFile--testTitle.json.gz (split on first --)
+        const nameNoExt = name.replace(/\.json\.gz$/, "");
+        const firstSep = nameNoExt.indexOf("--");
+        const titlePart = firstSep >= 0 ? nameNoExt.slice(firstSep + 2) : nameNoExt;
         snapshotMap.set(normalizeForMatch(titlePart), relPath);
       }
 

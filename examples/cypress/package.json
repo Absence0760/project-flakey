@@ -14,7 +14,7 @@
   "devDependencies": {
     "@flakeytesting/reporter": "link:../../packages/reporter",
     "@flakeytesting/cypress-snapshots": "link:../../packages/cypress-snapshots",
-    "cypress": "^13.0.0",
-    "typescript": "^5.9.3"
+    "cypress": "latest",
+    "typescript": "latest"
   }
 }

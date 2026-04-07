@@ -2,7 +2,7 @@
  * Cypress plugin for DOM snapshot capture.
  * Register in cypress.config.ts:
  *
- *   import { flakeySnapshots } from "@flakey/cypress-snapshots/plugin";
+ *   import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
  *   export default defineConfig({
  *     e2e: {
  *       setupNodeEvents(on, config) {
@@ -36,31 +36,22 @@ interface SnapshotBundle {
 interface FlakeySnapshotOptions {
   /** Output directory for snapshot files. Default: "cypress/snapshots" */
   outputDir?: string;
-  /** Only save snapshots for failed tests. Default: false */
-  failedOnly?: boolean;
 }
 
 export function flakeySnapshots(
-  on: Cypress.PluginEvents,
-  _config: Cypress.PluginConfigOptions,
+  on: any,
+  _config: any,
   options?: FlakeySnapshotOptions
 ): void {
   const outputDir = options?.outputDir ?? "cypress/snapshots";
-  const failedOnly = options?.failedOnly ?? false;
-
-  // Track which tests failed
-  const failedTests = new Set<string>();
 
   on("task", {
     "flakey:saveSnapshot"(bundle: SnapshotBundle) {
       try {
-        if (failedOnly) {
-          // In failedOnly mode, we buffer the snapshot and only write it
-          // if the test failed (checked in after:spec). For simplicity,
-          // we always write and let the CLI decide whether to upload.
+        if (!bundle.steps || bundle.steps.length === 0) {
+          return { saved: false, reason: "no steps" };
         }
 
-        // Sanitize filename
         const safeName = bundle.testTitle
           .replace(/[^a-zA-Z0-9_\- ]/g, "")
           .replace(/\s+/g, "-")
