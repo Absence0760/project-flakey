@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "cli/**"
+      - "packages/cli/**"
       - "packages/cypress-snapshots/**"
   workflow_dispatch:
     inputs:
@@ -34,8 +34,8 @@ jobs:
         with:
           filters: |
             cli:
-              - 'cli/src/**'
-              - 'cli/package.json'
+              - 'packages/cli/src/**'
+              - 'packages/cli/package.json'
             snapshots:
               - 'packages/cypress-snapshots/src/**'
               - 'packages/cypress-snapshots/package.json'
@@ -58,13 +58,13 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install and build
-        working-directory: cli
+        working-directory: packages/cli
         run: |
           npm ci
           npm run build
 
       - name: Publish to npm
-        working-directory: cli
+        working-directory: packages/cli
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

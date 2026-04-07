@@ -72,26 +72,29 @@ router.post("/", uploadFields, async (req, res) => {
       // Move snapshot files and build a lookup by test title
       const snapshotMap = new Map<string, string>(); // normalized test title → relative path
       for (const file of snapshotFiles) {
-        const dest = join(snapshotDir, file.originalname);
+        const name = fixFilename(file.originalname);
+        const dest = join(snapshotDir, name);
         renameSync(file.path, dest);
-        const relPath = `runs/${runId}/snapshots/${file.originalname}`;
+        const relPath = `runs/${runId}/snapshots/${name}`;
         // Filename format: specFile--testTitle.json.gz
-        const titlePart = file.originalname.replace(/\.json\.gz$/, "").split("--").pop() ?? "";
+        const titlePart = name.replace(/\.json\.gz$/, "").split("--").pop() ?? "";
         snapshotMap.set(normalizeForMatch(titlePart), relPath);
       }
 
       const screenshotMap = new Map<string, string>();
       for (const file of screenshotFiles) {
-        const dest = join(screenshotDir, file.originalname);
+        const name = fixFilename(file.originalname);
+        const dest = join(screenshotDir, name);
         renameSync(file.path, dest);
-        screenshotMap.set(file.originalname, `runs/${runId}/screenshots/${file.originalname}`);
+        screenshotMap.set(name, `runs/${runId}/screenshots/${name}`);
       }
 
       let videoPath: string | null = null;
       for (const file of videoFiles) {
-        const dest = join(videoDir, file.originalname);
+        const name = fixFilename(file.originalname);
+        const dest = join(videoDir, name);
         renameSync(file.path, dest);
-        videoPath = `runs/${runId}/videos/${file.originalname}`;
+        videoPath = `runs/${runId}/videos/${name}`;
       }
 
       for (const spec of run.specs) {
@@ -170,6 +173,19 @@ router.post("/", uploadFields, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+function fixFilename(name: string): string {
+  // Multer decodes the multipart filename header as Latin-1, but browsers
+  // send UTF-8.  Re-interpret the Latin-1 bytes as UTF-8 to recover the
+  // original characters (e.g. checkmarks, accented letters).
+  try {
+    const buf = Buffer.from(name, "latin1");
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    return decoded;
+  } catch {
+    return name;
+  }
+}
 
 function normalizeForMatch(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]/g, "");

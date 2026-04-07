@@ -33,7 +33,7 @@ The CLI finds report files, discovers screenshots and videos, matches them to te
 
 ```bash
 # From your Cypress project root:
-npx tsx /path/to/flakey/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/cli/src/index.ts \
   --report-dir cypress/reports \
   --screenshots-dir cypress/screenshots \
   --videos-dir cypress/videos \
@@ -46,7 +46,7 @@ npx tsx /path/to/flakey/cli/src/index.ts \
 The `--screenshots-dir` and `--videos-dir` default to `cypress/screenshots` and `cypress/videos`, so if your project uses the standard layout:
 
 ```bash
-npx tsx /path/to/flakey/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
   --api-key fk_your_key_here
@@ -55,7 +55,7 @@ npx tsx /path/to/flakey/cli/src/index.ts \
 ### Playwright
 
 ```bash
-npx tsx /path/to/flakey/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/cli/src/index.ts \
   --report-dir playwright-report \
   --suite my-playwright-tests \
   --reporter playwright \
@@ -69,7 +69,7 @@ Playwright records videos as `.webm` by default — this format is fully support
 ### JUnit XML (Jest, pytest, Go, etc.)
 
 ```bash
-npx tsx /path/to/flakey/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/cli/src/index.ts \
   --report-dir test-results \
   --suite api-tests \
   --reporter junit \
@@ -84,7 +84,7 @@ Instead of flags, you can use env vars (useful in CI):
 export FLAKEY_API_URL=http://localhost:3000
 export FLAKEY_API_KEY=fk_your_key_here
 
-npx tsx /path/to/flakey/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project
 ```
@@ -362,7 +362,7 @@ go test -v ./... 2>&1 | go-junit-report > test-results/results.xml
 - name: Upload to Flakey
   if: always()
   run: |
-    npx tsx /path/to/flakey/cli/src/index.ts \
+    npx tsx /path/to/flakey/packages/cli/src/index.ts \
       --report-dir cypress/reports \
       --suite my-project \
       --branch ${{ github.ref_name }} \
@@ -382,7 +382,7 @@ go test -v ./... 2>&1 | go-junit-report > test-results/results.xml
       - npx cypress run
       - npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
     after-script:
-      - npx tsx /path/to/flakey/cli/src/index.ts
+      - npx tsx /path/to/flakey/packages/cli/src/index.ts
           --report-dir cypress/reports
           --suite my-project
           --branch $BITBUCKET_BRANCH
@@ -401,7 +401,7 @@ test:
     - npx cypress run
     - npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
   after_script:
-    - npx tsx /path/to/flakey/cli/src/index.ts
+    - npx tsx /path/to/flakey/packages/cli/src/index.ts
         --report-dir cypress/reports
         --suite my-project
         --branch $CI_COMMIT_REF_NAME

@@ -23,7 +23,7 @@ docker compose up -d
 ```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../cli && npm install
+cd ../packages/cli && npm install
 ```
 
 ### 3. Seed sample data
@@ -53,7 +53,7 @@ npm run dev
 ### Cypress (Mochawesome)
 
 ```bash
-npx tsx cli/src/index.ts \
+npx tsx packages/cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
   --api-key $FLAKEY_API_KEY
@@ -62,7 +62,7 @@ npx tsx cli/src/index.ts \
 ### Playwright
 
 ```bash
-npx tsx cli/src/index.ts \
+npx tsx packages/cli/src/index.ts \
   --report-dir playwright-report \
   --suite my-project \
   --reporter playwright \
@@ -72,7 +72,7 @@ npx tsx cli/src/index.ts \
 ### JUnit XML (Jest, pytest, Go, etc.)
 
 ```bash
-npx tsx cli/src/index.ts \
+npx tsx packages/cli/src/index.ts \
   --report-dir test-results \
   --suite my-project \
   --reporter junit \
@@ -156,7 +156,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 ```yaml
 - name: Upload results
   if: always()
-  run: npx tsx cli/src/index.ts --report-dir cypress/reports --suite my-project
+  run: npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
   env:
     FLAKEY_API_URL: ${{ secrets.FLAKEY_API_URL }}
     FLAKEY_API_KEY: ${{ secrets.FLAKEY_API_KEY }}
@@ -169,7 +169,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 
 ```yaml
 after-script:
-  - npx tsx cli/src/index.ts --report-dir cypress/reports --suite my-project
+  - npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
 ```
 
 ## Environment Variables

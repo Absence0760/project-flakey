@@ -48,7 +48,11 @@ app.use(cors({
 app.use(express.json({ limit: "50mb" }));
 
 // Fix 4: Cookie parser for httpOnly token cookies
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static("uploads", {
+  setHeaders: (res) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  },
+}));
 
 // Fix 3: Rate limiting on auth endpoints
 const authLimiter = rateLimit({

@@ -316,7 +316,7 @@ npx playwright test --reporter=json > playwright-report/results.json
      "my-reporter": parseMyReporter as Parser,  // add here
    };
    ```
-4. Update `cli/src/index.ts` `findReportFile()` to handle the new reporter's file format
+4. Update `packages/cli/src/index.ts` `findReportFile()` to handle the new reporter's file format
 5. Test with a real report file from the target framework
 
 The normalizer should:

@@ -29,19 +29,23 @@
 
   $effect(() => {
     if (testId) {
+      originalTestId = null;
       loadTest(testId);
     }
   });
 
   async function loadTest(id: number) {
+    const preserveHistory = historyLoaded && history.length > 0;
     loading = true;
     error = null;
     currentScreenshot = 0;
     stackExpanded = false;
     leftPct = 50;
-    history = [];
-    historyLoaded = false;
     snapshotStep = 0;
+    if (!preserveHistory) {
+      history = [];
+      historyLoaded = false;
+    }
     try {
       test = await fetchTest(id);
       if (test.snapshot_path) leftTab = "snapshot";
@@ -49,11 +53,13 @@
       else if (test.video_path) leftTab = "video";
       else leftTab = "screenshot";
 
-      if (test.error_message) rightTab = "error";
-      else if (test.metadata && Object.keys(test.metadata).length > 0) rightTab = "details";
-      else if (test.command_log?.length) rightTab = "commands";
-      else if (test.test_code) rightTab = "code";
-      else rightTab = "error";
+      if (!preserveHistory) {
+        if (test.error_message) rightTab = "error";
+        else if (test.metadata && Object.keys(test.metadata).length > 0) rightTab = "details";
+        else if (test.command_log?.length) rightTab = "commands";
+        else if (test.test_code) rightTab = "code";
+        else rightTab = "error";
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load test";
     } finally {
@@ -64,6 +70,8 @@
   function navigate(id: number | null) {
     if (id) loadTest(id);
   }
+
+  let originalTestId = $state<number | null>(null);
 
   async function loadHistory() {
     if (historyLoaded || !test) return;
@@ -79,6 +87,22 @@
   function selectHistoryTab() {
     rightTab = "history";
     loadHistory();
+  }
+
+  function viewHistoryEntry(entryTestId: number) {
+    if (!originalTestId) originalTestId = test?.id ?? null;
+    loadTest(entryTestId).then(() => {
+      // Preserve the history tab and data when navigating between history entries
+      rightTab = "history";
+    });
+  }
+
+  function backToOriginal() {
+    if (originalTestId) {
+      const id = originalTestId;
+      originalTestId = null;
+      loadTest(id);
+    }
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -498,6 +522,12 @@
 
               {:else if rightTab === "history"}
                 <div class="history-panel">
+                  {#if originalTestId}
+                    <button class="history-back" onclick={backToOriginal}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3L5 8l5 5"/></svg>
+                      Back to current run
+                    </button>
+                  {/if}
                   {#if !historyLoaded}
                     <p class="history-loading">Loading history...</p>
                   {:else if history.length === 0}
@@ -505,7 +535,7 @@
                   {:else}
                     <div class="history-timeline">
                       {#each history as entry}
-                        <a href="/runs/{entry.run_id}" class="history-entry" class:current={entry.test_id === test?.id} onclick={onclose}>
+                        <button class="history-entry" class:active={entry.test_id === test?.id} onclick={() => viewHistoryEntry(entry.test_id)}>
                           <div class="history-dot {entry.status}"></div>
                           <div class="history-content">
                             <div class="history-top">
@@ -521,7 +551,7 @@
                               {/if}
                             </div>
                           </div>
-                        </a>
+                        </button>
                       {/each}
                     </div>
                   {/if}
@@ -1411,25 +1441,51 @@
     gap: 0;
   }
 
+  .history-back {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.65rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--link);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: auto;
+  }
+  .history-back:hover { background: var(--bg-hover); border-color: var(--link); }
+
   .history-entry {
     display: flex;
     align-items: flex-start;
     gap: 0.65rem;
     padding: 0.55rem 0.5rem;
+    border: none;
     border-radius: 6px;
+    background: transparent;
     text-decoration: none;
+    text-align: left;
     color: var(--text);
+    width: 100%;
+    cursor: pointer;
     transition: background 0.1s;
     position: relative;
+    font: inherit;
   }
 
   .history-entry:hover {
     background: var(--bg-hover);
   }
 
-  .history-entry.current {
-    background: color-mix(in srgb, var(--link) 6%, transparent);
+  .history-entry.active {
+    background: color-mix(in srgb, var(--link) 8%, transparent);
+    border-left: 2px solid var(--link);
   }
+
 
   .history-entry + .history-entry {
     border-top: 1px solid var(--border-light);
