@@ -3,6 +3,8 @@ environment        = "production"
 app_name           = "flakey"
 db_instance_class  = "db.t4g.micro"
 allow_registration = false
+budget_limit       = "150"
+budget_alert_email = "you@example.com"
 
 # Passwords are auto-generated and stored in AWS Secrets Manager.
 # No manual secrets to configure.

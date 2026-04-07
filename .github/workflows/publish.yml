@@ -6,6 +6,7 @@ on:
     paths:
       - "packages/cli/**"
       - "packages/cypress-snapshots/**"
+      - "packages/reporter/**"
   workflow_dispatch:
     inputs:
       package:
@@ -15,6 +16,7 @@ on:
         options:
           - cli
           - cypress-snapshots
+          - reporter
           - all
 
 permissions:
@@ -27,6 +29,7 @@ jobs:
     outputs:
       cli: ${{ steps.filter.outputs.cli }}
       snapshots: ${{ steps.filter.outputs.snapshots }}
+      reporter: ${{ steps.filter.outputs.reporter }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -39,6 +42,9 @@ jobs:
             snapshots:
               - 'packages/cypress-snapshots/src/**'
               - 'packages/cypress-snapshots/package.json'
+            reporter:
+              - 'packages/reporter/src/**'
+              - 'packages/reporter/package.json'
 
   publish-cli:
     needs: [changes]
@@ -52,6 +58,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -60,12 +70,12 @@ jobs:
       - name: Install and build
         working-directory: packages/cli
         run: |
-          npm ci
-          npm run build
+          pnpm install
+          pnpm build
 
       - name: Publish to npm
         working-directory: packages/cli
-        run: npm publish --access public
+        run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -81,6 +91,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -89,11 +103,44 @@ jobs:
       - name: Install and build
         working-directory: packages/cypress-snapshots
         run: |
-          npm install
-          npm run build
+          pnpm install
+          pnpm build
 
       - name: Publish to npm
         working-directory: packages/cypress-snapshots
-        run: npm publish --access public
+        run: pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-reporter:
+    needs: [changes]
+    if: >
+      always() && (
+        needs.changes.outputs.reporter == 'true' ||
+        github.event.inputs.package == 'reporter' ||
+        github.event.inputs.package == 'all'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        working-directory: packages/reporter
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Publish to npm
+        working-directory: packages/reporter
+        run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

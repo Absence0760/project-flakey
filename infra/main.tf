@@ -34,6 +34,14 @@ module "rds" {
   ecs_security_group_id = module.ecs.ecs_security_group_id
 }
 
+module "budget" {
+  source             = "./modules/budget"
+  app_name           = var.app_name
+  environment        = var.environment
+  budget_limit       = var.budget_limit
+  budget_alert_email = var.budget_alert_email
+}
+
 module "ecs" {
   source              = "./modules/ecs"
   app_name            = var.app_name

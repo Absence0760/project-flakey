@@ -27,3 +27,14 @@ variable "allow_registration" {
   type        = bool
   default     = false
 }
+
+variable "budget_limit" {
+  description = "Monthly AWS budget limit in USD"
+  type        = string
+  default     = "150"
+}
+
+variable "budget_alert_email" {
+  description = "Email address for budget alerts"
+  type        = string
+}
