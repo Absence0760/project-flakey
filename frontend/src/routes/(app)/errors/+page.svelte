@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchErrors, fetchRuns, fetchErrorNotes, addErrorNote, updateErrorStatus, type ErrorGroup, type ErrorNote, type Run } from "$lib/api";
+  import { fetchErrors, fetchRuns, fetchErrorNotes, addErrorNote, updateErrorStatus, fetchAffectedTests, type ErrorGroup, type ErrorNote, type AffectedTest, type Run } from "$lib/api";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
 
   let errors = $state<ErrorGroup[]>([]);
@@ -17,7 +17,9 @@
   // Expanded error detail
   let expandedFingerprint = $state<string | null>(null);
   let notes = $state<ErrorNote[]>([]);
+  let affectedTests = $state<AffectedTest[]>([]);
   let notesLoading = $state(false);
+  let testsLoading = $state(false);
   let newNote = $state("");
 
   const statuses = [
@@ -68,12 +70,20 @@
     }
     expandedFingerprint = err.fingerprint;
     notes = [];
+    affectedTests = [];
     newNote = "";
     notesLoading = true;
+    testsLoading = true;
     try {
-      notes = await fetchErrorNotes(err.fingerprint);
+      const [n, t] = await Promise.all([
+        fetchErrorNotes(err.fingerprint),
+        fetchAffectedTests(err.fingerprint),
+      ]);
+      notes = n;
+      affectedTests = t;
     } catch { /* ignore */ }
     notesLoading = false;
+    testsLoading = false;
   }
 
   async function changeStatus(err: ErrorGroup, status: string) {
@@ -158,10 +168,10 @@
               <span class="error-count">{err.occurrence_count}x</span>
               <div class="error-info">
                 <div class="error-title-row">
-                  <span class="error-test">{err.test_title}</span>
+                  <span class="error-message-primary">{err.error_message}</span>
                   <span class="status-badge" style="background: {statusInfo(err.status).color}">{statusInfo(err.status).label}</span>
                 </div>
-                <span class="error-message">{err.error_message}</span>
+                <span class="error-tests-summary">{err.affected_tests} test{err.affected_tests !== 1 ? "s" : ""} affected</span>
               </div>
             </div>
             <div class="error-meta">
@@ -208,6 +218,28 @@
                 <button class="btn-view" onclick={() => { if (err.latest_test_id) modalTestId = err.latest_test_id; }}>
                   View latest failure
                 </button>
+              </div>
+
+              <div class="affected-tests-section">
+                <h4>Affected Tests ({affectedTests.length})</h4>
+                {#if testsLoading}
+                  <p class="muted">Loading...</p>
+                {:else if affectedTests.length === 0}
+                  <p class="muted">No tests found.</p>
+                {:else}
+                  <div class="affected-tests-list">
+                    {#each affectedTests as at}
+                      <button class="affected-test" onclick={() => { modalTestId = at.latest_test_id; }}>
+                        <span class="at-title">{at.full_title}</span>
+                        <span class="at-meta">
+                          <span class="at-file">{at.file_path}</span>
+                          <span class="at-count">{at.occurrence_count}x</span>
+                          <span class="at-time">{timeAgo(at.last_seen)}</span>
+                        </span>
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
               </div>
 
               <div class="notes-section">
@@ -284,10 +316,11 @@
   }
   .error-info { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
   .error-title-row { display: flex; align-items: center; gap: 0.5rem; }
-  .error-test { font-weight: 500; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .error-message {
-    font-size: 0.8rem; color: var(--color-fail); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .error-message-primary {
+    font-weight: 500; font-size: 0.85rem; color: var(--color-fail);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .error-tests-summary { font-size: 0.78rem; color: var(--text-secondary); }
 
   .status-badge {
     padding: 0.15rem 0.45rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
@@ -327,6 +360,21 @@
     cursor: pointer; align-self: flex-start; margin-top: 1.1rem;
   }
   .btn-view:hover { background: var(--bg-hover); }
+
+  /* Affected tests */
+  .affected-tests-section { border-top: 1px solid var(--border); padding-top: 0.75rem; margin-bottom: 0.75rem; }
+  .affected-tests-section h4 { margin: 0 0 0.5rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .affected-tests-list { display: flex; flex-direction: column; gap: 0.25rem; }
+  .affected-test {
+    display: flex; flex-direction: column; gap: 0.1rem;
+    padding: 0.4rem 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; text-align: left; font: inherit; color: var(--text); width: 100%;
+  }
+  .affected-test:hover { background: var(--bg-hover); border-color: var(--link); }
+  .at-title { font-size: 0.82rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .at-meta { display: flex; gap: 0.75rem; font-size: 0.72rem; color: var(--text-muted); }
+  .at-file { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .at-count { font-weight: 600; color: var(--color-fail); }
 
   /* Notes */
   .notes-section { border-top: 1px solid var(--border); padding-top: 0.75rem; }

@@ -25,21 +25,21 @@ router.get("/", async (req, res) => {
 
     const result = await tenantQuery(req.user!.orgId,
       `SELECT
-        md5(t.error_message || '|' || t.title || '|' || r.suite_name) AS fingerprint,
+        md5(t.error_message || '|' || r.suite_name) AS fingerprint,
         t.error_message,
-        t.title AS test_title,
         r.suite_name,
         COUNT(*)::int AS occurrence_count,
-        COUNT(DISTINCT t.title)::int AS affected_tests,
+        COUNT(DISTINCT t.full_title)::int AS affected_tests,
         COUNT(DISTINCT r.id)::int AS affected_runs,
         MIN(r.created_at) AS first_seen,
         MAX(r.created_at) AS last_seen,
         MAX(r.id) AS latest_run_id,
         ARRAY_AGG(DISTINCT s.file_path) AS file_paths,
+        ARRAY_AGG(DISTINCT t.full_title) AS test_titles,
         (SELECT t2.id FROM tests t2
          JOIN specs s2 ON s2.id = t2.spec_id
          JOIN runs r2 ON r2.id = s2.run_id
-         WHERE t2.error_message = t.error_message AND t2.title = t.title AND t2.status = 'failed'
+         WHERE t2.error_message = t.error_message AND t2.status = 'failed'
          ORDER BY r2.created_at DESC LIMIT 1) AS latest_test_id,
         eg.id AS group_id,
         COALESCE(eg.status, 'open') AS status,
@@ -47,10 +47,10 @@ router.get("/", async (req, res) => {
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
-      LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || t.title || '|' || r.suite_name)
+      LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || r.suite_name)
         AND eg.org_id = r.org_id
       WHERE ${where}
-      GROUP BY t.error_message, t.title, r.suite_name, eg.id, eg.status
+      GROUP BY t.error_message, r.suite_name, eg.id, eg.status
       ORDER BY last_seen DESC, occurrence_count DESC
       LIMIT 100`,
       params
@@ -93,6 +93,40 @@ router.patch("/:fingerprint/status", async (req, res) => {
     res.json({ updated: true, group_id: result.rows[0].id, status });
   } catch (err) {
     console.error("PATCH /errors/:fingerprint/status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /errors/:fingerprint/tests — list affected tests for an error group
+router.get("/:fingerprint/tests", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+    const fingerprint = req.params.fingerprint;
+
+    const result = await tenantQuery(orgId,
+      `SELECT
+        t.full_title,
+        t.title,
+        s.file_path,
+        r.suite_name,
+        COUNT(*)::int AS occurrence_count,
+        MAX(r.created_at) AS last_seen,
+        MAX(t.id) AS latest_test_id,
+        MAX(r.id) AS latest_run_id
+      FROM tests t
+      JOIN specs s ON s.id = t.spec_id
+      JOIN runs r ON r.id = s.run_id
+      WHERE t.status = 'failed'
+        AND t.error_message IS NOT NULL
+        AND md5(t.error_message || '|' || r.suite_name) = $1
+      GROUP BY t.full_title, t.title, s.file_path, r.suite_name
+      ORDER BY occurrence_count DESC, last_seen DESC
+      LIMIT 50`,
+      [fingerprint]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /errors/:fingerprint/tests error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

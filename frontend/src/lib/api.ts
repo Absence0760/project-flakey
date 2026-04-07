@@ -141,12 +141,23 @@ export interface ErrorGroup {
   last_seen: string;
   latest_run_id: number;
   latest_test_id: number | null;
-  test_title: string;
+  test_titles: string[];
   file_paths: string[];
   suite_name: string;
   group_id: number | null;
   status: string;
   note_count: number;
+}
+
+export interface AffectedTest {
+  full_title: string;
+  title: string;
+  file_path: string;
+  suite_name: string;
+  occurrence_count: number;
+  last_seen: string;
+  latest_test_id: number;
+  latest_run_id: number;
 }
 
 export interface ErrorNote {
@@ -164,6 +175,12 @@ export async function fetchErrors(filters?: { suite?: string; status?: string })
   const qs = params.toString();
   const res = await authFetch(`${API_URL}/errors${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAffectedTests(fingerprint: string): Promise<AffectedTest[]> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}/tests`);
+  if (!res.ok) throw new Error(`Failed to fetch affected tests: ${res.status}`);
   return res.json();
 }
 
