@@ -1,5 +1,5 @@
 {
-  "name": "@flakey/reporter",
+  "name": "@flakeytesting/reporter",
   "version": "0.1.0",
   "description": "Cypress and Playwright reporter for Flakey dashboard",
   "type": "module",
