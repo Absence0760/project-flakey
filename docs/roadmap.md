@@ -66,7 +66,7 @@
 - [x] GitHub Actions deploy pipeline (path-filtered, backend + frontend independent)
 - [x] GitHub Actions npm publish pipeline (@flakey/cli, @flakey/cypress-snapshots)
 - [x] CI integration examples (GitHub Actions, Bitbucket Pipelines)
-- [ ] S3 storage adapter for artifacts (currently local disk)
+- [x] S3 storage adapter for artifacts (currently local disk)
 - [ ] Helm chart for Kubernetes
 
 ## Phase 6 — Advanced features

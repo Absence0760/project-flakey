@@ -20,6 +20,7 @@ import viewsRouter from "./routes/views.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
+import { getStorage } from "./storage.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -48,12 +49,25 @@ app.use(cors({
 
 app.use(express.json({ limit: "50mb" }));
 
-// Fix 4: Cookie parser for httpOnly token cookies
-app.use("/uploads", express.static("uploads", {
-  setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  },
-}));
+// Artifact serving — local disk or S3 redirect
+const STORAGE_MODE = process.env.STORAGE ?? "local";
+if (STORAGE_MODE === "s3") {
+  app.get("/uploads/*", async (req, res) => {
+    try {
+      const key = req.path.replace(/^\/uploads\//, "");
+      const url = await getStorage().getUrl(key);
+      res.redirect(302, url);
+    } catch {
+      res.status(404).json({ error: "Artifact not found" });
+    }
+  });
+} else {
+  app.use("/uploads", express.static("uploads", {
+    setHeaders: (res) => {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    },
+  }));
+}
 
 // Fix 3: Rate limiting on auth endpoints
 const authLimiter = rateLimit({

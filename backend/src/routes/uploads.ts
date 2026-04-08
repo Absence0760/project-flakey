@@ -1,12 +1,12 @@
 import { Router } from "express";
 import multer from "multer";
-import { mkdirSync, renameSync } from "fs";
-import { join, basename } from "path";
+import { join } from "path";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
+import { getStorage } from "../storage.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -48,6 +48,8 @@ router.post("/", uploadFields, async (req, res) => {
     const videoFiles = files?.videos ?? [];
     const snapshotFiles = files?.snapshots ?? [];
 
+    const storage = getStorage();
+
     await tenantTransaction(orgId, async (client) => {
       const runResult = await client.query(
         `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
@@ -62,20 +64,12 @@ router.post("/", uploadFields, async (req, res) => {
       );
       runId = runResult.rows[0].id;
 
-      const screenshotDir = join("uploads", "runs", String(runId), "screenshots");
-      const videoDir = join("uploads", "runs", String(runId), "videos");
-      const snapshotDir = join("uploads", "runs", String(runId), "snapshots");
-      mkdirSync(screenshotDir, { recursive: true });
-      mkdirSync(videoDir, { recursive: true });
-      mkdirSync(snapshotDir, { recursive: true });
-
       // Move snapshot files and build a lookup by test title
       const snapshotMap = new Map<string, string>(); // normalized test title → relative path
       for (const file of snapshotFiles) {
         const name = fixFilename(file.originalname);
-        const dest = join(snapshotDir, name);
-        renameSync(file.path, dest);
         const relPath = `runs/${runId}/snapshots/${name}`;
+        await storage.put(file.path, relPath);
         // Filename format: specFile--testTitle.json.gz (split on first --)
         const nameNoExt = name.replace(/\.json\.gz$/, "");
         const firstSep = nameNoExt.indexOf("--");
@@ -86,17 +80,17 @@ router.post("/", uploadFields, async (req, res) => {
       const screenshotMap = new Map<string, string>();
       for (const file of screenshotFiles) {
         const name = fixFilename(file.originalname);
-        const dest = join(screenshotDir, name);
-        renameSync(file.path, dest);
-        screenshotMap.set(name, `runs/${runId}/screenshots/${name}`);
+        const relPath = `runs/${runId}/screenshots/${name}`;
+        await storage.put(file.path, relPath);
+        screenshotMap.set(name, relPath);
       }
 
       let videoPath: string | null = null;
       for (const file of videoFiles) {
         const name = fixFilename(file.originalname);
-        const dest = join(videoDir, name);
-        renameSync(file.path, dest);
-        videoPath = `runs/${runId}/videos/${name}`;
+        const relPath = `runs/${runId}/videos/${name}`;
+        await storage.put(file.path, relPath);
+        videoPath = relPath;
       }
 
       for (const spec of run.specs) {
