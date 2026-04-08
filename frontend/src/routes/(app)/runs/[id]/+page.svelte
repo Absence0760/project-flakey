@@ -78,14 +78,38 @@
     } catch { /* ignore */ }
   }
 
+  function setStatusFilter(value: string) {
+    statusFilter = value;
+    const url = new URL(window.location.href);
+    if (value === "all") url.searchParams.delete("status");
+    else url.searchParams.set("status", value);
+    history.replaceState({}, "", url.toString());
+  }
+
   onMount(async () => {
     const id = Number($page.params.id);
+
+    // Feature 5: read URL filter param
+    const urlStatus = $page.url.searchParams.get("status");
+    if (urlStatus && ["all", "passed", "failed", "skipped"].includes(urlStatus)) {
+      statusFilter = urlStatus;
+    }
+
     try {
       run = await fetchRun(id);
       if (run) {
+        // Feature 1: auto-filter to failed (only if no URL param override)
+        if (run.failed > 0 && statusFilter === "all") {
+          setStatusFilter("failed");
+        }
+
+        // Feature 2: collapse passing specs, expand failed ones
+        collapsedSpecs = new Set(
+          run.specs.filter((s) => s.failed === 0).map((s) => s.id)
+        );
+
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
-          // Load persisted events first, then connect for new ones
           await loadLiveHistory(id);
           connectLive(id);
         }
@@ -160,6 +184,14 @@
     setTimeout(() => copiedTestId = null, 1500);
   }
 
+  let copiedErrorId = $state<number | null>(null);
+  function copyErrorMessage(e: MouseEvent, testId: number, msg: string) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(msg);
+    copiedErrorId = testId;
+    setTimeout(() => copiedErrorId = null, 1500);
+  }
+
   let copiedRerunId = $state<number | string | null>(null);
   function buildRerunCommand(specFile: string, testTitle: string): string | null {
     const tpl = run?.rerun_command_template;
@@ -216,6 +248,65 @@
     navigator.clipboard.writeText(result);
     copiedRerunId = "all";
     setTimeout(() => copiedRerunId = null, 1500);
+  }
+
+  let copiedFormat = $state<string | null>(null);
+
+  function buildSummary(format: "jira" | "markdown"): string {
+    if (!run) return "";
+    const status = run.failed === 0 ? "PASSED" : "FAILED";
+    const url = window.location.href.replace(/\?.*/, "");
+    const bold = (s: string) => format === "jira" ? `*${s}*` : `**${s}**`;
+    const italic = (s: string) => format === "jira" ? `_${s}_` : `*${s}*`;
+    const link = (text: string, href: string) => format === "jira" ? `[${text}|${href}]` : `[${text}](${href})`;
+
+    const lines: string[] = [
+      bold(`Run #${run.id} — ${status}`),
+      `Suite: ${run.suite_name}`,
+    ];
+    if (run.branch) lines.push(`Branch: ${run.branch}`);
+    if (run.commit_sha) lines.push(`Commit: \`${run.commit_sha.slice(0, 7)}\``);
+    lines.push(`Duration: ${formatDuration(run.duration_ms)}`);
+    lines.push(`Results: ${run.passed} passed, ${run.failed} failed, ${run.skipped} skipped / ${run.total} total (${passRate(run)}%)`);
+
+    const failedSpecs = run.specs.filter((s) => s.tests.some((t) => t.status === "failed"));
+    if (failedSpecs.length > 0) {
+      lines.push("");
+      lines.push(bold("Failed tests:"));
+      for (const spec of failedSpecs) {
+        lines.push(italic(spec.file_path || spec.title));
+        for (const test of spec.tests) {
+          if (test.status !== "failed") continue;
+          const err = test.error_message ? ` — ${test.error_message.slice(0, 120)}` : "";
+          lines.push(`- ${test.full_title || test.title}${err}`);
+        }
+      }
+    }
+
+    lines.push("");
+    lines.push(link("View run", url));
+    return lines.join("\n");
+  }
+
+  function copySummary(format: "jira" | "markdown") {
+    navigator.clipboard.writeText(buildSummary(format));
+    copiedFormat = format;
+    setTimeout(() => copiedFormat = null, 2000);
+  }
+
+  let copiedFailedNames = $state(false);
+  function copyAllFailedNames() {
+    if (!run) return;
+    const names: string[] = [];
+    for (const spec of run.specs) {
+      for (const test of spec.tests) {
+        if (test.status === "failed") names.push(test.full_title || test.title);
+      }
+    }
+    if (names.length === 0) return;
+    navigator.clipboard.writeText(names.join("\n"));
+    copiedFailedNames = true;
+    setTimeout(() => copiedFailedNames = false, 1500);
   }
 
   function passRate(r: RunDetail): number {
@@ -294,6 +385,24 @@
             {#if justFinished}
               <span class="finished-badge">Run Complete</span>
             {/if}
+            <button class="copy-summary-btn" title="Copy as Jira markup" onclick={() => copySummary("jira")}>
+              {#if copiedFormat === "jira"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                Copied!
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+                Jira
+              {/if}
+            </button>
+            <button class="copy-summary-btn" title="Copy as Markdown" onclick={() => copySummary("markdown")}>
+              {#if copiedFormat === "markdown"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                Copied!
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12v8H2z M4 8l2-2v4 M8 10V6l2 2 2-2v4"/></svg>
+                Markdown
+              {/if}
+            </button>
           </div>
           <div class="meta-row">
             <span class="meta-item" title="Suite">
@@ -425,20 +534,31 @@
     <!-- Filter toolbar -->
     <div class="toolbar">
       <div class="filter-tabs">
-        <button class="filter-tab" class:active={statusFilter === "all"} onclick={() => statusFilter = "all"}>
+        <button class="filter-tab" class:active={statusFilter === "all"} onclick={() => setStatusFilter("all")}>
           All <span class="tab-count">{filterCounts.all}</span>
         </button>
-        <button class="filter-tab" class:active={statusFilter === "passed"} onclick={() => statusFilter = "passed"}>
+        <button class="filter-tab" class:active={statusFilter === "passed"} onclick={() => setStatusFilter("passed")}>
           <span class="dot pass"></span> Passed <span class="tab-count">{filterCounts.passed}</span>
         </button>
-        <button class="filter-tab" class:active={statusFilter === "failed"} onclick={() => statusFilter = "failed"}>
+        <button class="filter-tab" class:active={statusFilter === "failed"} onclick={() => setStatusFilter("failed")}>
           <span class="dot fail"></span> Failed <span class="tab-count">{filterCounts.failed}</span>
         </button>
-        <button class="filter-tab" class:active={statusFilter === "skipped"} onclick={() => statusFilter = "skipped"}>
+        <button class="filter-tab" class:active={statusFilter === "skipped"} onclick={() => setStatusFilter("skipped")}>
           <span class="dot skip"></span> Skipped <span class="tab-count">{filterCounts.skipped}</span>
         </button>
       </div>
       <div class="toolbar-right">
+      {#if filterCounts.failed > 0}
+        <button class="rerun-all-btn" onclick={copyAllFailedNames} title="Copy all failed test names">
+          {#if copiedFailedNames}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+            Copied!
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+            Copy failed names
+          {/if}
+        </button>
+      {/if}
       {#if run?.rerun_command_template && filterCounts.failed > 0}
         <button class="rerun-all-btn" onclick={copyAllFailedCommands} title="Copy rerun commands for all failed tests">
           {#if copiedRerunId === "all"}
@@ -537,6 +657,13 @@
                   <button class="test-error-bar" onclick={() => modalTestId = test.id}>
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 10.5v.5"/></svg>
                     <span class="error-text">{test.error_message}</span>
+                    <span class="copy-error-btn" role="button" tabindex="-1" title="Copy error message" onclick={(e) => copyErrorMessage(e, test.id, test.error_message ?? "")}>
+                      {#if copiedErrorId === test.id}
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                      {:else}
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+                      {/if}
+                    </span>
                     <span class="error-action">View details</span>
                   </button>
                 {/if}
@@ -639,6 +766,14 @@
     background: color-mix(in srgb, var(--color-fail) 15%, transparent);
     color: var(--color-fail);
   }
+
+  .copy-summary-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 6px;
+    background: none; color: var(--text-secondary); font-size: 0.72rem; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s; margin-left: 0.25rem;
+  }
+  .copy-summary-btn:hover { color: var(--link); border-color: var(--link); }
 
   .meta-row {
     display: flex;
@@ -769,6 +904,11 @@
     gap: 0.75rem;
     margin-bottom: 0.75rem;
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+    padding: 0.5rem 0;
   }
 
   .filter-tabs {
@@ -1142,6 +1282,14 @@
   .test-error-bar:hover .error-action {
     opacity: 1;
   }
+
+  .copy-error-btn {
+    flex-shrink: 0; padding: 0.15rem; cursor: pointer; border-radius: 4px;
+    display: inline-flex; align-items: center; color: var(--error-text);
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .test-error-bar:hover .copy-error-btn { opacity: 0.7; }
+  .copy-error-btn:hover { opacity: 1 !important; background: rgba(128,128,128,0.15); }
 
   /* Live */
   .live-badge {

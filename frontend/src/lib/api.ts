@@ -2,7 +2,20 @@ import { authFetch } from "./auth";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
+export interface RunsSummary {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
 export async function fetchRuns(): Promise<Run[]> {
+  const res = await authFetch(`${API_URL}/runs`);
+  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+  const data = await res.json();
+  return data.runs;
+}
+
+export async function fetchRunsWithSummary(): Promise<{ runs: Run[]; summary: RunsSummary }> {
   const res = await authFetch(`${API_URL}/runs`);
   if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
   return res.json();
@@ -32,6 +45,7 @@ export interface Run {
   created_at: string;
   spec_count: number;
   spec_files: string[] | null;
+  new_failures: number;
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;

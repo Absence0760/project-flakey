@@ -89,10 +89,33 @@ router.get("/", async (req, res) => {
         (SELECT count(*)::int FROM specs s WHERE s.run_id = r.id) AS spec_count,
         (SELECT array_agg(sub.file_path) FROM (
            SELECT s.file_path FROM specs s WHERE s.run_id = r.id ORDER BY s.id LIMIT 5
-         ) sub) AS spec_files
+         ) sub) AS spec_files,
+        COALESCE((
+          SELECT count(*)::int
+          FROM tests t
+          JOIN specs s ON s.id = t.spec_id AND s.run_id = r.id
+          WHERE t.status = 'failed'
+            AND t.full_title NOT IN (
+              SELECT t2.full_title FROM tests t2
+              JOIN specs s2 ON s2.id = t2.spec_id
+              WHERE s2.run_id = (
+                SELECT r2.id FROM runs r2
+                WHERE r2.suite_name = r.suite_name AND r2.org_id = r.org_id AND r2.id < r.id
+                ORDER BY r2.id DESC LIMIT 1
+              ) AND t2.status = 'failed'
+            )
+        ), 0) AS new_failures
        FROM runs r ORDER BY r.created_at DESC LIMIT 50`
     );
-    res.json(result.rows);
+    const countResult = await tenantQuery(
+      req.user!.orgId,
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE failed = 0)::int AS passed,
+              count(*) FILTER (WHERE failed > 0)::int AS failed
+       FROM runs`
+    );
+    const summary = countResult.rows[0] ?? { total: 0, passed: 0, failed: 0 };
+    res.json({ runs: result.rows, summary });
   } catch (err) {
     console.error("GET /runs error:", err);
     res.status(500).json({ error: "Internal server error" });

@@ -1,17 +1,20 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { fetchRuns, fetchSavedViews, createSavedView, deleteSavedView, type Run, type SavedView } from "$lib/api";
+  import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { authFetch } from "$lib/auth";
 
   const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
   let allRuns = $state<Run[]>([]);
+  let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });
   let loading = $state(true);
   let error = $state<string | null>(null);
   let liveRunIds = $state<Set<number>>(new Set());
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
+  let selectedStatus = $state("all");
+  let selectedDate = $state("all");
   let searchQuery = $state("");
 
   let savedViews = $state<SavedView[]>([]);
@@ -19,15 +22,53 @@
   let showSaveInput = $state(false);
   let copiedSuite = $state<string | null>(null);
 
+  // Pinned runs (persisted in localStorage)
+  let pinnedIds = $state<Set<number>>(new Set());
+  function loadPins() {
+    try {
+      const stored = localStorage.getItem("pinned-runs");
+      if (stored) pinnedIds = new Set(JSON.parse(stored));
+    } catch { /* ignore */ }
+  }
+  function savePins() {
+    localStorage.setItem("pinned-runs", JSON.stringify([...pinnedIds]));
+  }
+  function togglePin(e: MouseEvent, id: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = new Set(pinnedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    pinnedIds = next;
+    savePins();
+  }
+  let pinnedRuns = $derived(allRuns.filter((r) => pinnedIds.has(r.id)));
+
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
   let branches = $derived([...new Set(allRuns.map((r) => r.branch).filter(Boolean))].sort());
 
-  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || searchQuery !== "");
+  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || selectedStatus !== "all" || selectedDate !== "all" || searchQuery !== "");
+
+  function dateThreshold(key: string): number {
+    const now = Date.now();
+    switch (key) {
+      case "1h": return now - 60 * 60 * 1000;
+      case "today": { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); }
+      case "24h": return now - 24 * 60 * 60 * 1000;
+      case "7d": return now - 7 * 24 * 60 * 60 * 1000;
+      case "30d": return now - 30 * 24 * 60 * 60 * 1000;
+      default: return 0;
+    }
+  }
 
   let runs = $derived(
     allRuns.filter((r) => {
       if (selectedSuite !== "all" && r.suite_name !== selectedSuite) return false;
       if (selectedBranch !== "all" && r.branch !== selectedBranch) return false;
+      if (selectedStatus === "passed" && r.failed > 0) return false;
+      if (selectedStatus === "failed" && r.failed === 0) return false;
+      if (selectedStatus === "new_failures" && (r.new_failures ?? 0) === 0) return false;
+      if (selectedDate !== "all" && new Date(r.created_at).getTime() < dateThreshold(selectedDate)) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         return r.suite_name.toLowerCase().includes(q)
@@ -40,14 +81,17 @@
   );
 
   let stats = $derived({
-    total: runs.length,
-    passed: runs.filter((r) => r.failed === 0).length,
-    failed: runs.filter((r) => r.failed > 0).length,
+    total: dbSummary.total,
+    passed: dbSummary.passed,
+    failed: dbSummary.failed,
+    newFailures: allRuns.filter((r) => (r.new_failures ?? 0) > 0).length,
   });
 
   function applyView(view: SavedView) {
     selectedSuite = view.filters.suite ?? "all";
     selectedBranch = view.filters.branch ?? "all";
+    selectedStatus = view.filters.status ?? "all";
+    selectedDate = view.filters.date ?? "all";
     searchQuery = view.filters.search ?? "";
   }
 
@@ -56,6 +100,8 @@
     const filters: Record<string, string> = {};
     if (selectedSuite !== "all") filters.suite = selectedSuite;
     if (selectedBranch !== "all") filters.branch = selectedBranch;
+    if (selectedStatus !== "all") filters.status = selectedStatus;
+    if (selectedDate !== "all") filters.date = selectedDate;
     if (searchQuery) filters.search = searchQuery;
     await createSavedView(saveViewName.trim(), "runs", filters);
     saveViewName = "";
@@ -71,6 +117,8 @@
   function clearFilters() {
     selectedSuite = "all";
     selectedBranch = "all";
+    selectedStatus = "all";
+    selectedDate = "all";
     searchQuery = "";
   }
 
@@ -83,7 +131,9 @@
         // If a run just finished (was live, no longer active), refresh the run list
         for (const id of liveRunIds) {
           if (!newSet.has(id)) {
-            allRuns = await fetchRuns();
+            const data = await fetchRunsWithSummary();
+            allRuns = data.runs;
+            dbSummary = data.summary;
             break;
           }
         }
@@ -93,11 +143,15 @@
   }
 
   onMount(async () => {
+    loadPins();
     try {
-      [allRuns, savedViews] = await Promise.all([
-        fetchRuns(),
+      const [runsData, views] = await Promise.all([
+        fetchRunsWithSummary(),
         fetchSavedViews("runs"),
       ]);
+      allRuns = runsData.runs;
+      dbSummary = runsData.summary;
+      savedViews = views;
       await pollLiveRuns();
       pollTimer = setInterval(pollLiveRuns, 5000);
     } catch (e) {
@@ -176,6 +230,14 @@
           {/each}
         </select>
       {/if}
+      <select bind:value={selectedDate}>
+        <option value="all">All time</option>
+        <option value="1h">Last hour</option>
+        <option value="today">Today</option>
+        <option value="24h">Last 24h</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
         <input type="text" placeholder="Search runs..." bind:value={searchQuery} />
@@ -207,13 +269,29 @@
     </div>
   {/if}
 
-  {#if !loading && runs.length > 0}
+  {#if !loading && allRuns.length > 0}
     <div class="summary-bar">
-      <span>{stats.total} run{stats.total !== 1 ? "s" : ""}</span>
+      <button class="summary-btn" class:active={selectedStatus === "all"} onclick={() => selectedStatus = "all"}>
+        {stats.total} run{stats.total !== 1 ? "s" : ""}
+      </button>
       <span class="sep">·</span>
-      <span class="summary-pass">{stats.passed} passed</span>
+      <button class="summary-btn summary-pass" class:active={selectedStatus === "passed"} onclick={() => selectedStatus = selectedStatus === "passed" ? "all" : "passed"}>
+        {stats.passed} passed
+      </button>
       <span class="sep">·</span>
-      <span class="summary-fail">{stats.failed} failed</span>
+      <button class="summary-btn summary-fail" class:active={selectedStatus === "failed"} onclick={() => selectedStatus = selectedStatus === "failed" ? "all" : "failed"}>
+        {stats.failed} failed
+      </button>
+      {#if stats.newFailures > 0}
+        <span class="sep">·</span>
+        <button class="summary-btn summary-new" class:active={selectedStatus === "new_failures"} onclick={() => selectedStatus = selectedStatus === "new_failures" ? "all" : "new_failures"}>
+          {stats.newFailures} with new failures
+        </button>
+      {/if}
+      {#if selectedStatus !== "all"}
+        <span class="sep">·</span>
+        <span class="summary-filtered">showing {runs.length}</span>
+      {/if}
     </div>
   {/if}
 
@@ -233,6 +311,37 @@
       </p>
     </div>
   {:else}
+    {#if pinnedRuns.length > 0}
+      <div class="pinned-section">
+        <h3 class="pinned-title">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1">
+            <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
+          </svg>
+          Pinned
+        </h3>
+        <div class="pinned-list">
+          {#each pinnedRuns as pr}
+            <a href="/runs/{pr.id}" class="pinned-card">
+              <span class="run-status-dot" class:pass={pr.failed === 0} class:fail={pr.failed > 0}></span>
+              <span class="pinned-id">#{pr.id}</span>
+              <span class="pinned-suite">{pr.suite_name}</span>
+              {#if pr.failed > 0}
+                <span class="fail-badge">{pr.failed} failed</span>
+              {:else}
+                <span class="pass-badge">passed</span>
+              {/if}
+              <span class="pinned-time">{timeAgo(pr.created_at)}</span>
+              <button class="pin-btn pinned" title="Unpin" onclick={(e) => togglePin(e, pr.id)}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.5">
+                  <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
+                </svg>
+              </button>
+            </a>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <div class="run-list">
       {#each runs as run}
         <a href="/runs/{run.id}" class="run-card">
@@ -253,6 +362,9 @@
                   <span class="live-badge">LIVE</span>
                 {:else if run.failed > 0}
                   <span class="fail-badge">{run.failed} failed</span>
+                  {#if run.new_failures > 0}
+                    <span class="new-fail-badge" title="{run.new_failures} test(s) that were not failing in the previous run">{run.new_failures} new</span>
+                  {/if}
                 {:else}
                   <span class="pass-badge">passed</span>
                 {/if}
@@ -281,6 +393,11 @@
           </div>
 
           <div class="card-right">
+            <button class="pin-btn" class:pinned={pinnedIds.has(run.id)} title={pinnedIds.has(run.id) ? "Unpin" : "Pin for quick access"} onclick={(e) => togglePin(e, run.id)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill={pinnedIds.has(run.id) ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5">
+                <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
+              </svg>
+            </button>
             <div class="card-stats">
               <span class="stat-pass">{run.passed}</span>
               <span class="stat-sep">/</span>
@@ -378,16 +495,53 @@
   }
 
   .summary-bar {
-    display: flex; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;
+    display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;
   }
   .sep { color: var(--border); }
-  .summary-pass { color: var(--color-pass); font-weight: 600; }
-  .summary-fail { color: var(--color-fail); font-weight: 600; }
+  .summary-btn {
+    background: none; border: none; padding: 0.15rem 0.35rem; border-radius: 4px;
+    font: inherit; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer;
+    transition: background 0.1s;
+  }
+  .summary-btn:hover { background: var(--bg-secondary); }
+  .summary-btn.active { background: var(--bg-secondary); font-weight: 600; }
+  .summary-btn.summary-pass { color: var(--color-pass); font-weight: 600; }
+  .summary-btn.summary-fail { color: var(--color-fail); font-weight: 600; }
+  .summary-btn.summary-new { color: #d97706; font-weight: 600; }
+  .summary-filtered { font-style: italic; color: var(--text-muted); font-size: 0.78rem; }
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }
   .empty { padding: 3rem 0; text-align: center; color: var(--text-secondary); }
   .hint { font-size: 0.875rem; color: var(--text-muted); }
+
+  /* Pinned section */
+  .pinned-section { margin-bottom: 1rem; }
+  .pinned-title {
+    display: flex; align-items: center; gap: 0.35rem;
+    font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
+    margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .pinned-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .pinned-card {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.6rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg-secondary);
+    text-decoration: none; color: var(--text); font-size: 0.78rem;
+    transition: border-color 0.15s;
+  }
+  .pinned-card:hover { border-color: var(--link); }
+  .pinned-id { font-family: monospace; font-weight: 700; font-size: 0.75rem; }
+  .pinned-suite { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pinned-time { color: var(--text-muted); font-size: 0.7rem; }
+
+  .pin-btn {
+    background: none; border: 1px solid var(--border); padding: 0.3rem; cursor: pointer;
+    color: var(--text-muted); border-radius: 6px; display: inline-flex; align-items: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s; flex-shrink: 0;
+  }
+  .pin-btn:hover { color: var(--link); border-color: var(--link); background: color-mix(in srgb, var(--link) 8%, transparent); }
+  .pin-btn.pinned { color: var(--link); border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, transparent); }
 
   .run-list { display: flex; flex-direction: column; gap: 0.35rem; }
 
@@ -417,6 +571,10 @@
   }
   .copy-btn:hover { color: var(--text-primary); background: var(--bg-hover, rgba(128,128,128,0.1)); }
   .run-card:hover .copy-btn { opacity: 1; }
+  .new-fail-badge {
+    padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
+    background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706;
+  }
   .fail-badge {
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: color-mix(in srgb, var(--color-fail) 15%, transparent); color: var(--color-fail);
