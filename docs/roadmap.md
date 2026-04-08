@@ -87,11 +87,11 @@
 
 ## Phase 8 — Intelligent analysis
 
-- [ ] AI failure classification (auto-categorize: product bug, automation bug, system issue)
-- [ ] ML-based failure pattern recognition (surface historically similar failures)
-- [ ] AI-generated error summaries with probable root causes
-- [ ] Flaky test quarantining (isolate flaky tests so they don't block CI)
-- [ ] Predictive test selection (ML picks which tests to run based on code changes)
+- [x] AI failure classification (auto-categorize: product bug, automation bug, system issue)
+- [x] ML-based failure pattern recognition (surface historically similar failures)
+- [x] AI-generated error summaries with probable root causes
+- [x] Flaky test quarantining (isolate flaky tests so they don't block CI)
+- [x] Predictive test selection (ML picks which tests to run based on code changes)
 
 ## Phase 9 — Integrations + workflows
 

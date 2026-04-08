@@ -17,6 +17,9 @@ import badgeRouter from "./routes/badge.js";
 import flakyRouter from "./routes/flaky.js";
 import notesRouter from "./routes/notes.js";
 import viewsRouter from "./routes/views.js";
+import analyzeRouter from "./routes/analyze.js";
+import quarantineRouter from "./routes/quarantine.js";
+import predictRouter from "./routes/predict.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -104,6 +107,9 @@ app.use("/notes", requireAuth, notesRouter);
 app.use("/stats", requireAuth, statsRouter);
 app.use("/tests", requireAuth, testsRouter);
 app.use("/views", requireAuth, viewsRouter);
+app.use("/analyze", requireAuth, analyzeRouter);
+app.use("/quarantine", requireAuth, quarantineRouter);
+app.use("/predict", requireAuth, predictRouter);
 
 app.listen(PORT, () => {
   console.log(`Flakey API running on http://localhost:${PORT}`);

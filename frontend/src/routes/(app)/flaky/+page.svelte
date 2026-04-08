@@ -1,12 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchFlakyTests, fetchRuns, type FlakyTest, type Run } from "$lib/api";
+  import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
 
   let tests = $state<FlakyTest[]>([]);
   let allRuns = $state<Run[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let aiEnabled = $state(false);
+  let aiResults = $state<Record<string, FlakyAnalysis>>({});
+  let aiLoading = $state<Record<string, boolean>>({});
+  let quarantinedSet = $state<Set<string>>(new Set());
+
+  function qKey(t: FlakyTest) { return `${t.full_title}|${t.suite_name}`; }
 
   let selectedSuite = $state("all");
   let runWindow = $state(30);
@@ -24,12 +30,16 @@
 
   onMount(async () => {
     try {
-      const [flakyData, runs] = await Promise.all([
+      const [flakyData, runs, ai, qt] = await Promise.all([
         fetchFlakyTests({ runs: runWindow }),
         fetchRuns(),
+        checkAIEnabled(),
+        fetchQuarantinedTests(),
       ]);
       tests = flakyData;
       allRuns = runs;
+      aiEnabled = ai;
+      quarantinedSet = new Set(qt.map(q => `${q.full_title}|${q.suite_name}`));
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load data";
     } finally {
@@ -68,6 +78,37 @@
     if (rate >= 40) return "var(--color-fail)";
     if (rate >= 20) return "#dfb317";
     return "var(--color-pass)";
+  }
+
+  async function handleAnalyzeFlaky(test: FlakyTest) {
+    const key = qKey(test);
+    aiLoading = { ...aiLoading, [key]: true };
+    try {
+      const result = await analyzeFlakyTest({
+        fullTitle: test.full_title,
+        filePath: test.file_path,
+        suiteName: test.suite_name,
+        flakyRate: test.flaky_rate,
+        flipCount: test.flip_count,
+        totalRuns: test.total_runs,
+        timeline: test.timeline,
+      });
+      aiResults = { ...aiResults, [key]: result };
+    } catch { /* ignore */ }
+    aiLoading = { ...aiLoading, [key]: false };
+  }
+
+  async function toggleQuarantine(test: FlakyTest) {
+    const key = qKey(test);
+    if (quarantinedSet.has(key)) {
+      await unquarantineTest(test.full_title, test.suite_name);
+      quarantinedSet.delete(key);
+      quarantinedSet = new Set(quarantinedSet);
+    } else {
+      await quarantineTest(test.full_title, test.file_path, test.suite_name, `Flaky rate: ${test.flaky_rate}%`);
+      quarantinedSet.add(key);
+      quarantinedSet = new Set(quarantinedSet);
+    }
   }
 </script>
 
@@ -152,6 +193,32 @@
 
           {#if expandedIndex === i}
             <div class="card-detail">
+              <div class="detail-actions">
+                <button class="q-btn" class:quarantined={quarantinedSet.has(qKey(test))} onclick={() => toggleQuarantine(test)}>
+                  {quarantinedSet.has(qKey(test)) ? "Unquarantine" : "Quarantine"}
+                </button>
+                {#if aiEnabled && !aiResults[qKey(test)]}
+                  <button class="analyze-btn" onclick={() => handleAnalyzeFlaky(test)} disabled={aiLoading[qKey(test)]}>
+                    {aiLoading[qKey(test)] ? "Analyzing..." : "Analyze with AI"}
+                  </button>
+                {/if}
+              </div>
+              {#if quarantinedSet.has(qKey(test))}
+                <div class="q-banner">This test is quarantined. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code></div>
+              {/if}
+              {#if aiResults[qKey(test)]}
+                {@const ai = aiResults[qKey(test)]}
+                <div class="ai-result">
+                  <div class="ai-header">
+                    <span class="ai-severity" class:high={ai.severity === "high"} class:medium={ai.severity === "medium"}>{ai.severity} severity</span>
+                    {#if ai.shouldQuarantine}
+                      <span class="ai-rec">Quarantine recommended</span>
+                    {/if}
+                  </div>
+                  <p class="ai-text"><strong>Root cause:</strong> {ai.rootCause}</p>
+                  <p class="ai-text"><strong>Suggestion:</strong> {ai.stabilizationSuggestion}</p>
+                </div>
+              {/if}
               <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
             </div>
           {/if}
@@ -253,4 +320,40 @@
   .timeline-dot.skipped { background: var(--color-skip); }
 
   .card-meta { display: flex; gap: 0.75rem; font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
+
+  .detail-actions { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+
+  .q-btn, .analyze-btn {
+    padding: 0.3rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text-secondary); font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .q-btn:hover { background: var(--bg-hover); }
+  .q-btn.quarantined { background: color-mix(in srgb, #dfb317 12%, transparent); border-color: #dfb317; color: #dfb317; }
+  .analyze-btn:hover { background: var(--bg-hover); }
+  .analyze-btn:disabled { opacity: 0.5; cursor: wait; }
+
+  .q-banner {
+    padding: 0.4rem 0.65rem; margin-bottom: 0.5rem;
+    background: color-mix(in srgb, #dfb317 8%, transparent);
+    border: 1px solid #dfb317; border-radius: 6px;
+    font-size: 0.75rem; color: var(--text);
+  }
+  .q-banner code { font-size: 0.7rem; background: var(--bg-secondary); padding: 0.1rem 0.3rem; border-radius: 3px; }
+
+  .ai-result {
+    padding: 0.65rem; margin-bottom: 0.5rem;
+    background: color-mix(in srgb, var(--link) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--link) 20%, transparent);
+    border-radius: 8px;
+  }
+  .ai-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .ai-severity {
+    padding: 0.1rem 0.45rem; border-radius: 10px; font-size: 0.68rem; font-weight: 600;
+    background: var(--color-pass); color: #fff; text-transform: capitalize;
+  }
+  .ai-severity.medium { background: #dfb317; }
+  .ai-severity.high { background: var(--color-fail); }
+  .ai-rec { font-size: 0.7rem; color: #dfb317; font-weight: 500; }
+  .ai-text { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.2rem; }
 </style>
