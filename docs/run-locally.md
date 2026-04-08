@@ -100,7 +100,7 @@ curl -X POST http://localhost:3000/runs \
 #### Option B: Create an API key and use curl (recommended for CI)
 
 1. Log in at http://localhost:7777
-2. Go to **Profile** (bottom of sidebar)
+2. Go to **Settings** (sidebar)
 3. Under **API Keys**, enter a label and click **Create key**
 4. Copy the key (starts with `fk_`) — it's only shown once
 
@@ -139,6 +139,8 @@ npx tsx src/index.ts \
 | Mochawesome | `--reporter mochawesome` | `.json` (Cypress/Mocha) |
 | JUnit | `--reporter junit` | `.xml` (Jest, pytest, Go, Java, .NET) |
 | Playwright | `--reporter playwright` | `.json` (Playwright JSON reporter) |
+| Jest | `--reporter jest` | `.json` (Jest `--json` output) |
+| WebdriverIO | `--reporter webdriverio` | `.json` (WDIO JSON reporter) |
 
 ## Useful commands
 
@@ -165,6 +167,18 @@ npx tsx src/index.ts \
 | `DB_NAME` | `flakey` | Database name |
 | `PORT` | `3000` | API server port |
 | `JWT_SECRET` | `flakey-dev-secret-change-me` | JWT signing secret (change in production) |
+| `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
+| `FRONTEND_URL` | `http://localhost:7777` | Used for email links and PR comments |
+| `STORAGE` | `local` | `local` or `s3` for artifact storage |
+| `S3_BUCKET` | _(none)_ | S3 bucket name (when `STORAGE=s3`) |
+| `S3_REGION` | `us-east-1` | AWS region (when `STORAGE=s3`) |
+| `AI_PROVIDER` | _(none)_ | `anthropic` or `openai` for AI analysis |
+| `AI_BASE_URL` | _(none)_ | API URL for OpenAI-compatible models (e.g. `http://localhost:11434/v1` for Ollama) |
+| `AI_API_KEY` | _(none)_ | API key for the AI provider |
+| `AI_MODEL` | auto | Model name (defaults to `claude-haiku-4-5-20251001` for Anthropic, `llama3.2` for OpenAI) |
+| `SMTP_HOST` | `localhost` | SMTP server for email verification |
+| `SMTP_PORT` | `1025` | SMTP port |
 
 ### Frontend
 

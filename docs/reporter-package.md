@@ -31,9 +31,19 @@ packages/
 │   ├── src/
 │   │   └── playwright-reporter.ts
 │   └── package.json
-└── flakey-webdriverio-reporter/  ← @flakeytesting/webdriverio-reporter
+├── flakey-webdriverio-reporter/  ← @flakeytesting/webdriverio-reporter
+│   ├── src/
+│   │   └── webdriverio-reporter.ts
+│   └── package.json
+├── flakey-live-reporter/         ← @flakeytesting/live-reporter
+│   ├── src/
+│   │   ├── index.ts             # Core LiveClient (batched HTTP POST)
+│   │   ├── mocha.ts             # Cypress/Mocha integration
+│   │   └── playwright.ts        # Playwright integration
+│   └── package.json
+└── flakey-mcp-server/            ← @flakeytesting/mcp-server
     ├── src/
-    │   └── webdriverio-reporter.ts
+    │   └── index.ts             # MCP tools for AI coding agents
     └── package.json
 ```
 

@@ -11,6 +11,8 @@ Flakey supports multiple test reporters. Each reporter outputs a different forma
 | **Mochawesome** | JSON | Cypress, Mocha | Implemented |
 | **JUnit** | XML | Jest, pytest, PHPUnit, Go, Java, .NET, most CI systems | Implemented |
 | **Playwright** | JSON | Playwright | Implemented |
+| **Jest** | JSON | Jest | Implemented |
+| **WebdriverIO** | JSON | WebdriverIO | Implemented |
 
 ## Usage
 

@@ -19,7 +19,7 @@ TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
 ### Getting an API key (recommended for CI)
 
 1. Log in at http://localhost:7777
-2. Click **Profile** at the bottom of the sidebar
+2. Go to **Settings** in the sidebar
 3. Under **API Keys**, enter a label and click **Create key**
 4. Copy the key (starts with `fk_`) — it's only shown once
 
@@ -505,4 +505,104 @@ test:
       - cypress/reports/
       - cypress/screenshots/
       - cypress/videos/
+```
+
+---
+
+## Parallel CI Runs
+
+When running tests across multiple CI workers (e.g. GitHub Actions matrix), each worker uploads separately. Flakey automatically merges uploads with the same `ci_run_id` + `suite_name` into a single run.
+
+The `ci_run_id` is picked up automatically from CI environment variables:
+
+| CI Platform | Environment Variable |
+|---|---|
+| GitHub Actions | `GITHUB_RUN_ID` |
+| GitLab CI | `CI_PIPELINE_ID` |
+| Bitbucket Pipelines | `BITBUCKET_BUILD_NUMBER` |
+| CircleCI | `CIRCLE_WORKFLOW_ID` |
+| Jenkins | `BUILD_ID` |
+
+### Example: GitHub Actions matrix
+
+```yaml
+jobs:
+  test:
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - run: npx cypress run --spec $(curl -s "$FLAKEY_URL/predict/split?suite=e2e&workers=4" -H "Authorization: Bearer $FLAKEY_KEY" | jq -r ".workers[${{ matrix.shard - 1 }}].specs | join(\",\")")
+```
+
+All 4 shards share the same `GITHUB_RUN_ID`, so their uploads merge into one run in Flakey.
+
+### Smart spec balancing
+
+Instead of splitting specs evenly, use `GET /predict/split` to balance by historical duration:
+
+```bash
+curl "http://localhost:3000/predict/split?suite=my-suite&workers=4" \
+  -H "Authorization: Bearer fk_your_key"
+```
+
+Returns spec assignments per worker with estimated duration.
+
+---
+
+## Live Reporting
+
+Stream test progress to Flakey in real-time during execution using `@flakeytesting/live-reporter`.
+
+### Cypress setup
+
+```bash
+npm install --save-dev @flakeytesting/live-reporter
+```
+
+```typescript
+// cypress.config.ts
+import { register as registerLive } from "@flakeytesting/live-reporter/dist/mocha.js";
+
+export default defineConfig({
+  e2e: {
+    setupNodeEvents(on, config) {
+      registerLive(on, {
+        url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+        apiKey: process.env.FLAKEY_API_KEY ?? "",
+        suite: "my-suite",
+      });
+      return config;
+    },
+  },
+});
+```
+
+### Playwright setup
+
+```typescript
+// playwright.config.ts
+export default defineConfig({
+  reporter: [
+    ["@flakeytesting/playwright-reporter", { url, apiKey, suite }],
+    ["@flakeytesting/live-reporter/playwright", { url, apiKey }],
+  ],
+});
+```
+
+The live reporter creates a placeholder run immediately so it appears in the dashboard. Test results stream in as each spec finishes. The main reporter's upload at the end merges into the same run via `ci_run_id`.
+
+---
+
+## Auto-Cancellation
+
+CI workers can check the failure count mid-run and exit early:
+
+```bash
+RESULT=$(curl -s "$FLAKEY_URL/runs/check?ci_run_id=$GITHUB_RUN_ID&suite=my-suite&threshold=5" \
+  -H "Authorization: Bearer $FLAKEY_KEY")
+if [ "$(echo $RESULT | jq .should_cancel)" = "true" ]; then
+  echo "Failure threshold reached, cancelling"
+  exit 1
+fi
 ```

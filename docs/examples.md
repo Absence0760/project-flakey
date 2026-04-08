@@ -13,11 +13,23 @@ examples/
       index.html      ← Login, Todos, Users table, Form
       serve.js        ← Node HTTP server (no dependencies)
     package.json
-  cypress/            ← Cypress example with 3 suites (smoke, sanity, regression)
+  cypress/            ← Cypress example with 4 suites (smoke, sanity, regression, live)
   playwright/         ← Playwright example with 3 suites
   selenium/           ← Selenium + Mocha example with CLI upload
   webdriverio/        ← WebdriverIO example
+  cypress-cucumber/   ← Cypress with Cucumber syntax
 ```
+
+### Live reporting demo
+
+The Cypress example includes a `live` suite that demonstrates real-time test progress streaming:
+
+```bash
+cd examples/cypress
+pnpm test:live
+```
+
+This uses `@flakeytesting/live-reporter` alongside the main Cypress reporter. The run appears in the Flakey dashboard immediately with a pulsing LIVE badge, and test results stream in as each spec completes.
 
 ## Sample App
 

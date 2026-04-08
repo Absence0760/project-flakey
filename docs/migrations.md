@@ -98,3 +98,8 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `011_github_integration.sql` | GitHub token/repo on organizations |
 | `012_git_provider.sql` | Generic git provider (GitHub/GitLab/Bitbucket) |
 | `013_error_tracking.sql` | Error groups with status, error notes |
+| `014_universal_notes.sql` | Universal notes table for runs, tests, and errors |
+| `015_email_verification_and_password_reset.sql` | Email verification and password reset columns on users |
+| `016_saved_views.sql` | Saved filter views with RLS |
+| `017_ai_analysis_and_quarantine.sql` | AI analysis cache and flaky test quarantine tables |
+| `018_live_events.sql` | Live test event persistence for real-time progress |
