@@ -20,9 +20,33 @@
 	let orgDropdownOpen = $state(false);
 	let profileOpen = $state(false);
 
+	// Theme
+	let theme = $state<"light" | "dark" | "system">("system");
+
+	function initTheme() {
+		const stored = localStorage.getItem("theme") as "light" | "dark" | null;
+		if (stored) {
+			theme = stored;
+			document.documentElement.setAttribute("data-theme", stored);
+		}
+	}
+
+	function cycleTheme() {
+		const next = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+		theme = next;
+		if (next === "system") {
+			document.documentElement.removeAttribute("data-theme");
+			localStorage.removeItem("theme");
+		} else {
+			document.documentElement.setAttribute("data-theme", next);
+			localStorage.setItem("theme", next);
+		}
+	}
+
 	const currentOrg = $derived(orgs.find(o => o.id === user?.orgId));
 
 	onMount(() => {
+		initTheme();
 		restoreAuth();
 		const auth = getAuth();
 		user = auth.user;
@@ -127,6 +151,18 @@
 				{/each}
 			</nav>
 			<div class="sidebar-bottom">
+				<button class="theme-toggle" onclick={cycleTheme} title="Toggle theme ({theme})">
+					{#if theme === "light"}
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg>
+						Light
+					{:else if theme === "dark"}
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8.5a5.5 5.5 0 01-6-6 5.5 5.5 0 106 6z"/></svg>
+						Dark
+					{:else}
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 2v12"/><path d="M8 2a6 6 0 010 12" fill="currentColor" opacity="0.3"/></svg>
+						System
+					{/if}
+				</button>
 				<div class="profile-wrapper">
 					{#if profileOpen}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -314,6 +350,26 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
+	}
+
+	.theme-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: calc(100% - 1.5rem);
+		margin: 0 0.75rem 0.5rem;
+		padding: 0.4rem 0.5rem;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-muted);
+		font-size: 0.78rem;
+		cursor: pointer;
+		transition: background 0.1s, color 0.1s;
+	}
+	.theme-toggle:hover {
+		background: var(--bg-hover);
+		color: var(--text);
 	}
 
 	.sidebar-bottom {

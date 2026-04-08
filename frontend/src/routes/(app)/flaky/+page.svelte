@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { page } from "$app/stores";
   import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
 
@@ -20,6 +21,24 @@
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
 
   let sortBy = $state<"flaky_rate" | "flip_count" | "fail_count" | "last_seen">("flaky_rate");
+
+  function syncUrl() {
+    const url = new URL(window.location.href);
+    const set = (k: string, v: string, def: string) => { if (v !== def) url.searchParams.set(k, v); else url.searchParams.delete(k); };
+    set("suite", selectedSuite, "all");
+    set("sort", sortBy, "flaky_rate");
+    set("window", String(runWindow), "30");
+    history.replaceState({}, "", url.toString());
+  }
+  function readUrl() {
+    const p = $page.url.searchParams;
+    selectedSuite = p.get("suite") ?? "all";
+    sortBy = (p.get("sort") as typeof sortBy) ?? "flaky_rate";
+    const w = Number(p.get("window"));
+    if (w > 0) runWindow = w;
+  }
+  let mounted = $state(false);
+  $effect(() => { selectedSuite; sortBy; runWindow; if (mounted) syncUrl(); });
   let expandedIndex = $state<number | null>(null);
   let sorted = $derived(
     [...tests].sort((a, b) => {
@@ -29,6 +48,7 @@
   );
 
   onMount(async () => {
+    readUrl();
     try {
       const [flakyData, runs, ai, qt] = await Promise.all([
         fetchFlakyTests({ runs: runWindow }),
@@ -44,6 +64,7 @@
       error = e instanceof Error ? e.message : "Failed to load data";
     } finally {
       loading = false;
+      mounted = true;
     }
   });
 

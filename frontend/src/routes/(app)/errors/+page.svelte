@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { page } from "$app/stores";
   import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError } from "$lib/api";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
@@ -20,6 +21,21 @@
 
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
 
+  function syncUrl() {
+    const url = new URL(window.location.href);
+    const set = (k: string, v: string, def: string) => { if (v !== def) url.searchParams.set(k, v); else url.searchParams.delete(k); };
+    set("suite", selectedSuite, "all");
+    set("status", selectedStatus, "all");
+    history.replaceState({}, "", url.toString());
+  }
+  function readUrl() {
+    const p = $page.url.searchParams;
+    selectedSuite = p.get("suite") ?? "all";
+    selectedStatus = p.get("status") ?? "all";
+  }
+  let mounted = $state(false);
+  $effect(() => { selectedSuite; selectedStatus; if (mounted) syncUrl(); });
+
   // Expanded error detail
   let expandedFingerprint = $state<string | null>(null);
   let affectedTests = $state<AffectedTest[]>([]);
@@ -38,6 +54,7 @@
   }
 
   onMount(async () => {
+    readUrl();
     try {
       const [errs, runs, ai] = await Promise.all([fetchErrors(), fetchRuns(), checkAIEnabled()]);
       errors = errs;
@@ -47,6 +64,7 @@
       loadError = e instanceof Error ? e.message : "Failed to load errors";
     } finally {
       loading = false;
+      mounted = true;
     }
   });
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { page } from "$app/stores";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { authFetch } from "$lib/auth";
 
@@ -18,6 +19,36 @@
   let selectedStatus = $state("all");
   let selectedDate = $state("7d");
   let searchQuery = $state("");
+
+  function syncFiltersToUrl() {
+    const url = new URL(window.location.href);
+    const set = (k: string, v: string, def: string) => {
+      if (v && v !== def) url.searchParams.set(k, v);
+      else url.searchParams.delete(k);
+    };
+    set("suite", selectedSuite, "all");
+    set("branch", selectedBranch, "all");
+    set("status", selectedStatus, "all");
+    set("date", selectedDate, "7d");
+    set("q", searchQuery, "");
+    history.replaceState({}, "", url.toString());
+  }
+
+  function readFiltersFromUrl() {
+    const p = $page.url.searchParams;
+    selectedSuite = p.get("suite") ?? "all";
+    selectedBranch = p.get("branch") ?? "all";
+    selectedStatus = p.get("status") ?? "all";
+    selectedDate = p.get("date") ?? "7d";
+    searchQuery = p.get("q") ?? "";
+  }
+
+  let mounted = $state(false);
+  $effect(() => {
+    // Access all filter values to create dependency
+    selectedSuite; selectedBranch; selectedStatus; selectedDate; searchQuery;
+    if (mounted) syncFiltersToUrl();
+  });
 
   let savedViews = $state<SavedView[]>([]);
   let saveViewName = $state("");
@@ -179,6 +210,7 @@
   }
 
   onMount(async () => {
+    readFiltersFromUrl();
     loadPins();
     try {
       const [runsData, views] = await Promise.all([
@@ -195,6 +227,7 @@
       error = e instanceof Error ? e.message : "Failed to load runs";
     } finally {
       loading = false;
+      mounted = true;
     }
   });
 

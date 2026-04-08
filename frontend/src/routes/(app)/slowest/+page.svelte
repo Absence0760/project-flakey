@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { page } from "$app/stores";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
 
@@ -9,6 +10,21 @@
   let selectedSuite = $state("all");
   let suites = $state<string[]>([]);
   let sortBy = $state<"avg_duration_ms" | "max_duration_ms" | "trend_pct" | "p95_ms">("avg_duration_ms");
+
+  function syncUrl() {
+    const url = new URL(window.location.href);
+    const set = (k: string, v: string, def: string) => { if (v !== def) url.searchParams.set(k, v); else url.searchParams.delete(k); };
+    set("suite", selectedSuite, "all");
+    set("sort", sortBy, "avg_duration_ms");
+    history.replaceState({}, "", url.toString());
+  }
+  function readUrl() {
+    const p = $page.url.searchParams;
+    selectedSuite = p.get("suite") ?? "all";
+    sortBy = (p.get("sort") as typeof sortBy) ?? "avg_duration_ms";
+  }
+  let mounted = $state(false);
+  $effect(() => { selectedSuite; sortBy; if (mounted) syncUrl(); });
   let expandedIndex = $state<number | null>(null);
 
   let sorted = $derived(
@@ -35,11 +51,13 @@
   }
 
   onMount(async () => {
+    readUrl();
     try {
       const runs = await fetchRuns();
       suites = [...new Set(runs.map((r) => r.suite_name))].sort();
     } catch {}
-    load();
+    await load();
+    mounted = true;
   });
 
   function formatMs(ms: number): string {

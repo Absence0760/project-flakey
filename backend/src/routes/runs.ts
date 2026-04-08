@@ -191,6 +191,15 @@ router.get("/:id", async (req, res) => {
       return;
     }
 
+    // Adjacent runs for prev/next navigation
+    const adjResult = await tenantQuery(orgId,
+      `SELECT
+        (SELECT id FROM runs WHERE id < $1 ORDER BY id DESC LIMIT 1) AS prev_id,
+        (SELECT id FROM runs WHERE id > $1 ORDER BY id ASC LIMIT 1) AS next_id`,
+      [runId]
+    );
+    const { prev_id, next_id } = adjResult.rows[0] ?? {};
+
     const specsResult = await tenantQuery(orgId, "SELECT * FROM specs WHERE run_id = $1 ORDER BY file_path", [runId]);
     const specIds = specsResult.rows.map((s) => s.id);
     let tests: Record<number, unknown[]> = {};
@@ -204,7 +213,7 @@ router.get("/:id", async (req, res) => {
     }
 
     const specs = specsResult.rows.map((spec) => ({ ...spec, tests: tests[spec.id] ?? [] }));
-    res.json({ ...runResult.rows[0], specs });
+    res.json({ ...runResult.rows[0], specs, prev_id: prev_id ?? null, next_id: next_id ?? null });
   } catch (err) {
     console.error("GET /runs/:id error:", err);
     res.status(500).json({ error: "Internal server error" });

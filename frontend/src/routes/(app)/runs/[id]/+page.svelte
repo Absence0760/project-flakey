@@ -367,6 +367,22 @@
       <a href="/">Runs</a>
       <span class="sep">/</span>
       <span>#{run.id}</span>
+      <div class="run-nav">
+        {#if run.prev_id}
+          <a href="/runs/{run.prev_id}" class="run-nav-btn" title="Previous run (#{run.prev_id})">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3L5 8l5 5"/></svg>
+          </a>
+        {:else}
+          <span class="run-nav-btn disabled"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3L5 8l5 5"/></svg></span>
+        {/if}
+        {#if run.next_id}
+          <a href="/runs/{run.next_id}" class="run-nav-btn" title="Next run (#{run.next_id})">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3l5 5-5 5"/></svg>
+          </a>
+        {:else}
+          <span class="run-nav-btn disabled"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3l5 5-5 5"/></svg></span>
+        {/if}
+      </div>
     </nav>
 
     <!-- Header card -->
@@ -708,10 +724,17 @@
     color: var(--text-muted);
   }
 
-  .breadcrumb > span:last-child {
-    color: var(--text-secondary);
-    font-weight: 500;
+  .run-nav {
+    display: flex; gap: 0.2rem; margin-left: auto;
   }
+  .run-nav-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 1px solid var(--border); color: var(--text-secondary);
+    text-decoration: none; transition: color 0.15s, border-color 0.15s;
+  }
+  .run-nav-btn:hover:not(.disabled) { color: var(--link); border-color: var(--link); }
+  .run-nav-btn.disabled { opacity: 0.3; cursor: default; }
 
   /* Header */
   .run-header {

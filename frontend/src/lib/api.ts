@@ -146,6 +146,8 @@ export interface Spec {
 export interface RunDetail extends Run {
   specs: Spec[];
   rerun_command_template: string | null;
+  prev_id: number | null;
+  next_id: number | null;
 }
 
 export interface ErrorGroup {
