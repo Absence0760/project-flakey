@@ -26,7 +26,8 @@
     "@playwright/test": { "optional": true }
   },
   "dependencies": {
-    "@flakeytesting/core": "workspace:*"
+    "@flakeytesting/core": "workspace:*",
+    "@flakeytesting/playwright-snapshots": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",

@@ -25,7 +25,7 @@ export default defineConfig({
     baseURL: "http://localhost:4444",
     screenshot: "only-on-failure",
     video: "on",
-    trace: "retain-on-failure",
+    trace: "on",
   },
   reporter: [
     ["list"],

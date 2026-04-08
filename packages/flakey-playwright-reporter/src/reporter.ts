@@ -13,6 +13,7 @@
 
 import type { ReporterOptions, NormalizedRun, NormalizedSpec, NormalizedTest } from "@flakeytesting/core";
 import { ApiClient } from "@flakeytesting/core";
+import { parseTrace } from "@flakeytesting/playwright-snapshots";
 
 // Playwright reporter types — we define them inline to avoid requiring
 // @playwright/test as a runtime dependency
@@ -41,6 +42,8 @@ export default class FlakeyPlaywrightReporter {
   private specMap = new Map<string, { spec: NormalizedSpec; tests: NormalizedTest[] }>();
   private allScreenshots: string[] = [];
   private allVideos: string[] = [];
+  private allSnapshots: string[] = [];
+  private traceMap = new Map<string, { tracePath: string; testTitle: string; specFile: string }>();
 
   constructor(options: ReporterOptions) {
     this.options = options;
@@ -85,6 +88,19 @@ export default class FlakeyPlaywrightReporter {
     this.allScreenshots.push(...screenshots);
     this.allVideos.push(...videos);
 
+    // Collect trace files for snapshot extraction
+    const traces = result.attachments
+      .filter((a) => a.contentType === "application/zip" && a.path)
+      .map((a) => a.path!);
+
+    if (traces.length > 0) {
+      this.traceMap.set(`${filePath}::${test.title}`, {
+        tracePath: traces[0],
+        testTitle: test.title,
+        specFile: filePath,
+      });
+    }
+
     const normalizedTest: NormalizedTest = {
       title: test.title,
       full_title: fullTitle,
@@ -113,7 +129,42 @@ export default class FlakeyPlaywrightReporter {
     const specs: NormalizedSpec[] = [];
     let total = 0, passed = 0, failed = 0, skipped = 0, duration = 0;
 
+    // Parse traces to extract command logs and snapshots
+    const { mkdirSync } = await import("fs");
+    const { join } = await import("path");
+    const { gzipSync } = await import("zlib");
+    const { writeFileSync } = await import("fs");
+    const snapshotsDir = join(process.cwd(), "playwright-snapshots");
+
     for (const { spec, tests } of this.specMap.values()) {
+      for (const test of tests) {
+        const key = `${spec.file_path}::${test.title}`;
+        const traceInfo = this.traceMap.get(key);
+        if (traceInfo) {
+          try {
+            const { commandLog, snapshotBundle } = parseTrace(
+              traceInfo.tracePath,
+              traceInfo.testTitle,
+              traceInfo.specFile
+            );
+            if (commandLog.length > 0) {
+              test.command_log = commandLog;
+            }
+            if (snapshotBundle && snapshotBundle.steps.length > 0) {
+              mkdirSync(snapshotsDir, { recursive: true });
+              const safeName = test.title.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "-").slice(0, 100);
+              const safeSpec = spec.file_path.replace(/[^a-zA-Z0-9_\-./]/g, "").replace(/\//g, "__");
+              const fileName = `${safeSpec}--${safeName}.json.gz`;
+              const filePath = join(snapshotsDir, fileName);
+              writeFileSync(filePath, gzipSync(Buffer.from(JSON.stringify(snapshotBundle))));
+              this.allSnapshots.push(filePath);
+              console.log(`  [flakey-snapshots] Parsed ${snapshotBundle.steps.length} steps from trace → ${fileName}`);
+            }
+          } catch (err: any) {
+            console.warn(`  [flakey] Failed to parse trace for "${test.title}": ${err.message}`);
+          }
+        }
+      }
       spec.tests = tests;
       specs.push(spec);
       total += spec.stats.total;
@@ -141,7 +192,7 @@ export default class FlakeyPlaywrightReporter {
       const result = await this.client.postRunWithFiles(run, {
         screenshots: this.allScreenshots,
         videos: this.allVideos,
-        snapshots: [],
+        snapshots: this.allSnapshots,
       });
       console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${this.options.url}`);
     } catch (err: any) {
