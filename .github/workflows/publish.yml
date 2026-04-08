@@ -15,6 +15,10 @@ on:
           - cypress-reporter
           - cypress-snapshots
           - playwright-reporter
+          - playwright-snapshots
+          - webdriverio-reporter
+          - live-reporter
+          - mcp-server
           - all
 
 permissions:
@@ -29,26 +33,47 @@ jobs:
       cypress_reporter: ${{ steps.check.outputs.cypress_reporter }}
       cypress_snapshots: ${{ steps.check.outputs.cypress_snapshots }}
       playwright_reporter: ${{ steps.check.outputs.playwright_reporter }}
+      playwright_snapshots: ${{ steps.check.outputs.playwright_snapshots }}
+      webdriverio_reporter: ${{ steps.check.outputs.webdriverio_reporter }}
+      live_reporter: ${{ steps.check.outputs.live_reporter }}
+      mcp_server: ${{ steps.check.outputs.mcp_server }}
     steps:
       - id: check
         run: |
           TAG="${{ github.event.release.tag_name }}"
           MANUAL="${{ github.event.inputs.package }}"
 
-          if [[ "$TAG" == core@* ]] || [[ "$MANUAL" == "core" ]] || [[ "$MANUAL" == "all" ]]; then
+          ALL="false"
+          if [[ "$TAG" == all@* ]] || [[ "$MANUAL" == "all" ]]; then
+            ALL="true"
+          fi
+
+          if [[ "$TAG" == core@* ]] || [[ "$MANUAL" == "core" ]] || [[ "$ALL" == "true" ]]; then
             echo "core=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == cli@* ]] || [[ "$MANUAL" == "cli" ]] || [[ "$MANUAL" == "all" ]]; then
+          if [[ "$TAG" == cli@* ]] || [[ "$MANUAL" == "cli" ]] || [[ "$ALL" == "true" ]]; then
             echo "cli=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == cypress-reporter@* ]] || [[ "$MANUAL" == "cypress-reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+          if [[ "$TAG" == cypress-reporter@* ]] || [[ "$MANUAL" == "cypress-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "cypress_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == cypress-snapshots@* ]] || [[ "$MANUAL" == "cypress-snapshots" ]] || [[ "$MANUAL" == "all" ]]; then
+          if [[ "$TAG" == cypress-snapshots@* ]] || [[ "$MANUAL" == "cypress-snapshots" ]] || [[ "$ALL" == "true" ]]; then
             echo "cypress_snapshots=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == playwright-reporter@* ]] || [[ "$MANUAL" == "playwright-reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+          if [[ "$TAG" == playwright-reporter@* ]] || [[ "$MANUAL" == "playwright-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "playwright_reporter=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == playwright-snapshots@* ]] || [[ "$ALL" == "true" ]]; then
+            echo "playwright_snapshots=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == webdriverio-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+            echo "webdriverio_reporter=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == live-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+            echo "live_reporter=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$TAG" == mcp-server@* ]] || [[ "$ALL" == "true" ]]; then
+            echo "mcp_server=true" >> "$GITHUB_OUTPUT"
           fi
 
   publish-core:
@@ -133,5 +158,73 @@ jobs:
         working-directory: packages/flakey-playwright-reporter
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-playwright-reporter
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-playwright-snapshots:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.playwright_snapshots == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-playwright-snapshots
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-playwright-snapshots
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-webdriverio-reporter:
+    needs: [detect-package, publish-core]
+    if: always() && needs.detect-package.outputs.webdriverio_reporter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-webdriverio-reporter
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-webdriverio-reporter
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-live-reporter:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.live_reporter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-live-reporter
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-live-reporter
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-mcp-server:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.mcp_server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-mcp-server
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-mcp-server
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
