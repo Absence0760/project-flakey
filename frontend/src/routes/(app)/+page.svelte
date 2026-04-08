@@ -22,6 +22,28 @@
   let showSaveInput = $state(false);
   let copiedSuite = $state<string | null>(null);
 
+  // Compare mode
+  let compareMode = $state(false);
+  let compareA = $state<number | null>(null);
+  let compareB = $state<number | null>(null);
+
+  function toggleCompareSelect(e: MouseEvent, id: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (compareA === id) { compareA = null; return; }
+    if (compareB === id) { compareB = null; return; }
+    if (compareA === null) { compareA = id; return; }
+    if (compareB === null) { compareB = id; return; }
+    // Both set — replace B
+    compareB = id;
+  }
+
+  function exitCompareMode() {
+    compareMode = false;
+    compareA = null;
+    compareB = null;
+  }
+
   // Pinned runs (persisted in localStorage)
   let pinnedIds = $state<Set<number>>(new Set());
   function loadPins() {
@@ -248,7 +270,9 @@
         <button class="action-btn" onclick={() => { showSaveInput = !showSaveInput; }}>Save view</button>
         <button class="action-btn muted" onclick={clearFilters}>Clear</button>
       {/if}
-      <a href="/compare" class="compare-link">Compare runs</a>
+      <button class="compare-link" class:active={compareMode} onclick={() => compareMode ? exitCompareMode() : compareMode = true}>
+        {compareMode ? "Cancel compare" : "Compare runs"}
+      </button>
     </div>
   </div>
 
@@ -344,7 +368,18 @@
 
     <div class="run-list">
       {#each runs as run}
-        <a href="/runs/{run.id}" class="run-card">
+        <a href="/runs/{run.id}" class="run-card" class:compare-selected={compareMode && (compareA === run.id || compareB === run.id)}>
+          {#if compareMode}
+            <button class="compare-check" onclick={(e) => toggleCompareSelect(e, run.id)}>
+              {#if compareA === run.id}
+                <span class="compare-label">A</span>
+              {:else if compareB === run.id}
+                <span class="compare-label">B</span>
+              {:else}
+                <span class="compare-empty"></span>
+              {/if}
+            </button>
+          {/if}
           <div class="card-left">
             <span class="run-status-dot" class:pass={run.failed === 0} class:fail={run.failed > 0}></span>
             <div class="card-info">
@@ -418,6 +453,31 @@
   {/if}
 </div>
 
+{#if compareMode && compareA !== null && compareB !== null}
+  <div class="compare-bar">
+    <span class="compare-bar-text">
+      Comparing <strong>#{compareA}</strong> vs <strong>#{compareB}</strong>
+    </span>
+    <a href="/compare?a={compareA}&b={compareB}" class="compare-go-btn">Compare</a>
+    <button class="compare-swap-btn" title="Swap A and B" onclick={() => { const tmp = compareA; compareA = compareB; compareB = tmp; }}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h8M8 2l4 4-4 4"/></svg>
+      Swap
+    </button>
+    <button class="compare-cancel-btn" onclick={exitCompareMode}>Cancel</button>
+  </div>
+{:else if compareMode}
+  <div class="compare-bar">
+    <span class="compare-bar-text">
+      {#if compareA === null}
+        Select the first run (A)
+      {:else}
+        Run <strong>#{compareA}</strong> selected — now select run B
+      {/if}
+    </span>
+    <button class="compare-cancel-btn" onclick={exitCompareMode}>Cancel</button>
+  </div>
+{/if}
+
 <style>
   .page { max-width: 1100px; padding: 2rem; }
 
@@ -458,8 +518,10 @@
   .compare-link {
     padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
     color: var(--text-secondary); text-decoration: none; font-size: 0.8rem;
+    background: none; cursor: pointer;
   }
   .compare-link:hover { background: var(--bg-hover); color: var(--text); }
+  .compare-link.active { border-color: var(--link); color: var(--link); }
 
   .views-bar {
     display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem;
@@ -630,4 +692,45 @@
   .bar-skip { background: var(--color-skip); }
 
   .pass-pct { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); min-width: 2.5rem; text-align: right; }
+
+  /* Compare mode */
+  .compare-check {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; flex-shrink: 0;
+    border: 2px solid var(--border); border-radius: 6px;
+    background: none; cursor: pointer; transition: border-color 0.15s;
+  }
+  .compare-check:hover { border-color: var(--link); }
+  .compare-label {
+    font-size: 0.72rem; font-weight: 700; color: var(--link);
+  }
+  .compare-empty { width: 12px; height: 12px; }
+  .run-card.compare-selected { border-color: var(--link); background: color-mix(in srgb, var(--link) 4%, var(--bg)); }
+
+  .compare-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem 2rem;
+    background: var(--bg-secondary); border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.08);
+  }
+  .compare-bar-text { font-size: 0.85rem; color: var(--text-secondary); }
+  .compare-go-btn {
+    padding: 0.4rem 1rem; border: none; border-radius: 6px;
+    background: var(--link); color: #fff; font-size: 0.82rem; font-weight: 600;
+    text-decoration: none; cursor: pointer;
+  }
+  .compare-go-btn:hover { opacity: 0.9; }
+  .compare-swap-btn {
+    display: flex; align-items: center; gap: 0.25rem;
+    padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: none; color: var(--text-secondary); font-size: 0.78rem; cursor: pointer;
+  }
+  .compare-swap-btn:hover { color: var(--text); border-color: var(--text-muted); }
+  .compare-cancel-btn {
+    padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: none; color: var(--text-muted); font-size: 0.78rem; cursor: pointer;
+    margin-left: auto;
+  }
+  .compare-cancel-btn:hover { color: var(--text); border-color: var(--text-muted); }
 </style>

@@ -269,17 +269,16 @@
     lines.push(`Duration: ${formatDuration(run.duration_ms)}`);
     lines.push(`Results: ${run.passed} passed, ${run.failed} failed, ${run.skipped} skipped / ${run.total} total (${passRate(run)}%)`);
 
-    const failedSpecs = run.specs.filter((s) => s.tests.some((t) => t.status === "failed"));
-    if (failedSpecs.length > 0) {
+    const statusIcon = (s: string) => s === "passed" ? "✅" : s === "failed" ? "❌" : "⏭️";
+    for (const spec of run.specs) {
+      const relevant = spec.tests.filter((t) => t.status !== "pending");
+      if (relevant.length === 0) continue;
       lines.push("");
-      lines.push(bold("Failed tests:"));
-      for (const spec of failedSpecs) {
-        lines.push(italic(spec.file_path || spec.title));
-        for (const test of spec.tests) {
-          if (test.status !== "failed") continue;
-          const err = test.error_message ? ` — ${test.error_message.slice(0, 120)}` : "";
-          lines.push(`- ${test.full_title || test.title}${err}`);
-        }
+      lines.push(italic(spec.file_path || spec.title));
+      for (const test of relevant) {
+        const icon = statusIcon(test.status);
+        const err = test.status === "failed" && test.error_message ? ` — ${test.error_message.slice(0, 120)}` : "";
+        lines.push(`- ${icon} ${test.full_title || test.title}${err}`);
       }
     }
 
