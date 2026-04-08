@@ -111,11 +111,13 @@
   </div>
 
   <div class="sort-bar">
-    Sort by:
-    <button class:active={sortBy === "avg_duration_ms"} onclick={() => sortBy = "avg_duration_ms"}>Average</button>
-    <button class:active={sortBy === "max_duration_ms"} onclick={() => sortBy = "max_duration_ms"}>Max</button>
-    <button class:active={sortBy === "p95_ms"} onclick={() => sortBy = "p95_ms"}>P95</button>
-    <button class:active={sortBy === "trend_pct"} onclick={() => sortBy = "trend_pct"}>Getting slower</button>
+    <span class="sort-label">Sort by:</span>
+    <div class="filter-tabs">
+      <button class="filter-tab" class:active={sortBy === "avg_duration_ms"} onclick={() => sortBy = "avg_duration_ms"}>Average</button>
+      <button class="filter-tab" class:active={sortBy === "max_duration_ms"} onclick={() => sortBy = "max_duration_ms"}>Max</button>
+      <button class="filter-tab" class:active={sortBy === "p95_ms"} onclick={() => sortBy = "p95_ms"}>P95</button>
+      <button class="filter-tab" class:active={sortBy === "trend_pct"} onclick={() => sortBy = "trend_pct"}>Getting slower</button>
+    </div>
   </div>
 
   {#if loading}
@@ -239,15 +241,20 @@
   }
 
   .sort-bar {
-    display: flex; align-items: center; gap: 0.35rem; margin-bottom: 1rem;
-    font-size: 0.75rem; color: var(--text-muted);
+    display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
   }
-  .sort-bar button {
-    padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 4px;
-    background: var(--bg); color: var(--text-secondary); font-size: 0.72rem; cursor: pointer;
+  .sort-label { font-size: 0.75rem; color: var(--text-muted); }
+
+  .filter-tabs {
+    display: flex; gap: 0.2rem; background: var(--bg-secondary); border-radius: 6px; padding: 0.2rem;
   }
-  .sort-bar button:hover { background: var(--bg-hover); }
-  .sort-bar button.active { background: var(--link); color: #fff; border-color: var(--link); }
+  .filter-tab {
+    display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-secondary);
+    font-size: 0.78rem; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-tab:hover { color: var(--text); }
+  .filter-tab.active { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }

@@ -145,13 +145,11 @@
           <option value={suite}>{suite}</option>
         {/each}
       </select>
-      <select bind:value={runWindow} onchange={reload}>
-        <option value={10}>Last 10 runs</option>
-        <option value={20}>Last 20 runs</option>
-        <option value={30}>Last 30 runs</option>
-        <option value={50}>Last 50 runs</option>
-        <option value={100}>Last 100 runs</option>
-      </select>
+      <div class="filter-tabs">
+        {#each [10, 20, 30, 50, 100] as w}
+          <button class="filter-tab" class:active={runWindow === w} onclick={() => { runWindow = w; reload(); }}>{w} runs</button>
+        {/each}
+      </div>
     </div>
   </div>
 
@@ -170,11 +168,13 @@
     </div>
 
     <div class="sort-bar">
-      Sort by:
-      <button class:active={sortBy === "flaky_rate"} onclick={() => sortBy = "flaky_rate"}>Flaky rate</button>
-      <button class:active={sortBy === "flip_count"} onclick={() => sortBy = "flip_count"}>Flips</button>
-      <button class:active={sortBy === "fail_count"} onclick={() => sortBy = "fail_count"}>Failures</button>
-      <button class:active={sortBy === "last_seen"} onclick={() => sortBy = "last_seen"}>Last seen</button>
+      <span class="sort-label">Sort by:</span>
+      <div class="filter-tabs">
+        <button class="filter-tab" class:active={sortBy === "flaky_rate"} onclick={() => sortBy = "flaky_rate"}>Flaky rate</button>
+        <button class="filter-tab" class:active={sortBy === "flip_count"} onclick={() => sortBy = "flip_count"}>Flips</button>
+        <button class="filter-tab" class:active={sortBy === "fail_count"} onclick={() => sortBy = "fail_count"}>Failures</button>
+        <button class="filter-tab" class:active={sortBy === "last_seen"} onclick={() => sortBy = "last_seen"}>Last seen</button>
+      </div>
     </div>
 
     <div class="flaky-list">
@@ -257,11 +257,22 @@
   }
   .description { margin: 0.25rem 0 0; color: var(--text-secondary); font-size: 0.875rem; }
 
-  .filters { display: flex; gap: 0.5rem; flex-shrink: 0; }
+  .filters { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
   select {
     padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.85rem;
   }
+
+  .filter-tabs {
+    display: flex; gap: 0.2rem; background: var(--bg-secondary); border-radius: 6px; padding: 0.2rem;
+  }
+  .filter-tab {
+    display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-secondary);
+    font-size: 0.78rem; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-tab:hover { color: var(--text); }
+  .filter-tab.active { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }
@@ -275,15 +286,9 @@
   .summary-count { font-weight: 700; color: var(--color-fail); font-size: 1rem; }
 
   .sort-bar {
-    display: flex; align-items: center; gap: 0.35rem; margin-bottom: 1rem;
-    font-size: 0.75rem; color: var(--text-muted);
+    display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
   }
-  .sort-bar button {
-    padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 4px;
-    background: var(--bg); color: var(--text-secondary); font-size: 0.72rem; cursor: pointer;
-  }
-  .sort-bar button:hover { background: var(--bg-hover); }
-  .sort-bar button.active { background: var(--link); color: #fff; border-color: var(--link); }
+  .sort-label { font-size: 0.75rem; color: var(--text-muted); }
 
   .flaky-list { display: flex; flex-direction: column; gap: 0.5rem; }
 

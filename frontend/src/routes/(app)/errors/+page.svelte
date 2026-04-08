@@ -165,12 +165,16 @@
           <option value={suite}>{suite}</option>
         {/each}
       </select>
-      <select bind:value={selectedStatus} onchange={onStatusChange}>
-        <option value="all">All statuses</option>
+      <div class="filter-tabs">
+        <button class="filter-tab" class:active={selectedStatus === "all"} onclick={() => { selectedStatus = "all"; onStatusChange(); }}>
+          All
+        </button>
         {#each statuses as s}
-          <option value={s.value}>{s.label}</option>
+          <button class="filter-tab" class:active={selectedStatus === s.value} onclick={() => { selectedStatus = s.value; onStatusChange(); }}>
+            <span class="dot" style="background: {s.color}"></span> {s.label}
+          </button>
         {/each}
-      </select>
+      </div>
     </div>
   </div>
 
@@ -333,10 +337,25 @@
   }
   .description { margin: 0.25rem 0 0; color: var(--text-secondary); font-size: 0.875rem; }
 
-  .filters { display: flex; gap: 0.5rem; flex-shrink: 0; }
+  .filters { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
   select {
     padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.85rem;
+  }
+
+  .filter-tabs {
+    display: flex; gap: 0.2rem; background: var(--bg-secondary); border-radius: 6px; padding: 0.2rem;
+  }
+  .filter-tab {
+    display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-secondary);
+    font-size: 0.78rem; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-tab:hover { color: var(--text); }
+  .filter-tab.active { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+
+  .filter-tabs .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   }
 
   .status-text { color: var(--text-secondary); }

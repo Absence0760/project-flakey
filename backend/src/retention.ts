@@ -9,9 +9,12 @@ export async function runRetentionCleanup(): Promise<void> {
     );
 
     for (const org of orgs.rows) {
+      const days = Number(org.retention_days);
+      if (!days || days <= 0) continue;
+
       const runs = await pool.query(
         "DELETE FROM runs WHERE org_id = $1 AND created_at < NOW() - ($2 || ' days')::INTERVAL RETURNING id",
-        [org.id, String(org.retention_days)]
+        [org.id, String(days)]
       );
 
       for (const run of runs.rows) {

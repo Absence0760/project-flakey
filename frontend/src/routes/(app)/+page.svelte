@@ -136,10 +136,10 @@
   );
 
   let stats = $derived({
-    total: dbSummary.total,
-    passed: dbSummary.passed,
-    failed: dbSummary.failed,
-    newFailures: allRuns.filter((r) => (r.new_failures ?? 0) > 0).length,
+    total: runs.length,
+    passed: runs.filter((r) => r.failed === 0).length,
+    failed: runs.filter((r) => r.failed > 0).length,
+    newFailures: runs.filter((r) => (r.new_failures ?? 0) > 0).length,
   });
 
   function applyView(view: SavedView) {
@@ -300,14 +300,11 @@
           {/each}
         </select>
       {/if}
-      <select bind:value={selectedDate}>
-        <option value="all">All time</option>
-        <option value="1h">Last hour</option>
-        <option value="today">Today</option>
-        <option value="24h">Last 24h</option>
-        <option value="7d">Last 7 days</option>
-        <option value="30d">Last 30 days</option>
-      </select>
+      <div class="filter-tabs">
+        {#each [["all", "All time"], ["1h", "Last hour"], ["today", "Today"], ["24h", "24h"], ["7d", "7 days"], ["30d", "30 days"]] as [value, label]}
+          <button class="filter-tab" class:active={selectedDate === value} onclick={() => selectedDate = value}>{label}</button>
+        {/each}
+      </div>
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
         <input type="text" placeholder="Search runs..." bind:value={searchQuery} />
@@ -545,6 +542,17 @@
     padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.85rem;
   }
+
+  .filter-tabs {
+    display: flex; gap: 0.2rem; background: var(--bg-secondary); border-radius: 6px; padding: 0.2rem;
+  }
+  .filter-tab {
+    display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-secondary);
+    font-size: 0.78rem; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .filter-tab:hover { color: var(--text); }
+  .filter-tab.active { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 
   .search-box {
     display: flex; align-items: center; gap: 0.4rem;

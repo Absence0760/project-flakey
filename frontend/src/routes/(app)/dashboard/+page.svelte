@@ -15,8 +15,11 @@
     d.setDate(d.getDate() - n);
     return d.toISOString().slice(0, 10);
   }
+  function today(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
   let fromDate = $state<string | undefined>(daysAgo(7));
-  let toDate = $state<string | undefined>(undefined);
+  let toDate = $state<string | undefined>(today());
 
   async function loadStats() {
     loading = true;
@@ -26,7 +29,7 @@
       [stats, trends, suites] = await Promise.all([
         fetchStats(filters),
         fetchTrends(filters),
-        fetchSuiteComparisons(),
+        fetchSuiteComparisons(filters),
       ]);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load stats";
@@ -37,7 +40,7 @@
 
   function handleDateChange(from: string | undefined, to: string | undefined) {
     fromDate = from ?? daysAgo(7);
-    toDate = to;
+    toDate = to ?? today();
     loadStats();
   }
 

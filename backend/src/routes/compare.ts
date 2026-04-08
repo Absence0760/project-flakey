@@ -130,16 +130,33 @@ router.get("/", async (req, res) => {
 router.get("/suites", async (req, res) => {
   try {
     const orgId = req.user!.orgId;
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+
+    let dateFilter = "";
+    const params: string[] = [];
+
+    if (from && to) {
+      params.push(from, to);
+      dateFilter = `WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day')`;
+    } else if (from) {
+      params.push(from);
+      dateFilter = `WHERE created_at >= $1::date`;
+    } else if (to) {
+      params.push(to);
+      dateFilter = `WHERE created_at < ($1::date + INTERVAL '1 day')`;
+    }
 
     // Get latest 2 runs per suite using window function
     const result = await tenantQuery(orgId, `
       SELECT * FROM (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY suite_name ORDER BY created_at DESC) AS rn
         FROM runs
+        ${dateFilter}
       ) sub
       WHERE rn <= 2
       ORDER BY suite_name, rn
-    `);
+    `, params);
 
     // Group by suite
     const suiteMap = new Map<string, typeof result.rows>();
