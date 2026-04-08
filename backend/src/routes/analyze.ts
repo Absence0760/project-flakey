@@ -1,12 +1,26 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
-import { analyzeFailure, analyzeFlakyTest, computeSimilarity, isAIEnabled } from "../ai.js";
+import { analyzeFailure, analyzeFlakyTest, computeSimilarity, isAIEnabled, testConnection } from "../ai.js";
 
 const router = Router();
 
 // GET /analyze/status — check if AI is enabled
 router.get("/status", (_req, res) => {
   res.json({ enabled: isAIEnabled() });
+});
+
+// POST /analyze/test-connection — test AI provider connectivity
+router.post("/test-connection", async (_req, res) => {
+  try {
+    if (!isAIEnabled()) {
+      res.json({ ok: false, error: "No AI provider configured" });
+      return;
+    }
+    const result = await testConnection();
+    res.json(result);
+  } catch (err) {
+    res.json({ ok: false, error: err instanceof Error ? err.message : "Connection failed" });
+  }
 });
 
 // POST /analyze/error/:fingerprint — analyze an error group

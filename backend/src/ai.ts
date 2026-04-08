@@ -27,6 +27,27 @@ export function isAIEnabled(): boolean {
 }
 
 /**
+ * Test connectivity to the configured AI provider.
+ */
+export async function testConnection(): Promise<{ ok: boolean; provider: string; model: string; error?: string }> {
+  try {
+    const response = await chat("Reply with exactly: ok");
+    return {
+      ok: response.toLowerCase().includes("ok"),
+      provider: AI_PROVIDER,
+      model: AI_MODEL,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      provider: AI_PROVIDER,
+      model: AI_MODEL,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
+/**
  * Send a prompt and get a text response from whichever AI provider is configured.
  */
 async function chat(prompt: string): Promise<string> {
