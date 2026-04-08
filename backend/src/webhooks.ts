@@ -34,6 +34,7 @@ export async function dispatchWebhooks(orgId: number, event: string, payload: We
  * Dispatch all relevant webhook events for a completed run.
  */
 export async function dispatchRunEvents(orgId: number, runId: number, run: NormalizedRun): Promise<void> {
+  if (!orgId || typeof orgId !== "number") return;
   const failedTests = run.specs.flatMap((spec) =>
     spec.tests
       .filter((t) => t.status === "failed")
