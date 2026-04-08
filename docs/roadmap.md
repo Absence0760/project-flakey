@@ -99,7 +99,7 @@
 - [ ] PagerDuty integration (trigger incidents from test failures)
 - [ ] Scheduled reports (daily/weekly email or Slack digests)
 - [ ] Code coverage tracking with PR gating
-- [ ] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
+- [x] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
 
 ## Phase 10 — Extended testing capabilities
 
