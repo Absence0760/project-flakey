@@ -7,11 +7,15 @@
  *     require('@flakeytesting/live-reporter/mocha').register(on, {
  *       url: 'http://localhost:3000',
  *       apiKey: 'fk_...',
- *       runId: 123,
+ *       suite: 'my-suite',
  *     });
  *   }
  *
- * Or set env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID
+ * The reporter automatically creates a placeholder run via POST /live/start
+ * so the run appears in the dashboard immediately. The main reporter's upload
+ * at the end merges into this run via ci_run_id.
+ *
+ * Env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID (optional override)
  */
 
 import { LiveClient } from "./index.js";
@@ -19,31 +23,87 @@ import { LiveClient } from "./index.js";
 interface MochaLiveConfig {
   url?: string;
   apiKey?: string;
+  suite?: string;
   runId?: number;
+  branch?: string;
+  commitSha?: string;
+  ciRunId?: string;
 }
 
 export function register(
   on: (event: string, handler: (...args: any[]) => void) => void,
   config: MochaLiveConfig = {}
 ) {
-  const url = config.url ?? process.env.FLAKEY_API_URL;
-  const apiKey = config.apiKey ?? process.env.FLAKEY_API_KEY;
-  const runId = config.runId ?? Number(process.env.FLAKEY_LIVE_RUN_ID);
+  const url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
+  const apiKey = config.apiKey ?? process.env.FLAKEY_API_KEY ?? "";
+  const suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
 
-  if (!url || !apiKey || !runId) return;
+  if (!url || !apiKey) return;
 
-  const client = new LiveClient({ url, apiKey, runId });
+  let client: LiveClient | null = null;
+  let runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
 
-  on("before:run", () => {
+  on("before:run", async () => {
+    // If no runId, create a placeholder run via /live/start
+    if (!runId && suite) {
+      try {
+        const res = await fetch(`${url}/live/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            suite,
+            branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
+            commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
+            ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { id: number; ci_run_id: string };
+          runId = data.id;
+          // Set CI_RUN_ID so the main reporter merges into this run
+          if (data.ci_run_id) {
+            process.env.CI_RUN_ID = data.ci_run_id;
+          }
+          console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+        }
+      } catch (err) {
+        console.error("[flakey-live] Failed to start live run:", err);
+      }
+    }
+
+    if (!runId) return;
+
+    client = new LiveClient({ url, apiKey, runId });
     client.send({ type: "run.started" });
   });
 
   on("before:spec", (spec: { relative: string }) => {
-    client.send({ type: "spec.started", spec: spec.relative });
+    client?.send({ type: "spec.started", spec: spec.relative });
   });
 
-  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number } }) => {
-    client.send({
+  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number }; tests?: Array<{ title: string[]; state: string; duration: number; err?: { message?: string } }> }) => {
+    // Send individual test results
+    if (results.tests) {
+      for (const test of results.tests) {
+        const title = test.title.join(" > ");
+        const type = test.state === "passed" ? "test.passed"
+          : test.state === "failed" ? "test.failed"
+          : "test.skipped" as const;
+        client?.send({
+          type,
+          spec: spec.relative,
+          test: title,
+          status: test.state,
+          duration_ms: test.duration,
+          error: test.err?.message,
+        });
+      }
+    }
+
+    client?.send({
       type: "spec.finished",
       spec: spec.relative,
       stats: {
@@ -55,8 +115,15 @@ export function register(
     });
   });
 
-  on("after:run", async () => {
-    client.send({ type: "run.finished" });
-    await client.flush();
+  on("after:run", async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
+    client?.send({ type: "run.finished" });
+    await client?.flush();
+    if (runId) {
+      const failed = results?.totalFailed ?? 0;
+      const passed = results?.totalPassed ?? 0;
+      const total = results?.totalTests ?? 0;
+      const status = failed > 0 ? `${failed} failed, ${passed} passed` : `${total} passed`;
+      console.log(`[flakey-live] Run #${runId} complete — ${status}`);
+    }
   });
 }

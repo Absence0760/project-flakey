@@ -9,7 +9,7 @@ export type WebhookRunFailedPayload = WebhookRunPayload;
 
 export async function dispatchWebhooks(orgId: number, event: string, payload: WebhookRunPayload): Promise<void> {
   const orgIdNum = Number(orgId);
-  if (!orgIdNum || !Number.isInteger(orgIdNum)) return;
+  if (!orgIdNum || isNaN(orgIdNum) || !Number.isInteger(orgIdNum) || orgIdNum <= 0) return;
   try {
     const result = await pool.query(
       "SELECT url, platform FROM webhooks WHERE org_id = $1 AND active = true AND $2 = ANY(events)",
@@ -35,7 +35,7 @@ export async function dispatchWebhooks(orgId: number, event: string, payload: We
  * Dispatch all relevant webhook events for a completed run.
  */
 export async function dispatchRunEvents(orgId: number, runId: number, run: NormalizedRun): Promise<void> {
-  if (!orgId || typeof orgId !== "number" || !Number.isInteger(orgId)) return;
+  if (!orgId || typeof orgId !== "number" || !Number.isInteger(orgId) || orgId <= 0) return;
   const failedTests = run.specs.flatMap((spec) =>
     spec.tests
       .filter((t) => t.status === "failed")

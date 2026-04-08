@@ -92,7 +92,13 @@ app.get("/health", async (_req, res) => {
     res.status(503).json({ status: "degraded", error: "database unreachable" });
   }
 });
-app.use("/auth", authLimiter, authRouter);
+// Rate limit only unauthenticated auth endpoints (login, register, password reset)
+app.use("/auth/login", authLimiter);
+app.use("/auth/register", authLimiter);
+app.use("/auth/forgot-password", authLimiter);
+app.use("/auth/reset-password", authLimiter);
+app.use("/auth/resend-verification", authLimiter);
+app.use("/auth", authRouter);
 app.use("/badge", badgeRouter);
 
 // Protected routes

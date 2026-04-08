@@ -62,8 +62,19 @@
     keysLoading = false;
   }
   async function createKey() {
-    const res = await authFetch(`${apiUrl}/auth/api-keys`, { method: "POST", headers: headers(), body: JSON.stringify({ label: newKeyLabel || "Untitled key" }) });
-    if (res.ok) { const data = await res.json(); newKeyValue = data.key; newKeyLabel = ""; loadKeys(); }
+    const res = await authFetch(`${apiUrl}/auth/api-keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: newKeyLabel || "Untitled key" }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      newKeyValue = data.key;
+      newKeyLabel = "";
+      loadKeys();
+    } else {
+      console.error("Create key failed:", res.status, await res.text().catch(() => ""));
+    }
   }
   async function deleteKey(id: number) {
     await authFetch(`${apiUrl}/auth/api-keys/${id}`, { method: "DELETE" });

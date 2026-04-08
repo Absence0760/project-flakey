@@ -1,6 +1,7 @@
 import { defineConfig } from "cypress";
 import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
 import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
+import { register as registerLive } from "@flakeytesting/live-reporter/dist/mocha.js";
 import { readFileSync, existsSync } from "fs";
 
 // Load .env file if it exists
@@ -19,6 +20,7 @@ const specPatterns: Record<string, string> = {
   sanity: "cypress/e2e/sanity/**/*.cy.ts",
   regression: "cypress/e2e/regression/**/*.cy.ts",
   smoke: "cypress/e2e/smoke/**/*.cy.ts",
+  live: "cypress/e2e/live/**/*.cy.ts",
 };
 
 export default defineConfig({
@@ -36,6 +38,15 @@ export default defineConfig({
     setupNodeEvents(on, config) {
       flakeyReporter(on, config);
       flakeySnapshots(on, config);
+
+      // Live reporter — streams test progress in real-time
+      // Automatically creates a placeholder run so it appears in the dashboard immediately
+      registerLive(on, {
+        url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+        apiKey: process.env.FLAKEY_API_KEY ?? "",
+        suite: `cypress-example-${suite}`,
+      });
+
       return config;
     },
   },

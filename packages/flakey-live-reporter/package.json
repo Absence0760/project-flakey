@@ -7,7 +7,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./playwright": "./dist/playwright.js",
-    "./mocha": "./dist/mocha.js"
+    "./mocha": "./dist/mocha.js",
+    "./dist/*": "./dist/*"
   },
   "files": ["dist"],
   "scripts": {

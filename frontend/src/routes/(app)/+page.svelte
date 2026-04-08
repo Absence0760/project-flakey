@@ -1,10 +1,15 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { fetchRuns, fetchSavedViews, createSavedView, deleteSavedView, type Run, type SavedView } from "$lib/api";
+  import { authFetch } from "$lib/auth";
+
+  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
   let allRuns = $state<Run[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let liveRunIds = $state<Set<number>>(new Set());
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
   let searchQuery = $state("");
@@ -68,17 +73,41 @@
     searchQuery = "";
   }
 
+  async function pollLiveRuns() {
+    try {
+      const res = await authFetch(`${API_URL}/live/active`);
+      if (res.ok) {
+        const data = await res.json() as { runs: number[] };
+        const newSet = new Set(data.runs);
+        // If a run just finished (was live, no longer active), refresh the run list
+        for (const id of liveRunIds) {
+          if (!newSet.has(id)) {
+            allRuns = await fetchRuns();
+            break;
+          }
+        }
+        liveRunIds = newSet;
+      }
+    } catch { /* ignore */ }
+  }
+
   onMount(async () => {
     try {
       [allRuns, savedViews] = await Promise.all([
         fetchRuns(),
         fetchSavedViews("runs"),
       ]);
+      await pollLiveRuns();
+      pollTimer = setInterval(pollLiveRuns, 5000);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load runs";
     } finally {
       loading = false;
     }
+  });
+
+  onDestroy(() => {
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   function formatDuration(ms: number): string {
@@ -190,7 +219,9 @@
               <div class="card-title-row">
                 <span class="run-id">#{run.id}</span>
                 <span class="run-suite">{run.suite_name}</span>
-                {#if run.failed > 0}
+                {#if liveRunIds.has(run.id)}
+                  <span class="live-badge">LIVE</span>
+                {:else if run.failed > 0}
                   <span class="fail-badge">{run.failed} failed</span>
                 {:else}
                   <span class="pass-badge">passed</span>
@@ -346,6 +377,15 @@
   .pass-badge {
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: color-mix(in srgb, var(--color-pass) 15%, transparent); color: var(--color-pass);
+  }
+  .live-badge {
+    padding: 0.1rem 0.45rem; border-radius: 8px; font-size: 0.6rem; font-weight: 700;
+    background: var(--color-fail); color: #fff; letter-spacing: 0.05em;
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
   }
 
   .card-meta {

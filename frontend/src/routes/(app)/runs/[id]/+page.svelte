@@ -29,6 +29,7 @@
 
   let liveEvents = $state<LiveEvent[]>([]);
   let isLive = $state(false);
+  let justFinished = $state(false);
   let eventSource: EventSource | null = null;
 
   function connectLive(runId: number) {
@@ -48,8 +49,11 @@
         // Auto-refresh full run data when run finishes
         if (event.type === "run.finished") {
           isLive = false;
+          justFinished = true;
           eventSource?.close();
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
+          // Clear the "just finished" banner after 10 seconds
+          setTimeout(() => { justFinished = false; }, 10000);
         }
       } catch { /* ignore */ }
     };
@@ -59,14 +63,30 @@
     };
   }
 
+  async function loadLiveHistory(runId: number) {
+    try {
+      const token = getAuth().token;
+      const res = await fetch(`${API_URL}/live/${runId}/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const events = await res.json() as LiveEvent[];
+        if (events.length > 0) {
+          liveEvents = events;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   onMount(async () => {
     const id = Number($page.params.id);
     try {
       run = await fetchRun(id);
-      // If run is recent (< 30 min old), try connecting for live events
       if (run) {
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
+          // Load persisted events first, then connect for new ones
+          await loadLiveHistory(id);
           connectLive(id);
         }
       }
@@ -189,6 +209,9 @@
             {#if isLive}
               <span class="live-badge">LIVE</span>
             {/if}
+            {#if justFinished}
+              <span class="finished-badge">Run Complete</span>
+            {/if}
           </div>
           <div class="meta-row">
             <span class="meta-item" title="Suite">
@@ -266,8 +289,16 @@
 
     <!-- Live event feed -->
     {#if liveEvents.length > 0}
-      <div class="live-feed">
-        <h3 class="live-feed-title">Live Progress</h3>
+      <div class="live-feed" class:finished={justFinished && !isLive}>
+        <h3 class="live-feed-title">
+          {#if isLive}
+            Live Progress
+          {:else if justFinished}
+            Run Complete — {run?.failed ? `${run.failed} failed` : 'all passed'}
+          {:else}
+            Live Progress (ended)
+          {/if}
+        </h3>
         <div class="live-events">
           {#each liveEvents.slice().reverse() as event}
             <div class="live-event" class:passed={event.type === "test.passed"} class:failed={event.type === "test.failed"} class:started={event.type === "test.started"}>
@@ -978,9 +1009,22 @@
     margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 8px;
     padding: 0.75rem 1rem; max-height: 250px; overflow-y: auto;
   }
+  .live-feed.finished {
+    border-color: var(--color-pass);
+    background: color-mix(in srgb, var(--color-pass) 4%, transparent);
+  }
   .live-feed-title {
     font-size: 0.8rem; font-weight: 600; margin: 0 0 0.5rem;
     color: var(--text-secondary);
+  }
+  .finished-badge {
+    padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
+    background: var(--color-pass); color: #fff; letter-spacing: 0.03em;
+    animation: fade-in 0.3s ease-in;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
   }
   .live-events { display: flex; flex-direction: column; gap: 0.2rem; }
   .live-event {
