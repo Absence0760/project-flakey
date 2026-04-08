@@ -120,11 +120,13 @@
   }
 
   // --- Suites ---
-  interface Suite { suite_name: string; run_count: number; last_run: string; archived: boolean; }
+  interface Suite { suite_name: string; run_count: number; last_run: string; archived: boolean; rerun_command_template: string | null; }
   let suites = $state<Suite[]>([]);
   let suitesLoading = $state(true);
   let renamingId = $state<string | null>(null);
   let renameValue = $state("");
+  let editingTemplateId = $state<string | null>(null);
+  let templateValue = $state("");
 
   async function loadSuites() {
     suitesLoading = true;
@@ -144,6 +146,13 @@
   async function deleteSuite(name: string) {
     if (!confirm(`Delete suite "${name}" and all its runs? This cannot be undone.`)) return;
     await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    loadSuites();
+  }
+  async function saveRerunTemplate(suiteName: string) {
+    await authFetch(`${apiUrl}/suites/${encodeURIComponent(suiteName)}/rerun-template`, {
+      method: "PATCH", headers: headers(), body: JSON.stringify({ template: templateValue }),
+    });
+    editingTemplateId = null;
     loadSuites();
   }
 
@@ -465,9 +474,21 @@
               </div>
               {#if s.archived}<span class="pill archived">Archived</span>{/if}
               <button class="btn-sm" onclick={() => { renamingId = s.suite_name; renameValue = s.suite_name; }}>Rename</button>
+              <button class="btn-sm" onclick={() => { editingTemplateId = editingTemplateId === s.suite_name ? null : s.suite_name; templateValue = s.rerun_command_template ?? ""; }}>Rerun Cmd</button>
               <button class="btn-sm" onclick={() => toggleArchive(s.suite_name, s.archived)}>{s.archived ? "Unarchive" : "Archive"}</button>
               {#if isOwner}<button class="btn-sm danger" onclick={() => deleteSuite(s.suite_name)}>Delete</button>{/if}
             </div>
+            {#if editingTemplateId === s.suite_name}
+              <div class="rerun-template-edit">
+                <label class="template-label">Rerun command template</label>
+                <p class="template-hint">Placeholders: <code>{"{spec}"}</code> (file path), <code>{"{specs}"}</code> (all failed specs, comma-separated), <code>{"{title}"}</code> (test name), <code>{"{suite}"}</code> (suite name)</p>
+                <form class="template-form" onsubmit={(e) => { e.preventDefault(); saveRerunTemplate(s.suite_name); }}>
+                  <input type="text" class="template-input" bind:value={templateValue} placeholder="npx cypress run --spec '{"{spec}"}' --env &quot;env=test&quot;" />
+                  <button type="submit" class="btn-sm">Save</button>
+                  <button type="button" class="btn-sm" onclick={() => editingTemplateId = null}>Cancel</button>
+                </form>
+              </div>
+            {/if}
           {/each}
         </div>
       {/if}
@@ -792,6 +813,19 @@
     padding: 0.3rem 0.5rem; border: 1px solid var(--link); border-radius: 4px;
     background: var(--bg); color: var(--text); font-size: 0.82rem; outline: none; width: 200px;
   }
+
+  .rerun-template-edit {
+    padding: 0.5rem 0.85rem 0.65rem; background: var(--bg); border-top: 1px solid var(--border-light);
+  }
+  .template-label { font-size: 0.78rem; font-weight: 600; margin-bottom: 0.15rem; }
+  .template-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.4rem; }
+  .template-hint code { font-size: 0.72rem; background: var(--bg-secondary); padding: 0.1rem 0.25rem; border-radius: 3px; }
+  .template-form { display: flex; gap: 0.35rem; align-items: center; }
+  .template-input {
+    flex: 1; padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg); color: var(--text); font-size: 0.78rem; font-family: monospace; outline: none;
+  }
+  .template-input:focus { border-color: var(--link); }
 
   .wh-events { display: flex; gap: 0.25rem; flex-shrink: 0; }
 

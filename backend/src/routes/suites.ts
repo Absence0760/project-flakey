@@ -9,10 +9,11 @@ router.get("/", async (req, res) => {
   try {
     const result = await tenantQuery(req.user!.orgId, `
       SELECT r.suite_name, COUNT(*)::int AS run_count, MAX(r.created_at) AS last_run,
-             COALESCE(so.archived, false) AS archived
+             COALESCE(so.archived, false) AS archived,
+             so.rerun_command_template
       FROM runs r
       LEFT JOIN suite_overrides so ON so.suite_name = r.suite_name AND so.org_id = r.org_id
-      GROUP BY r.suite_name, so.archived
+      GROUP BY r.suite_name, so.archived, so.rerun_command_template
       ORDER BY last_run DESC
     `);
     res.json(result.rows);
@@ -66,6 +67,31 @@ router.patch("/:name/archive", async (req, res) => {
     res.json({ archived });
   } catch (err) {
     console.error("PATCH /suites/:name/archive error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /suites/:name/rerun-template
+router.patch("/:name/rerun-template", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const suiteName = decodeURIComponent(req.params.name);
+    const { template } = req.body;
+    if (typeof template !== "string") {
+      res.status(400).json({ error: "template is required" });
+      return;
+    }
+    await tenantQuery(req.user!.orgId,
+      `INSERT INTO suite_overrides (org_id, suite_name, rerun_command_template) VALUES ($1, $2, $3)
+       ON CONFLICT (org_id, suite_name) DO UPDATE SET rerun_command_template = $3`,
+      [req.user!.orgId, suiteName, template || null]
+    );
+    res.json({ updated: true });
+  } catch (err) {
+    console.error("PATCH /suites/:name/rerun-template error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

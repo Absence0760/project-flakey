@@ -17,6 +17,7 @@
   let savedViews = $state<SavedView[]>([]);
   let saveViewName = $state("");
   let showSaveInput = $state(false);
+  let copiedSuite = $state<string | null>(null);
 
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
   let branches = $derived([...new Set(allRuns.map((r) => r.branch).filter(Boolean))].sort());
@@ -131,8 +132,30 @@
     return `${Math.floor(days / 30)}mo ago`;
   }
 
+  function specName(path: string): string {
+    return path.replace(/\\/g, "/").split("/").pop() ?? path;
+  }
+
+  function formatTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function formatTimestamp(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
   function passRate(r: Run): number {
     return r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
+  }
+
+  function copySuite(e: MouseEvent, name: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(name);
+    copiedSuite = name;
+    setTimeout(() => copiedSuite = null, 1500);
   }
 </script>
 
@@ -219,6 +242,13 @@
               <div class="card-title-row">
                 <span class="run-id">#{run.id}</span>
                 <span class="run-suite">{run.suite_name}</span>
+                <button class="copy-btn" title="Copy suite name" onclick={(e) => copySuite(e, run.suite_name)}>
+                  {#if copiedSuite === run.suite_name}
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                  {:else}
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+                  {/if}
+                </button>
                 {#if liveRunIds.has(run.id)}
                   <span class="live-badge">LIVE</span>
                 {:else if run.failed > 0}
@@ -227,6 +257,16 @@
                   <span class="pass-badge">passed</span>
                 {/if}
               </div>
+              {#if run.spec_files && run.spec_files.length > 0}
+                <div class="card-specs" title={run.spec_files.join("\n")}>
+                  {#each run.spec_files.slice(0, 2) as file}
+                    <span class="spec-chip">{specName(file)}</span>
+                  {/each}
+                  {#if run.spec_count > 2}
+                    <span class="spec-chip more">+{run.spec_count - 2} more</span>
+                  {/if}
+                </div>
+              {/if}
               <div class="card-meta">
                 {#if run.branch}
                   <span class="meta-chip branch">{run.branch}</span>
@@ -235,7 +275,7 @@
                   <span class="meta-chip mono">{run.commit_sha.slice(0, 7)}</span>
                 {/if}
                 <span>{formatDuration(run.duration_ms)}</span>
-                <span class="meta-time">{timeAgo(run.created_at)}</span>
+                <span class="meta-time" title={formatTimestamp(run.started_at)}>{formatTime(run.started_at)} · {timeAgo(run.started_at)}</span>
               </div>
             </div>
           </div>
@@ -370,6 +410,13 @@
   .card-title-row { display: flex; align-items: center; gap: 0.5rem; }
   .run-id { font-weight: 700; font-size: 0.85rem; font-family: monospace; }
   .run-suite { font-size: 0.82rem; font-weight: 500; }
+  .copy-btn {
+    background: none; border: none; padding: 0.1rem; cursor: pointer;
+    color: var(--text-muted); border-radius: 4px; display: inline-flex; align-items: center;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .copy-btn:hover { color: var(--text-primary); background: var(--bg-hover, rgba(128,128,128,0.1)); }
+  .run-card:hover .copy-btn { opacity: 1; }
   .fail-badge {
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: color-mix(in srgb, var(--color-fail) 15%, transparent); color: var(--color-fail);
@@ -387,6 +434,16 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
   }
+
+  .card-specs {
+    display: flex; flex-wrap: wrap; gap: 0.3rem;
+  }
+  .spec-chip {
+    padding: 0.08rem 0.35rem; border-radius: 4px; font-size: 0.68rem;
+    font-family: monospace; background: var(--bg-secondary); color: var(--text-secondary);
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .spec-chip.more { font-family: inherit; font-style: italic; }
 
   .card-meta {
     display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted);

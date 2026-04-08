@@ -136,6 +136,88 @@
     collapsedSpecs = next;
   }
 
+  let copiedSuite = $state(false);
+  function copySuite() {
+    if (!run) return;
+    navigator.clipboard.writeText(run.suite_name);
+    copiedSuite = true;
+    setTimeout(() => copiedSuite = false, 1500);
+  }
+
+  let copiedSpecId = $state<number | null>(null);
+  function copySpecName(e: MouseEvent, specId: number, name: string) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(name);
+    copiedSpecId = specId;
+    setTimeout(() => copiedSpecId = null, 1500);
+  }
+
+  let copiedTestId = $state<number | null>(null);
+  function copyTestName(e: MouseEvent, testId: number, name: string) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(name);
+    copiedTestId = testId;
+    setTimeout(() => copiedTestId = null, 1500);
+  }
+
+  let copiedRerunId = $state<number | string | null>(null);
+  function buildRerunCommand(specFile: string, testTitle: string): string | null {
+    const tpl = run?.rerun_command_template;
+    if (!tpl) return null;
+    return tpl
+      .replace(/\{spec\}/g, specFile)
+      .replace(/\{title\}/g, testTitle)
+      .replace(/\{suite\}/g, run?.suite_name ?? "");
+  }
+
+  function copyRerunCommand(e: MouseEvent, id: number | string, specFile: string, testTitle: string) {
+    e.stopPropagation();
+    const cmd = buildRerunCommand(specFile, testTitle);
+    if (!cmd) return;
+    navigator.clipboard.writeText(cmd);
+    copiedRerunId = id;
+    setTimeout(() => copiedRerunId = null, 1500);
+  }
+
+  function copyAllFailedCommands(e: MouseEvent) {
+    e.stopPropagation();
+    if (!run) return;
+    const tpl = run.rerun_command_template;
+    if (!tpl) return;
+
+    // Collect unique failed spec paths
+    const failedSpecs = new Set<string>();
+    for (const spec of run.specs) {
+      if (spec.tests.some((t) => t.status === "failed")) {
+        failedSpecs.add(spec.file_path || spec.title);
+      }
+    }
+    if (failedSpecs.size === 0) return;
+
+    let result: string;
+    if (tpl.includes("{specs}")) {
+      // Single command with all specs combined (e.g. Cypress comma-separated)
+      result = tpl
+        .replace(/\{specs\}/g, [...failedSpecs].join(","))
+        .replace(/\{suite\}/g, run.suite_name)
+        .replace(/\{spec\}/g, [...failedSpecs][0])
+        .replace(/\{title\}/g, "");
+    } else {
+      // One command per failed spec
+      const cmds = [...failedSpecs].map((spec) =>
+        tpl
+          .replace(/\{spec\}/g, spec)
+          .replace(/\{title\}/g, "")
+          .replace(/\{suite\}/g, run!.suite_name)
+      );
+      result = cmds.join("\n");
+    }
+
+    navigator.clipboard.writeText(result);
+    copiedRerunId = "all";
+    setTimeout(() => copiedRerunId = null, 1500);
+  }
+
   function passRate(r: RunDetail): number {
     if (r.total === 0) return 0;
     return Math.round((r.passed / r.total) * 100);
@@ -217,6 +299,13 @@
             <span class="meta-item" title="Suite">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/></svg>
               {run.suite_name}
+              <button class="copy-btn" title="Copy suite name" onclick={copySuite}>
+                {#if copiedSuite}
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                {:else}
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+                {/if}
+              </button>
             </span>
             <span class="meta-item" title="Branch">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="12" r="1.5"/><path d="M5 5.5v5M11 5.5c0 3-6 3-6 5"/></svg>
@@ -350,6 +439,17 @@
         </button>
       </div>
       <div class="toolbar-right">
+      {#if run?.rerun_command_template && filterCounts.failed > 0}
+        <button class="rerun-all-btn" onclick={copyAllFailedCommands} title="Copy rerun commands for all failed tests">
+          {#if copiedRerunId === "all"}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+            Copied!
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2v10l3-2.5L10 12V2z"/></svg>
+            Copy all failed reruns
+          {/if}
+        </button>
+      {/if}
       <button class="collapse-all-btn" onclick={toggleAll} title={allCollapsed ? "Expand all" : "Collapse all"}>
         <svg class="chevron-icon" class:collapsed={allCollapsed} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M3 4.5L6 7.5L9 4.5"/>
@@ -370,18 +470,27 @@
 
     {#each filteredSpecs as spec}
       <section class="spec-section">
-        <button class="spec-header" onclick={() => toggleSpec(spec.id)}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="spec-header" onclick={() => toggleSpec(spec.id)}>
           <svg class="chevron" class:collapsed={collapsedSpecs.has(spec.id)} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M3 4.5L6 7.5L9 4.5"/>
           </svg>
           <span class="spec-path">{spec.file_path || spec.title}</span>
+          <button class="copy-btn" title="Copy feature name" onclick={(e) => copySpecName(e, spec.id, spec.file_path || spec.title)}>
+            {#if copiedSpecId === spec.id}
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+            {:else}
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+            {/if}
+          </button>
           <div class="spec-badges">
             {#if spec.passed > 0}<span class="spec-badge pass">{spec.passed}</span>{/if}
             {#if spec.failed > 0}<span class="spec-badge fail">{spec.failed}</span>{/if}
             {#if spec.skipped > 0}<span class="spec-badge skip">{spec.skipped}</span>{/if}
             <span class="spec-duration">{formatDuration(spec.duration_ms)}</span>
           </div>
-        </button>
+        </div>
 
         {#if !collapsedSpecs.has(spec.id)}
           <ul class="test-list">
@@ -391,6 +500,13 @@
                   <span class="test-status-dot {test.status}"></span>
                   <button class="test-name clickable" onclick={() => modalTestId = test.id}>
                     {test.title}
+                  </button>
+                  <button class="copy-btn test-copy" title="Copy test name" onclick={(e) => copyTestName(e, test.id, test.full_title || test.title)}>
+                    {#if copiedTestId === test.id}
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                    {:else}
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+                    {/if}
                   </button>
                   <div class="test-meta">
                     {#if test.video_path}
@@ -405,6 +521,16 @@
                       </span>
                     {/if}
                     <span class="test-dur">{formatDuration(test.duration_ms)}</span>
+                    {#if run?.rerun_command_template && test.status === "failed"}
+                      <button class="rerun-btn" title="Copy rerun command" onclick={(e) => copyRerunCommand(e, test.id, spec.file_path || spec.title, test.full_title || test.title)}>
+                        {#if copiedRerunId === test.id}
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+                        {:else}
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8a6 6 0 0111.3-2.8M14 8a6 6 0 01-11.3 2.8"/><path d="M13 2v3.5h-3.5M3 14v-3.5h3.5"/></svg>
+                        {/if}
+                        Rerun
+                      </button>
+                    {/if}
                   </div>
                 </div>
                 {#if test.error_message}
@@ -536,6 +662,13 @@
     flex-shrink: 0;
     opacity: 0.6;
   }
+
+  .copy-btn {
+    background: none; border: none; padding: 0.15rem; cursor: pointer;
+    color: var(--text-muted); border-radius: 4px; display: inline-flex; align-items: center;
+    transition: color 0.15s;
+  }
+  .copy-btn:hover { color: var(--text-primary); background: var(--bg-hover, rgba(128,128,128,0.1)); }
 
   /* Progress ring */
   .progress-ring {
@@ -773,12 +906,10 @@
     gap: 0.5rem;
     width: 100%;
     padding: 0.65rem 0.85rem;
-    border: none;
     background: var(--bg-secondary);
     color: var(--text);
     font-size: 0.82rem;
     cursor: pointer;
-    text-align: left;
     transition: background 0.1s;
   }
 
@@ -901,6 +1032,8 @@
     text-decoration: underline;
   }
 
+  .test-copy { flex-shrink: 0; }
+
   .test-meta {
     display: flex;
     align-items: center;
@@ -945,6 +1078,22 @@
     min-width: 3.5rem;
     text-align: right;
   }
+
+  .rerun-btn {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.15rem 0.4rem; border: 1px solid var(--border); border-radius: 4px;
+    background: none; color: var(--text-secondary); font-size: 0.7rem; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .rerun-btn:hover { color: var(--link); border-color: var(--link); }
+
+  .rerun-all-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.3rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: none; color: var(--text-secondary); font-size: 0.75rem; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .rerun-all-btn:hover { color: var(--link); border-color: var(--link); }
 
   /* Error bar */
   .test-error-bar {

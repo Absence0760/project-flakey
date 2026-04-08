@@ -1,4 +1,3 @@
-import pool from "./db.js";
 import { tenantQuery } from "./db.js";
 import { formatPayload, type WebhookRunPayload } from "./webhook-formatters.js";
 import type { NormalizedRun } from "./types.js";
@@ -11,7 +10,7 @@ export async function dispatchWebhooks(orgId: number, event: string, payload: We
   const orgIdNum = Number(orgId);
   if (!orgIdNum || isNaN(orgIdNum) || !Number.isInteger(orgIdNum) || orgIdNum <= 0) return;
   try {
-    const result = await pool.query(
+    const result = await tenantQuery(orgIdNum,
       "SELECT url, platform FROM webhooks WHERE org_id = $1 AND active = true AND $2 = ANY(events)",
       [orgIdNum, event]
     );

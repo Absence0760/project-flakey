@@ -30,6 +30,8 @@ export interface Run {
   pending: number;
   duration_ms: number;
   created_at: string;
+  spec_count: number;
+  spec_files: string[] | null;
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;
@@ -129,6 +131,7 @@ export interface Spec {
 
 export interface RunDetail extends Run {
   specs: Spec[];
+  rerun_command_template: string | null;
 }
 
 export interface ErrorGroup {

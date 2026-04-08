@@ -85,7 +85,12 @@ router.get("/", async (req, res) => {
   try {
     const result = await tenantQuery(
       req.user!.orgId,
-      "SELECT * FROM runs ORDER BY created_at DESC LIMIT 50"
+      `SELECT r.*,
+        (SELECT count(*)::int FROM specs s WHERE s.run_id = r.id) AS spec_count,
+        (SELECT array_agg(sub.file_path) FROM (
+           SELECT s.file_path FROM specs s WHERE s.run_id = r.id ORDER BY s.id LIMIT 5
+         ) sub) AS spec_files
+       FROM runs r ORDER BY r.created_at DESC LIMIT 50`
     );
     res.json(result.rows);
   } catch (err) {
@@ -147,7 +152,13 @@ router.get("/:id", async (req, res) => {
     const orgId = req.user!.orgId;
     const runId = req.params.id;
 
-    const runResult = await tenantQuery(orgId, "SELECT * FROM runs WHERE id = $1", [runId]);
+    const runResult = await tenantQuery(orgId,
+      `SELECT r.*, so.rerun_command_template
+       FROM runs r
+       LEFT JOIN suite_overrides so ON so.suite_name = r.suite_name AND so.org_id = r.org_id
+       WHERE r.id = $1`,
+      [runId]
+    );
     if (runResult.rows.length === 0) {
       res.status(404).json({ error: "Run not found" });
       return;
