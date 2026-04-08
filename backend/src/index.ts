@@ -16,9 +16,16 @@ import compareRouter from "./routes/compare.js";
 import badgeRouter from "./routes/badge.js";
 import flakyRouter from "./routes/flaky.js";
 import notesRouter from "./routes/notes.js";
+import viewsRouter from "./routes/views.js";
+import analyzeRouter from "./routes/analyze.js";
+import quarantineRouter from "./routes/quarantine.js";
+import predictRouter from "./routes/predict.js";
+import connectivityRouter from "./routes/connectivity.js";
+import liveRouter from "./routes/live.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
+import { getStorage } from "./storage.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -47,12 +54,25 @@ app.use(cors({
 
 app.use(express.json({ limit: "50mb" }));
 
-// Fix 4: Cookie parser for httpOnly token cookies
-app.use("/uploads", express.static("uploads", {
-  setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  },
-}));
+// Artifact serving — local disk or S3 redirect
+const STORAGE_MODE = process.env.STORAGE ?? "local";
+if (STORAGE_MODE === "s3") {
+  app.get("/uploads/*", async (req, res) => {
+    try {
+      const key = req.path.replace(/^\/uploads\//, "");
+      const url = await getStorage().getUrl(key);
+      res.redirect(302, url);
+    } catch {
+      res.status(404).json({ error: "Artifact not found" });
+    }
+  });
+} else {
+  app.use("/uploads", express.static("uploads", {
+    setHeaders: (res) => {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    },
+  }));
+}
 
 // Fix 3: Rate limiting on auth endpoints
 const authLimiter = rateLimit({
@@ -72,7 +92,13 @@ app.get("/health", async (_req, res) => {
     res.status(503).json({ status: "degraded", error: "database unreachable" });
   }
 });
-app.use("/auth", authLimiter, authRouter);
+// Rate limit only unauthenticated auth endpoints (login, register, password reset)
+app.use("/auth/login", authLimiter);
+app.use("/auth/register", authLimiter);
+app.use("/auth/forgot-password", authLimiter);
+app.use("/auth/reset-password", authLimiter);
+app.use("/auth/resend-verification", authLimiter);
+app.use("/auth", authRouter);
 app.use("/badge", badgeRouter);
 
 // Protected routes
@@ -88,6 +114,18 @@ app.use("/flaky", requireAuth, flakyRouter);
 app.use("/notes", requireAuth, notesRouter);
 app.use("/stats", requireAuth, statsRouter);
 app.use("/tests", requireAuth, testsRouter);
+app.use("/views", requireAuth, viewsRouter);
+app.use("/analyze", requireAuth, analyzeRouter);
+app.use("/quarantine", requireAuth, quarantineRouter);
+app.use("/predict", requireAuth, predictRouter);
+app.use("/connectivity", requireAuth, connectivityRouter);
+// Live events — POST requires normal auth, GET stream accepts token as query param (for EventSource)
+app.use("/live", (req, res, next) => {
+  if (req.query.token && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}, requireAuth, liveRouter);
 
 app.listen(PORT, () => {
   console.log(`Flakey API running on http://localhost:${PORT}`);

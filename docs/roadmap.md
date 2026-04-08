@@ -54,9 +54,9 @@
 - [x] Slowest tests view
 - [x] Security headers (helmet.js)
 - [x] README with quick-start guide
-- [ ] Email verification for registration
-- [ ] Password reset flow
-- [ ] Org switcher in the frontend sidebar
+- [x] Email verification for registration
+- [x] Password reset flow
+- [x] Org switcher in the frontend sidebar
 
 ## Phase 5 — Deployment + distribution
 
@@ -66,32 +66,32 @@
 - [x] GitHub Actions deploy pipeline (path-filtered, backend + frontend independent)
 - [x] GitHub Actions npm publish pipeline (@flakey/cli, @flakey/cypress-snapshots)
 - [x] CI integration examples (GitHub Actions, Bitbucket Pipelines)
-- [ ] S3 storage adapter for artifacts (currently local disk)
-- [ ] Helm chart for Kubernetes
+- [x] S3 storage adapter for artifacts (currently local disk)
+- [x] Helm chart for Kubernetes
 
 ## Phase 6 — Advanced features
 
 - [x] DOM snapshot plugin for Cypress (`@flakey/cypress-snapshots`)
 - [x] Test history per test (pass/fail timeline across runs)
 - [x] Compare runs side-by-side
-- [ ] Additional reporter parsers (Jest, WebdriverIO)
-- [ ] Flaky test webhook notifications
-- [ ] Custom dashboards / saved filters
+- [x] Additional reporter parsers (Jest, WebdriverIO)
+- [x] Flaky test webhook notifications
+- [x] Custom dashboards / saved filters
 
 ## Phase 7 — CI/PR integration
 
-- [ ] GitHub PR status checks (pass/fail the PR based on test results)
-- [ ] GitHub PR comments with test result summary
-- [ ] GitLab merge request integration
-- [ ] Bitbucket PR integration
+- [x] GitHub PR status checks (pass/fail the PR based on test results)
+- [x] GitHub PR comments with test result summary
+- [x] GitLab merge request integration
+- [x] Bitbucket PR integration
 
 ## Phase 8 — Intelligent analysis
 
-- [ ] AI failure classification (auto-categorize: product bug, automation bug, system issue)
-- [ ] ML-based failure pattern recognition (surface historically similar failures)
-- [ ] AI-generated error summaries with probable root causes
-- [ ] Flaky test quarantining (isolate flaky tests so they don't block CI)
-- [ ] Predictive test selection (ML picks which tests to run based on code changes)
+- [x] AI failure classification (auto-categorize: product bug, automation bug, system issue)
+- [x] ML-based failure pattern recognition (surface historically similar failures)
+- [x] AI-generated error summaries with probable root causes
+- [x] Flaky test quarantining (isolate flaky tests so they don't block CI)
+- [x] Predictive test selection (ML picks which tests to run based on code changes)
 
 ## Phase 9 — Integrations + workflows
 
@@ -99,7 +99,7 @@
 - [ ] PagerDuty integration (trigger incidents from test failures)
 - [ ] Scheduled reports (daily/weekly email or Slack digests)
 - [ ] Code coverage tracking with PR gating
-- [ ] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
+- [x] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
 
 ## Phase 10 — Extended testing capabilities
 
@@ -112,7 +112,6 @@
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
-- Real-time run progress during a run
 - Replacing Cypress Cloud's paid parallelization features
 
 These omissions are intentional. The CI matrix/parallel approach covers parallelization without needing a coordination server.

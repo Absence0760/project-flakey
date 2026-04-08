@@ -45,7 +45,7 @@ router.get("/", async (req, res) => {
       : 0;
 
     const recentRuns = await tenantQuery(orgId,
-      `SELECT * FROM runs ${dateFilter} ORDER BY created_at DESC LIMIT 5`,
+      `SELECT * FROM runs ${dateFilter} ORDER BY created_at DESC LIMIT 20`,
       params
     );
 
@@ -61,7 +61,7 @@ router.get("/", async (req, res) => {
       WHERE t.status = 'failed' AND t.error_message IS NOT NULL
       ${dateFilterJoin}
       ORDER BY r.created_at DESC, t.id DESC
-      LIMIT 10
+      LIMIT 20
     `, params);
 
     res.json({

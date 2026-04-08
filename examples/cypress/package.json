@@ -1,0 +1,22 @@
+{
+  "name": "@flakeytesting/example-cypress",
+  "private": true,
+  "comments": {
+    "deps": "To use published npm packages, replace link: entries with: \"@flakeytesting/cypress-reporter\": \"latest\", \"@flakeytesting/cypress-snapshots\": \"latest\""
+  },
+  "scripts": {
+    "test:smoke": "SUITE=smoke cypress run",
+    "test:sanity": "SUITE=sanity cypress run",
+    "test:regression": "SUITE=regression cypress run",
+    "test:live": "SUITE=live cypress run",
+    "test:all": "SUITE=smoke cypress run; SUITE=sanity cypress run; SUITE=regression cypress run",
+    "open": "cypress open"
+  },
+  "devDependencies": {
+    "@flakeytesting/cypress-reporter": "link:../../packages/flakey-cypress-reporter",
+    "@flakeytesting/cypress-snapshots": "link:../../packages/flakey-cypress-snapshots",
+    "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
+    "cypress": "latest",
+    "typescript": "latest"
+  }
+}

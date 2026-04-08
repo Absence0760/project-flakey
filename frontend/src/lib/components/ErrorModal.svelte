@@ -22,7 +22,7 @@
   let lightboxIndex = $state(0);
 
   // Right panel state
-  let rightTab = $state<"error" | "commands" | "code" | "details" | "history" | "notes">("error");
+  let rightTab = $state<"info" | "commands" | "code" | "details" | "history" | "notes">("info");
   let history = $state<TestHistoryEntry[]>([]);
   let historyLoaded = $state(false);
   let stackExpanded = $state(false);
@@ -42,6 +42,8 @@
     stackExpanded = false;
     leftPct = 50;
     snapshotStep = 0;
+    lockedStep = null;
+    hoverStep = null;
     if (!preserveHistory) {
       history = [];
       historyLoaded = false;
@@ -54,11 +56,12 @@
       else leftTab = "screenshot";
 
       if (!preserveHistory) {
-        if (test.error_message) rightTab = "error";
+        if (test.snapshot_path && test.command_log?.length) rightTab = "commands";
+        else if (test.error_message) rightTab = "info";
         else if (test.metadata && Object.keys(test.metadata).length > 0) rightTab = "details";
         else if (test.command_log?.length) rightTab = "commands";
         else if (test.test_code) rightTab = "code";
-        else rightTab = "error";
+        else rightTab = "info";
       }
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load test";
@@ -142,6 +145,9 @@
   let hasCommands = $derived((test?.command_log?.length ?? 0) > 0);
   let hasSnapshot = $derived(!!test?.snapshot_path);
   let snapshotStep = $state(0);
+  let lockedStep = $state<number | null>(null);
+  let hoverStep = $state<number | null>(null);
+  let activeSnapshotStep = $derived(hoverStep ?? lockedStep ?? snapshotStep);
   let meta = $derived(test?.metadata);
   let hasMetadata = $derived(!!meta && (
     (meta.retries?.length ?? 0) > 0 ||
@@ -297,7 +303,7 @@
                 </div>
 
               {:else if leftTab === "snapshot" && hasSnapshot}
-                <SnapshotViewer snapshotPath={test.snapshot_path!} selectedStep={snapshotStep} />
+                <SnapshotViewer snapshotPath={test.snapshot_path!} selectedStep={activeSnapshotStep} />
 
               {:else}
                 <div class="empty-visual">
@@ -317,8 +323,8 @@
           <!-- RIGHT: Debug tools -->
           <div class="pane pane-right" style:width="calc({100 - leftPct}% - 3px)">
             <div class="pane-tabs">
-              <button class="pane-tab" class:active={rightTab === "error"} onclick={() => rightTab = "error"}>
-                Error
+              <button class="pane-tab" class:active={rightTab === "info"} onclick={() => rightTab = "info"}>
+                Info
               </button>
               <button class="pane-tab" class:active={rightTab === "commands"} onclick={() => rightTab = "commands"}>
                 Commands {hasCommands ? `(${test.command_log?.length})` : ""}
@@ -342,27 +348,9 @@
             </div>
 
             <div class="pane-content">
-              {#if rightTab === "error"}
-                <div class="error-panel">
-                  <div class="error-label">Error Message</div>
-                  <pre class="error-msg">{test.error_message}</pre>
-
-                  {#if test.error_stack}
-                    <button class="stack-toggle" onclick={() => stackExpanded = !stackExpanded}>
-                      <span class="toggle-icon">{stackExpanded ? "&#9660;" : "&#9654;"}</span>
-                      Stack Trace
-                    </button>
-                    {#if stackExpanded}
-                      <pre class="stack-trace">{test.error_stack}</pre>
-                    {/if}
-                  {/if}
-
-                  {#if meta?.error_snippet}
-                    <div class="error-label">Code Snippet</div>
-                    <pre class="code-snippet">{meta.error_snippet}</pre>
-                  {/if}
-
-                  <div class="error-details">
+              {#if rightTab === "info"}
+                <div class="info-panel">
+                  <div class="info-details">
                     <div class="detail-row">
                       <span class="detail-key">Test</span>
                       <span class="detail-val">{test.full_title}</span>
@@ -370,6 +358,10 @@
                     <div class="detail-row">
                       <span class="detail-key">Spec</span>
                       <span class="detail-val mono">{test.file_path}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-key">Status</span>
+                      <span class="detail-val"><span class="info-status {test.status}">{test.status}</span></span>
                     </div>
                     <div class="detail-row">
                       <span class="detail-key">Duration</span>
@@ -380,6 +372,28 @@
                       <a href="/runs/{test.run_id}" class="detail-link" onclick={onclose}>#{test.run_id}</a>
                     </div>
                   </div>
+
+                  {#if test.error_message}
+                    <div class="info-error-section">
+                      <div class="error-label">Error</div>
+                      <pre class="error-msg">{test.error_message}</pre>
+
+                      {#if test.error_stack}
+                        <button class="stack-toggle" onclick={() => stackExpanded = !stackExpanded}>
+                          <span class="toggle-icon">{stackExpanded ? "&#9660;" : "&#9654;"}</span>
+                          Stack Trace
+                        </button>
+                        {#if stackExpanded}
+                          <pre class="stack-trace">{test.error_stack}</pre>
+                        {/if}
+                      {/if}
+
+                      {#if meta?.error_snippet}
+                        <div class="error-label">Code Snippet</div>
+                        <pre class="code-snippet">{meta.error_snippet}</pre>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
 
               {:else if rightTab === "commands"}
@@ -389,14 +403,16 @@
                       <span class="commands-title">Command Log</span>
                       <span class="commands-count">{test.command_log?.length} steps</span>
                     </div>
-                    <ol class="command-list">
+                    <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each test.command_log ?? [] as cmd, i}
                         <li
                           class="cmd"
                           class:cmd-failed={cmd.state === "failed"}
-                          class:cmd-active={hasSnapshot && snapshotStep === i}
+                          class:cmd-active={hasSnapshot && activeSnapshotStep === i}
+                          class:cmd-locked={hasSnapshot && lockedStep === i}
                           class:cmd-clickable={hasSnapshot}
-                          onclick={() => { if (hasSnapshot) { snapshotStep = i; leftTab = "snapshot"; } }}
+                          onmouseenter={() => { if (hasSnapshot) { hoverStep = i; leftTab = "snapshot"; } }}
+                          onclick={() => { if (hasSnapshot) { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = "snapshot"; } }}
                         >
                           <span class="cmd-num">{i + 1}</span>
                           <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
@@ -956,9 +972,33 @@
     line-height: 1.5;
   }
 
-  /* RIGHT: Error panel */
-  .error-panel {
+  /* RIGHT: Info panel */
+  .info-panel {
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .info-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .info-status {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .info-status.passed { color: var(--color-pass); }
+  .info-status.failed { color: var(--color-fail); }
+  .info-status.skipped, .info-status.pending { color: var(--color-skip); }
+
+  .info-error-section {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -1171,6 +1211,24 @@
     background: color-mix(in srgb, var(--link) 10%, transparent) !important;
     border-left: 2px solid var(--link);
     padding-left: calc(1rem - 2px);
+  }
+
+  .cmd-locked {
+    background: color-mix(in srgb, var(--link) 15%, transparent) !important;
+    border-left: 2px solid var(--link);
+    padding-left: calc(1rem - 2px);
+  }
+
+  .cmd-locked::after {
+    content: "pinned";
+    font-size: 0.6rem;
+    color: var(--link);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-left: auto;
+    padding: 0.1rem 0.3rem;
+    background: color-mix(in srgb, var(--link) 10%, transparent);
+    border-radius: 3px;
   }
 
   /* RIGHT: Code panel */

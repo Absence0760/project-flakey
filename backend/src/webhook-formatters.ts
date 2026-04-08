@@ -1,5 +1,5 @@
-export interface WebhookRunFailedPayload {
-  event: "run.failed";
+export interface WebhookRunPayload {
+  event: string;
   run: {
     id: number;
     suite_name: string;
@@ -18,8 +18,24 @@ export interface WebhookRunFailedPayload {
     error_message: string | null;
     spec_file: string;
   }>;
+  new_failures?: Array<{
+    full_title: string;
+    error_message: string | null;
+    spec_file: string;
+  }>;
+  flaky_tests?: Array<{
+    full_title: string;
+    file_path: string;
+    flaky_rate: number;
+    flip_count: number;
+    fail_count: number;
+    total_runs: number;
+  }>;
   trend: string;
 }
+
+// Keep backward compat
+export type WebhookRunFailedPayload = WebhookRunPayload;
 
 export function formatPayload(platform: string, payload: WebhookRunFailedPayload): object {
   switch (platform) {
@@ -50,23 +66,47 @@ function shortSha(sha: string): string {
 // --- Generic (backward-compatible) ---
 
 function formatGeneric(p: WebhookRunFailedPayload): object {
+  const text = p.event === "flaky.detected"
+    ? `Run #${p.run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) detected in '${p.run.suite_name}'`
+    : `Run #${p.run.id} failed: ${p.run.failed}/${p.run.total} tests failed in suite '${p.run.suite_name}'`;
   return {
-    text: `Run #${p.run.id} failed: ${p.run.failed}/${p.run.total} tests failed in suite '${p.run.suite_name}'`,
+    text,
     event: p.event,
     run: p.run,
     failed_tests: p.failed_tests,
+    ...(p.flaky_tests ? { flaky_tests: p.flaky_tests } : {}),
     trend: p.trend,
   };
 }
 
 // --- Slack Block Kit ---
 
-function formatSlack(p: WebhookRunFailedPayload): object {
+function headerForEvent(p: WebhookRunPayload): { emoji: string; title: string } {
   const { run } = p;
+  switch (p.event) {
+    case "run.passed":
+      return { emoji: "\u2705", title: `\u2705 Run #${run.id} Passed \u2014 ${run.suite_name}` };
+    case "new.failures":
+      return { emoji: "\ud83d\udea8", title: `\ud83d\udea8 New Failures in Run #${run.id} \u2014 ${run.suite_name}` };
+    case "flaky.detected":
+      return { emoji: "\ud83c\udfb2", title: `\ud83c\udfb2 Flaky Tests Detected \u2014 Run #${run.id} ${run.suite_name}` };
+    case "run.completed":
+      return run.failed > 0
+        ? { emoji: "\u274c", title: `\u274c Run #${run.id} Completed \u2014 ${run.suite_name}` }
+        : { emoji: "\u2705", title: `\u2705 Run #${run.id} Completed \u2014 ${run.suite_name}` };
+    default:
+      return { emoji: "\u274c", title: `\u274c Run #${run.id} Failed \u2014 ${run.suite_name}` };
+  }
+}
+
+function formatSlack(p: WebhookRunPayload): object {
+  const { run } = p;
+  const { title } = headerForEvent(p);
+
   const blocks: object[] = [
     {
       type: "header",
-      text: { type: "plain_text", text: `\u274c Run #${run.id} Failed \u2014 ${run.suite_name}`, emoji: true },
+      text: { type: "plain_text", text: title, emoji: true },
     },
     {
       type: "section",
@@ -86,9 +126,14 @@ function formatSlack(p: WebhookRunFailedPayload): object {
     });
   }
 
-  if (p.failed_tests.length > 0) {
+  // Show new failures prominently if this is a new.failures event
+  if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
     blocks.push({ type: "divider" });
-    const lines = p.failed_tests.map((t) => {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*\ud83d\udea8 ${p.new_failures.length} New Failure${p.new_failures.length > 1 ? "s" : ""} (passed last run, failing now):*` },
+    });
+    const lines = p.new_failures.map((t) => {
       const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
       return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
     });
@@ -98,6 +143,45 @@ function formatSlack(p: WebhookRunFailedPayload): object {
     });
   }
 
+  // Flaky tests section
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*\ud83c\udfb2 ${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:*` },
+    });
+    const lines = p.flaky_tests.map((t) =>
+      `\u2022 *${truncate(t.full_title, 80)}*\n>  \`${truncate(t.file_path, 40)}\` \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
+    );
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: lines.join("\n") },
+    });
+  }
+
+  if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
+    if (p.event !== "new.failures") {
+      blocks.push({ type: "divider" });
+    }
+    // For new.failures, also show all failures below if there are more than just the new ones
+    if (p.event === "new.failures" && p.failed_tests.length > (p.new_failures?.length ?? 0)) {
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `*All ${p.failed_tests.length} failures:*` },
+      });
+    }
+    if (p.event !== "new.failures") {
+      const lines = p.failed_tests.map((t) => {
+        const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
+        return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
+      });
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: lines.join("\n") },
+      });
+    }
+  }
+
   blocks.push({
     type: "actions",
     elements: [
@@ -105,23 +189,30 @@ function formatSlack(p: WebhookRunFailedPayload): object {
     ],
   });
 
-  return {
-    text: `Run #${run.id} failed: ${run.failed}/${run.total} tests failed in '${run.suite_name}'`,
-    blocks,
-  };
+  const fallback = p.event === "run.passed"
+    ? `Run #${run.id} passed: ${run.passed}/${run.total} tests in '${run.suite_name}'`
+    : p.event === "new.failures"
+    ? `Run #${run.id}: ${p.new_failures?.length ?? 0} new failure(s) in '${run.suite_name}'`
+    : p.event === "flaky.detected"
+    ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) in '${run.suite_name}'`
+    : `Run #${run.id} failed: ${run.failed}/${run.total} tests failed in '${run.suite_name}'`;
+
+  return { text: fallback, blocks };
 }
 
 // --- Microsoft Teams Adaptive Card ---
 
-function formatTeams(p: WebhookRunFailedPayload): object {
+function formatTeams(p: WebhookRunPayload): object {
   const { run } = p;
+  const { title } = headerForEvent(p);
+  const color = (p.event === "run.passed") ? "Good" : "Attention";
   const body: object[] = [
     {
       type: "TextBlock",
       size: "Large",
       weight: "Bolder",
-      color: "Attention",
-      text: `\u274c Run #${run.id} Failed \u2014 ${run.suite_name}`,
+      color,
+      text: title,
     },
     {
       type: "FactSet",
@@ -135,10 +226,45 @@ function formatTeams(p: WebhookRunFailedPayload): object {
     },
   ];
 
-  if (p.failed_tests.length > 0) {
+  if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
     body.push({
       type: "TextBlock",
-      text: "**Failed Tests**",
+      text: `**\ud83d\udea8 ${p.new_failures.length} New Failure${p.new_failures.length > 1 ? "s" : ""}** (passed last run):`,
+      weight: "Bolder",
+      spacing: "Medium",
+    });
+    for (const t of p.new_failures) {
+      const err = t.error_message ? `\n\n${truncate(t.error_message, 150)}` : "";
+      body.push({
+        type: "TextBlock",
+        text: `\u2022 **${truncate(t.full_title, 80)}** \u2014 \`${truncate(t.spec_file, 40)}\`${err}`,
+        wrap: true,
+        size: "Small",
+      });
+    }
+  }
+
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    body.push({
+      type: "TextBlock",
+      text: `**\ud83c\udfb2 ${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:**`,
+      weight: "Bolder",
+      spacing: "Medium",
+    });
+    for (const t of p.flaky_tests) {
+      body.push({
+        type: "TextBlock",
+        text: `\u2022 **${truncate(t.full_title, 80)}** \u2014 \`${truncate(t.file_path, 40)}\`\n\n${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`,
+        wrap: true,
+        size: "Small",
+      });
+    }
+  }
+
+  if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
+    body.push({
+      type: "TextBlock",
+      text: p.event === "new.failures" ? "**All Failures:**" : "**Failed Tests**",
       weight: "Bolder",
       spacing: "Medium",
     });
@@ -161,7 +287,7 @@ function formatTeams(p: WebhookRunFailedPayload): object {
         $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
         type: "AdaptiveCard",
         version: "1.4",
-        fallbackText: `Run #${run.id} Failed \u2014 ${run.failed}/${run.total} tests failed in '${run.suite_name}'`,
+        fallbackText: `${title}`,
         body,
         actions: [
           { type: "Action.OpenUrl", title: "View Run", url: run.url },
@@ -173,8 +299,13 @@ function formatTeams(p: WebhookRunFailedPayload): object {
 
 // --- Discord Embed ---
 
-function formatDiscord(p: WebhookRunFailedPayload): object {
+function formatDiscord(p: WebhookRunPayload): object {
   const { run } = p;
+  const { title } = headerForEvent(p);
+  const embedColor = p.event === "run.passed" ? 0x22863a
+    : p.event === "flaky.detected" ? 0xf59e0b
+    : p.event === "new.failures" ? 0xff8800
+    : 0xff4444;
 
   const fields = [
     { name: "Suite", value: run.suite_name, inline: true },
@@ -189,22 +320,43 @@ function formatDiscord(p: WebhookRunFailedPayload): object {
   }
 
   let description = "";
-  if (p.failed_tests.length > 0) {
+
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    const lines = p.flaky_tests.map((t) =>
+      `\ud83c\udfb2 **${truncate(t.full_title, 60)}** \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
+    );
+    description = `**${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:**\n${lines.join("\n")}`;
+  } else if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
+    const newLines = p.new_failures.map((t) => {
+      const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
+      return `\ud83d\udea8 **${truncate(t.full_title, 60)}**${err}`;
+    });
+    description = `**${p.new_failures.length} New Failure${p.new_failures.length > 1 ? "s" : ""}** (passed last run):\n${newLines.join("\n")}`;
+
+    if (p.failed_tests.length > p.new_failures.length) {
+      description += `\n\n**All ${p.failed_tests.length} failures:**\n`;
+      const allLines = p.failed_tests.map((t) => {
+        const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
+        return `\u2022 **${truncate(t.full_title, 60)}**${err}`;
+      });
+      description += allLines.join("\n");
+    }
+  } else if (p.failed_tests.length > 0 && p.event !== "run.passed") {
     const lines = p.failed_tests.map((t) => {
       const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
       return `\u2022 **${truncate(t.full_title, 60)}**${err}`;
     });
     description = lines.join("\n");
-    // Discord embed description limit is 4096 chars
-    if (description.length > 4000) {
-      description = description.slice(0, 3997) + "\u2026";
-    }
+  }
+
+  if (description.length > 4000) {
+    description = description.slice(0, 3997) + "\u2026";
   }
 
   return {
     embeds: [{
-      title: `Run #${run.id} Failed`,
-      color: 0xff4444,
+      title,
+      color: embedColor,
       url: run.url,
       description,
       fields,

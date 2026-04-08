@@ -11,6 +11,8 @@ Flakey supports multiple test reporters. Each reporter outputs a different forma
 | **Mochawesome** | JSON | Cypress, Mocha | Implemented |
 | **JUnit** | XML | Jest, pytest, PHPUnit, Go, Java, .NET, most CI systems | Implemented |
 | **Playwright** | JSON | Playwright | Implemented |
+| **Jest** | JSON | Jest | Implemented |
+| **WebdriverIO** | JSON | WebdriverIO | Implemented |
 
 ## Usage
 
@@ -316,7 +318,7 @@ npx playwright test --reporter=json > playwright-report/results.json
      "my-reporter": parseMyReporter as Parser,  // add here
    };
    ```
-4. Update `packages/cli/src/index.ts` `findReportFile()` to handle the new reporter's file format
+4. Update `packages/flakey-cli/src/index.ts` `findReportFile()` to handle the new reporter's file format
 5. Test with a real report file from the target framework
 
 The normalizer should:

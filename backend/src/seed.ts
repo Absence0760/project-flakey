@@ -1,8 +1,9 @@
 import pg from "pg";
 import bcrypt from "bcryptjs";
-import { copyFileSync, mkdirSync, existsSync } from "fs";
+import { copyFileSync, mkdirSync, existsSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { gzipSync } from "zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -153,6 +154,32 @@ const sampleCommandLogs = [
     { name: "click", message: "", state: "passed" },
     { name: "get", message: "[data-testid=\"discount-badge\"]", state: "failed" },
   ],
+  [
+    { name: "visit", message: "/dashboard", state: "passed" },
+    { name: "get", message: "[data-testid=\"widget-list\"]", state: "passed" },
+    { name: "should", message: "have.length 4", state: "passed" },
+    { name: "get", message: "[data-testid=\"revenue-widget\"]", state: "passed" },
+    { name: "should", message: "contain $12,450", state: "passed" },
+  ],
+  [
+    { name: "visit", message: "/settings/profile", state: "passed" },
+    { name: "get", message: "[data-testid=\"name-input\"]", state: "passed" },
+    { name: "clear", message: "", state: "passed" },
+    { name: "type", message: "New Display Name", state: "passed" },
+    { name: "get", message: "[data-testid=\"save-btn\"]", state: "passed" },
+    { name: "click", message: "", state: "passed" },
+    { name: "get", message: "[data-testid=\"toast\"]", state: "passed" },
+    { name: "should", message: "contain Profile updated", state: "passed" },
+  ],
+  [
+    { name: "visit", message: "/search", state: "passed" },
+    { name: "get", message: "[data-testid=\"filter-date\"]", state: "passed" },
+    { name: "click", message: "", state: "passed" },
+    { name: "get", message: "[data-testid=\"date-last-7\"]", state: "passed" },
+    { name: "click", message: "", state: "passed" },
+    { name: "get", message: "[data-testid=\"results-count\"]", state: "passed" },
+    { name: "should", message: "contain 23 results", state: "passed" },
+  ],
 ];
 
 const errors = [
@@ -179,6 +206,68 @@ function pick<T>(arr: T[]): T {
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateSnapshotBundle(testTitle: string, specFile: string, commandLog: object[]): Buffer {
+  const steps = commandLog.map((cmd: any, i: number) => {
+    const bgColor = cmd.state === "failed" ? "#fff0f0" : "#fff";
+    const statusText = cmd.state === "failed" ? `<div style="color:#e74c3c;padding:1rem;border:2px solid #e74c3c;border-radius:8px;margin:1rem;">Error at step ${i + 1}: ${cmd.name} ${cmd.message}</div>` : "";
+    return {
+      index: i,
+      commandName: cmd.name,
+      commandMessage: cmd.message || "",
+      timestamp: (i + 1) * 800,
+      html: `<!DOCTYPE html>
+<html><head><style>
+  body { font-family: -apple-system, sans-serif; margin: 0; padding: 2rem; background: ${bgColor}; }
+  .app { max-width: 600px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+  .step-info { background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+  .step-label { font-size: 0.8rem; color: #666; text-transform: uppercase; margin-bottom: 0.25rem; }
+  .step-value { font-family: monospace; font-size: 0.9rem; }
+  .field { margin-bottom: 0.75rem; }
+  .field label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
+  .field input, .field select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+  .field input:focus { border-color: #1a1a2e; outline: none; }
+  .btn { padding: 0.5rem 1.5rem; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .highlight { outline: 3px solid #4a90d9; outline-offset: 2px; border-radius: 4px; }
+  .nav { background: #1a1a2e; color: #fff; padding: 0.75rem 1.5rem; margin: -2rem -2rem 2rem; display: flex; gap: 1.5rem; }
+  .nav a { color: #ccc; text-decoration: none; font-size: 0.9rem; }
+  .filled { background: #f0f8ff; }
+</style></head><body>
+<div class="nav"><strong>TestApp</strong><a href="#">Login</a><a href="#">Todos</a><a href="#">Users</a></div>
+<div class="app">
+  <h1>${testTitle}</h1>
+  <div class="step-info">
+    <div class="step-label">Step ${i + 1} of ${commandLog.length}</div>
+    <div class="step-value">cy.${cmd.name}(${cmd.message ? `'${cmd.message}'` : ""})</div>
+  </div>
+  ${cmd.name === "visit" ? `<div class="field"><label>Page</label><input value="${cmd.message}" readonly class="highlight" /></div>` : ""}
+  ${cmd.name === "get" ? `<div class="field"><label>Element</label><input value="${cmd.message}" readonly class="highlight" /></div>` : ""}
+  ${cmd.name === "type" ? `
+    <div class="field"><label>Email</label><input value="${cmd.message}" class="filled highlight" /></div>
+    <div class="field"><label>Password</label><input type="password" value="••••••" class="filled" /></div>
+  ` : ""}
+  ${cmd.name === "click" ? `<div style="margin-top:1rem;"><button class="btn highlight">Submit</button></div>` : ""}
+  ${cmd.name === "should" || cmd.name === "url" ? `<div class="step-info"><div class="step-label">Assertion</div><div class="step-value">${cmd.message}</div></div>` : ""}
+  ${statusText}
+</div>
+</body></html>`,
+      scrollX: 0,
+      scrollY: i * 50,
+    };
+  });
+
+  const bundle = {
+    version: 1,
+    testTitle,
+    specFile,
+    steps,
+    viewportWidth: 1280,
+    viewportHeight: 720,
+  };
+
+  return gzipSync(Buffer.from(JSON.stringify(bundle)));
 }
 
 async function seed() {
@@ -285,6 +374,7 @@ async function seed() {
           commandLog: object[] | null;
           screenshotPaths: string[];
           metadata: object | null;
+          snapshotPath: string | null;
         }[];
       }[] = [];
 
@@ -296,9 +386,11 @@ async function seed() {
       );
       const runId = runResult.rows[0].id;
 
-      // Create screenshot directory for this run
+      // Create artifact directories for this run
       const screenshotDir = join("uploads", "runs", String(runId), "screenshots");
+      const snapshotDir = join("uploads", "runs", String(runId), "snapshots");
       mkdirSync(screenshotDir, { recursive: true });
+      mkdirSync(snapshotDir, { recursive: true });
 
       for (const specFile of runSpecs) {
         const tests = testNames[specFile] ?? [];
@@ -333,11 +425,21 @@ async function seed() {
           }
 
           const code = testCode[testTitle] ?? null;
-          const commandLog = status === "failed" ? pick(sampleCommandLogs) : null;
+          const commandLog = status === "failed" || Math.random() < 0.3 ? pick(sampleCommandLogs) : null;
+
+          // Generate snapshot for tests with command logs
+          let snapshotPath: string | null = null;
+          if (commandLog) {
+            const safeName = testTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "-").slice(0, 80);
+            const snapshotFile = `${safeName}.json.gz`;
+            const snapshotData = generateSnapshotBundle(testTitle, specFile, commandLog);
+            writeFileSync(join(snapshotDir, snapshotFile), snapshotData);
+            snapshotPath = `runs/${runId}/snapshots/${snapshotFile}`;
+          }
 
           specData.push({
             file: specFile,
-            tests: [{ title: testTitle, status, duration, error, errorStack, code, commandLog, screenshotPaths, metadata: null }],
+            tests: [{ title: testTitle, status, duration, error, errorStack, code, commandLog, screenshotPaths, metadata: null, snapshotPath }],
           });
 
           runTotal++;
@@ -377,8 +479,8 @@ async function seed() {
 
         for (const test of tests) {
           await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
               specId,
               test.title,
@@ -392,6 +494,7 @@ async function seed() {
               test.code,
               test.commandLog ? JSON.stringify(test.commandLog) : null,
               test.metadata ? JSON.stringify(test.metadata) : null,
+              test.snapshotPath,
             ]
           );
         }

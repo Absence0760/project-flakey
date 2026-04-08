@@ -5,7 +5,7 @@ import { formatPayload, type WebhookRunFailedPayload } from "../webhook-formatte
 
 const router = Router();
 
-const VALID_EVENTS = ["run.failed", "flaky.detected"];
+const VALID_EVENTS = ["run.failed", "run.passed", "run.completed", "new.failures", "flaky.detected"];
 const VALID_PLATFORMS = ["generic", "slack", "teams", "discord"];
 
 // GET /webhooks

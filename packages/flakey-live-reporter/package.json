@@ -1,0 +1,29 @@
+{
+  "name": "@flakeytesting/live-reporter",
+  "version": "0.1.0",
+  "description": "Lightweight live test event reporter for Flakey — streams test progress in real-time",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./playwright": "./dist/playwright.js",
+    "./mocha": "./dist/mocha.js",
+    "./webdriverio": "./dist/webdriverio.js",
+    "./dist/*": "./dist/*"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["testing", "reporter", "live", "flakey", "real-time"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/flakey-live-reporter"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.5.4"
+  }
+}

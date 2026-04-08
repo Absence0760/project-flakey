@@ -192,7 +192,11 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "DB_USER", value = "flakey_app" },
       { name = "DB_MIGRATION_USER", value = var.db_username },
       { name = "CORS_ORIGINS", value = var.frontend_url },
+      { name = "FRONTEND_URL", value = var.frontend_url },
       { name = "ALLOW_REGISTRATION", value = tostring(var.allow_registration) },
+      { name = "STORAGE", value = "s3" },
+      { name = "S3_BUCKET", value = var.s3_bucket },
+      { name = "S3_REGION", value = var.aws_region },
     ]
 
     secrets = [

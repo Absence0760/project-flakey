@@ -1,4 +1,4 @@
-import type { GitProvider, GitProviderConfig } from "./types.js";
+import type { GitProvider, GitProviderConfig, CommitStatusParams, CommitStatusState } from "./types.js";
 import { COMMENT_MARKER } from "./comment.js";
 
 export function createGitLabProvider(config: GitProviderConfig): GitProvider {
@@ -52,6 +52,25 @@ export function createGitLabProvider(config: GitProviderConfig): GitProvider {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
+      });
+    },
+
+    async postCommitStatus(params: CommitStatusParams) {
+      // GitLab uses different state names
+      const stateMap: Record<CommitStatusState, string> = {
+        success: "success",
+        failure: "failed",
+        pending: "pending",
+      };
+      await api(`/projects/${projectId}/statuses/${params.commitSha}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: stateMap[params.state],
+          target_url: params.targetUrl,
+          description: params.description,
+          name: params.context,
+        }),
       });
     },
   };

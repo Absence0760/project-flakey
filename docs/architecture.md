@@ -4,35 +4,53 @@
 
 | Layer | Technology |
 |---|---|
-| Test runner | Cypress, Playwright, Jest, or any framework |
-| Reporters | Mochawesome (JSON), JUnit (XML), Playwright (JSON) |
-| Upload CLI | `@flakey/cli` (npm package) |
-| Snapshot plugin | `@flakey/cypress-snapshots` (npm package) |
+| Test runner | Cypress, Playwright, Jest, WebdriverIO, or any framework |
+| Reporters | Mochawesome (JSON), JUnit (XML), Playwright (JSON), Jest (JSON), WebdriverIO (JSON) |
+| Shared core | `@flakeytesting/core` (API client + schema) |
+| Upload CLI | `@flakeytesting/cli` (npm package, `packages/flakey-cli`) |
+| Cypress reporter | `@flakeytesting/cypress-reporter` (npm package) |
+| Playwright reporter | `@flakeytesting/playwright-reporter` (npm package) |
+| WebdriverIO reporter | `@flakeytesting/webdriverio-reporter` (npm package) |
+| Live reporter | `@flakeytesting/live-reporter` (real-time test event streaming) |
+| Snapshot plugins | `@flakeytesting/cypress-snapshots`, `@flakeytesting/playwright-snapshots` |
+| MCP server | `@flakeytesting/mcp-server` (AI coding agent integration) |
 | Backend API | Node.js + Express |
 | Normalizer | Per-reporter parser -> unified schema |
+| AI analysis | Claude API or OpenAI-compatible (Ollama, vLLM) |
 | Database | PostgreSQL 16 with Row-Level Security |
-| Auth | JWT + API keys, bcrypt, httpOnly cookies, refresh tokens |
+| Auth | JWT + API keys, bcrypt, httpOnly cookies, refresh tokens, email verification |
 | Multi-tenancy | Organization-based isolation via Postgres RLS |
 | Frontend | SvelteKit (Svelte 5), static-hosted on S3/CloudFront |
-| Infrastructure | Terraform (AWS: ECS Fargate, RDS, S3, CloudFront) |
+| Storage | Local disk or S3 (configurable via `STORAGE` env var) |
+| Infrastructure | Terraform (AWS: ECS Fargate, RDS, S3, CloudFront) + Helm chart (Kubernetes) |
 | CI/CD | GitHub Actions (deploy + npm publish) |
 
 ## System flow
 
 ```
+Test run starts
+        |
+        ├── Live reporter streams events in real-time (optional)
+        |       |
+        |   POST /live/:runId/events → SSE to frontend
+        |
 Test run completes
         |
-Reporter generates output (mochawesome JSON / JUnit XML / Playwright JSON)
+Reporter generates output (mochawesome / JUnit / Playwright / Jest / WebdriverIO)
         |
-CLI reads output files + screenshots/videos + metadata
+CLI or direct reporter uploads results + screenshots/videos
         |
 POST to backend API (authenticated via API key)
         |
 Normalizer converts format -> unified schema
         |
-Store in PostgreSQL (scoped to organization via org_id)
+Store in PostgreSQL (merged if same ci_run_id exists)
+        |
+Dispatch: webhooks, PR comments, commit status checks, flaky detection
         |
 Frontend reads from API (authenticated via JWT) -> displays results
+        |
+AI analysis available on-demand (failure classification, flaky analysis)
 ```
 
 ## Component breakdown

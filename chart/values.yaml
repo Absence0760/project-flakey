@@ -1,0 +1,110 @@
+# -- Backend image
+image:
+  repository: ghcr.io/your-org/flakey-backend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# -- Number of backend replicas
+replicaCount: 1
+
+# -- Backend resource limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 3000
+
+# -- Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: flakey.example.com
+  tls: []
+    # - secretName: flakey-tls
+    #   hosts:
+    #     - flakey.example.com
+
+# -- Application settings
+app:
+  # -- Frontend URL (for email links, webhook callbacks, CORS)
+  frontendUrl: "http://localhost:7777"
+  # -- Allow open registration (false = invite-only)
+  allowRegistration: true
+  # -- Require email verification on registration
+  requireEmailVerification: false
+
+# -- Auth secrets
+auth:
+  # -- JWT signing secret (required in production)
+  jwtSecret: "change-me-in-production"
+  # -- Use an existing secret for JWT_SECRET instead (key: jwt-secret)
+  existingSecret: ""
+
+# -- Database configuration
+database:
+  host: ""
+  port: 5432
+  name: flakey
+  user: flakey_app
+  password: flakey_app
+  # -- Superuser for running migrations (creates roles, RLS policies)
+  migrationUser: flakey
+  migrationPassword: flakey
+  # -- Use an existing secret for database passwords (keys: password, migration-password)
+  existingSecret: ""
+
+# -- Bundled PostgreSQL (via Bitnami subchart)
+postgresql:
+  enabled: true
+  auth:
+    username: flakey
+    password: flakey
+    database: flakey
+  primary:
+    persistence:
+      size: 10Gi
+
+# -- Artifact storage
+storage:
+  # -- "local" for PVC, "s3" for S3 bucket
+  type: local
+  # -- PVC settings (when type=local)
+  persistence:
+    size: 10Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  # -- S3 settings (when type=s3)
+  s3:
+    bucket: ""
+    region: us-east-1
+    prefix: ""
+    # -- Optional CDN URL for serving artifacts (e.g. CloudFront domain)
+    cdnUrl: ""
+
+# -- Email / SMTP configuration
+smtp:
+  enabled: false
+  host: ""
+  port: 587
+  secure: true
+  user: ""
+  password: ""
+  from: "Flakey <noreply@flakey.dev>"
+  # -- Use an existing secret for SMTP password (key: smtp-password)
+  existingSecret: ""
+
+# -- Service account
+serviceAccount:
+  create: true
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/flakey-s3-role

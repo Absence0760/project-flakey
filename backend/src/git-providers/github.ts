@@ -1,4 +1,4 @@
-import type { GitProvider, GitProviderConfig } from "./types.js";
+import type { GitProvider, GitProviderConfig, CommitStatusParams } from "./types.js";
 import { COMMENT_MARKER } from "./comment.js";
 
 export function createGitHubProvider(config: GitProviderConfig): GitProvider {
@@ -54,6 +54,19 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
+      });
+    },
+
+    async postCommitStatus(params: CommitStatusParams) {
+      await api(`/repos/${owner}/${repo}/statuses/${params.commitSha}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: params.state,
+          target_url: params.targetUrl,
+          description: params.description,
+          context: params.context,
+        }),
       });
     },
   };

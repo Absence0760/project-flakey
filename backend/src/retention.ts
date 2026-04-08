@@ -1,9 +1,9 @@
 import pool from "./db.js";
-import { rmSync, existsSync } from "fs";
-import { join } from "path";
+import { getStorage } from "./storage.js";
 
 export async function runRetentionCleanup(): Promise<void> {
   try {
+    const storage = getStorage();
     const orgs = await pool.query(
       "SELECT id, retention_days FROM organizations WHERE retention_days IS NOT NULL"
     );
@@ -15,10 +15,7 @@ export async function runRetentionCleanup(): Promise<void> {
       );
 
       for (const run of runs.rows) {
-        const dir = join("uploads", "runs", String(run.id));
-        if (existsSync(dir)) {
-          rmSync(dir, { recursive: true, force: true });
-        }
+        await storage.deleteRun(run.id);
       }
 
       if (runs.rows.length > 0) {

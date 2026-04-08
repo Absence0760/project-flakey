@@ -2,8 +2,21 @@ import { authFetch } from "./auth";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
+export interface RunsSummary {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
 export async function fetchRuns(): Promise<Run[]> {
   const res = await authFetch(`${API_URL}/runs`);
+  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+  const data = await res.json();
+  return data.runs;
+}
+
+export async function fetchRunsWithSummary(offset = 0, limit = 50): Promise<{ runs: Run[]; summary: RunsSummary; hasMore: boolean }> {
+  const res = await authFetch(`${API_URL}/runs?limit=${limit}&offset=${offset}`);
   if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
   return res.json();
 }
@@ -30,6 +43,9 @@ export interface Run {
   pending: number;
   duration_ms: number;
   created_at: string;
+  spec_count: number;
+  spec_files: string[] | null;
+  new_failures: number;
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;
@@ -129,6 +145,9 @@ export interface Spec {
 
 export interface RunDetail extends Run {
   specs: Spec[];
+  rerun_command_template: string | null;
+  prev_id: number | null;
+  next_id: number | null;
 }
 
 export interface ErrorGroup {
@@ -393,4 +412,134 @@ export interface DashboardStats {
   pass_rate: number;
   recent_runs: Run[];
   recent_failures: { test_title: string; error_message: string; run_id: number; file_path: string }[];
+}
+
+// --- Saved Views ---
+
+export interface SavedView {
+  id: number;
+  name: string;
+  page: string;
+  filters: Record<string, string>;
+  created_at: string;
+}
+
+export async function fetchSavedViews(page?: string): Promise<SavedView[]> {
+  const params = page ? `?page=${page}` : "";
+  const res = await authFetch(`${API_URL}/views${params}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createSavedView(name: string, page: string, filters: Record<string, string>): Promise<SavedView> {
+  const res = await authFetch(`${API_URL}/views`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, page, filters }),
+  });
+  if (!res.ok) throw new Error("Failed to save view");
+  return res.json();
+}
+
+export async function deleteSavedView(id: number): Promise<void> {
+  await authFetch(`${API_URL}/views/${id}`, { method: "DELETE" });
+}
+
+// --- AI Analysis ---
+
+export interface AIAnalysis {
+  target_type: string;
+  target_key: string;
+  classification: string;
+  summary: string;
+  suggested_fix: string;
+  confidence: number;
+}
+
+export interface FlakyAnalysis {
+  rootCause: string;
+  stabilizationSuggestion: string;
+  shouldQuarantine: boolean;
+  severity: string;
+}
+
+export interface SimilarError {
+  fingerprint: string;
+  error_message: string;
+  suite_name: string;
+  occurrence_count: number;
+  status: string;
+  similarity: number;
+}
+
+export async function checkAIEnabled(): Promise<boolean> {
+  const res = await authFetch(`${API_URL}/analyze/status`);
+  if (!res.ok) return false;
+  const data = await res.json() as { enabled: boolean };
+  return data.enabled;
+}
+
+export async function analyzeError(fingerprint: string): Promise<AIAnalysis> {
+  const res = await authFetch(`${API_URL}/analyze/error/${fingerprint}`, { method: "POST" });
+  if (!res.ok) throw new Error("Analysis failed");
+  return res.json();
+}
+
+export async function analyzeFlakyTest(params: {
+  fullTitle: string;
+  filePath: string;
+  suiteName: string;
+  flakyRate: number;
+  flipCount: number;
+  totalRuns: number;
+  timeline: string[];
+}): Promise<FlakyAnalysis> {
+  const res = await authFetch(`${API_URL}/analyze/flaky`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error("Analysis failed");
+  return res.json();
+}
+
+export async function findSimilarErrors(fingerprint: string): Promise<SimilarError[]> {
+  const res = await authFetch(`${API_URL}/analyze/similar/${fingerprint}`, { method: "POST" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// --- Quarantine ---
+
+export interface QuarantinedTest {
+  id: number;
+  full_title: string;
+  file_path: string;
+  suite_name: string;
+  reason: string | null;
+  quarantined_by_name: string;
+  created_at: string;
+}
+
+export async function fetchQuarantinedTests(suite?: string): Promise<QuarantinedTest[]> {
+  const params = suite ? `?suite=${encodeURIComponent(suite)}` : "";
+  const res = await authFetch(`${API_URL}/quarantine${params}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function quarantineTest(fullTitle: string, filePath: string, suiteName: string, reason?: string): Promise<void> {
+  await authFetch(`${API_URL}/quarantine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fullTitle, filePath, suiteName, reason }),
+  });
+}
+
+export async function unquarantineTest(fullTitle: string, suiteName: string): Promise<void> {
+  await authFetch(`${API_URL}/quarantine`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fullTitle, suiteName }),
+  });
 }

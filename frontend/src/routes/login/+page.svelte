@@ -3,12 +3,17 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
 
-  let mode = $state<"login" | "register">("login");
+  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+
+  let mode = $state<"login" | "register" | "forgot">("login");
   let email = $state("");
   let password = $state("");
   let name = $state("");
   let error = $state<string | null>(null);
   let loading = $state(false);
+  let verificationSent = $state(false);
+  let resetSent = $state(false);
+  let resendingVerification = $state(false);
 
   const inviteToken = $derived($page.url.searchParams.get("invite"));
 
@@ -21,65 +26,129 @@
     error = null;
     loading = true;
     try {
-      if (mode === "login") {
+      if (mode === "forgot") {
+        await fetch(`${API_URL}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        resetSent = true;
+      } else if (mode === "login") {
         await login(email, password);
+        goto("/dashboard");
       } else {
-        await register(email, password, name, inviteToken ?? undefined);
+        const result = await register(email, password, name, inviteToken ?? undefined);
+        // Check if email verification is required (user won't be auto-logged in on next attempt)
+        verificationSent = true;
+        goto("/dashboard");
       }
-      // Registration with an invite auto-accepts it via resolveOrg,
-      // so always go straight to dashboard
-      goto("/dashboard");
     } catch (e) {
-      error = e instanceof Error ? e.message : "Something went wrong";
+      const msg = e instanceof Error ? e.message : "Something went wrong";
+      if (msg.includes("EMAIL_NOT_VERIFIED") || msg.includes("verify your email")) {
+        error = null;
+        verificationSent = true;
+      } else {
+        error = msg;
+      }
     } finally {
       loading = false;
     }
+  }
+
+  async function resendVerification() {
+    resendingVerification = true;
+    try {
+      await fetch(`${API_URL}/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    } catch { /* ignore */ }
+    resendingVerification = false;
   }
 </script>
 
 <div class="login-page">
   <div class="login-card">
     <div class="logo">Flakey</div>
-    <p class="subtitle">{mode === "login" ? "Sign in to your account" : "Create a new account"}</p>
+    <p class="subtitle">
+      {#if mode === "forgot"}
+        Reset your password
+      {:else if mode === "register"}
+        Create a new account
+      {:else}
+        Sign in to your account
+      {/if}
+    </p>
 
     {#if inviteToken}
       <p class="invite-banner">You've been invited to join an organization. {mode === "login" ? "Sign in" : "Create an account"} to accept.</p>
     {/if}
 
-    <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-      {#if mode === "register"}
+    {#if verificationSent}
+      <div class="info-banner">
+        <p>Check your email for a verification link.</p>
+        <button class="resend-btn" onclick={resendVerification} disabled={resendingVerification}>
+          {resendingVerification ? "Sending..." : "Resend verification email"}
+        </button>
+      </div>
+    {:else if resetSent}
+      <div class="info-banner">
+        <p>If an account exists with that email, we've sent a password reset link.</p>
+        <button class="link-btn" onclick={() => { mode = "login"; resetSent = false; error = null; }}>Back to sign in</button>
+      </div>
+    {:else}
+      <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+        {#if mode === "register"}
+          <label class="field">
+            <span>Name</span>
+            <input type="text" bind:value={name} placeholder="Your name" />
+          </label>
+        {/if}
+
         <label class="field">
-          <span>Name</span>
-          <input type="text" bind:value={name} placeholder="Your name" />
+          <span>Email</span>
+          <input type="email" bind:value={email} placeholder="you@example.com" required />
         </label>
-      {/if}
 
-      <label class="field">
-        <span>Email</span>
-        <input type="email" bind:value={email} placeholder="you@example.com" required />
-      </label>
+        {#if mode !== "forgot"}
+          <label class="field">
+            <span>Password</span>
+            <input type="password" bind:value={password} placeholder={mode === "register" ? "Min 8 characters" : "Password"} required />
+          </label>
+        {/if}
 
-      <label class="field">
-        <span>Password</span>
-        <input type="password" bind:value={password} placeholder={mode === "register" ? "Min 6 characters" : "Password"} required />
-      </label>
+        {#if mode === "login"}
+          <button type="button" class="forgot-btn" onclick={() => { mode = "forgot"; error = null; }}>Forgot password?</button>
+        {/if}
 
-      {#if error}
-        <p class="error">{error}</p>
-      {/if}
+        {#if error}
+          <p class="error">{error}</p>
+        {/if}
 
-      <button type="submit" class="submit-btn" disabled={loading}>
-        {loading ? "..." : mode === "login" ? "Sign in" : "Create account"}
-      </button>
-    </form>
+        <button type="submit" class="submit-btn" disabled={loading}>
+          {#if loading}
+            ...
+          {:else if mode === "forgot"}
+            Send reset link
+          {:else if mode === "register"}
+            Create account
+          {:else}
+            Sign in
+          {/if}
+        </button>
+      </form>
 
-    <p class="switch">
-      {#if mode === "login"}
-        Don't have an account? <button onclick={() => { mode = "register"; error = null; }}>Register</button>
-      {:else}
-        Already have an account? <button onclick={() => { mode = "login"; error = null; }}>Sign in</button>
-      {/if}
-    </p>
+      <p class="switch">
+        {#if mode === "forgot"}
+          Remember your password? <button onclick={() => { mode = "login"; error = null; }}>Sign in</button>
+        {:else if mode === "login"}
+          Don't have an account? <button onclick={() => { mode = "register"; error = null; }}>Register</button>
+        {:else}
+          Already have an account? <button onclick={() => { mode = "login"; error = null; }}>Sign in</button>
+        {/if}
+      </p>
+    {/if}
   </div>
 </div>
 
@@ -215,5 +284,53 @@
     font-size: 0.8rem;
     color: var(--text);
     text-align: center;
+  }
+
+  .info-banner {
+    text-align: center;
+    padding: 1rem 0.75rem;
+    background: color-mix(in srgb, var(--link) 8%, transparent);
+    border: 1px solid var(--link);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .info-banner p {
+    margin: 0 0 0.75rem;
+  }
+
+  .resend-btn, .link-btn {
+    background: none;
+    border: none;
+    color: var(--link);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0;
+  }
+
+  .resend-btn:hover, .link-btn:hover {
+    text-decoration: underline;
+  }
+
+  .resend-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .forgot-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0;
+    text-align: right;
+    margin-top: -0.5rem;
+  }
+
+  .forgot-btn:hover {
+    color: var(--link);
   }
 </style>

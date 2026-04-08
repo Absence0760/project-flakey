@@ -12,19 +12,26 @@
 | Video recording | ✅ | ± | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | Multi-reporter support | ✗ | ✗ | ± | ✅ | ± | ✅ | ✅ | ✅ | ✅ |
 | **AI / ML** | | | | | | | | | |
-| AI failure classification | ✅ | ✗ | ✗ | ✅ | ✗ | ± | ± | ✅ | ✗ |
-| AI error summaries | ✅ | ✗ | ✗ | ✗ | ✗ | ± | ✗ | ✗ | ✗ |
-| Predictive test selection | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ |
-| Flaky test quarantining | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✅ | ✗ |
+| AI failure classification | ✅ | ✗ | ✗ | ✅ | ✗ | ± | ± | ✅ | ✅ |
+| AI error summaries | ✅ | ✗ | ✗ | ✗ | ✗ | ± | ✗ | ✗ | ✅ |
+| Predictive test selection | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✅ |
+| Flaky test quarantining | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✅ | ✅ |
+| AI coding agent (MCP) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| Local AI model support | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | **CI/PR integration** | | | | | | | | | |
-| GitHub PR status checks | ✅ | ✗ | ✅ | ✗ | ✅ | ✅ | ✅ | ✗ | ✗ |
-| GitHub PR comments | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ |
+| GitHub PR status checks | ✅ | ✗ | ✅ | ✗ | ✅ | ✅ | ✅ | ✗ | ✅ |
+| GitHub PR comments | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✅ |
+| GitLab MR integration | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ |
+| Bitbucket PR integration | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | Jira integration | ✅ | ✗ | ✅ | ✅ | ✅ | ✅ | ✅ | ✗ | ✗ |
 | Scheduled reports | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ |
 | **Parallelization** | | | | | | | | | |
 | Live test orchestration | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Smart spec balancing | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | CI-native parallel (matrix) | ± | ± | ± | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
-| Real-time run progress | ✅ | ✅ | ✅ | ✗ | ± | ✗ | ✗ | ✗ | ✗ |
+| Parallel run merging | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| Real-time run progress | ✅ | ✅ | ✅ | ✗ | ± | ✗ | ✗ | ✗ | ✅ |
+| Auto-cancellation | ✅ | ✗ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | **Extended testing** | | | | | | | | | |
 | Code coverage tracking | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ |
 | Accessibility testing | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |

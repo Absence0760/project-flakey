@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flakey Test App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+    nav { background: #1a1a2e; color: #fff; padding: 1rem 2rem; display: flex; align-items: center; gap: 2rem; }
+    nav a { color: #ccc; text-decoration: none; font-size: 0.9rem; }
+    nav a:hover, nav a.active { color: #fff; }
+    nav .logo { font-weight: 700; font-size: 1.1rem; color: #fff; }
+    .container { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: 1rem; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+    .card h2 { margin-bottom: 0.5rem; font-size: 1rem; }
+
+    /* Login */
+    .login-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 300px; }
+    .login-form input { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+    .login-form button { padding: 0.5rem; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .login-form button:hover { background: #16213e; }
+    .login-error { color: #e74c3c; font-size: 0.85rem; display: none; }
+    .login-success { color: #27ae60; font-size: 0.85rem; display: none; }
+
+    /* Todo */
+    .todo-input { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .todo-input input { flex: 1; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    .todo-input button { padding: 0.5rem 1rem; background: #27ae60; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    .todo-list { list-style: none; }
+    .todo-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+    .todo-item.done span { text-decoration: line-through; color: #999; }
+    .todo-item input[type="checkbox"] { cursor: pointer; }
+    .todo-item span { flex: 1; }
+    .todo-item .delete-btn { background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 1.1rem; }
+    .todo-count { font-size: 0.85rem; color: #666; margin-top: 0.5rem; }
+    .todo-filters { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .todo-filters button { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 0.25rem 0.6rem; cursor: pointer; font-size: 0.8rem; }
+    .todo-filters button.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+    th { font-weight: 600; color: #666; font-size: 0.8rem; text-transform: uppercase; }
+    .status-badge { padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+    .status-badge.active { background: #d4edda; color: #155724; }
+    .status-badge.inactive { background: #f8d7da; color: #721c24; }
+    .sort-btn { background: none; border: none; cursor: pointer; font-weight: 600; color: #666; }
+    .sort-btn:hover { color: #333; }
+
+    /* Modal */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: #fff; border-radius: 8px; padding: 1.5rem; max-width: 400px; width: 90%; }
+    .modal h2 { margin-bottom: 1rem; }
+    .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+    .modal-actions button { padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+    .btn-cancel { background: #eee; border: 1px solid #ccc; }
+    .btn-confirm { background: #e74c3c; color: #fff; border: none; }
+
+    /* Notifications */
+    .notification { position: fixed; top: 1rem; right: 1rem; padding: 0.75rem 1.25rem; border-radius: 6px; font-size: 0.85rem; z-index: 200; display: none; }
+    .notification.success { background: #d4edda; color: #155724; }
+    .notification.error { background: #f8d7da; color: #721c24; }
+    .notification.show { display: block; }
+
+    /* Pages */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* Form */
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; font-weight: 500; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .form-actions { display: flex; gap: 0.5rem; }
+    .form-actions button { padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+    .btn-primary { background: #1a1a2e; color: #fff; border: none; }
+    .btn-secondary { background: #eee; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="logo">TestApp</span>
+    <a href="#login" class="nav-link active" data-page="login">Login</a>
+    <a href="#todos" class="nav-link" data-page="todos">Todos</a>
+    <a href="#users" class="nav-link" data-page="users">Users</a>
+    <a href="#form" class="nav-link" data-page="form">Form</a>
+  </nav>
+
+  <div class="notification" id="notification"></div>
+
+  <!-- Login Page -->
+  <div class="container page active" id="page-login" data-testid="login-page">
+    <h1>Login</h1>
+    <div class="card">
+      <form class="login-form" id="login-form" data-testid="login-form">
+        <input type="email" id="email" placeholder="Email" data-testid="email-input" required />
+        <input type="password" id="password" placeholder="Password" data-testid="password-input" required />
+        <button type="submit" data-testid="login-button">Sign In</button>
+        <div class="login-error" id="login-error" data-testid="login-error">Invalid email or password</div>
+        <div class="login-success" id="login-success" data-testid="login-success">Welcome back!</div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Todos Page -->
+  <div class="container page" id="page-todos" data-testid="todos-page">
+    <h1>Todos</h1>
+    <div class="card">
+      <div class="todo-input">
+        <input type="text" id="todo-input" placeholder="What needs to be done?" data-testid="todo-input" />
+        <button id="add-todo" data-testid="add-todo">Add</button>
+      </div>
+      <ul class="todo-list" id="todo-list" data-testid="todo-list"></ul>
+      <div class="todo-count" id="todo-count" data-testid="todo-count">0 items</div>
+      <div class="todo-filters">
+        <button class="active" data-filter="all" data-testid="filter-all">All</button>
+        <button data-filter="active" data-testid="filter-active">Active</button>
+        <button data-filter="completed" data-testid="filter-completed">Completed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Table Page -->
+  <div class="container page" id="page-users" data-testid="users-page">
+    <h1>Users</h1>
+    <div class="card">
+      <table data-testid="users-table">
+        <thead>
+          <tr>
+            <th><button class="sort-btn" data-sort="name" data-testid="sort-name">Name</button></th>
+            <th><button class="sort-btn" data-sort="email" data-testid="sort-email">Email</button></th>
+            <th><button class="sort-btn" data-sort="role" data-testid="sort-role">Role</button></th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-body" data-testid="users-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Form Page -->
+  <div class="container page" id="page-form" data-testid="form-page">
+    <h1>Create Item</h1>
+    <div class="card">
+      <form id="create-form" data-testid="create-form">
+        <div class="form-group">
+          <label for="item-name">Name *</label>
+          <input type="text" id="item-name" data-testid="item-name" required />
+        </div>
+        <div class="form-group">
+          <label for="item-category">Category</label>
+          <select id="item-category" data-testid="item-category">
+            <option value="">Select...</option>
+            <option value="bug">Bug</option>
+            <option value="feature">Feature</option>
+            <option value="task">Task</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="item-priority">Priority</label>
+          <select id="item-priority" data-testid="item-priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="item-description">Description</label>
+          <textarea id="item-description" data-testid="item-description"></textarea>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="item-urgent" data-testid="item-urgent" /> Mark as urgent</label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" data-testid="submit-form">Create</button>
+          <button type="reset" class="btn-secondary" data-testid="reset-form">Reset</button>
+        </div>
+      </form>
+      <div id="form-result" data-testid="form-result" style="margin-top:1rem;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div class="modal-backdrop" id="delete-modal" data-testid="delete-modal">
+    <div class="modal">
+      <h2>Confirm Delete</h2>
+      <p>Are you sure you want to delete <strong id="delete-user-name"></strong>?</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancel-delete" data-testid="cancel-delete">Cancel</button>
+        <button class="btn-confirm" id="confirm-delete" data-testid="confirm-delete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Navigation ---
+    const pages = document.querySelectorAll('.page');
+    const links = document.querySelectorAll('.nav-link');
+
+    function showPage(name) {
+      pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
+      links.forEach(l => l.classList.toggle('active', l.dataset.page === name));
+    }
+
+    links.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        showPage(link.dataset.page);
+        history.pushState(null, '', `#${link.dataset.page}`);
+      });
+    });
+
+    // Handle initial hash
+    const initialPage = location.hash.slice(1) || 'login';
+    showPage(initialPage);
+
+    // --- Notifications ---
+    function notify(msg, type = 'success') {
+      const el = document.getElementById('notification');
+      el.textContent = msg;
+      el.className = `notification ${type} show`;
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // --- Login ---
+    document.getElementById('login-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const pass = document.getElementById('password').value;
+      const errEl = document.getElementById('login-error');
+      const successEl = document.getElementById('login-success');
+
+      errEl.style.display = 'none';
+      successEl.style.display = 'none';
+
+      if (email === 'admin@test.com' && pass === 'password') {
+        successEl.style.display = 'block';
+        notify('Logged in successfully');
+        setTimeout(() => { showPage('todos'); history.pushState(null, '', '#todos'); }, 1000);
+      } else {
+        errEl.style.display = 'block';
+      }
+    });
+
+    // --- Todos ---
+    let todos = [];
+    let currentFilter = 'all';
+
+    function renderTodos() {
+      const list = document.getElementById('todo-list');
+      const filtered = currentFilter === 'all' ? todos
+        : currentFilter === 'active' ? todos.filter(t => !t.done)
+        : todos.filter(t => t.done);
+
+      list.innerHTML = filtered.map((t, i) => `
+        <li class="todo-item ${t.done ? 'done' : ''}" data-testid="todo-item-${t.id}">
+          <input type="checkbox" ${t.done ? 'checked' : ''} data-id="${t.id}" data-testid="todo-check-${t.id}" />
+          <span data-testid="todo-text-${t.id}">${t.text}</span>
+          <button class="delete-btn" data-id="${t.id}" data-testid="todo-delete-${t.id}">&times;</button>
+        </li>
+      `).join('');
+
+      const active = todos.filter(t => !t.done).length;
+      document.getElementById('todo-count').textContent = `${active} item${active !== 1 ? 's' : ''} left`;
+    }
+
+    document.getElementById('add-todo').addEventListener('click', () => {
+      const input = document.getElementById('todo-input');
+      const text = input.value.trim();
+      if (!text) return;
+      todos.push({ id: Date.now(), text, done: false });
+      input.value = '';
+      renderTodos();
+    });
+
+    document.getElementById('todo-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('add-todo').click();
+    });
+
+    document.getElementById('todo-list').addEventListener('click', (e) => {
+      if (e.target.matches('input[type="checkbox"]')) {
+        const id = Number(e.target.dataset.id);
+        const todo = todos.find(t => t.id === id);
+        if (todo) todo.done = !todo.done;
+        renderTodos();
+      }
+      if (e.target.matches('.delete-btn')) {
+        const id = Number(e.target.dataset.id);
+        todos = todos.filter(t => t.id !== id);
+        renderTodos();
+      }
+    });
+
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderTodos();
+      });
+    });
+
+    renderTodos();
+
+    // --- Users Table ---
+    const users = [
+      { name: 'Alice Johnson', email: 'alice@test.com', role: 'Admin', active: true },
+      { name: 'Bob Smith', email: 'bob@test.com', role: 'Editor', active: true },
+      { name: 'Carol White', email: 'carol@test.com', role: 'Viewer', active: false },
+      { name: 'Dan Brown', email: 'dan@test.com', role: 'Editor', active: true },
+      { name: 'Eve Davis', email: 'eve@test.com', role: 'Viewer', active: false },
+    ];
+
+    let sortCol = 'name', sortAsc = true;
+
+    function renderUsers() {
+      const sorted = [...users].sort((a, b) => {
+        const va = a[sortCol] || '', vb = b[sortCol] || '';
+        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      document.getElementById('users-body').innerHTML = sorted.map(u => `
+        <tr data-testid="user-row-${u.email}">
+          <td>${u.name}</td>
+          <td>${u.email}</td>
+          <td>${u.role}</td>
+          <td><span class="status-badge ${u.active ? 'active' : 'inactive'}">${u.active ? 'Active' : 'Inactive'}</span></td>
+          <td><button class="delete-user" data-name="${u.name}" data-testid="delete-${u.email}">Delete</button></td>
+        </tr>
+      `).join('');
+    }
+
+    document.querySelectorAll('[data-sort]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const col = btn.dataset.sort;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        renderUsers();
+      });
+    });
+
+    let deleteTarget = null;
+    document.getElementById('users-body').addEventListener('click', (e) => {
+      if (e.target.matches('.delete-user')) {
+        deleteTarget = e.target.dataset.name;
+        document.getElementById('delete-user-name').textContent = deleteTarget;
+        document.getElementById('delete-modal').classList.add('open');
+      }
+    });
+
+    document.getElementById('cancel-delete').addEventListener('click', () => {
+      document.getElementById('delete-modal').classList.remove('open');
+    });
+
+    document.getElementById('confirm-delete').addEventListener('click', () => {
+      const idx = users.findIndex(u => u.name === deleteTarget);
+      if (idx >= 0) users.splice(idx, 1);
+      document.getElementById('delete-modal').classList.remove('open');
+      renderUsers();
+      notify(`${deleteTarget} deleted`);
+    });
+
+    renderUsers();
+
+    // --- Form ---
+    document.getElementById('create-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('item-name').value;
+      const category = document.getElementById('item-category').value;
+      const priority = document.getElementById('item-priority').value;
+      const description = document.getElementById('item-description').value;
+      const urgent = document.getElementById('item-urgent').checked;
+
+      const result = document.getElementById('form-result');
+      result.style.display = 'block';
+      result.innerHTML = `<strong>Created:</strong> ${name} (${category || 'uncategorized'}, ${priority}${urgent ? ', URGENT' : ''})`;
+      notify('Item created successfully');
+    });
+
+    document.getElementById('create-form').addEventListener('reset', () => {
+      document.getElementById('form-result').style.display = 'none';
+    });
+  </script>
+</body>
+</html>

@@ -10,9 +10,11 @@ on:
         required: true
         type: choice
         options:
+          - core
           - cli
+          - cypress-reporter
           - cypress-snapshots
-          - reporter
+          - playwright-reporter
           - all
 
 permissions:
@@ -22,25 +24,49 @@ jobs:
   detect-package:
     runs-on: ubuntu-latest
     outputs:
+      core: ${{ steps.check.outputs.core }}
       cli: ${{ steps.check.outputs.cli }}
-      snapshots: ${{ steps.check.outputs.snapshots }}
-      reporter: ${{ steps.check.outputs.reporter }}
+      cypress_reporter: ${{ steps.check.outputs.cypress_reporter }}
+      cypress_snapshots: ${{ steps.check.outputs.cypress_snapshots }}
+      playwright_reporter: ${{ steps.check.outputs.playwright_reporter }}
     steps:
       - id: check
         run: |
           TAG="${{ github.event.release.tag_name }}"
           MANUAL="${{ github.event.inputs.package }}"
 
-          # Release tags: cli@0.1.0, cypress-snapshots@0.1.0, reporter@0.1.0
+          if [[ "$TAG" == core@* ]] || [[ "$MANUAL" == "core" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "core=true" >> "$GITHUB_OUTPUT"
+          fi
           if [[ "$TAG" == cli@* ]] || [[ "$MANUAL" == "cli" ]] || [[ "$MANUAL" == "all" ]]; then
             echo "cli=true" >> "$GITHUB_OUTPUT"
           fi
+          if [[ "$TAG" == cypress-reporter@* ]] || [[ "$MANUAL" == "cypress-reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "cypress_reporter=true" >> "$GITHUB_OUTPUT"
+          fi
           if [[ "$TAG" == cypress-snapshots@* ]] || [[ "$MANUAL" == "cypress-snapshots" ]] || [[ "$MANUAL" == "all" ]]; then
-            echo "snapshots=true" >> "$GITHUB_OUTPUT"
+            echo "cypress_snapshots=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == reporter@* ]] || [[ "$MANUAL" == "reporter" ]] || [[ "$MANUAL" == "all" ]]; then
-            echo "reporter=true" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == playwright-reporter@* ]] || [[ "$MANUAL" == "playwright-reporter" ]] || [[ "$MANUAL" == "all" ]]; then
+            echo "playwright_reporter=true" >> "$GITHUB_OUTPUT"
           fi
+
+  publish-core:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-core
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-cli:
     needs: [detect-package]
@@ -48,80 +74,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
+        with: { version: 10 }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-cli
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Install and build
-        working-directory: packages/cli
-        run: |
-          pnpm install
-          pnpm build
-
-      - name: Publish to npm
-        working-directory: packages/cli
-        run: pnpm publish --access public --no-git-checks
+  publish-cypress-reporter:
+    needs: [detect-package, publish-core]
+    if: always() && needs.detect-package.outputs.cypress_reporter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-cypress-reporter
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-cypress-reporter
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-cypress-snapshots:
     needs: [detect-package]
-    if: needs.detect-package.outputs.snapshots == 'true'
+    if: needs.detect-package.outputs.cypress_snapshots == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
+        with: { version: 10 }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install and build
-        working-directory: packages/cypress-snapshots
-        run: |
-          pnpm install
-          pnpm build
-
-      - name: Publish to npm
-        working-directory: packages/cypress-snapshots
-        run: pnpm publish --access public --no-git-checks
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-cypress-snapshots
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-cypress-snapshots
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  publish-reporter:
-    needs: [detect-package]
-    if: needs.detect-package.outputs.reporter == 'true'
+  publish-playwright-reporter:
+    needs: [detect-package, publish-core]
+    if: always() && needs.detect-package.outputs.playwright_reporter == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
+        with: { version: 10 }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install and build
-        working-directory: packages/reporter
-        run: |
-          pnpm install
-          pnpm build
-
-      - name: Publish to npm
-        working-directory: packages/reporter
-        run: pnpm publish --access public --no-git-checks
+        with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
+      - run: pnpm install && pnpm build
+        working-directory: packages/flakey-playwright-reporter
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/flakey-playwright-reporter
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

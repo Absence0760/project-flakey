@@ -154,6 +154,36 @@ export async function acceptInvite(token: string): Promise<{ user: User; org_nam
   return { user: data.user, org_name: data.org_name };
 }
 
+export interface Org {
+  id: number;
+  name: string;
+  slug: string;
+  role: string;
+}
+
+export async function fetchOrgs(): Promise<Org[]> {
+  const res = await authFetch(`${API_URL}/auth/me`);
+  if (!res.ok) return [];
+  const data = await res.json() as { orgs: Org[] };
+  return data.orgs;
+}
+
+export async function switchOrg(orgId: number): Promise<void> {
+  const res = await authFetch(`${API_URL}/auth/switch-org`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "Failed to switch organization");
+  }
+
+  const data = await res.json() as { token: string; user: User };
+  setAuth(data.user, data.token);
+}
+
 export function logout() {
   clearAuth();
 }

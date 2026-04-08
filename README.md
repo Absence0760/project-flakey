@@ -23,7 +23,7 @@ docker compose up -d
 ```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../packages/cli && npm install
+cd ../packages/flakey-cli && npm install
 ```
 
 ### 3. Seed sample data
@@ -53,15 +53,16 @@ npm run dev
 ### Cypress (recommended)
 
 ```bash
-npm install --save-dev @flakeytesting/reporter
+npm install --save-dev @flakeytesting/cypress-reporter @flakeytesting/cypress-snapshots
 ```
 
 ```typescript
 // cypress.config.ts
-import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
+import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 
 export default defineConfig({
-  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporter: "@flakeytesting/cypress-reporter",
   reporterOptions: {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
@@ -70,24 +71,31 @@ export default defineConfig({
   e2e: {
     setupNodeEvents(on, config) {
       flakeyReporter(on, config);
+      flakeySnapshots(on, config);
       return config;
     },
   },
 });
 ```
 
-Results, screenshots, and videos are uploaded automatically when the run finishes.
+```typescript
+// cypress/support/e2e.ts
+import "@flakeytesting/cypress-reporter/support";
+import "@flakeytesting/cypress-snapshots/support";
+```
+
+Results, screenshots, videos, and DOM snapshots are uploaded automatically when the run finishes.
 
 ### Playwright
 
 ```bash
-npm install --save-dev @flakeytesting/reporter
+npm install --save-dev @flakeytesting/playwright-reporter
 ```
 
 ```typescript
 // playwright.config.ts
 reporter: [
-  ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+  ["@flakeytesting/playwright-reporter", {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
     suite: "my-project",
@@ -95,10 +103,29 @@ reporter: [
 ],
 ```
 
+### WebdriverIO
+
+```bash
+npm install --save-dev @flakeytesting/webdriverio-reporter
+```
+
+```typescript
+// wdio.conf.ts
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+
+export const config = {
+  reporters: [[FlakeyReporter, {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  }]],
+};
+```
+
 ### CLI (alternative for any framework)
 
 ```bash
-npx tsx packages/cli/src/index.ts \
+npx tsx packages/flakey-cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
   --reporter mochawesome \
@@ -129,9 +156,23 @@ Create an API key from the Profile page for permanent access (no expiry).
 - Metrics cards (total runs, tests, pass rate, failures)
 - Trend charts (pass rate, test volume, run duration, top failures)
 - Date range picker with presets and calendar
+- Dark/light/system theme toggle
+
+### Runs List
+- **Multi-filter** — suite, branch, status (passed/failed/new failures), date range, and search
+- **Spec file preview** — each run card shows the spec files that were run
+- **New failures badge** — highlights runs with regressions vs known failures
+- **Pinned runs** — pin runs for quick access during debugging
+- **Compare mode** — select two runs from the filtered list and compare
+- **Pagination** — load more on demand with accurate total counts
+- **URL persistence** — all filters sync to URL for bookmarkable/shareable views
 
 ### Test Analysis
-- **Run detail** — progress ring, status filters, test search, collapsible specs
+- **Run detail** — progress ring, status filters, test search, collapsible specs, prev/next run navigation
+- **Smart defaults** — auto-filters to failed tests, auto-expands failed specs, sticky filter toolbar
+- **Copy buttons** — suite name, feature name, scenario name, error messages
+- **Rerun commands** — per-suite configurable template (`{spec}`, `{specs}`, `{title}`); copy single or all failed rerun commands
+- **Copy for tickets** — formatted run summary for Jira (wiki markup) or Markdown with status icons
 - **Error modal** — screenshots with zoomable lightbox, video player, command log, source code, stack trace, resizable split panes
 - **Flaky tests** — server-side detection with flakiness rate, flip count, visual pass/fail timeline, suite filter, and sortable rankings
 - **Slowest tests** — ranked by duration with P50/P95/P99 percentiles, trend analysis (getting slower/faster), mini sparkline, and expandable duration history chart
@@ -159,9 +200,10 @@ Create an API key from the Profile page for permanent access (no expiry).
 
 ### Admin
 - Team management (invite, roles, remove)
-- Suite management (rename, archive, delete)
-- Data retention (auto-delete runs older than N days)
+- Suite management (rename, archive, delete, rerun command templates)
+- Data retention (auto-delete runs older than N days, default 7 days)
 - Audit log
+- Toast notifications for all settings mutations (success/error feedback)
 
 ## Architecture
 
@@ -184,7 +226,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 ```yaml
 - name: Upload results
   if: always()
-  run: npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
+  run: npx tsx packages/flakey-cli/src/index.ts --report-dir cypress/reports --suite my-project
   env:
     FLAKEY_API_URL: ${{ secrets.FLAKEY_API_URL }}
     FLAKEY_API_KEY: ${{ secrets.FLAKEY_API_KEY }}
@@ -197,7 +239,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 
 ```yaml
 after-script:
-  - npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
+  - npx tsx packages/flakey-cli/src/index.ts --report-dir cypress/reports --suite my-project
 ```
 
 ## Environment Variables
@@ -243,14 +285,19 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 
 **CI/CD pipelines** (GitHub Actions):
 - `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
-- `publish.yml` — publishes `@flakey/cli` and `@flakey/cypress-snapshots` to npm when their source changes
+- `publish.yml` — publishes `@flakeytesting/cli`, `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`, and `@flakeytesting/cypress-snapshots` to npm when their source changes
 
 ## npm Packages
 
 | Package | Description | Install |
 |---|---|---|
-| `@flakey/cli` | CLI for uploading test results | `npm install @flakey/cli` |
-| `@flakey/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakey/cypress-snapshots` |
+| `@flakeytesting/core` | Shared API client and schema | `npm install @flakeytesting/core` |
+| `@flakeytesting/cli` | CLI for uploading test results | `npm install @flakeytesting/cli` |
+| `@flakeytesting/cypress-reporter` | Cypress reporter + plugin + support | `npm install @flakeytesting/cypress-reporter` |
+| `@flakeytesting/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakeytesting/cypress-snapshots` |
+| `@flakeytesting/playwright-reporter` | Playwright reporter | `npm install @flakeytesting/playwright-reporter` |
+| `@flakeytesting/playwright-snapshots` | Playwright trace parser for snapshots | `npm install @flakeytesting/playwright-snapshots` |
+| `@flakeytesting/webdriverio-reporter` | WebdriverIO reporter | `npm install @flakeytesting/webdriverio-reporter` |
 
 ## Documentation
 

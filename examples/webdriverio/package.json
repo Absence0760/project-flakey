@@ -1,0 +1,23 @@
+{
+  "name": "@flakeytesting/example-webdriverio",
+  "private": true,
+  "type": "module",
+  "comments": {
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/webdriverio-reporter\": \"latest\""
+  },
+  "scripts": {
+    "test:smoke": "SUITE=smoke wdio run wdio.conf.ts",
+    "test:sanity": "SUITE=sanity wdio run wdio.conf.ts",
+    "test:regression": "SUITE=regression wdio run wdio.conf.ts",
+    "test:all": "SUITE=smoke wdio run wdio.conf.ts; SUITE=sanity wdio run wdio.conf.ts; SUITE=regression wdio run wdio.conf.ts"
+  },
+  "devDependencies": {
+    "@flakeytesting/webdriverio-reporter": "link:../../packages/flakey-webdriverio-reporter",
+    "@wdio/cli": "latest",
+    "@wdio/local-runner": "latest",
+    "@wdio/mocha-framework": "latest",
+    "@wdio/spec-reporter": "latest",
+    "typescript": "latest",
+    "ts-node": "latest"
+  }
+}
