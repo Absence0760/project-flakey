@@ -1,10 +1,10 @@
 /**
- * Playwright live reporter — add as a secondary reporter alongside the main Flakey reporter.
+ * WebdriverIO live reporter — streams test events during execution.
  *
- * Usage in playwright.config.ts:
- *   reporter: [
- *     ['@flakeytesting/playwright-reporter', { url, apiKey, suite }],
- *     ['@flakeytesting/live-reporter/playwright', { url, apiKey, suite }],
+ * Usage in wdio.conf.ts:
+ *   reporters: [
+ *     ['@flakeytesting/webdriverio-reporter', { url, apiKey, suite }],
+ *     ['@flakeytesting/live-reporter/webdriverio', { url, apiKey, suite }],
  *   ]
  *
  * Automatically creates a placeholder run via /live/start and sets CI_RUN_ID
@@ -13,7 +13,7 @@
 
 import { LiveClient } from "./index.js";
 
-interface PlaywrightReporterConfig {
+interface WdioLiveConfig {
   url?: string;
   apiKey?: string;
   suite?: string;
@@ -23,15 +23,15 @@ interface PlaywrightReporterConfig {
   ciRunId?: string;
 }
 
-export default class PlaywrightLiveReporter {
+export default class WebdriverIOLiveReporter {
   private client: LiveClient | null = null;
   private url: string;
   private apiKey: string;
   private suite: string;
-  private config: PlaywrightReporterConfig;
+  private config: WdioLiveConfig;
   private runId: number;
 
-  constructor(config: PlaywrightReporterConfig = {}) {
+  constructor(config: WdioLiveConfig = {}) {
     this.url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
     this.apiKey = config.apiKey ?? process.env.FLAKEY_API_KEY ?? "";
     this.suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
@@ -39,10 +39,9 @@ export default class PlaywrightLiveReporter {
     this.runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
   }
 
-  async onBegin(_config: unknown, suite: { allTests: () => Array<unknown> }) {
+  async onRunnerStart() {
     if (!this.url || !this.apiKey) return;
 
-    // Create a placeholder run if no runId provided
     if (!this.runId && this.suite) {
       try {
         const res = await fetch(`${this.url}/live/start`, {
@@ -64,7 +63,7 @@ export default class PlaywrightLiveReporter {
           if (data.ci_run_id) {
             process.env.CI_RUN_ID = data.ci_run_id;
           }
-          console.log(`[flakey-live] Live run started: #${this.runId} (ci_run_id: ${data.ci_run_id})`);
+          console.log(`[flakey-live] Live run started: #${this.runId}`);
         }
       } catch (err) {
         console.error("[flakey-live] Failed to start live run:", err);
@@ -74,38 +73,45 @@ export default class PlaywrightLiveReporter {
     if (!this.runId) return;
 
     this.client = new LiveClient({ url: this.url, apiKey: this.apiKey, runId: this.runId });
-    this.client.send({
-      type: "run.started",
-      stats: { total: suite.allTests().length, passed: 0, failed: 0, skipped: 0 },
-    });
+    this.client.send({ type: "run.started" });
   }
 
-  onTestBegin(test: { title: string; parent?: { title?: string; location?: { file: string } } }) {
+  onSuiteStart(suite: { file?: string; title?: string }) {
+    this.client?.send({ type: "spec.started", spec: suite.file ?? suite.title });
+  }
+
+  onTestPass(test: { title: string; parent?: string; duration?: number; file?: string }) {
     this.client?.send({
-      type: "test.started",
+      type: "test.passed",
       test: test.title,
-      spec: test.parent?.location?.file,
+      spec: test.file ?? test.parent,
+      status: "passed",
+      duration_ms: test.duration,
     });
   }
 
-  onTestEnd(test: { title: string; parent?: { location?: { file: string } } },
-            result: { status: string; duration: number; error?: { message?: string } }) {
-    const type = result.status === "passed" ? "test.passed"
-      : result.status === "failed" || result.status === "timedOut" ? "test.failed"
-      : "test.skipped";
-
+  onTestFail(test: { title: string; parent?: string; duration?: number; file?: string; error?: { message?: string } }) {
     this.client?.send({
-      type,
+      type: "test.failed",
       test: test.title,
-      spec: test.parent?.location?.file,
-      status: result.status,
-      duration_ms: result.duration,
-      error: result.error?.message,
+      spec: test.file ?? test.parent,
+      status: "failed",
+      duration_ms: test.duration,
+      error: test.error?.message,
     });
   }
 
-  async onEnd(result: { status: string }) {
-    this.client?.send({ type: "run.finished", status: result.status });
+  onTestSkip(test: { title: string; parent?: string; file?: string }) {
+    this.client?.send({
+      type: "test.skipped",
+      test: test.title,
+      spec: test.file ?? test.parent,
+      status: "skipped",
+    });
+  }
+
+  async onRunnerEnd() {
+    this.client?.send({ type: "run.finished" });
     await this.client?.flush();
     if (this.runId) {
       console.log(`[flakey-live] Run #${this.runId} complete`);
