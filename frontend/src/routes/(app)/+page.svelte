@@ -102,7 +102,7 @@
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
   let branches = $derived([...new Set(allRuns.map((r) => r.branch).filter(Boolean))].sort());
 
-  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || selectedStatus !== "all" || selectedDate !== "all" || searchQuery !== "");
+  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || selectedStatus !== "all" || selectedDate !== "7d" || searchQuery !== "");
 
   function dateThreshold(key: string): number {
     const now = Date.now();
@@ -146,7 +146,7 @@
     selectedSuite = view.filters.suite ?? "all";
     selectedBranch = view.filters.branch ?? "all";
     selectedStatus = view.filters.status ?? "all";
-    selectedDate = view.filters.date ?? "all";
+    selectedDate = view.filters.date ?? "7d";
     searchQuery = view.filters.search ?? "";
   }
 
@@ -156,7 +156,7 @@
     if (selectedSuite !== "all") filters.suite = selectedSuite;
     if (selectedBranch !== "all") filters.branch = selectedBranch;
     if (selectedStatus !== "all") filters.status = selectedStatus;
-    if (selectedDate !== "all") filters.date = selectedDate;
+    if (selectedDate !== "7d") filters.date = selectedDate;
     if (searchQuery) filters.search = searchQuery;
     await createSavedView(saveViewName.trim(), "runs", filters);
     saveViewName = "";
@@ -184,7 +184,7 @@
     selectedSuite = "all";
     selectedBranch = "all";
     selectedStatus = "all";
-    selectedDate = "all";
+    selectedDate = "7d";
     searchQuery = "";
   }
 

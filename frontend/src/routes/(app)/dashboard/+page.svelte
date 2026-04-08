@@ -10,7 +10,12 @@
   let suites = $state<SuiteComparison[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let fromDate = $state<string | undefined>(undefined);
+  function daysAgo(n: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  }
+  let fromDate = $state<string | undefined>(daysAgo(7));
   let toDate = $state<string | undefined>(undefined);
 
   async function loadStats() {
@@ -31,7 +36,7 @@
   }
 
   function handleDateChange(from: string | undefined, to: string | undefined) {
-    fromDate = from;
+    fromDate = from ?? daysAgo(7);
     toDate = to;
     loadStats();
   }
