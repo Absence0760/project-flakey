@@ -44,3 +44,4 @@ examples/*/cypress/snapshots/
 examples/*/test-results/
 examples/*/playwright-report/
 examples/*/playwright-snapshots/
+examples/*/screenshots/

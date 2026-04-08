@@ -1,0 +1,46 @@
+{
+  "name": "@flakeytesting/webdriverio-reporter",
+  "version": "0.1.0",
+  "description": "WebdriverIO reporter for Flakey — uploads results, screenshots, and videos",
+  "type": "module",
+  "main": "dist/reporter.js",
+  "exports": {
+    ".": "./dist/reporter.js",
+    "./dist/*": "./dist/*"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "webdriverio",
+    "wdio",
+    "testing",
+    "reporter",
+    "flakey"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "directory": "packages/flakey-webdriverio-reporter"
+  },
+  "peerDependencies": {
+    "@wdio/types": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@wdio/types": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@flakeytesting/core": "workspace:*",
+    "@wdio/reporter": "^9.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.5.4"
+  }
+}
