@@ -11,6 +11,48 @@
     return { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` };
   }
 
+  // --- API Keys ---
+  interface ApiKey {
+    id: number;
+    key_prefix: string;
+    label: string;
+    last_used_at: string | null;
+    created_at: string;
+  }
+
+  let apiKeys = $state<ApiKey[]>([]);
+  let newKeyLabel = $state("");
+  let newKeyValue = $state<string | null>(null);
+  let keysLoading = $state(true);
+
+  async function loadKeys() {
+    keysLoading = true;
+    const res = await authFetch(`${apiUrl}/auth/api-keys`);
+    if (res.ok) apiKeys = await res.json();
+    keysLoading = false;
+  }
+
+  async function createKey() {
+    const res = await authFetch(`${apiUrl}/auth/api-keys`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ label: newKeyLabel || "Untitled key" }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      newKeyValue = data.key;
+      newKeyLabel = "";
+      loadKeys();
+    }
+  }
+
+  async function deleteKey(id: number) {
+    await authFetch(`${apiUrl}/auth/api-keys/${id}`, {
+      method: "DELETE",
+    });
+    loadKeys();
+  }
+
   // --- Team ---
   interface Member { id: number; email: string; name: string; role: string; joined_at: string; }
   let members = $state<Member[]>([]);
@@ -249,6 +291,7 @@
   onMount(() => {
     loadMembers();
     loadSuites();
+    loadKeys();
     loadRetention();
     if (isAdmin) { loadWebhooks(); loadGitProvider(); loadAudit(); }
   });
@@ -499,6 +542,47 @@
       {/if}
     </section>
   {/if}
+
+  <!-- API Keys -->
+  <section class="card">
+    <h2>API Keys</h2>
+    <p class="card-desc">Use API keys to authenticate CLI uploads and programmatic access.</p>
+
+    {#if newKeyValue}
+      <div class="success-banner">
+        <p>Copy this key now — it won't be shown again:</p>
+        <div class="invite-link-row">
+          <code class="invite-link">{newKeyValue}</code>
+          <button class="btn-sm" onclick={() => newKeyValue = null}>Dismiss</button>
+        </div>
+      </div>
+    {/if}
+
+    <div class="row-form">
+      <input type="text" bind:value={newKeyLabel} placeholder="Key label (e.g. CI pipeline)" />
+      <button class="btn-primary" onclick={createKey}>Create key</button>
+    </div>
+
+    {#if keysLoading}
+      <p class="muted">Loading...</p>
+    {:else if apiKeys.length === 0}
+      <p class="muted">No API keys yet.</p>
+    {:else}
+      <div class="list">
+        {#each apiKeys as key}
+          <div class="list-row">
+            <div class="list-info">
+              <span class="list-primary">{key.label}</span>
+              <span class="list-secondary mono">
+                {key.key_prefix}... · Last used {timeAgo(key.last_used_at ?? "")} · Created {timeAgo(key.created_at)}
+              </span>
+            </div>
+            <button class="btn-sm danger" onclick={() => deleteKey(key.id)}>Delete</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </section>
 
   <!-- API -->
   <section class="card">
