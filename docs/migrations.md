@@ -103,3 +103,6 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `016_saved_views.sql` | Saved filter views with RLS |
 | `017_ai_analysis_and_quarantine.sql` | AI analysis cache and flaky test quarantine tables |
 | `018_live_events.sql` | Live test event persistence for real-time progress |
+| `019_rerun_command_template.sql` | Per-suite rerun command template on suite_overrides |
+| `020_performance_indexes.sql` | Composite indexes for multi-tenant query performance |
+| `021_default_retention.sql` | Default 7-day data retention policy |

@@ -156,9 +156,23 @@ Create an API key from the Profile page for permanent access (no expiry).
 - Metrics cards (total runs, tests, pass rate, failures)
 - Trend charts (pass rate, test volume, run duration, top failures)
 - Date range picker with presets and calendar
+- Dark/light/system theme toggle
+
+### Runs List
+- **Multi-filter** — suite, branch, status (passed/failed/new failures), date range, and search
+- **Spec file preview** — each run card shows the spec files that were run
+- **New failures badge** — highlights runs with regressions vs known failures
+- **Pinned runs** — pin runs for quick access during debugging
+- **Compare mode** — select two runs from the filtered list and compare
+- **Pagination** — load more on demand with accurate total counts
+- **URL persistence** — all filters sync to URL for bookmarkable/shareable views
 
 ### Test Analysis
-- **Run detail** — progress ring, status filters, test search, collapsible specs
+- **Run detail** — progress ring, status filters, test search, collapsible specs, prev/next run navigation
+- **Smart defaults** — auto-filters to failed tests, auto-expands failed specs, sticky filter toolbar
+- **Copy buttons** — suite name, feature name, scenario name, error messages
+- **Rerun commands** — per-suite configurable template (`{spec}`, `{specs}`, `{title}`); copy single or all failed rerun commands
+- **Copy for tickets** — formatted run summary for Jira (wiki markup) or Markdown with status icons
 - **Error modal** — screenshots with zoomable lightbox, video player, command log, source code, stack trace, resizable split panes
 - **Flaky tests** — server-side detection with flakiness rate, flip count, visual pass/fail timeline, suite filter, and sortable rankings
 - **Slowest tests** — ranked by duration with P50/P95/P99 percentiles, trend analysis (getting slower/faster), mini sparkline, and expandable duration history chart
@@ -186,9 +200,10 @@ Create an API key from the Profile page for permanent access (no expiry).
 
 ### Admin
 - Team management (invite, roles, remove)
-- Suite management (rename, archive, delete)
-- Data retention (auto-delete runs older than N days)
+- Suite management (rename, archive, delete, rerun command templates)
+- Data retention (auto-delete runs older than N days, default 7 days)
 - Audit log
+- Toast notifications for all settings mutations (success/error feedback)
 
 ## Architecture
 

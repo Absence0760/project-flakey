@@ -33,9 +33,27 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **Suite health**: per-suite pass rate rings, trend indicators, comparison bars
 - **Saved views**: save filter presets (suite, branch, search) for quick access
 - **Live progress**: real-time test event feed on run detail pages during active runs
+- **Dark/light mode**: toggle between light, dark, and system theme preference
+
+### Runs List
+- **Multi-filter**: suite, branch, status (passed/failed/new failures), date range (1h/today/24h/7d/30d), and text search
+- **Spec file preview**: each run card shows the spec files that were run for easy identification
+- **New failures badge**: amber badge highlights runs with regressions (tests that passed before but now fail)
+- **Pinned runs**: pin runs for quick access during debugging sessions (persisted in localStorage)
+- **Compare mode**: select two runs from the filtered list and compare side-by-side
+- **Pagination**: load more runs on demand with accurate total counts
+- **URL persistence**: all filter state is synced to the URL for bookmarkable/shareable views
+- **Copy suite name**: quick copy button on each run card
 
 ### Test Analysis
-- **Run detail**: progress ring, status filter tabs, test search, collapsible spec sections
+- **Run detail**: progress ring, status filter tabs, test search, collapsible spec sections, prev/next run navigation
+- **Auto-filter to failed**: runs with failures auto-filter to show only failed tests
+- **Auto-expand failed specs**: failed specs start expanded, passing specs start collapsed
+- **Sticky filter toolbar**: filter tabs stay pinned while scrolling long test lists
+- **Copy buttons**: copy suite name, feature/spec name, scenario/test name, and error messages
+- **Rerun commands**: per-suite configurable command template with `{spec}`, `{specs}`, `{title}`, `{suite}` placeholders; copy rerun command per failed test or all failed at once
+- **Copy for tickets**: copy run summary formatted for Jira (wiki markup) or Markdown, including all test results with status icons
+- **URL-based filter**: status filter persists in URL (`/runs/63?status=failed`) for shareable links
 - **Error modal**: screenshots with lightbox, video player, Cypress command log, source code, expandable stack trace, keyboard navigation between failures
 - **Error grouping**: failures aggregated by error message, filterable by suite/run, status tracking (open/investigating/known/fixed/ignored)
 - **Flaky test detection**: identifies tests that alternate between pass and fail across runs, with timeline visualization

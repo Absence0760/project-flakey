@@ -112,7 +112,6 @@
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
-- Real-time run progress during a run
 - Replacing Cypress Cloud's paid parallelization features
 
 These omissions are intentional. The CI matrix/parallel approach covers parallelization without needing a coordination server.
