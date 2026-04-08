@@ -25,6 +25,13 @@ export async function runRetentionCleanup(): Promise<void> {
         console.log(`Retention: deleted ${runs.rows.length} run(s) older than ${org.retention_days}d for org ${org.id}`);
       }
     }
+    // Clean up expired org invites
+    const invites = await pool.query(
+      "DELETE FROM org_invites WHERE expires_at < NOW()"
+    );
+    if (invites.rowCount && invites.rowCount > 0) {
+      console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
+    }
   } catch (err) {
     console.error("Retention cleanup error:", err);
   }
