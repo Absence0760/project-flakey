@@ -1,0 +1,2 @@
+10003	IGNORE	Vulnerable JS Library (CDN references, not applicable to API)
+10015	IGNORE	Re-examine Cache-control Directives (API responses)
