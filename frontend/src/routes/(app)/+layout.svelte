@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/auth';
+	import Toasts from '$lib/components/Toasts.svelte';
 
 	const nav = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '◇' },
@@ -179,6 +180,7 @@
 			<slot />
 		</main>
 	</div>
+	<Toasts />
 {/if}
 
 <style>

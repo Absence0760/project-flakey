@@ -15,8 +15,8 @@ export async function fetchRuns(): Promise<Run[]> {
   return data.runs;
 }
 
-export async function fetchRunsWithSummary(): Promise<{ runs: Run[]; summary: RunsSummary }> {
-  const res = await authFetch(`${API_URL}/runs`);
+export async function fetchRunsWithSummary(offset = 0, limit = 50): Promise<{ runs: Run[]; summary: RunsSummary; hasMore: boolean }> {
+  const res = await authFetch(`${API_URL}/runs?limit=${limit}&offset=${offset}`);
   if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
   return res.json();
 }

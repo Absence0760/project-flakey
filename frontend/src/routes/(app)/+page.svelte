@@ -7,6 +7,8 @@
 
   let allRuns = $state<Run[]>([]);
   let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });
+  let hasMore = $state(false);
+  let loadingMore = $state(false);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let liveRunIds = $state<Set<number>>(new Set());
@@ -136,6 +138,17 @@
     savedViews = await fetchSavedViews("runs");
   }
 
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    loadingMore = true;
+    try {
+      const data = await fetchRunsWithSummary(allRuns.length);
+      allRuns = [...allRuns, ...data.runs];
+      hasMore = data.hasMore;
+    } catch { /* ignore */ }
+    loadingMore = false;
+  }
+
   function clearFilters() {
     selectedSuite = "all";
     selectedBranch = "all";
@@ -153,9 +166,10 @@
         // If a run just finished (was live, no longer active), refresh the run list
         for (const id of liveRunIds) {
           if (!newSet.has(id)) {
-            const data = await fetchRunsWithSummary();
+            const data = await fetchRunsWithSummary(0, allRuns.length || 50);
             allRuns = data.runs;
             dbSummary = data.summary;
+            hasMore = data.hasMore;
             break;
           }
         }
@@ -173,6 +187,7 @@
       ]);
       allRuns = runsData.runs;
       dbSummary = runsData.summary;
+      hasMore = runsData.hasMore;
       savedViews = views;
       await pollLiveRuns();
       pollTimer = setInterval(pollLiveRuns, 5000);
@@ -450,6 +465,13 @@
         </a>
       {/each}
     </div>
+    {#if hasMore}
+      <div class="load-more">
+        <button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
+          {loadingMore ? "Loading..." : `Load more (showing ${allRuns.length} of ${dbSummary.total})`}
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -692,6 +714,16 @@
   .bar-skip { background: var(--color-skip); }
 
   .pass-pct { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); min-width: 2.5rem; text-align: right; }
+
+  /* Load more */
+  .load-more { display: flex; justify-content: center; padding: 1rem 0; }
+  .load-more-btn {
+    padding: 0.5rem 1.5rem; border: 1px solid var(--border); border-radius: 6px;
+    background: none; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .load-more-btn:hover:not(:disabled) { background: var(--bg-secondary); color: var(--text); }
+  .load-more-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* Compare mode */
   .compare-check {

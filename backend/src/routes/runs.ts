@@ -83,6 +83,9 @@ router.post("/", async (req, res) => {
 // GET /runs
 router.get("/", async (req, res) => {
   try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
     const result = await tenantQuery(
       req.user!.orgId,
       `SELECT r.*,
@@ -105,7 +108,8 @@ router.get("/", async (req, res) => {
               ) AND t2.status = 'failed'
             )
         ), 0) AS new_failures
-       FROM runs r ORDER BY r.created_at DESC LIMIT 50`
+       FROM runs r ORDER BY r.created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     const countResult = await tenantQuery(
       req.user!.orgId,
@@ -115,7 +119,7 @@ router.get("/", async (req, res) => {
        FROM runs`
     );
     const summary = countResult.rows[0] ?? { total: 0, passed: 0, failed: 0 };
-    res.json({ runs: result.rows, summary });
+    res.json({ runs: result.rows, summary, hasMore: offset + result.rows.length < summary.total });
   } catch (err) {
     console.error("GET /runs error:", err);
     res.status(500).json({ error: "Internal server error" });

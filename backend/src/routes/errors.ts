@@ -24,35 +24,40 @@ router.get("/", async (req, res) => {
     const where = conditions.join(" AND ");
 
     const result = await tenantQuery(req.user!.orgId,
-      `SELECT
-        md5(t.error_message || '|' || r.suite_name) AS fingerprint,
-        t.error_message,
-        r.suite_name,
-        COUNT(*)::int AS occurrence_count,
-        COUNT(DISTINCT t.full_title)::int AS affected_tests,
-        COUNT(DISTINCT r.id)::int AS affected_runs,
-        MIN(r.created_at) AS first_seen,
-        MAX(r.created_at) AS last_seen,
-        MAX(r.id) AS latest_run_id,
-        ARRAY_AGG(DISTINCT s.file_path) AS file_paths,
-        ARRAY_AGG(DISTINCT t.full_title) AS test_titles,
-        (SELECT t2.id FROM tests t2
-         JOIN specs s2 ON s2.id = t2.spec_id
-         JOIN runs r2 ON r2.id = s2.run_id
-         WHERE t2.error_message = t.error_message AND t2.status = 'failed'
-         ORDER BY r2.created_at DESC LIMIT 1) AS latest_test_id,
+      `WITH error_agg AS (
+        SELECT
+          md5(t.error_message || '|' || r.suite_name) AS fingerprint,
+          t.error_message,
+          r.suite_name,
+          COUNT(*)::int AS occurrence_count,
+          COUNT(DISTINCT t.full_title)::int AS affected_tests,
+          COUNT(DISTINCT r.id)::int AS affected_runs,
+          MIN(r.created_at) AS first_seen,
+          MAX(r.created_at) AS last_seen,
+          MAX(r.id) AS latest_run_id,
+          ARRAY_AGG(DISTINCT s.file_path) AS file_paths,
+          ARRAY_AGG(DISTINCT t.full_title) AS test_titles,
+          MAX(t.id) AS latest_test_id
+        FROM tests t
+        JOIN specs s ON s.id = t.spec_id
+        JOIN runs r ON r.id = s.run_id
+        WHERE ${where}
+        GROUP BY t.error_message, r.suite_name
+        ORDER BY last_seen DESC, occurrence_count DESC
+        LIMIT 100
+      )
+      SELECT ea.*,
         eg.id AS group_id,
         COALESCE(eg.status, 'open') AS status,
-        (SELECT COUNT(*)::int FROM notes n WHERE n.target_type = 'error' AND n.target_key = md5(t.error_message || '|' || r.suite_name)) AS note_count
-      FROM tests t
-      JOIN specs s ON s.id = t.spec_id
-      JOIN runs r ON r.id = s.run_id
-      LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || r.suite_name)
-        AND eg.org_id = r.org_id
-      WHERE ${where}
-      GROUP BY t.error_message, r.suite_name, eg.id, eg.status
-      ORDER BY last_seen DESC, occurrence_count DESC
-      LIMIT 100`,
+        COALESCE(nc.cnt, 0) AS note_count
+      FROM error_agg ea
+      LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
+        AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM notes n
+        WHERE n.target_type = 'error' AND n.target_key = ea.fingerprint
+      ) nc ON TRUE
+      ORDER BY ea.last_seen DESC, ea.occurrence_count DESC`,
       params
     );
 

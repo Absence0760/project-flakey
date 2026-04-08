@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { getAuth } from "$lib/auth";
   import { authFetch } from "$lib/auth";
+  import { toast, toastError } from "$lib/toast";
 
   const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
   const auth = getAuth();
@@ -54,6 +55,7 @@
   let newKeyLabel = $state("");
   let newKeyValue = $state<string | null>(null);
   let keysLoading = $state(true);
+  let saving = $state(false);
 
   async function loadKeys() {
     keysLoading = true;
@@ -62,6 +64,7 @@
     keysLoading = false;
   }
   async function createKey() {
+    saving = true;
     const res = await authFetch(`${apiUrl}/auth/api-keys`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,13 +75,16 @@
       newKeyValue = data.key;
       newKeyLabel = "";
       loadKeys();
+      toast("API key created");
     } else {
-      console.error("Create key failed:", res.status, await res.text().catch(() => ""));
+      toastError("Failed to create API key");
     }
+    saving = false;
   }
   async function deleteKey(id: number) {
-    await authFetch(`${apiUrl}/auth/api-keys/${id}`, { method: "DELETE" });
-    loadKeys();
+    const res = await authFetch(`${apiUrl}/auth/api-keys/${id}`, { method: "DELETE" });
+    if (res.ok) { toast("API key deleted"); loadKeys(); }
+    else toastError("Failed to delete API key");
   }
 
   // --- Team ---
@@ -107,12 +113,13 @@
     inviteError = null; inviteResult = null;
     if (!inviteEmail) { inviteError = "Email is required"; return; }
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/invites`, { method: "POST", headers: headers(), body: JSON.stringify({ email: inviteEmail, role: inviteRole }) });
-    if (res.ok) { inviteResult = await res.json(); inviteEmail = ""; }
-    else { const b = await res.json().catch(() => ({})); inviteError = (b as any).error ?? "Failed"; }
+    if (res.ok) { inviteResult = await res.json(); inviteEmail = ""; toast("Invite created"); }
+    else { const b = await res.json().catch(() => ({})); inviteError = (b as any).error ?? "Failed"; toastError(inviteError!); }
   }
   async function changeRole(userId: number, role: string) {
-    await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ role }) });
-    loadMembers();
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ role }) });
+    if (res.ok) { toast("Role updated"); loadMembers(); }
+    else toastError("Failed to update role");
   }
   async function removeMember(userId: number) {
     await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
@@ -136,24 +143,29 @@
   }
   async function renameSuite(oldName: string) {
     if (!renameValue || renameValue === oldName) { renamingId = null; return; }
-    await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: headers(), body: JSON.stringify({ new_name: renameValue }) });
-    renamingId = null; loadSuites();
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: headers(), body: JSON.stringify({ new_name: renameValue }) });
+    renamingId = null;
+    if (res.ok) { toast("Suite renamed"); loadSuites(); }
+    else toastError("Failed to rename suite");
   }
   async function toggleArchive(name: string, archived: boolean) {
-    await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: headers(), body: JSON.stringify({ archived: !archived }) });
-    loadSuites();
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: headers(), body: JSON.stringify({ archived: !archived }) });
+    if (res.ok) { toast(archived ? "Suite unarchived" : "Suite archived"); loadSuites(); }
+    else toastError("Failed to update suite");
   }
   async function deleteSuite(name: string) {
     if (!confirm(`Delete suite "${name}" and all its runs? This cannot be undone.`)) return;
-    await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
-    loadSuites();
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    if (res.ok) { toast("Suite deleted"); loadSuites(); }
+    else toastError("Failed to delete suite");
   }
   async function saveRerunTemplate(suiteName: string) {
-    await authFetch(`${apiUrl}/suites/${encodeURIComponent(suiteName)}/rerun-template`, {
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(suiteName)}/rerun-template`, {
       method: "PATCH", headers: headers(), body: JSON.stringify({ template: templateValue }),
     });
     editingTemplateId = null;
-    loadSuites();
+    if (res.ok) { toast("Rerun template saved"); loadSuites(); }
+    else toastError("Failed to save rerun template");
   }
 
   // --- Webhooks ---
@@ -180,16 +192,21 @@
   }
   async function createWebhook() {
     if (!newWhUrl) return;
-    await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
-    newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"]; newWhPlatform = "generic"; loadWebhooks();
+    saving = true;
+    const res = await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
+    if (res.ok) { toast("Webhook created"); newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"]; newWhPlatform = "generic"; loadWebhooks(); }
+    else toastError("Failed to create webhook");
+    saving = false;
   }
   async function toggleWebhook(id: number, active: boolean) {
-    await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ active: !active }) });
-    loadWebhooks();
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ active: !active }) });
+    if (res.ok) { toast(active ? "Webhook disabled" : "Webhook enabled"); loadWebhooks(); }
+    else toastError("Failed to update webhook");
   }
   async function deleteWebhook(id: number) {
-    await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
-    loadWebhooks();
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    if (res.ok) { toast("Webhook deleted"); loadWebhooks(); }
+    else toastError("Failed to delete webhook");
   }
   async function testWebhook(id: number) {
     whTestResult = null;
@@ -230,11 +247,13 @@
     const body: Record<string, string | null> = { git_provider: gitProvider, git_repo: gitRepo || null, git_base_url: gitBaseUrl || null };
     if (gitToken) body.git_token = gitToken;
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
-    if (res.ok) { gitSaved = true; gitToken = ""; hasGitToken = !!body.git_token || hasGitToken; setTimeout(() => gitSaved = false, 2000); }
+    if (res.ok) { toast("Git integration saved"); gitSaved = true; gitToken = ""; hasGitToken = !!body.git_token || hasGitToken; setTimeout(() => gitSaved = false, 2000); }
+    else toastError("Failed to save git integration");
   }
   async function removeGitProvider() {
-    await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
-    gitProvider = ""; gitRepo = ""; gitToken = ""; gitBaseUrl = ""; hasGitToken = false;
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
+    if (res.ok) { toast("Git integration removed"); gitProvider = ""; gitRepo = ""; gitToken = ""; gitBaseUrl = ""; hasGitToken = false; }
+    else toastError("Failed to remove git integration");
   }
 
   // --- Retention ---
@@ -247,8 +266,9 @@
   }
   async function saveRetention() {
     const value = retentionDays === "" ? null : Number(retentionDays);
-    await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ retention_days: value }) });
-    retentionSaved = true; setTimeout(() => retentionSaved = false, 2000);
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ retention_days: value }) });
+    if (res.ok) { toast("Retention settings saved"); retentionSaved = true; setTimeout(() => retentionSaved = false, 2000); }
+    else toastError("Failed to save retention settings");
   }
 
   // --- Audit ---
@@ -509,7 +529,7 @@
         </select>
         <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes("run.failed")} onchange={() => { newWhEvents = newWhEvents.includes("run.failed") ? newWhEvents.filter(e => e !== "run.failed") : [...newWhEvents, "run.failed"]; }} /> Run failed</label>
         <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes("flaky.detected")} onchange={() => { newWhEvents = newWhEvents.includes("flaky.detected") ? newWhEvents.filter(e => e !== "flaky.detected") : [...newWhEvents, "flaky.detected"]; }} /> Flaky detected</label>
-        <button class="btn-primary" onclick={createWebhook}>Add</button>
+        <button class="btn-primary" onclick={createWebhook} disabled={saving}>{saving ? "Adding..." : "Add"}</button>
       </div>
       {#if webhooksLoading}
         <p class="muted">Loading...</p>
@@ -599,7 +619,7 @@
 
     <div class="row-form">
       <input type="text" bind:value={newKeyLabel} placeholder="Key label (e.g. CI pipeline)" />
-      <button class="btn-primary" onclick={createKey}>Create key</button>
+      <button class="btn-primary" onclick={createKey} disabled={saving}>{saving ? "Creating..." : "Create key"}</button>
     </div>
 
     {#if keysLoading}
