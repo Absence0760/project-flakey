@@ -1,0 +1,27 @@
+{
+  "name": "@flakeytesting/example-selenium",
+  "private": true,
+  "type": "module",
+  "comments": {
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/cli\": \"latest\""
+  },
+  "scripts": {
+    "test:smoke": "mocha 'tests/smoke/**/*.spec.ts' --reporter mochawesome --reporter-options reportDir=reports,overwrite=false,html=false,json=true; node scripts/upload.js smoke",
+    "test:sanity": "mocha 'tests/sanity/**/*.spec.ts' --reporter mochawesome --reporter-options reportDir=reports,overwrite=false,html=false,json=true; node scripts/upload.js sanity",
+    "test:regression": "mocha 'tests/regression/**/*.spec.ts' --reporter mochawesome --reporter-options reportDir=reports,overwrite=false,html=false,json=true; node scripts/upload.js regression",
+    "test:all": "pnpm test:smoke; pnpm test:sanity; pnpm test:regression"
+  },
+  "devDependencies": {
+    "@flakeytesting/cli": "link:../../packages/flakey-cli",
+    "mocha": "^11.0.0",
+    "mochawesome": "^7.1.0",
+    "mochawesome-merge": "^4.3.0",
+    "selenium-webdriver": "^4.27.0",
+    "tsx": "^4.19.0",
+    "typescript": "latest",
+    "@types/mocha": "^10.0.0",
+    "@types/selenium-webdriver": "^4.1.0",
+    "chai": "^4.5.0",
+    "@types/chai": "^4.3.0"
+  }
+}
