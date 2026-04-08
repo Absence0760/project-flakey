@@ -106,4 +106,80 @@ router.post("/tests", async (req, res) => {
   }
 });
 
+/**
+ * GET /predict/split — split specs across N workers balanced by historical duration.
+ *
+ * Query: ?suite=name&workers=4
+ * Returns: { workers: Array<{ index, specs: string[], estimated_ms }> }
+ *
+ * Uses greedy bin-packing: sort specs by duration descending, assign each to
+ * the worker with the least total time so far.
+ */
+router.get("/split", async (req, res) => {
+  try {
+    const suite = req.query.suite as string | undefined;
+    const workerCount = Math.max(1, Math.min(Number(req.query.workers) || 2, 50));
+
+    if (!suite) {
+      res.status(400).json({ error: "suite query parameter is required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+
+    // Get average duration per spec from recent runs
+    const result = await tenantQuery(orgId,
+      `SELECT s.file_path,
+        COALESCE(AVG(s.duration_ms), 0)::bigint AS avg_duration_ms,
+        COUNT(*)::int AS run_count
+       FROM specs s
+       JOIN runs r ON r.id = s.run_id
+       WHERE r.suite_name = $1
+         AND r.created_at > NOW() - INTERVAL '30 days'
+       GROUP BY s.file_path
+       ORDER BY avg_duration_ms DESC`,
+      [suite]
+    );
+
+    if (result.rows.length === 0) {
+      // No history — just round-robin
+      const specs = await tenantQuery(orgId,
+        `SELECT DISTINCT s.file_path
+         FROM specs s JOIN runs r ON r.id = s.run_id
+         WHERE r.suite_name = $1
+         ORDER BY s.file_path`,
+        [suite]
+      );
+      const workers = Array.from({ length: workerCount }, (_, i) => ({
+        index: i,
+        specs: [] as string[],
+        estimated_ms: 0,
+      }));
+      specs.rows.forEach((row: any, i: number) => {
+        workers[i % workerCount].specs.push(row.file_path);
+      });
+      res.json({ workers, strategy: "round_robin" });
+      return;
+    }
+
+    // Greedy bin-packing: assign heaviest specs first to lightest worker
+    const workers = Array.from({ length: workerCount }, (_, i) => ({
+      index: i,
+      specs: [] as string[],
+      estimated_ms: 0,
+    }));
+
+    for (const row of result.rows) {
+      const lightest = workers.reduce((a, b) => a.estimated_ms <= b.estimated_ms ? a : b);
+      lightest.specs.push(row.file_path);
+      lightest.estimated_ms += Number(row.avg_duration_ms);
+    }
+
+    res.json({ workers, strategy: "balanced" });
+  } catch (err) {
+    console.error("GET /predict/split error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

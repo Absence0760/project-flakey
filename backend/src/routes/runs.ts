@@ -4,6 +4,7 @@ import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
+import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -32,21 +33,12 @@ router.post("/", async (req, res) => {
 
     const orgId = req.user!.orgId;
     let runId: number;
+    let merged = false;
 
     await tenantTransaction(orgId, async (client) => {
-      const runResult = await client.query(
-        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-         RETURNING id`,
-        [
-          run.meta.suite_name, run.meta.branch, run.meta.commit_sha,
-          run.meta.ci_run_id, run.meta.reporter, run.meta.started_at, run.meta.finished_at,
-          run.stats.total, run.stats.passed, run.stats.failed,
-          run.stats.skipped, run.stats.pending, run.stats.duration_ms,
-          orgId,
-        ]
-      );
-      runId = runResult.rows[0].id;
+      const result = await findOrCreateRun(client, orgId, run);
+      runId = result.runId;
+      merged = result.merged;
 
       for (const spec of run.specs) {
         const specResult = await client.query(
@@ -68,15 +60,20 @@ router.post("/", async (req, res) => {
           );
         }
       }
+
+      if (merged) {
+        await recalculateRunStats(client, runId);
+      }
     });
 
-    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed });
+    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
 
+    // Only dispatch webhooks and PR comments after final merge
+    // (they'll update in place if called multiple times for the same run)
     dispatchRunFailed(req.user!.orgId, runId!, run);
-
     postPRComment(req.user!.orgId, runId!, run);
 
-    res.status(201).json({ id: runId! });
+    res.status(merged ? 200 : 201).json({ id: runId!, merged });
   } catch (err) {
     console.error("POST /runs error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -93,6 +90,53 @@ router.get("/", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("GET /runs error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /runs/check — check failure count for a CI run (auto-cancellation)
+// Query: ?ci_run_id=X&suite=name&threshold=3
+// Returns: { should_cancel, failed, threshold, run_id }
+router.get("/check", async (req, res) => {
+  try {
+    const ciRunId = req.query.ci_run_id as string | undefined;
+    const suite = req.query.suite as string | undefined;
+    const threshold = Number(req.query.threshold) || 3;
+
+    if (!ciRunId) {
+      res.status(400).json({ error: "ci_run_id is required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    let query = "SELECT id, failed, total, passed, skipped FROM runs WHERE ci_run_id = $1";
+    const params: unknown[] = [ciRunId];
+
+    if (suite) {
+      query += " AND suite_name = $2";
+      params.push(suite);
+    }
+
+    query += " ORDER BY created_at DESC LIMIT 1";
+
+    const result = await tenantQuery(orgId, query, params);
+
+    if (result.rows.length === 0) {
+      res.json({ should_cancel: false, failed: 0, threshold, run_id: null });
+      return;
+    }
+
+    const run = result.rows[0];
+    res.json({
+      should_cancel: run.failed >= threshold,
+      failed: run.failed,
+      total: run.total,
+      passed: run.passed,
+      threshold,
+      run_id: run.id,
+    });
+  } catch (err) {
+    console.error("GET /runs/check error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

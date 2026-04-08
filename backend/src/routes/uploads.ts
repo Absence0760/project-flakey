@@ -7,6 +7,7 @@ import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
 import { getStorage } from "../storage.js";
+import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -41,6 +42,7 @@ router.post("/", uploadFields, async (req, res) => {
 
     const orgId = req.user!.orgId;
     let runId: number;
+    let merged = false;
 
     // Move uploaded files before the transaction
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
@@ -51,18 +53,9 @@ router.post("/", uploadFields, async (req, res) => {
     const storage = getStorage();
 
     await tenantTransaction(orgId, async (client) => {
-      const runResult = await client.query(
-        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-         RETURNING id`,
-        [
-          run.meta.suite_name, run.meta.branch, run.meta.commit_sha, run.meta.ci_run_id,
-          run.meta.reporter, run.meta.started_at, run.meta.finished_at,
-          run.stats.total, run.stats.passed, run.stats.failed, run.stats.skipped, run.stats.pending, run.stats.duration_ms,
-          orgId,
-        ]
-      );
-      runId = runResult.rows[0].id;
+      const result = await findOrCreateRun(client, orgId, run);
+      runId = result.runId;
+      merged = result.merged;
 
       // Move snapshot files and build a lookup by test title
       const snapshotMap = new Map<string, string>(); // normalized test title → relative path
@@ -153,15 +146,18 @@ router.post("/", uploadFields, async (req, res) => {
           );
         }
       }
+
+      if (merged) {
+        await recalculateRunStats(client, runId);
+      }
     });
 
-    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed });
+    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
 
     dispatchRunFailed(req.user!.orgId, runId!, run);
-
     postPRComment(req.user!.orgId, runId!, run);
 
-    res.status(201).json({ id: runId! });
+    res.status(merged ? 200 : 201).json({ id: runId!, merged });
   } catch (err) {
     console.error("POST /runs/upload error:", err);
     res.status(500).json({ error: "Internal server error" });

@@ -21,6 +21,7 @@ import analyzeRouter from "./routes/analyze.js";
 import quarantineRouter from "./routes/quarantine.js";
 import predictRouter from "./routes/predict.js";
 import connectivityRouter from "./routes/connectivity.js";
+import liveRouter from "./routes/live.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -112,6 +113,13 @@ app.use("/analyze", requireAuth, analyzeRouter);
 app.use("/quarantine", requireAuth, quarantineRouter);
 app.use("/predict", requireAuth, predictRouter);
 app.use("/connectivity", requireAuth, connectivityRouter);
+// Live events — POST requires normal auth, GET stream accepts token as query param (for EventSource)
+app.use("/live", (req, res, next) => {
+  if (req.query.token && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}, requireAuth, liveRouter);
 
 app.listen(PORT, () => {
   console.log(`Flakey API running on http://localhost:${PORT}`);

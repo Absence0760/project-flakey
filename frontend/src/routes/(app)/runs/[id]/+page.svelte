@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
+  import { getAuth } from "$lib/auth";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
+
+  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
   let run = $state<RunDetail | null>(null);
   let loading = $state(true);
@@ -13,15 +16,69 @@
   let searchQuery = $state("");
   let collapsedSpecs = $state<Set<number>>(new Set());
 
+  // Live events
+  interface LiveEvent {
+    type: string;
+    test?: string;
+    spec?: string;
+    status?: string;
+    duration_ms?: number;
+    error?: string;
+    timestamp?: number;
+  }
+
+  let liveEvents = $state<LiveEvent[]>([]);
+  let isLive = $state(false);
+  let eventSource: EventSource | null = null;
+
+  function connectLive(runId: number) {
+    const token = getAuth().token;
+    // EventSource doesn't support headers, so pass token as query param
+    eventSource = new EventSource(`${API_URL}/live/${runId}/stream?token=${token}`);
+
+    eventSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data) as LiveEvent;
+        if (event.type === "connected") {
+          isLive = true;
+          return;
+        }
+        liveEvents = [...liveEvents.slice(-99), event];
+
+        // Auto-refresh full run data when run finishes
+        if (event.type === "run.finished") {
+          isLive = false;
+          eventSource?.close();
+          fetchRun(runId).then(r => { run = r; }).catch(() => {});
+        }
+      } catch { /* ignore */ }
+    };
+
+    eventSource.onerror = () => {
+      isLive = false;
+    };
+  }
+
   onMount(async () => {
     const id = Number($page.params.id);
     try {
       run = await fetchRun(id);
+      // If run is recent (< 30 min old), try connecting for live events
+      if (run) {
+        const runAge = Date.now() - new Date(run.created_at).getTime();
+        if (runAge < 30 * 60 * 1000) {
+          connectLive(id);
+        }
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load run";
     } finally {
       loading = false;
     }
+  });
+
+  onDestroy(() => {
+    eventSource?.close();
   });
 
   function formatDuration(ms: number): string {
@@ -129,6 +186,9 @@
             <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
               {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
             </span>
+            {#if isLive}
+              <span class="live-badge">LIVE</span>
+            {/if}
           </div>
           <div class="meta-row">
             <span class="meta-item" title="Suite">
@@ -203,6 +263,44 @@
     <div class="run-notes">
       <NotesPanel targetType="run" targetKey={String(run.id)} compact />
     </div>
+
+    <!-- Live event feed -->
+    {#if liveEvents.length > 0}
+      <div class="live-feed">
+        <h3 class="live-feed-title">Live Progress</h3>
+        <div class="live-events">
+          {#each liveEvents.slice().reverse() as event}
+            <div class="live-event" class:passed={event.type === "test.passed"} class:failed={event.type === "test.failed"} class:started={event.type === "test.started"}>
+              <span class="live-dot"
+                class:dot-pass={event.type === "test.passed"}
+                class:dot-fail={event.type === "test.failed"}
+                class:dot-run={event.type === "test.started" || event.type === "spec.started"}
+                class:dot-skip={event.type === "test.skipped"}
+              ></span>
+              <span class="live-text">
+                {#if event.type === "run.started"}
+                  Run started
+                {:else if event.type === "run.finished"}
+                  Run finished
+                {:else if event.type === "spec.started"}
+                  {event.spec}
+                {:else if event.type === "spec.finished"}
+                  Spec finished: {event.spec}
+                {:else}
+                  {event.test}
+                {/if}
+              </span>
+              {#if event.duration_ms}
+                <span class="live-duration">{event.duration_ms}ms</span>
+              {/if}
+              {#if event.error}
+                <span class="live-error">{event.error.slice(0, 80)}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <!-- Filter toolbar -->
     <div class="toolbar">
@@ -864,4 +962,37 @@
   .test-error-bar:hover .error-action {
     opacity: 1;
   }
+
+  /* Live */
+  .live-badge {
+    padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
+    background: var(--color-fail); color: #fff; letter-spacing: 0.05em;
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .live-feed {
+    margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.75rem 1rem; max-height: 250px; overflow-y: auto;
+  }
+  .live-feed-title {
+    font-size: 0.8rem; font-weight: 600; margin: 0 0 0.5rem;
+    color: var(--text-secondary);
+  }
+  .live-events { display: flex; flex-direction: column; gap: 0.2rem; }
+  .live-event {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: var(--text-secondary); padding: 0.15rem 0;
+  }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .live-dot.dot-pass { background: var(--color-pass); }
+  .live-dot.dot-fail { background: var(--color-fail); }
+  .live-dot.dot-run { background: var(--link); }
+  .live-dot.dot-skip { background: var(--color-skip); }
+  .live-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-duration { font-size: 0.68rem; color: var(--text-muted); flex-shrink: 0; }
+  .live-error { font-size: 0.68rem; color: var(--color-fail); flex-shrink: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

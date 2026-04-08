@@ -64,6 +64,15 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  packages/flakey-live-reporter:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.2
+        version: 25.5.2
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
   packages/flakey-mcp-server:
     dependencies:
       '@modelcontextprotocol/sdk':
