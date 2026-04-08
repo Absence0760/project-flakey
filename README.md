@@ -132,7 +132,18 @@ npx tsx packages/flakey-cli/src/index.ts \
   --api-key $FLAKEY_API_KEY
 ```
 
-Also supports `--reporter playwright` and `--reporter junit`.
+Also supports `--reporter playwright`, `--reporter junit`, `--reporter jest`, and `--reporter webdriverio`.
+
+### Postman (Newman)
+
+```bash
+newman run collection.json --reporters junit --reporter-junit-export results.xml
+npx flakey-cli upload --report-dir . --suite api-tests --reporter junit
+```
+
+### OWASP ZAP
+
+ZAP results can be converted to JUnit XML and uploaded. See `examples/zap/` for a working converter script.
 
 ### curl
 
@@ -217,7 +228,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 | Backend | Express + Node.js |
 | Database | PostgreSQL 16 with Row-Level Security |
 | Auth | JWT + bcrypt + API keys |
-| Reporters | Mochawesome, JUnit XML, Playwright JSON |
+| Reporters | Mochawesome, JUnit XML, Playwright JSON, Jest JSON, WebdriverIO JSON |
 
 ## CI Integration
 
@@ -308,5 +319,6 @@ See the `docs/` directory:
 - [Uploading results](docs/uploading-results.md)
 - [Reporters & normalizers](docs/normalizer.md)
 - [AWS deployment](infra/README.md)
+- [Examples](docs/examples.md) (Cypress, Playwright, Selenium, WebdriverIO, Postman, OWASP ZAP)
 - [Roadmap](docs/roadmap.md)
 - [DOM snapshot plugin](docs/cypress-snapshot-plugin.md)

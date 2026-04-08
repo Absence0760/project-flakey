@@ -18,6 +18,8 @@ examples/
   selenium/           ← Selenium + Mocha example with CLI upload
   webdriverio/        ← WebdriverIO example
   cypress-cucumber/   ← Cypress with Cucumber syntax
+  postman/            ← Postman (Newman) API tests with JUnit upload
+  zap/                ← OWASP ZAP security scan with JUnit conversion
 ```
 
 ### Live reporting demo
@@ -167,6 +169,8 @@ Each example is pre-configured to upload results to Flakey. Here's how each fram
 | Playwright | `@flakeytesting/playwright-reporter` | Direct (onEnd hook) |
 | WebdriverIO | `@flakeytesting/webdriverio-reporter` | Direct (onComplete hook) |
 | Selenium | mochawesome / JUnit | CLI upload after run |
+| Postman (Newman) | JUnit XML | CLI upload after run |
+| OWASP ZAP | JSON → JUnit XML converter | CLI upload after run |
 
 ### Cypress config
 
@@ -239,6 +243,34 @@ npx tsx ../../packages/flakey-cli/src/index.ts \
   --reporter junit \
   --api-key $FLAKEY_API_KEY
 ```
+
+### Postman (Newman)
+
+Run a Postman collection with Newman and upload JUnit results:
+
+```bash
+cd examples/postman
+pnpm install
+
+# Run API tests and upload
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
+```
+
+Newman outputs JUnit XML, which the CLI uploads directly. Edit `collection.json` in Postman and re-export to add more tests.
+
+### OWASP ZAP
+
+Run a ZAP API security scan and upload results:
+
+```bash
+cd examples/zap
+pnpm install
+
+# Run ZAP scan against your API (requires Docker)
+TARGET_URL=http://localhost:3000 FLAKEY_API_KEY=fk_your_key pnpm test:api
+```
+
+ZAP outputs its own JSON format. The `scripts/convert.js` script converts ZAP alerts to JUnit XML — each alert becomes a test case, with Low/Medium/High risk alerts reported as failures.
 
 ## Adding an example for a new framework
 
