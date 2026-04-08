@@ -850,7 +850,7 @@
   .wh-events { display: flex; gap: 0.25rem; flex-shrink: 0; }
 
   /* Audit */
-  .audit-list { display: flex; flex-direction: column; }
+  .audit-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
   .audit-row {
     display: flex; align-items: baseline; gap: 0.75rem; padding: 0.4rem 0;
     border-top: 1px solid var(--border-light); font-size: 0.8rem;
