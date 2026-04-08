@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchRuns, type Run } from "$lib/api";
+  import { fetchRuns, fetchSavedViews, createSavedView, deleteSavedView, type Run, type SavedView } from "$lib/api";
 
   let allRuns = $state<Run[]>([]);
   let loading = $state(true);
@@ -9,8 +9,14 @@
   let selectedBranch = $state("all");
   let searchQuery = $state("");
 
+  let savedViews = $state<SavedView[]>([]);
+  let saveViewName = $state("");
+  let showSaveInput = $state(false);
+
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
   let branches = $derived([...new Set(allRuns.map((r) => r.branch).filter(Boolean))].sort());
+
+  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || searchQuery !== "");
 
   let runs = $derived(
     allRuns.filter((r) => {
@@ -33,9 +39,41 @@
     failed: runs.filter((r) => r.failed > 0).length,
   });
 
+  function applyView(view: SavedView) {
+    selectedSuite = view.filters.suite ?? "all";
+    selectedBranch = view.filters.branch ?? "all";
+    searchQuery = view.filters.search ?? "";
+  }
+
+  async function saveCurrentView() {
+    if (!saveViewName.trim()) return;
+    const filters: Record<string, string> = {};
+    if (selectedSuite !== "all") filters.suite = selectedSuite;
+    if (selectedBranch !== "all") filters.branch = selectedBranch;
+    if (searchQuery) filters.search = searchQuery;
+    await createSavedView(saveViewName.trim(), "runs", filters);
+    saveViewName = "";
+    showSaveInput = false;
+    savedViews = await fetchSavedViews("runs");
+  }
+
+  async function removeView(id: number) {
+    await deleteSavedView(id);
+    savedViews = await fetchSavedViews("runs");
+  }
+
+  function clearFilters() {
+    selectedSuite = "all";
+    selectedBranch = "all";
+    searchQuery = "";
+  }
+
   onMount(async () => {
     try {
-      allRuns = await fetchRuns();
+      [allRuns, savedViews] = await Promise.all([
+        fetchRuns(),
+        fetchSavedViews("runs"),
+      ]);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load runs";
     } finally {
@@ -91,8 +129,31 @@
         <input type="text" placeholder="Search runs..." bind:value={searchQuery} />
       </div>
     </div>
-    <a href="/compare" class="compare-link">Compare runs</a>
+    <div class="header-actions">
+      {#if hasActiveFilters}
+        <button class="action-btn" onclick={() => { showSaveInput = !showSaveInput; }}>Save view</button>
+        <button class="action-btn muted" onclick={clearFilters}>Clear</button>
+      {/if}
+      <a href="/compare" class="compare-link">Compare runs</a>
+    </div>
   </div>
+
+  {#if savedViews.length > 0 || showSaveInput}
+    <div class="views-bar">
+      {#each savedViews as view}
+        <div class="view-pill">
+          <button class="view-pill-btn" onclick={() => applyView(view)}>{view.name}</button>
+          <button class="view-pill-x" onclick={() => removeView(view.id)} title="Delete">&times;</button>
+        </div>
+      {/each}
+      {#if showSaveInput}
+        <form class="save-form" onsubmit={(e) => { e.preventDefault(); saveCurrentView(); }}>
+          <input type="text" bind:value={saveViewName} placeholder="View name..." autofocus />
+          <button type="submit" class="save-btn">Save</button>
+        </form>
+      {/if}
+    </div>
+  {/if}
 
   {#if !loading && runs.length > 0}
     <div class="summary-bar">
@@ -194,11 +255,56 @@
   }
   .search-box input::placeholder { color: var(--text-muted); }
 
+  .header-actions {
+    display: flex; gap: 0.4rem; align-items: center;
+  }
+
+  .action-btn {
+    padding: 0.35rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text-secondary); font-size: 0.78rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  .action-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .action-btn.muted { color: var(--text-muted); }
+
   .compare-link {
     padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
     color: var(--text-secondary); text-decoration: none; font-size: 0.8rem;
   }
   .compare-link:hover { background: var(--bg-hover); color: var(--text); }
+
+  .views-bar {
+    display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem;
+  }
+
+  .view-pill {
+    display: flex; align-items: center; border: 1px solid var(--border); border-radius: 16px;
+    background: var(--bg); overflow: hidden;
+  }
+
+  .view-pill-btn {
+    padding: 0.25rem 0.6rem; border: none; background: transparent;
+    color: var(--text-secondary); font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+  }
+  .view-pill-btn:hover { color: var(--link); }
+
+  .view-pill-x {
+    padding: 0.15rem 0.4rem 0.15rem 0; border: none; background: transparent;
+    color: var(--text-muted); font-size: 0.85rem; cursor: pointer; line-height: 1;
+  }
+  .view-pill-x:hover { color: var(--color-fail); }
+
+  .save-form {
+    display: flex; gap: 0.3rem; align-items: center;
+  }
+  .save-form input {
+    padding: 0.25rem 0.5rem; border: 1px solid var(--link); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 0.78rem; outline: none; width: 130px;
+  }
+  .save-btn {
+    padding: 0.25rem 0.5rem; border: none; border-radius: 6px;
+    background: var(--link); color: #fff; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+  }
 
   .summary-bar {
     display: flex; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;

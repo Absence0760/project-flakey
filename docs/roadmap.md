@@ -74,9 +74,9 @@
 - [x] DOM snapshot plugin for Cypress (`@flakey/cypress-snapshots`)
 - [x] Test history per test (pass/fail timeline across runs)
 - [x] Compare runs side-by-side
-- [ ] Additional reporter parsers (Jest, WebdriverIO)
-- [ ] Flaky test webhook notifications
-- [ ] Custom dashboards / saved filters
+- [x] Additional reporter parsers (Jest, WebdriverIO)
+- [x] Flaky test webhook notifications
+- [x] Custom dashboards / saved filters
 
 ## Phase 7 — CI/PR integration
 

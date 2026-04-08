@@ -394,3 +394,34 @@ export interface DashboardStats {
   recent_runs: Run[];
   recent_failures: { test_title: string; error_message: string; run_id: number; file_path: string }[];
 }
+
+// --- Saved Views ---
+
+export interface SavedView {
+  id: number;
+  name: string;
+  page: string;
+  filters: Record<string, string>;
+  created_at: string;
+}
+
+export async function fetchSavedViews(page?: string): Promise<SavedView[]> {
+  const params = page ? `?page=${page}` : "";
+  const res = await authFetch(`${API_URL}/views${params}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createSavedView(name: string, page: string, filters: Record<string, string>): Promise<SavedView> {
+  const res = await authFetch(`${API_URL}/views`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, page, filters }),
+  });
+  if (!res.ok) throw new Error("Failed to save view");
+  return res.json();
+}
+
+export async function deleteSavedView(id: number): Promise<void> {
+  await authFetch(`${API_URL}/views/${id}`, { method: "DELETE" });
+}

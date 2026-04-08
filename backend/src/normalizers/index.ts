@@ -2,6 +2,8 @@ import type { NormalizedRun } from "../types.js";
 import { parseMochawesome } from "./mochawesome.js";
 import { parseJUnit } from "./junit.js";
 import { parsePlaywright } from "./playwright.js";
+import { parseJest } from "./jest.js";
+import { parseWebdriverIO } from "./webdriverio.js";
 
 type Parser = (raw: unknown, meta: NormalizedRun["meta"]) => NormalizedRun;
 
@@ -9,6 +11,8 @@ const parsers: Record<string, Parser> = {
   mochawesome: parseMochawesome as Parser,
   junit: parseJUnit as Parser,
   playwright: parsePlaywright as Parser,
+  jest: parseJest as Parser,
+  webdriverio: parseWebdriverIO as Parser,
 };
 
 export function normalize(

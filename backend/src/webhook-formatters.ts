@@ -23,6 +23,14 @@ export interface WebhookRunPayload {
     error_message: string | null;
     spec_file: string;
   }>;
+  flaky_tests?: Array<{
+    full_title: string;
+    file_path: string;
+    flaky_rate: number;
+    flip_count: number;
+    fail_count: number;
+    total_runs: number;
+  }>;
   trend: string;
 }
 
@@ -58,11 +66,15 @@ function shortSha(sha: string): string {
 // --- Generic (backward-compatible) ---
 
 function formatGeneric(p: WebhookRunFailedPayload): object {
+  const text = p.event === "flaky.detected"
+    ? `Run #${p.run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) detected in '${p.run.suite_name}'`
+    : `Run #${p.run.id} failed: ${p.run.failed}/${p.run.total} tests failed in suite '${p.run.suite_name}'`;
   return {
-    text: `Run #${p.run.id} failed: ${p.run.failed}/${p.run.total} tests failed in suite '${p.run.suite_name}'`,
+    text,
     event: p.event,
     run: p.run,
     failed_tests: p.failed_tests,
+    ...(p.flaky_tests ? { flaky_tests: p.flaky_tests } : {}),
     trend: p.trend,
   };
 }
@@ -76,6 +88,8 @@ function headerForEvent(p: WebhookRunPayload): { emoji: string; title: string } 
       return { emoji: "\u2705", title: `\u2705 Run #${run.id} Passed \u2014 ${run.suite_name}` };
     case "new.failures":
       return { emoji: "\ud83d\udea8", title: `\ud83d\udea8 New Failures in Run #${run.id} \u2014 ${run.suite_name}` };
+    case "flaky.detected":
+      return { emoji: "\ud83c\udfb2", title: `\ud83c\udfb2 Flaky Tests Detected \u2014 Run #${run.id} ${run.suite_name}` };
     case "run.completed":
       return run.failed > 0
         ? { emoji: "\u274c", title: `\u274c Run #${run.id} Completed \u2014 ${run.suite_name}` }
@@ -129,7 +143,23 @@ function formatSlack(p: WebhookRunPayload): object {
     });
   }
 
-  if (p.failed_tests.length > 0 && p.event !== "run.passed") {
+  // Flaky tests section
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*\ud83c\udfb2 ${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:*` },
+    });
+    const lines = p.flaky_tests.map((t) =>
+      `\u2022 *${truncate(t.full_title, 80)}*\n>  \`${truncate(t.file_path, 40)}\` \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
+    );
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: lines.join("\n") },
+    });
+  }
+
+  if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
     if (p.event !== "new.failures") {
       blocks.push({ type: "divider" });
     }
@@ -163,6 +193,8 @@ function formatSlack(p: WebhookRunPayload): object {
     ? `Run #${run.id} passed: ${run.passed}/${run.total} tests in '${run.suite_name}'`
     : p.event === "new.failures"
     ? `Run #${run.id}: ${p.new_failures?.length ?? 0} new failure(s) in '${run.suite_name}'`
+    : p.event === "flaky.detected"
+    ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) in '${run.suite_name}'`
     : `Run #${run.id} failed: ${run.failed}/${run.total} tests failed in '${run.suite_name}'`;
 
   return { text: fallback, blocks };
@@ -212,7 +244,24 @@ function formatTeams(p: WebhookRunPayload): object {
     }
   }
 
-  if (p.failed_tests.length > 0 && p.event !== "run.passed") {
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    body.push({
+      type: "TextBlock",
+      text: `**\ud83c\udfb2 ${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:**`,
+      weight: "Bolder",
+      spacing: "Medium",
+    });
+    for (const t of p.flaky_tests) {
+      body.push({
+        type: "TextBlock",
+        text: `\u2022 **${truncate(t.full_title, 80)}** \u2014 \`${truncate(t.file_path, 40)}\`\n\n${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`,
+        wrap: true,
+        size: "Small",
+      });
+    }
+  }
+
+  if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
     body.push({
       type: "TextBlock",
       text: p.event === "new.failures" ? "**All Failures:**" : "**Failed Tests**",
@@ -254,6 +303,7 @@ function formatDiscord(p: WebhookRunPayload): object {
   const { run } = p;
   const { title } = headerForEvent(p);
   const embedColor = p.event === "run.passed" ? 0x22863a
+    : p.event === "flaky.detected" ? 0xf59e0b
     : p.event === "new.failures" ? 0xff8800
     : 0xff4444;
 
@@ -271,7 +321,12 @@ function formatDiscord(p: WebhookRunPayload): object {
 
   let description = "";
 
-  if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
+  if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
+    const lines = p.flaky_tests.map((t) =>
+      `\ud83c\udfb2 **${truncate(t.full_title, 60)}** \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
+    );
+    description = `**${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:**\n${lines.join("\n")}`;
+  } else if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
     const newLines = p.new_failures.map((t) => {
       const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
       return `\ud83d\udea8 **${truncate(t.full_title, 60)}**${err}`;
