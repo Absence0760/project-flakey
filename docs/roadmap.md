@@ -54,9 +54,9 @@
 - [x] Slowest tests view
 - [x] Security headers (helmet.js)
 - [x] README with quick-start guide
-- [ ] Email verification for registration
-- [ ] Password reset flow
-- [ ] Org switcher in the frontend sidebar
+- [x] Email verification for registration
+- [x] Password reset flow
+- [x] Org switcher in the frontend sidebar
 
 ## Phase 5 — Deployment + distribution
 

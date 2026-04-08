@@ -5,9 +5,11 @@ import jwt from "jsonwebtoken";
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth } from "../auth.js";
+import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 
 // Fix 6: Controlled registration — only allow when ALLOW_REGISTRATION=true or via invite
 const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION !== "false";
+const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === "true";
 
 const router = Router();
 
@@ -63,13 +65,18 @@ router.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, email, name, role, password_hash FROM users WHERE email = $1",
+      "SELECT id, email, name, role, password_hash, email_verified FROM users WHERE email = $1",
       [email]
     );
 
     const user = result.rows[0];
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    if (REQUIRE_EMAIL_VERIFICATION && !user.email_verified) {
+      res.status(403).json({ error: "Please verify your email before signing in.", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -121,19 +128,29 @@ router.post("/register", async (req, res) => {
     }
 
     const hash = bcrypt.hashSync(password, 12);
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     const result = await pool.query(
-      "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, role",
-      [email, hash, name ?? ""]
+      `INSERT INTO users (email, password_hash, name, email_verified, email_verification_token, email_verification_expires_at)
+       VALUES ($1, $2, $3, false, $4, $5) RETURNING id, email, name, role`,
+      [email, hash, name ?? "", verificationToken, verificationExpiry]
     );
 
     const user = result.rows[0];
+
+    // Send verification email (don't block registration if it fails)
+    sendVerificationEmail(email, verificationToken).catch((err) => {
+      console.error("Failed to send verification email:", err);
+    });
+
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
     const token = signToken(authUser);
     const refreshToken = signRefreshToken(user.id);
 
     setTokenCookie(res, token, refreshToken);
-    res.status(201).json({ token, refreshToken, user: authUser });
+    res.status(201).json({ token, refreshToken, user: authUser, emailVerificationRequired: REQUIRE_EMAIL_VERIFICATION });
   } catch (err) {
     console.error("POST /auth/register error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -275,6 +292,143 @@ router.delete("/api-keys/:id", requireAuth, async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     console.error("DELETE /auth/api-keys error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /auth/verify-email — verify email with token
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      res.status(400).json({ error: "Verification token is required" });
+      return;
+    }
+
+    const result = await pool.query(
+      "SELECT id, email FROM users WHERE email_verification_token = $1 AND email_verification_expires_at > NOW()",
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({ error: "Invalid or expired verification token" });
+      return;
+    }
+
+    await pool.query(
+      "UPDATE users SET email_verified = true, email_verification_token = NULL, email_verification_expires_at = NULL WHERE id = $1",
+      [result.rows[0].id]
+    );
+
+    res.json({ ok: true, email: result.rows[0].email });
+  } catch (err) {
+    console.error("POST /auth/verify-email error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /auth/resend-verification — resend verification email
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
+    }
+
+    const result = await pool.query(
+      "SELECT id, email_verified FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length === 0 || result.rows[0].email_verified) {
+      // Don't reveal whether the email exists or is already verified
+      res.json({ ok: true });
+      return;
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await pool.query(
+      "UPDATE users SET email_verification_token = $1, email_verification_expires_at = $2 WHERE id = $3",
+      [token, expiry, result.rows[0].id]
+    );
+
+    await sendVerificationEmail(email, token);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /auth/resend-verification error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /auth/forgot-password — send password reset email
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
+    }
+
+    const result = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+
+    // Always return success to prevent email enumeration
+    if (result.rows.length === 0) {
+      res.json({ ok: true });
+      return;
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await pool.query(
+      "UPDATE users SET password_reset_token = $1, password_reset_expires_at = $2 WHERE id = $3",
+      [token, expiry, result.rows[0].id]
+    );
+
+    await sendPasswordResetEmail(email, token);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /auth/forgot-password error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /auth/reset-password — reset password with token
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      res.status(400).json({ error: "Token and new password are required" });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const result = await pool.query(
+      "SELECT id FROM users WHERE password_reset_token = $1 AND password_reset_expires_at > NOW()",
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({ error: "Invalid or expired reset token" });
+      return;
+    }
+
+    const hash = bcrypt.hashSync(password, 12);
+    await pool.query(
+      "UPDATE users SET password_hash = $1, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = $2",
+      [hash, result.rows[0].id]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /auth/reset-password error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

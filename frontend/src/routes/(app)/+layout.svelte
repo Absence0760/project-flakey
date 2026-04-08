@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { restoreAuth, getAuth, subscribe, logout, type User } from '$lib/auth';
+	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/auth';
 
 	const nav = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '◇' },
@@ -15,6 +15,10 @@
 
 	let user = $state<User | null>(null);
 	let ready = $state(false);
+	let orgs = $state<Org[]>([]);
+	let orgDropdownOpen = $state(false);
+
+	const currentOrg = $derived(orgs.find(o => o.id === user?.orgId));
 
 	onMount(() => {
 		restoreAuth();
@@ -24,6 +28,8 @@
 
 		if (!auth.token) {
 			goto('/login');
+		} else {
+			loadOrgs();
 		}
 
 		return subscribe(() => {
@@ -35,6 +41,16 @@
 		});
 	});
 
+	async function loadOrgs() {
+		orgs = await fetchOrgs();
+	}
+
+	async function handleSwitchOrg(orgId: number) {
+		orgDropdownOpen = false;
+		await switchOrg(orgId);
+		goto('/dashboard');
+	}
+
 	function handleLogout() {
 		logout();
 	}
@@ -44,7 +60,13 @@
 		if (href === '/dashboard') return pathname === '/dashboard';
 		return pathname.startsWith(href);
 	}
+
+	function handleOrgKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') orgDropdownOpen = false;
+	}
 </script>
+
+<svelte:window onclick={() => { orgDropdownOpen = false; }} onkeydown={handleOrgKeydown} />
 
 {#if !ready || !user}
 	<div class="loading-screen"></div>
@@ -52,6 +74,36 @@
 	<div class="shell">
 		<aside class="sidebar">
 			<a href="/" class="logo">Flakey</a>
+			{#if orgs.length > 0}
+				<div class="org-switcher">
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="org-current"
+						onclick={(e) => { e.stopPropagation(); orgDropdownOpen = !orgDropdownOpen; }}
+					>
+						<span class="org-name">{currentOrg?.name ?? 'Organization'}</span>
+						<svg class="org-chevron" class:open={orgDropdownOpen} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg>
+					</div>
+					{#if orgDropdownOpen}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="org-dropdown" onclick={(e) => e.stopPropagation()}>
+							{#each orgs as org}
+								<button
+									class="org-option"
+									class:active={org.id === user?.orgId}
+									onclick={() => handleSwitchOrg(org.id)}
+									disabled={org.id === user?.orgId}
+								>
+									<span class="org-option-name">{org.name}</span>
+									<span class="org-option-role">{org.role}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
 			<nav>
 				{#each nav as item}
 					<a
@@ -118,6 +170,99 @@
 		color: var(--text);
 		text-decoration: none;
 		padding: 0 1.25rem;
+	}
+
+	.org-switcher {
+		position: relative;
+		padding: 0 0.75rem;
+	}
+
+	.org-current {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.4rem 0.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 0.1s;
+	}
+
+	.org-current:hover {
+		background: var(--bg-hover);
+	}
+
+	.org-name {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.org-chevron {
+		color: var(--text-muted);
+		flex-shrink: 0;
+		transition: transform 0.15s;
+	}
+
+	.org-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.org-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0.75rem;
+		right: 0.75rem;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.25rem;
+		z-index: 100;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		max-height: 240px;
+		overflow-y: auto;
+	}
+
+	.org-option {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		cursor: pointer;
+		text-align: left;
+		transition: background 0.1s;
+		color: var(--text);
+	}
+
+	.org-option:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.org-option.active {
+		background: var(--bg-hover);
+		cursor: default;
+	}
+
+	.org-option-name {
+		font-size: 0.8rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.org-option-role {
+		font-size: 0.65rem;
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		flex-shrink: 0;
+		margin-left: 0.5rem;
 	}
 
 	nav {
