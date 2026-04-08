@@ -32,17 +32,17 @@ The simplest way to get results into Flakey. Install the reporter package, add i
 ### Cypress
 
 ```bash
-npm install --save-dev @flakeytesting/reporter @flakeytesting/cypress-snapshots
+npm install --save-dev @flakeytesting/cypress-reporter @flakeytesting/cypress-snapshots
 ```
 
 ```typescript
 // cypress.config.ts
 import { defineConfig } from "cypress";
-import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
 import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 
 export default defineConfig({
-  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporter: "@flakeytesting/cypress-reporter",
   reporterOptions: {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
@@ -60,6 +60,7 @@ export default defineConfig({
 
 ```typescript
 // cypress/support/e2e.ts
+import "@flakeytesting/cypress-reporter/support";
 import "@flakeytesting/cypress-snapshots/support";  // only if using snapshots
 ```
 
@@ -74,7 +75,7 @@ Everything is uploaded in a single request after the run finishes — report, sc
 ### Playwright
 
 ```bash
-npm install --save-dev @flakeytesting/reporter
+npm install --save-dev @flakeytesting/playwright-reporter
 ```
 
 ```typescript
@@ -83,13 +84,32 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   reporter: [
-    ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+    ["@flakeytesting/playwright-reporter", {
       url: "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY,
       suite: "my-project",
     }],
   ],
 });
+```
+
+### WebdriverIO
+
+```bash
+npm install --save-dev @flakeytesting/webdriverio-reporter
+```
+
+```typescript
+// wdio.conf.ts
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+
+export const config = {
+  reporters: [[FlakeyReporter, {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  }]],
+};
 ```
 
 ---
@@ -102,7 +122,7 @@ The CLI finds report files, discovers screenshots and videos, matches them to te
 
 ```bash
 # From your Cypress project root:
-npx tsx /path/to/flakey/packages/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
   --report-dir cypress/reports \
   --screenshots-dir cypress/screenshots \
   --videos-dir cypress/videos \
@@ -115,7 +135,7 @@ npx tsx /path/to/flakey/packages/cli/src/index.ts \
 The `--screenshots-dir` and `--videos-dir` default to `cypress/screenshots` and `cypress/videos`, so if your project uses the standard layout:
 
 ```bash
-npx tsx /path/to/flakey/packages/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
   --api-key fk_your_key_here
@@ -124,7 +144,7 @@ npx tsx /path/to/flakey/packages/cli/src/index.ts \
 ### Playwright
 
 ```bash
-npx tsx /path/to/flakey/packages/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
   --report-dir playwright-report \
   --suite my-playwright-tests \
   --reporter playwright \
@@ -138,7 +158,7 @@ Playwright records videos as `.webm` by default — this format is fully support
 ### JUnit XML (Jest, pytest, Go, etc.)
 
 ```bash
-npx tsx /path/to/flakey/packages/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
   --report-dir test-results \
   --suite api-tests \
   --reporter junit \
@@ -153,7 +173,7 @@ Instead of flags, you can use env vars (useful in CI):
 export FLAKEY_API_URL=http://localhost:3000
 export FLAKEY_API_KEY=fk_your_key_here
 
-npx tsx /path/to/flakey/packages/cli/src/index.ts \
+npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project
 ```
@@ -433,7 +453,7 @@ go test -v ./... 2>&1 | go-junit-report > test-results/results.xml
 - name: Upload to Flakey
   if: always()
   run: |
-    npx tsx /path/to/flakey/packages/cli/src/index.ts \
+    npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
       --report-dir cypress/reports \
       --suite my-project \
       --branch ${{ github.ref_name }} \
@@ -453,7 +473,7 @@ go test -v ./... 2>&1 | go-junit-report > test-results/results.xml
       - npx cypress run
       - npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
     after-script:
-      - npx tsx /path/to/flakey/packages/cli/src/index.ts
+      - npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts
           --report-dir cypress/reports
           --suite my-project
           --branch $BITBUCKET_BRANCH
@@ -472,7 +492,7 @@ test:
     - npx cypress run
     - npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
   after_script:
-    - npx tsx /path/to/flakey/packages/cli/src/index.ts
+    - npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts
         --report-dir cypress/reports
         --suite my-project
         --branch $CI_COMMIT_REF_NAME

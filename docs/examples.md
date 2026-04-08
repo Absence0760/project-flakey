@@ -13,10 +13,10 @@ examples/
       index.html      ← Login, Todos, Users table, Form
       serve.js        ← Node HTTP server (no dependencies)
     package.json
-  cypress/            ← Standard Cypress
-  cypress-cucumber/   ← Cypress with Gherkin/Cucumber
-  playwright/         ← Playwright
-  selenium/           ← Selenium + JUnit XML
+  cypress/            ← Cypress example with 3 suites (smoke, sanity, regression)
+  playwright/         ← Playwright example with 3 suites
+  selenium/           ← Selenium + Mocha example with CLI upload
+  webdriverio/        ← WebdriverIO example
 ```
 
 ## Sample App
@@ -92,11 +92,6 @@ cd examples/cypress
 pnpm install
 FLAKEY_API_KEY=fk_your_key pnpm test
 
-# Cypress + Cucumber
-cd examples/cypress-cucumber
-pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
-
 # Playwright
 cd examples/playwright
 pnpm install
@@ -107,6 +102,11 @@ cd examples/selenium
 pnpm install
 pnpm test
 # Selenium uses the CLI to upload results after the run
+
+# WebdriverIO
+cd examples/webdriverio
+pnpm install
+FLAKEY_API_KEY=fk_your_key pnpm test
 ```
 
 ### Verify results
@@ -151,22 +151,22 @@ Each example is pre-configured to upload results to Flakey. Here's how each fram
 
 | Framework | Reporter | Upload Method |
 |---|---|---|
-| Cypress | `@flakeytesting/reporter` | Direct (after:run plugin) |
-| Cypress + Cucumber | `@flakeytesting/reporter` | Direct (after:run plugin) |
-| Playwright | `@flakeytesting/reporter` | Direct (onEnd hook) |
+| Cypress | `@flakeytesting/cypress-reporter` | Direct (after:run plugin) |
+| Playwright | `@flakeytesting/playwright-reporter` | Direct (onEnd hook) |
+| WebdriverIO | `@flakeytesting/webdriverio-reporter` | Direct (onComplete hook) |
 | Selenium | mochawesome / JUnit | CLI upload after run |
 
-### Cypress / Cypress + Cucumber config
+### Cypress config
 
 ```typescript
-import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
 
 export default defineConfig({
-  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporter: "@flakeytesting/cypress-reporter",
   reporterOptions: {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
-    suite: "integration-cypress",  // or "integration-cypress-cucumber"
+    suite: "integration-cypress",
   },
   e2e: {
     baseUrl: "http://localhost:4444",
@@ -178,19 +178,38 @@ export default defineConfig({
 });
 ```
 
+```typescript
+// cypress/support/e2e.ts
+import "@flakeytesting/cypress-reporter/support";
+```
+
 ### Playwright config
 
 ```typescript
 export default defineConfig({
   use: { baseURL: "http://localhost:4444" },
   reporter: [
-    ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+    ["@flakeytesting/playwright-reporter", {
       url: "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY,
       suite: "integration-playwright",
     }],
   ],
 });
+```
+
+### WebdriverIO config
+
+```typescript
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+
+export const config = {
+  reporters: [[FlakeyReporter, {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "integration-webdriverio",
+  }]],
+};
 ```
 
 ### Selenium
@@ -202,7 +221,7 @@ Selenium doesn't have a native Flakey reporter. Use a standard reporter (JUnit X
 pnpm test
 
 # Upload to Flakey
-npx tsx ../../packages/cli/src/index.ts \
+npx tsx ../../packages/flakey-cli/src/index.ts \
   --report-dir test-results \
   --suite integration-selenium \
   --reporter junit \
@@ -213,7 +232,7 @@ npx tsx ../../packages/cli/src/index.ts \
 
 1. Create a new directory under `examples/`
 2. Initialize with `pnpm init`
-3. Install the framework and `@flakeytesting/reporter`
+3. Install the framework and the appropriate `@flakeytesting/*-reporter` package
 4. Write tests against `http://localhost:4444` using the data-testid selectors
 5. Configure the reporter to upload to `http://localhost:3000`
 6. Add a `pnpm test` script

@@ -23,7 +23,7 @@ docker compose up -d
 ```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../packages/cli && npm install
+cd ../packages/flakey-cli && npm install
 ```
 
 ### 3. Seed sample data
@@ -53,15 +53,16 @@ npm run dev
 ### Cypress (recommended)
 
 ```bash
-npm install --save-dev @flakeytesting/reporter
+npm install --save-dev @flakeytesting/cypress-reporter @flakeytesting/cypress-snapshots
 ```
 
 ```typescript
 // cypress.config.ts
-import { flakeyReporter } from "@flakeytesting/reporter/plugin";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
+import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 
 export default defineConfig({
-  reporter: "@flakeytesting/reporter/dist/cypress-reporter.cjs",
+  reporter: "@flakeytesting/cypress-reporter",
   reporterOptions: {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
@@ -70,24 +71,31 @@ export default defineConfig({
   e2e: {
     setupNodeEvents(on, config) {
       flakeyReporter(on, config);
+      flakeySnapshots(on, config);
       return config;
     },
   },
 });
 ```
 
-Results, screenshots, and videos are uploaded automatically when the run finishes.
+```typescript
+// cypress/support/e2e.ts
+import "@flakeytesting/cypress-reporter/support";
+import "@flakeytesting/cypress-snapshots/support";
+```
+
+Results, screenshots, videos, and DOM snapshots are uploaded automatically when the run finishes.
 
 ### Playwright
 
 ```bash
-npm install --save-dev @flakeytesting/reporter
+npm install --save-dev @flakeytesting/playwright-reporter
 ```
 
 ```typescript
 // playwright.config.ts
 reporter: [
-  ["@flakeytesting/reporter/dist/playwright-reporter.js", {
+  ["@flakeytesting/playwright-reporter", {
     url: "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY,
     suite: "my-project",
@@ -95,10 +103,29 @@ reporter: [
 ],
 ```
 
+### WebdriverIO
+
+```bash
+npm install --save-dev @flakeytesting/webdriverio-reporter
+```
+
+```typescript
+// wdio.conf.ts
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+
+export const config = {
+  reporters: [[FlakeyReporter, {
+    url: "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: "my-project",
+  }]],
+};
+```
+
 ### CLI (alternative for any framework)
 
 ```bash
-npx tsx packages/cli/src/index.ts \
+npx tsx packages/flakey-cli/src/index.ts \
   --report-dir cypress/reports \
   --suite my-project \
   --reporter mochawesome \
@@ -184,7 +211,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 ```yaml
 - name: Upload results
   if: always()
-  run: npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
+  run: npx tsx packages/flakey-cli/src/index.ts --report-dir cypress/reports --suite my-project
   env:
     FLAKEY_API_URL: ${{ secrets.FLAKEY_API_URL }}
     FLAKEY_API_KEY: ${{ secrets.FLAKEY_API_KEY }}
@@ -197,7 +224,7 @@ Test run → Reporter output → CLI upload → Normalizer → PostgreSQL (RLS) 
 
 ```yaml
 after-script:
-  - npx tsx packages/cli/src/index.ts --report-dir cypress/reports --suite my-project
+  - npx tsx packages/flakey-cli/src/index.ts --report-dir cypress/reports --suite my-project
 ```
 
 ## Environment Variables
@@ -243,14 +270,19 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 
 **CI/CD pipelines** (GitHub Actions):
 - `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
-- `publish.yml` — publishes `@flakey/cli` and `@flakey/cypress-snapshots` to npm when their source changes
+- `publish.yml` — publishes `@flakeytesting/cli`, `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`, and `@flakeytesting/cypress-snapshots` to npm when their source changes
 
 ## npm Packages
 
 | Package | Description | Install |
 |---|---|---|
-| `@flakey/cli` | CLI for uploading test results | `npm install @flakey/cli` |
-| `@flakey/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakey/cypress-snapshots` |
+| `@flakeytesting/core` | Shared API client and schema | `npm install @flakeytesting/core` |
+| `@flakeytesting/cli` | CLI for uploading test results | `npm install @flakeytesting/cli` |
+| `@flakeytesting/cypress-reporter` | Cypress reporter + plugin + support | `npm install @flakeytesting/cypress-reporter` |
+| `@flakeytesting/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakeytesting/cypress-snapshots` |
+| `@flakeytesting/playwright-reporter` | Playwright reporter | `npm install @flakeytesting/playwright-reporter` |
+| `@flakeytesting/playwright-snapshots` | Playwright trace parser for snapshots | `npm install @flakeytesting/playwright-snapshots` |
+| `@flakeytesting/webdriverio-reporter` | WebdriverIO reporter | `npm install @flakeytesting/webdriverio-reporter` |
 
 ## Documentation
 

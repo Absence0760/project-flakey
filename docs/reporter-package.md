@@ -1,28 +1,40 @@
-# @flakeytesting/reporter — custom reporter package
+# Reporter Packages
 
 ## Concept
 
 Instead of generating mochawesome/JUnit output and normalizing it afterwards,
-`@flakeytesting/reporter` is a custom npm/pnpm package that plugs directly into Cypress
-or Playwright and POSTs results to the Flakey API in the unified schema.
+the `@flakeytesting/*-reporter` packages plug directly into each test framework
+and POST results to the Flakey API in the unified schema.
 
-No intermediate files. No normalizer needed. One package, two frameworks.
+No intermediate files. No normalizer needed. One package per framework.
 
 ---
 
 ## Package structure
 
+The reporter functionality is split across multiple packages:
+
 ```
-@flakeytesting/reporter/
-├── package.json
-├── src/
-│   ├── index.ts              # entry — auto-detects or exports named reporters
-│   ├── cypress-reporter.ts   # Cypress-compatible reporter (Mocha-based)
-│   ├── playwright-reporter.ts # Playwright-compatible reporter
-│   ├── api-client.ts         # shared HTTP POST logic
-│   └── schema.ts             # unified schema types (shared with Flakey API)
-├── dist/                     # compiled output
-└── README.md
+packages/
+├── flakey-core/                  ← @flakeytesting/core (shared)
+│   ├── src/
+│   │   ├── api-client.ts        # shared HTTP POST logic
+│   │   └── schema.ts            # unified schema types (shared with Flakey API)
+│   └── package.json
+├── flakey-cypress-reporter/      ← @flakeytesting/cypress-reporter
+│   ├── src/
+│   │   ├── cypress-reporter.ts  # Cypress-compatible reporter (Mocha-based)
+│   │   ├── plugin.ts            # setupNodeEvents plugin
+│   │   └── support.ts           # support file import
+│   └── package.json
+├── flakey-playwright-reporter/   ← @flakeytesting/playwright-reporter
+│   ├── src/
+│   │   └── playwright-reporter.ts
+│   └── package.json
+└── flakey-webdriverio-reporter/  ← @flakeytesting/webdriverio-reporter
+    ├── src/
+    │   └── webdriverio-reporter.ts
+    └── package.json
 ```
 
 ---
@@ -30,11 +42,14 @@ No intermediate files. No normalizer needed. One package, two frameworks.
 ## Installation
 
 ```bash
-# npm
-npm install --save-dev @flakeytesting/reporter
+# Cypress
+npm install --save-dev @flakeytesting/cypress-reporter
 
-# pnpm
-pnpm add -D @flakeytesting/reporter
+# Playwright
+npm install --save-dev @flakeytesting/playwright-reporter
+
+# WebdriverIO
+npm install --save-dev @flakeytesting/webdriverio-reporter
 ```
 
 ---
@@ -49,7 +64,7 @@ Cypress uses Mocha under the hood. Custom reporters receive Mocha runner events.
 import { defineConfig } from 'cypress'
 
 export default defineConfig({
-  reporter: '@flakeytesting/reporter/cypress',
+  reporter: '@flakeytesting/cypress-reporter',
   reporterOptions: {
     url: 'https://your-flakey-instance.com',
     token: process.env.FLAKEY_TOKEN,
@@ -135,7 +150,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   reporter: [
-    ['@flakeytesting/reporter/playwright', {
+    ['@flakeytesting/playwright-reporter', {
       url: 'https://your-flakey-instance.com',
       token: process.env.FLAKEY_TOKEN,
       suite: 'playwright-suite',
@@ -197,7 +212,27 @@ Playwright reporters must be ES module default exports.
 
 ---
 
-## Shared API client (api-client.ts)
+## WebdriverIO setup
+
+WebdriverIO has a custom reporter interface with lifecycle hooks.
+
+### wdio.conf.ts
+
+```ts
+import FlakeyReporter from '@flakeytesting/webdriverio-reporter'
+
+export const config = {
+  reporters: [[FlakeyReporter, {
+    url: 'https://your-flakey-instance.com',
+    apiKey: process.env.FLAKEY_API_KEY,
+    suite: 'webdriverio-suite',
+  }]],
+}
+```
+
+---
+
+## Shared API client (@flakeytesting/core — api-client.ts)
 
 ```ts
 import { NormalizedRun } from './schema'
@@ -231,40 +266,37 @@ export class ApiClient {
 
 ---
 
-## package.json
+## package.json (example: cypress-reporter)
 
 ```json
 {
-  "name": "@flakeytesting/reporter",
+  "name": "@flakeytesting/cypress-reporter",
   "version": "0.1.0",
-  "description": "Cypress and Playwright reporter for Flakey dashboard",
+  "description": "Cypress reporter for Flakey dashboard",
   "main": "dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./cypress": "./dist/cypress-reporter.js",
-    "./playwright": "./dist/playwright-reporter.js"
+    ".": "./dist/cypress-reporter.cjs",
+    "./plugin": "./dist/plugin.js",
+    "./support": "./dist/support.js"
   },
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "pnpm build"
   },
-  "peerDependencies": {
-    "cypress": ">=12.0.0",
-    "@playwright/test": ">=1.30.0"
+  "dependencies": {
+    "@flakeytesting/core": "workspace:*"
   },
-  "peerDependenciesMeta": {
-    "cypress": { "optional": true },
-    "@playwright/test": { "optional": true }
+  "peerDependencies": {
+    "cypress": ">=12.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "mocha": "^10.0.0",
-    "@playwright/test": "^1.40.0"
+    "mocha": "^10.0.0"
   }
 }
 ```
 
-Both peer dependencies are optional so you only need whichever framework you use.
+Each reporter package only has a peer dependency on its own framework.
 
 ---
 
@@ -273,11 +305,11 @@ Both peer dependencies are optional so you only need whichever framework you use
 | Approach | Pros | Cons |
 |---|---|---|
 | Post-run normalizer | Works with existing reporter configs | Extra step, relies on file output, format can change |
-| @flakeytesting/reporter package | Direct to API, no files, typed schema, real-time on `end` event | Teams must install and configure the package |
+| @flakeytesting/*-reporter packages | Direct to API, no files, typed schema, real-time on `end` event | Teams must install and configure the package |
 
 The normalizer approach (mochawesome/JUnit) is still worth keeping as a fallback
-for teams that can't or won't change their reporter config. The `@flakeytesting/reporter`
-package is the first-class path for teams fully buying into Flakey.
+for teams that can't or won't change their reporter config. The `@flakeytesting/*-reporter`
+packages are the first-class path for teams fully buying into Flakey.
 
 ---
 
@@ -290,21 +322,22 @@ pnpm build
 # publish to npm (public)
 npm publish --access public
 
-# or scope it
-# name: @flakeytesting/reporter
-# npm publish --access public
+# each package is published separately, e.g.:
+# cd packages/flakey-cypress-reporter && npm publish --access public
+# cd packages/flakey-playwright-reporter && npm publish --access public
+# cd packages/flakey-webdriverio-reporter && npm publish --access public
 ```
 
 Once published, any team can install it and point it at their self-hosted Flakey instance.
 
 ---
 
-## Updated architecture with reporter package
+## Updated architecture with reporter packages
 
 ```
-Cypress / Playwright test run
+Cypress / Playwright / WebdriverIO test run
         ↓
-@flakeytesting/reporter intercepts lifecycle events
+@flakeytesting/*-reporter intercepts lifecycle events
         ↓
 Builds NormalizedRun in memory
         ↓

@@ -123,7 +123,7 @@ Zero manual steps after initial setup.
 | Workflow | Triggers on | What it does |
 |---|---|---|
 | `deploy.yml` | `backend/**` or `frontend/**` changes | Backend: Docker → ECR → ECS. Frontend: build → S3 → CloudFront |
-| `publish.yml` | `cli/**` or `packages/**` changes | Publishes npm packages (`@flakey/cli`, `@flakey/cypress-snapshots`) |
+| `publish.yml` | `packages/**` changes | Publishes npm packages (`@flakeytesting/cli`, `@flakeytesting/core`, `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`, `@flakeytesting/cypress-snapshots`, `@flakeytesting/playwright-snapshots`) |
 
 ## Monitoring
 

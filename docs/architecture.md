@@ -6,8 +6,12 @@
 |---|---|
 | Test runner | Cypress, Playwright, Jest, or any framework |
 | Reporters | Mochawesome (JSON), JUnit (XML), Playwright (JSON) |
-| Upload CLI | `@flakey/cli` (npm package) |
-| Snapshot plugin | `@flakey/cypress-snapshots` (npm package) |
+| Shared core | `@flakeytesting/core` (API client + schema) |
+| Upload CLI | `@flakeytesting/cli` (npm package, `packages/flakey-cli`) |
+| Cypress reporter | `@flakeytesting/cypress-reporter` (npm package) |
+| Playwright reporter | `@flakeytesting/playwright-reporter` (npm package) |
+| WebdriverIO reporter | `@flakeytesting/webdriverio-reporter` (npm package) |
+| Snapshot plugins | `@flakeytesting/cypress-snapshots`, `@flakeytesting/playwright-snapshots` |
 | Backend API | Node.js + Express |
 | Normalizer | Per-reporter parser -> unified schema |
 | Database | PostgreSQL 16 with Row-Level Security |
