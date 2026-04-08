@@ -80,10 +80,10 @@
 
 ## Phase 7 — CI/PR integration
 
-- [ ] GitHub PR status checks (pass/fail the PR based on test results)
-- [ ] GitHub PR comments with test result summary
-- [ ] GitLab merge request integration
-- [ ] Bitbucket PR integration
+- [x] GitHub PR status checks (pass/fail the PR based on test results)
+- [x] GitHub PR comments with test result summary
+- [x] GitLab merge request integration
+- [x] Bitbucket PR integration
 
 ## Phase 8 — Intelligent analysis
 

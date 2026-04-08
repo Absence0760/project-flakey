@@ -1,4 +1,4 @@
-import type { GitProvider, GitProviderConfig } from "./types.js";
+import type { GitProvider, GitProviderConfig, CommitStatusParams, CommitStatusState } from "./types.js";
 import { COMMENT_MARKER } from "./comment.js";
 
 export function createBitbucketProvider(config: GitProviderConfig): GitProvider {
@@ -53,6 +53,26 @@ export function createBitbucketProvider(config: GitProviderConfig): GitProvider 
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: { raw: body } }),
+      });
+    },
+
+    async postCommitStatus(params: CommitStatusParams) {
+      // Bitbucket uses SUCCESSFUL/FAILED/INPROGRESS
+      const stateMap: Record<CommitStatusState, string> = {
+        success: "SUCCESSFUL",
+        failure: "FAILED",
+        pending: "INPROGRESS",
+      };
+      await api(`/repositories/${repoPath}/commit/${params.commitSha}/statuses/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: stateMap[params.state],
+          key: params.context,
+          name: params.context,
+          url: params.targetUrl,
+          description: params.description,
+        }),
       });
     },
   };

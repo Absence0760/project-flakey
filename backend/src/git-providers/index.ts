@@ -32,7 +32,7 @@ function createProvider(config: GitProviderConfig): GitProvider {
 }
 
 /**
- * Post or update a PR/MR comment with test results.
+ * Post or update a PR/MR comment with test results, and set commit status.
  * Fires and forgets — errors are logged but don't affect the upload response.
  */
 export async function postPRComment(orgId: number, runId: number, run: NormalizedRun): Promise<void> {
@@ -44,6 +44,25 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
     if (!meta.commit_sha && !meta.branch) return;
 
     const provider = createProvider(config);
+    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+
+    // Post commit status check (independent of PR existence)
+    if (meta.commit_sha) {
+      const passRate = run.stats.total > 0 ? ((run.stats.passed / run.stats.total) * 100).toFixed(1) : "0";
+      try {
+        await provider.postCommitStatus({
+          commitSha: meta.commit_sha,
+          state: run.stats.failed > 0 ? "failure" : "success",
+          targetUrl: `${frontendUrl}/runs/${runId}`,
+          description: run.stats.failed > 0
+            ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
+            : `${run.stats.passed} passed (${passRate}%)`,
+          context: `flakey/${meta.suite_name}`,
+        });
+      } catch (err) {
+        console.error("Commit status error:", err);
+      }
+    }
 
     // Find the PR/MR
     let prId: number | null = null;
@@ -93,7 +112,6 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
       }
     }
 
-    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
     const commentBody = buildCommentBody(run, runId, frontendUrl, trend, flakyTests);
 
     // Post or update existing comment
