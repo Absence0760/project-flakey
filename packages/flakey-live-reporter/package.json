@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/live-reporter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight live test event reporter for Flakey — streams test progress in real-time",
   "type": "module",
   "main": "dist/index.js",
@@ -11,11 +11,19 @@
     "./webdriverio": "./dist/webdriverio.js",
     "./dist/*": "./dist/*"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc"
   },
-  "keywords": ["testing", "reporter", "live", "flakey", "real-time"],
+  "keywords": [
+    "testing",
+    "reporter",
+    "live",
+    "flakey",
+    "real-time"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared utilities for Flakey test reporting packages",
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,9 @@
     ".": "./dist/index.js",
     "./dist/*": "./dist/*"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc"
   },
