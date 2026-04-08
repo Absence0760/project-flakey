@@ -86,7 +86,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-core
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-core
@@ -103,7 +104,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-cli
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-cli
@@ -120,7 +122,10 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
+        working-directory: packages/flakey-core
+      - run: pnpm build
         working-directory: packages/flakey-cypress-reporter
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-cypress-reporter
@@ -137,7 +142,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-cypress-snapshots
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-cypress-snapshots
@@ -154,7 +160,12 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
+        working-directory: packages/flakey-core
+      - run: pnpm build
+        working-directory: packages/flakey-playwright-snapshots
+      - run: pnpm build
         working-directory: packages/flakey-playwright-reporter
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-playwright-reporter
@@ -171,7 +182,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-playwright-snapshots
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-playwright-snapshots
@@ -188,7 +200,10 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
+        working-directory: packages/flakey-core
+      - run: pnpm build
         working-directory: packages/flakey-webdriverio-reporter
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-webdriverio-reporter
@@ -205,7 +220,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-live-reporter
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-live-reporter
@@ -222,7 +238,8 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
-      - run: pnpm install && pnpm build
+      - run: pnpm install
+      - run: pnpm build
         working-directory: packages/flakey-mcp-server
       - run: pnpm publish --access public --no-git-checks
         working-directory: packages/flakey-mcp-server
