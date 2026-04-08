@@ -16,7 +16,7 @@
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
   let selectedStatus = $state("all");
-  let selectedDate = $state("all");
+  let selectedDate = $state("7d");
   let searchQuery = $state("");
 
   let savedViews = $state<SavedView[]>([]);
