@@ -1,7 +1,5 @@
 import { defineConfig } from "cypress";
-import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
-import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
-import { register as registerLive } from "@flakeytesting/live-reporter/dist/mocha.js";
+import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
 import { readFileSync, existsSync } from "fs";
 
 // Load .env file if it exists
@@ -35,18 +33,8 @@ export default defineConfig({
     supportFile: "cypress/support/e2e.ts",
     specPattern: specPatterns[suite] ?? "cypress/e2e/**/*.cy.ts",
     video: true,
-    setupNodeEvents(on, config) {
-      flakeyReporter(on, config);
-      flakeySnapshots(on, config);
-
-      // Live reporter — streams test progress in real-time
-      // Automatically creates a placeholder run so it appears in the dashboard immediately
-      registerLive(on, {
-        url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
-        apiKey: process.env.FLAKEY_API_KEY ?? "",
-        suite: `cypress-example-${suite}`,
-      });
-
+    async setupNodeEvents(on, config) {
+      await setupFlakey(on, config);
       return config;
     },
   },

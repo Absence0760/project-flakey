@@ -13,6 +13,7 @@
     "@bahmutov/cypress-esbuild-preprocessor": "latest",
     "@flakeytesting/cypress-reporter": "link:../../packages/flakey-cypress-reporter",
     "@flakeytesting/cypress-snapshots": "link:../../packages/flakey-cypress-snapshots",
+    "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
     "cypress": "latest",
     "esbuild": "latest",
     "typescript": "latest"

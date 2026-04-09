@@ -29,7 +29,13 @@
     "directory": "packages/flakey-cypress-reporter"
   },
   "peerDependencies": {
-    "cypress": ">=12.0.0"
+    "cypress": ">=12.0.0",
+    "@flakeytesting/cypress-snapshots": ">=0.1.0",
+    "@flakeytesting/live-reporter": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@flakeytesting/cypress-snapshots": { "optional": true },
+    "@flakeytesting/live-reporter": { "optional": true }
   },
   "dependencies": {
     "@flakeytesting/core": "workspace:*"

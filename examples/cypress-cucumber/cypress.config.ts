@@ -2,7 +2,7 @@ import { defineConfig } from "cypress";
 import createBundler from "@bahmutov/cypress-esbuild-preprocessor";
 import { addCucumberPreprocessorPlugin } from "@badeball/cypress-cucumber-preprocessor";
 import { createEsbuildPlugin } from "@badeball/cypress-cucumber-preprocessor/esbuild";
-import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
+import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
 import { readFileSync, existsSync } from "fs";
 
 // Load .env file if it exists
@@ -16,6 +16,12 @@ if (existsSync(".env")) {
 }
 
 export default defineConfig({
+  reporter: "@flakeytesting/cypress-reporter",
+  reporterOptions: {
+    url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+    apiKey: process.env.FLAKEY_API_KEY ?? "",
+    suite: "cypress-cucumber-example",
+  },
   e2e: {
     baseUrl: "http://localhost:4444",
     supportFile: "cypress/support/e2e.ts",
@@ -28,7 +34,7 @@ export default defineConfig({
         createBundler({ plugins: [createEsbuildPlugin(config)] }),
       );
 
-      flakeySnapshots(on, config);
+      await setupFlakey(on, config);
 
       return config;
     },
