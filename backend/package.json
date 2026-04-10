@@ -7,7 +7,8 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "seed": "tsx src/seed.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.85.0",

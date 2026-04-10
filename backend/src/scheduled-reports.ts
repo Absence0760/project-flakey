@@ -10,8 +10,24 @@ import { sendEmail } from "./email.js";
  *   - the current UTC hour >= hour_utc
  *   - it hasn't been sent today (daily) or this week on the correct day (weekly)
  */
+// Arbitrary stable int used as the advisory-lock key. Any 64-bit int works
+// as long as it doesn't collide with other advisory locks in the app.
+const SCHEDULED_REPORTS_LOCK_KEY = 0x666c616b79; // "flaky" (441_119_769_721, fits in JS Number safely)
+
 export async function runScheduledReports(): Promise<void> {
+  // Try to take a session-scoped advisory lock so only one backend replica at
+  // a time dispatches reports. If another replica is already running, exit
+  // quietly — it'll run again on the next tick.
+  const lockClient = await pool.connect();
   try {
+    const got = await lockClient.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [SCHEDULED_REPORTS_LOCK_KEY]
+    );
+    if (!got.rows[0]?.locked) {
+      return;
+    }
+
     const now = new Date();
     const currentHourUtc = now.getUTCHours();
     const currentDayOfWeek = now.getUTCDay();
@@ -42,6 +58,13 @@ export async function runScheduledReports(): Promise<void> {
     }
   } catch (err) {
     console.error("runScheduledReports error:", err);
+  } finally {
+    try {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [SCHEDULED_REPORTS_LOCK_KEY]);
+    } catch {
+      /* best effort */
+    }
+    lockClient.release();
   }
 }
 

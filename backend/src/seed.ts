@@ -701,6 +701,139 @@ async function seed() {
     }
     console.log(`Seeded ${numRuns} runs across ${suites.length} suites with screenshots.`);
     console.log(`Distribution: today=${counts.today}, yesterday=${counts.yesterday}, last7d=${counts.week}, last30d=${counts.month}, last6mo=${counts.sixMonths}, older=${counts.older}`);
+
+    // ─── Phase 9 / 10 sample data ─────────────────────────────────────────
+    // Manual tests, a release with checklist, coverage + a11y + visual diffs
+    // on recent runs, UI coverage with known-but-untested routes, and a
+    // scheduled report.
+
+    // Attach coverage, a11y, and a visual diff to the 3 most recent runs
+    const recentRuns = await client.query(
+      "SELECT id FROM runs WHERE org_id = $1 ORDER BY created_at DESC LIMIT 3",
+      [orgId]
+    );
+    for (const row of recentRuns.rows) {
+      const runId = row.id;
+      const lines = randomInt(65, 95) + Math.random();
+      await client.query(
+        `INSERT INTO coverage_reports
+          (org_id, run_id, lines_pct, branches_pct, functions_pct, statements_pct, lines_covered, lines_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (run_id) DO NOTHING`,
+        [orgId, runId, lines, lines - 5, lines + 2, lines, Math.round(lines * 50), 5000]
+      );
+
+      const crit = randomInt(0, 2);
+      const serious = randomInt(0, 4);
+      const moderate = randomInt(0, 6);
+      const minor = randomInt(0, 8);
+      const score = Math.max(0, 100 - (crit * 15 + serious * 8 + moderate * 4 + minor));
+      const violations = [
+        ...(crit > 0 ? [{ id: "label", impact: "critical", description: "Form element has no accessible name", helpUrl: "https://dequeuniversity.com/rules/axe/4/label" }] : []),
+        ...(serious > 0 ? [{ id: "color-contrast", impact: "serious", description: "Text contrast ratio below 4.5:1", helpUrl: "https://dequeuniversity.com/rules/axe/4/color-contrast" }] : []),
+        ...(moderate > 0 ? [{ id: "region", impact: "moderate", description: "All page content not in landmark", helpUrl: "https://dequeuniversity.com/rules/axe/4/region" }] : []),
+      ];
+      await client.query(
+        `INSERT INTO a11y_reports
+          (org_id, run_id, url, score, violations_count, violations,
+           passes_count, incomplete_count, critical_count, serious_count, moderate_count, minor_count)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [orgId, runId, "/", score, violations.length, JSON.stringify(violations), randomInt(40, 80), randomInt(0, 5), crit, serious, moderate, minor]
+      );
+
+      await client.query(
+        `INSERT INTO visual_diffs (org_id, run_id, name, diff_pct, status)
+         VALUES ($1,$2,'header banner',$3,'changed'),
+                ($1,$2,'footer links', 0, 'unchanged'),
+                ($1,$2,'sidebar nav', $4, 'approved')`,
+        [orgId, runId, (Math.random() * 2).toFixed(3), (Math.random() * 0.5).toFixed(3)]
+      );
+    }
+    console.log(`Seeded coverage, a11y and visual diffs on ${recentRuns.rows.length} recent runs.`);
+
+    // UI coverage: known routes (some visited, some not)
+    const knownRoutes = ["/", "/login", "/dashboard", "/runs", "/settings", "/errors", "/flaky", "/billing", "/admin/users", "/admin/audit-log"];
+    for (const r of knownRoutes) {
+      await client.query(
+        `INSERT INTO ui_known_routes (org_id, route_pattern, source) VALUES ($1,$2,'seed')
+         ON CONFLICT (org_id, route_pattern) DO NOTHING`,
+        [orgId, r]
+      );
+    }
+    // Mark first 7 as visited
+    for (const r of knownRoutes.slice(0, 7)) {
+      await client.query(
+        `INSERT INTO ui_coverage (org_id, suite_name, route_pattern, visit_count)
+         VALUES ($1,'regression',$2,$3)
+         ON CONFLICT (org_id, suite_name, route_pattern) DO UPDATE SET visit_count = EXCLUDED.visit_count`,
+        [orgId, r, randomInt(1, 15)]
+      );
+    }
+    console.log(`Seeded ${knownRoutes.length} known routes (7 visited, 3 untested).`);
+
+    // Manual tests — 5 with varied statuses
+    const manualTests = [
+      { title: "Verify PDF export of run report", suite: "regression", priority: "medium", status: "passed" },
+      { title: "Check 2FA login flow with authenticator app", suite: "auth", priority: "critical", status: "not_run" },
+      { title: "Confirm billing invoice email delivery", suite: "billing", priority: "high", status: "passed" },
+      { title: "Test screen reader navigation on dashboard", suite: "a11y", priority: "high", status: "failed" },
+      { title: "Verify bulk-delete of archived runs", suite: "regression", priority: "medium", status: "blocked" },
+    ];
+    for (const mt of manualTests) {
+      await client.query(
+        `INSERT INTO manual_tests
+          (org_id, suite_name, title, priority, status, steps, expected_result, created_by, last_run_at, last_run_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          orgId,
+          mt.suite,
+          mt.title,
+          mt.priority,
+          mt.status,
+          JSON.stringify([{ action: "Navigate to relevant page" }, { action: "Perform the action" }, { action: "Observe outcome" }]),
+          "Outcome matches expectation",
+          adminId,
+          mt.status === "not_run" ? null : new Date(now - randomInt(1, 7) * DAY_MS),
+          mt.status === "not_run" ? null : adminId,
+        ]
+      );
+    }
+    console.log(`Seeded ${manualTests.length} manual tests.`);
+
+    // Release with checklist
+    const releaseResult = await client.query(
+      `INSERT INTO releases (org_id, version, name, status, target_date, description, created_by)
+       VALUES ($1, 'v2.4.0', 'Q2 launch', 'in_progress', CURRENT_DATE + INTERVAL '14 days',
+               'Stability improvements, new dashboard widgets, and accessibility fixes.', $2)
+       RETURNING id`,
+      [orgId, adminId]
+    );
+    const releaseId = releaseResult.rows[0].id;
+    const checklist: Array<[string, boolean, boolean]> = [
+      ["All critical tests passing", true, true],
+      ["Manual regression test suite executed", true, true],
+      ["Release notes drafted", true, false],
+      ["Documentation updated", false, false],
+      ["Stakeholders notified", true, false],
+      ["Rollback plan prepared", true, true],
+    ];
+    for (let i = 0; i < checklist.length; i++) {
+      const [label, required, checked] = checklist[i];
+      await client.query(
+        `INSERT INTO release_checklist_items
+          (org_id, release_id, label, required, checked, checked_by, checked_at, position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [orgId, releaseId, label, required, checked, checked ? adminId : null, checked ? new Date() : null, i]
+      );
+    }
+    console.log(`Seeded release v2.4.0 with ${checklist.length} checklist items.`);
+
+    // Scheduled report
+    await client.query(
+      `INSERT INTO scheduled_reports (org_id, name, cadence, day_of_week, hour_utc, channel, destination, suite_filter)
+       VALUES ($1, 'Weekly regression digest', 'weekly', 1, 9, 'email', $2, 'regression')`,
+      [orgId, "qa-team@example.com"]
+    );
+    console.log(`Seeded 1 scheduled report.`);
   } finally {
     client.release();
     await pool.end();

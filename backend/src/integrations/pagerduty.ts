@@ -1,4 +1,5 @@
 import pool from "../db.js";
+import { decryptSecret } from "../crypto.js";
 import type { NormalizedRun } from "../types.js";
 
 export interface PagerDutyConfig {
@@ -17,7 +18,7 @@ async function getPagerDutyConfig(orgId: number): Promise<PagerDutyConfig | null
   if (!row?.pagerduty_integration_key) return null;
   const sev = (row.pagerduty_severity ?? "error") as PagerDutyConfig["severity"];
   return {
-    integrationKey: row.pagerduty_integration_key,
+    integrationKey: decryptSecret(row.pagerduty_integration_key)!,
     severity: ["critical", "error", "warning", "info"].includes(sev) ? sev : "error",
     autoTrigger: !!row.pagerduty_auto_trigger,
   };

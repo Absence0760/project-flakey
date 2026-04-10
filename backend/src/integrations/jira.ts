@@ -1,5 +1,6 @@
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
+import { decryptSecret } from "../crypto.js";
 import type { NormalizedRun } from "../types.js";
 
 export interface JiraConfig {
@@ -30,7 +31,7 @@ async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
   return {
     baseUrl: row.jira_base_url.replace(/\/+$/, ""),
     email: row.jira_email,
-    apiToken: row.jira_api_token,
+    apiToken: decryptSecret(row.jira_api_token)!,
     projectKey: row.jira_project_key,
     issueType: row.jira_issue_type ?? "Bug",
     autoCreate: !!row.jira_auto_create,

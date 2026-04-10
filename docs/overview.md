@@ -61,6 +61,23 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **Test history**: pass/fail timeline for individual tests across runs
 - **Compare runs**: side-by-side diff showing regressions, fixes, unchanged
 
+### Quality Metrics Beyond Pass/Fail
+- **Code coverage tracking**: upload Istanbul-style `coverage-summary.json` per run; see lines/branches/functions/statements percentages with color-coded bars on the run detail page
+- **PR coverage gating**: configurable minimum threshold that posts a pass/fail commit status on the PR (reuses the same git provider credentials as the PR comment integration)
+- **Accessibility testing**: upload axe-core results per run; automatically scored (100 − weighted impact deductions) with per-impact breakdown (critical/serious/moderate/minor) and expandable violations list
+- **Visual regression**: store baseline/current/diff image paths per screenshot with `pending | changed | approved | rejected | new | unchanged` workflow; reviewers can approve or reject directly from the run detail page
+- **UI coverage mapping**: track which routes/pages tests actually visit and compare against a known-routes inventory to surface untested pages and an overall coverage percentage
+
+### Manual & Release Management
+- **Manual test management**: a unified platform for tracking manual regression tests alongside automated ones — steps, expected results, priority, status, execution history, and optional linkage to automated test keys
+- **Release checklists with sign-off**: create releases with a default checklist (critical tests passing, regression suite executed, release notes, docs, stakeholder notification, rollback plan); mark required items, track who checked what, and enforce "all required items complete" before sign-off is allowed
+
+### Issue Tracking & Incident Integrations
+- **Jira integration**: opt-in auto-creation of Jira issues for new test failures, deduplicated by test fingerprint; or manually open a ticket for a specific failure from the error view
+- **PagerDuty integration**: fire Events API v2 incidents on run failure with configurable severity and per-suite dedup keys, so a flapping suite doesn't spam on-call
+- **Scheduled reports**: deliver daily or weekly test-summary digests via email, Slack, or generic webhook; filterable by suite; scheduler uses a Postgres advisory lock so multi-replica backends don't double-fire
+- **Secrets encryption at rest**: Jira API tokens and PagerDuty integration keys are encrypted with AES-256-GCM before being written to the database (key from `FLAKEY_ENCRYPTION_KEY`; gracefully falls back to plaintext in local dev if unset)
+
 ### AI-Powered Analysis
 - **Failure classification**: auto-categorize errors as product bug, automation bug, environment issue, etc.
 - **Error summaries**: AI-generated plain-English explanations with suggested fixes

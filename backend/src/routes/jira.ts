@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool, { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { createIssueForFingerprint, createJiraIssue } from "../integrations/jira.js";
+import { encryptSecret, decryptSecret } from "../crypto.js";
 
 const router = Router();
 
@@ -37,7 +38,7 @@ router.patch("/settings", async (req, res) => {
 
     if (base_url !== undefined) push("jira_base_url", base_url || null);
     if (email !== undefined) push("jira_email", email || null);
-    if (api_token !== undefined) push("jira_api_token", api_token || null);
+    if (api_token !== undefined) push("jira_api_token", api_token ? encryptSecret(api_token) : null);
     if (project_key !== undefined) push("jira_project_key", project_key || null);
     if (issue_type !== undefined) push("jira_issue_type", issue_type || "Bug");
     if (auto_create !== undefined) push("jira_auto_create", !!auto_create);
@@ -69,7 +70,8 @@ router.post("/test", async (req, res) => {
       res.status(400).json({ error: "Jira not configured" });
       return;
     }
-    const auth = "Basic " + Buffer.from(`${row.jira_email}:${row.jira_api_token}`).toString("base64");
+    const plainToken = decryptSecret(row.jira_api_token);
+    const auth = "Basic " + Buffer.from(`${row.jira_email}:${plainToken}`).toString("base64");
     const resp = await fetch(`${row.jira_base_url.replace(/\/+$/, "")}/rest/api/2/myself`, {
       headers: { Authorization: auth, Accept: "application/json" },
     });
@@ -122,7 +124,7 @@ router.post("/issues", async (req, res) => {
       {
         baseUrl: row.jira_base_url.replace(/\/+$/, ""),
         email: row.jira_email,
-        apiToken: row.jira_api_token,
+        apiToken: decryptSecret(row.jira_api_token)!,
         projectKey: row.jira_project_key,
         issueType: row.jira_issue_type ?? "Bug",
         autoCreate: false,

@@ -106,3 +106,4 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `019_rerun_command_template.sql` | Per-suite rerun command template on suite_overrides |
 | `020_performance_indexes.sql` | Composite indexes for multi-tenant query performance |
 | `021_default_retention.sql` | Default 7-day data retention policy |
+| `022_phase_9_10.sql` | Jira + PagerDuty integrations, scheduled reports, code coverage, accessibility reports, visual regression diffs, UI coverage mapping, manual test management, and release checklists |

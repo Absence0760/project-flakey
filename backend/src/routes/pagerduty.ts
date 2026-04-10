@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../db.js";
 import { logAudit } from "../audit.js";
 import { triggerPagerDutyEvent } from "../integrations/pagerduty.js";
+import { encryptSecret, decryptSecret } from "../crypto.js";
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.patch("/settings", async (req, res) => {
 
     if (integration_key !== undefined) {
       sets.push(`pagerduty_integration_key = $${i++}`);
-      params.push(integration_key || null);
+      params.push(integration_key ? encryptSecret(integration_key) : null);
     }
     if (severity !== undefined) {
       const sev = ["critical", "error", "warning", "info"].includes(severity) ? severity : "error";
@@ -83,7 +84,7 @@ router.post("/test", async (req, res) => {
       : "error";
 
     const out = await triggerPagerDutyEvent(
-      row.pagerduty_integration_key,
+      decryptSecret(row.pagerduty_integration_key)!,
       "Flakey test event from settings",
       sev,
       "flakey/test",

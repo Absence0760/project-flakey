@@ -244,5 +244,151 @@ async function uploadMultipart(payload: object, screenshots: string[], videos: s
   console.log(`Uploaded run #${(result as { id: number }).id} with artifacts to ${API_URL}`);
 }
 
-const opts = parseArgs();
-upload(opts);
+// ─── Subcommand dispatch ──────────────────────────────────────────────────
+// Usage:
+//   flakey-cli [upload] --suite X --report-dir Y ...    (backwards compatible)
+//   flakey-cli coverage --run-id 42 --file coverage-summary.json
+//   flakey-cli a11y     --run-id 42 --file axe-results.json [--url /]
+//   flakey-cli visual   --run-id 42 --file visual-manifest.json
+//   flakey-cli ui-coverage --suite X --file visits.json
+
+function parseSubArgs(args: string[]): Record<string, string> {
+  const opts: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--")) {
+      opts[args[i].slice(2)] = args[i + 1] ?? "";
+      i++;
+    }
+  }
+  return opts;
+}
+
+async function postJSON(path: string, body: unknown, apiKey: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(apiKey) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`POST ${path} failed (${res.status}): ${text}`);
+    process.exit(1);
+  }
+  const json = await res.json();
+  console.log(JSON.stringify(json, null, 2));
+}
+
+/** Normalize an Istanbul coverage-summary.json into the Flakey coverage schema. */
+function normalizeIstanbulSummary(report: any): {
+  lines_pct: number;
+  branches_pct: number;
+  functions_pct: number;
+  statements_pct: number;
+  lines_covered: number;
+  lines_total: number;
+} {
+  const total = report.total ?? report;
+  return {
+    lines_pct: Number(total.lines?.pct ?? 0),
+    branches_pct: Number(total.branches?.pct ?? 0),
+    functions_pct: Number(total.functions?.pct ?? 0),
+    statements_pct: Number(total.statements?.pct ?? 0),
+    lines_covered: Number(total.lines?.covered ?? 0),
+    lines_total: Number(total.lines?.total ?? 0),
+  };
+}
+
+async function uploadCoverage(args: string[]): Promise<void> {
+  const opts = parseSubArgs(args);
+  const runId = Number(opts["run-id"]);
+  const file = opts["file"];
+  const apiKey = opts["api-key"] ?? API_KEY;
+  if (!runId || !file) {
+    console.error("Usage: flakey-cli coverage --run-id <id> --file <coverage-summary.json>");
+    process.exit(1);
+  }
+  const raw = JSON.parse(readFileSync(resolve(file), "utf-8"));
+  const payload = { run_id: runId, ...normalizeIstanbulSummary(raw) };
+  await postJSON("/coverage", payload, apiKey);
+}
+
+async function uploadA11y(args: string[]): Promise<void> {
+  const opts = parseSubArgs(args);
+  const runId = Number(opts["run-id"]);
+  const file = opts["file"];
+  const url = opts["url"];
+  const apiKey = opts["api-key"] ?? API_KEY;
+  if (!runId || !file) {
+    console.error("Usage: flakey-cli a11y --run-id <id> --file <axe-results.json> [--url <path>]");
+    process.exit(1);
+  }
+  const raw = JSON.parse(readFileSync(resolve(file), "utf-8"));
+  // axe-core results have shape: { violations: [...], passes: [...], incomplete: [...], url?: string }
+  // Accept either a single result or an array — take the first.
+  const result = Array.isArray(raw) ? raw[0] : raw;
+  const payload = {
+    run_id: runId,
+    url: url ?? result.url ?? null,
+    violations: result.violations ?? [],
+    passes: result.passes?.length ?? 0,
+    incomplete: result.incomplete?.length ?? 0,
+  };
+  await postJSON("/a11y", payload, apiKey);
+}
+
+async function uploadVisual(args: string[]): Promise<void> {
+  const opts = parseSubArgs(args);
+  const runId = Number(opts["run-id"]);
+  const file = opts["file"];
+  const apiKey = opts["api-key"] ?? API_KEY;
+  if (!runId || !file) {
+    console.error("Usage: flakey-cli visual --run-id <id> --file <visual-manifest.json>");
+    console.error("Manifest format: { diffs: [{name,status,diff_pct,baseline_path,current_path,diff_path}] }");
+    process.exit(1);
+  }
+  const raw = JSON.parse(readFileSync(resolve(file), "utf-8"));
+  const diffs = Array.isArray(raw) ? raw : raw.diffs;
+  await postJSON("/visual", { run_id: runId, diffs }, apiKey);
+}
+
+async function uploadUiCoverage(args: string[]): Promise<void> {
+  const opts = parseSubArgs(args);
+  const suite = opts["suite"];
+  const file = opts["file"];
+  const runId = opts["run-id"] ? Number(opts["run-id"]) : null;
+  const apiKey = opts["api-key"] ?? API_KEY;
+  if (!suite || !file) {
+    console.error("Usage: flakey-cli ui-coverage --suite <name> --file <visits.json> [--run-id <id>]");
+    console.error("Visits file: [\"/route1\",\"/route2\"] or [{route_pattern:\"/x\"}]");
+    process.exit(1);
+  }
+  const visits = JSON.parse(readFileSync(resolve(file), "utf-8"));
+  await postJSON("/ui-coverage/visits", { suite_name: suite, run_id: runId, visits }, apiKey);
+}
+
+const argv = process.argv.slice(2);
+const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
+const rest = sub ? argv.slice(1) : argv;
+
+switch (sub) {
+  case "coverage":
+    uploadCoverage(rest);
+    break;
+  case "a11y":
+    uploadA11y(rest);
+    break;
+  case "visual":
+    uploadVisual(rest);
+    break;
+  case "ui-coverage":
+    uploadUiCoverage(rest);
+    break;
+  case "upload":
+  case null:
+    upload(parseArgs());
+    break;
+  default:
+    console.error(`Unknown subcommand: ${sub}`);
+    console.error("Available: upload, coverage, a11y, visual, ui-coverage");
+    process.exit(1);
+}
