@@ -155,10 +155,10 @@ npx tsx src/index.ts \
 | `docker compose up -d` | Start PostgreSQL |
 | `docker compose down` | Stop PostgreSQL |
 | `docker compose down -v` | Stop PostgreSQL and delete data |
-| `npm run dev` | Start backend + frontend |
-| `npm run dev:backend` | Start backend only |
-| `npm run dev:frontend` | Start frontend only |
-| `cd backend && npm run seed` | Seed sample data |
+| `pnpm run dev` | Start backend + frontend |
+| `pnpm run dev:backend` | Start backend only |
+| `pnpm run dev:frontend` | Start frontend only |
+| `cd backend && pnpm run seed` | Seed sample data |
 | `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [testing.md](testing.md)) |
 
 ## Environment variables

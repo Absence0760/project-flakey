@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import pool, { tenantQuery } from "./db.js";
 import { getStorage } from "./storage.js";
 
 export async function runRetentionCleanup(): Promise<void> {
@@ -12,9 +12,13 @@ export async function runRetentionCleanup(): Promise<void> {
       const days = Number(org.retention_days);
       if (!days || days <= 0) continue;
 
-      const runs = await pool.query(
-        "DELETE FROM runs WHERE org_id = $1 AND created_at < NOW() - ($2 || ' days')::INTERVAL RETURNING id",
-        [org.id, String(days)]
+      // `runs` has RLS; must run inside a tenant context so the
+      // current_setting('app.current_org_id')::int cast in the policy has a
+      // value to work with. Without it the cast blows up on an empty string.
+      const runs = await tenantQuery(
+        org.id,
+        "DELETE FROM runs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL RETURNING id",
+        [String(days)]
       );
 
       for (const run of runs.rows) {

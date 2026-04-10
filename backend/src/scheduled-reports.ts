@@ -32,28 +32,39 @@ export async function runScheduledReports(): Promise<void> {
     const currentHourUtc = now.getUTCHours();
     const currentDayOfWeek = now.getUTCDay();
 
-    // Find all due reports across all orgs (no RLS — system task).
-    const due = await pool.query(
-      `SELECT id, org_id, name, cadence, day_of_week, hour_utc, channel, destination,
-              suite_filter, last_sent_at
-       FROM scheduled_reports
-       WHERE active = true
-         AND hour_utc <= $1
-         AND (
-           (cadence = 'daily'  AND (last_sent_at IS NULL OR last_sent_at::date < CURRENT_DATE))
-           OR
-           (cadence = 'weekly' AND day_of_week = $2
-             AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days'))
-         )`,
-      [currentHourUtc, currentDayOfWeek]
-    );
+    // `scheduled_reports` is RLS-scoped, so we can't just SELECT across all
+    // orgs in one shot — the policy's current_setting('app.current_org_id')::int
+    // cast would fail on an empty string. Iterate orgs and run each query
+    // inside a tenant context instead.
+    const orgs = await pool.query("SELECT id FROM organizations");
+    for (const { id: orgId } of orgs.rows) {
+      const due = await tenantQuery(
+        orgId,
+        `SELECT id, org_id, name, cadence, day_of_week, hour_utc, channel, destination,
+                suite_filter, last_sent_at
+         FROM scheduled_reports
+         WHERE active = true
+           AND hour_utc <= $1
+           AND (
+             (cadence = 'daily'  AND (last_sent_at IS NULL OR last_sent_at::date < CURRENT_DATE))
+             OR
+             (cadence = 'weekly' AND day_of_week = $2
+               AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days'))
+           )`,
+        [currentHourUtc, currentDayOfWeek]
+      );
 
-    for (const r of due.rows) {
-      try {
-        await deliverReport(r);
-        await pool.query("UPDATE scheduled_reports SET last_sent_at = NOW() WHERE id = $1", [r.id]);
-      } catch (err) {
-        console.error(`Scheduled report ${r.id} failed:`, (err as Error).message);
+      for (const r of due.rows) {
+        try {
+          await deliverReport(r);
+          await tenantQuery(
+            orgId,
+            "UPDATE scheduled_reports SET last_sent_at = NOW() WHERE id = $1",
+            [r.id]
+          );
+        } catch (err) {
+          console.error(`Scheduled report ${r.id} failed:`, (err as Error).message);
+        }
       }
     }
   } catch (err) {

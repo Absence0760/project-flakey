@@ -122,8 +122,9 @@ Scheduler (internal, advisory-lock coordinated):
 - `POST/DELETE /ui-coverage/routes` — manage the known-routes inventory
 
 *Manual tests & releases (Phase 10):*
-- `GET/POST/PATCH/DELETE /manual-tests` — manage manual tests
-- `POST /manual-tests/:id/result` — record an execution outcome
+- `GET/POST/PATCH/DELETE /manual-tests` — manage manual tests. GET responses join against the latest matching automated test so imported Cucumber scenarios surface their real automation status. PATCH is rejected with `409` for `source='cucumber'` rows (edit the `.feature` file and re-import instead)
+- `POST /manual-tests/import-features` — bulk import `.feature` files as manual tests. Body: `{ files: [{path, content}] }`. Upserts by `(org_id, 'cucumber', source_ref)` where `source_ref = <path>::<scenario name>`, so re-imports are idempotent. Scenario Outlines are expanded per `Examples:` row
+- `POST /manual-tests/:id/result` — record an execution outcome (manual source only)
 - `GET /manual-tests/summary` — status breakdown counts
 - `GET/POST/PATCH/DELETE /releases` — manage releases
 - `POST /releases/:id/sign-off` — sign off a release (refuses unless all required checklist items are checked)
@@ -213,7 +214,13 @@ ui_known_routes  (id, org_id, route_pattern, label, source, created_at)
 -- Manual tests + releases (Phase 10, org-scoped via RLS)
 manual_tests (id, org_id, suite_name, title, description, steps, expected_result,
               priority, status, last_run_at, last_run_by, last_run_notes,
-              automated_test_key, tags, created_by, created_at, updated_at)
+              automated_test_key, tags, created_by, created_at, updated_at,
+              source, source_ref, source_file)
+-- source ∈ {'manual','cucumber'}. When 'cucumber', source_ref =
+-- '<file>::<scenario name>' is the idempotency key for re-imports and
+-- source_file is displayed in the UI "covered by automation" banner.
+-- A unique partial index on (org_id, source, source_ref) WHERE source_ref
+-- IS NOT NULL enforces upsert semantics for imported rows.
 
 releases (id, org_id, version, name, status, target_date, description,
           signed_off_by, signed_off_at, created_by, created_at, updated_at)

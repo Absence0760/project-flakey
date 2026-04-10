@@ -107,3 +107,4 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `020_performance_indexes.sql` | Composite indexes for multi-tenant query performance |
 | `021_default_retention.sql` | Default 7-day data retention policy |
 | `022_phase_9_10.sql` | Jira + PagerDuty integrations, scheduled reports, code coverage, accessibility reports, visual regression diffs, UI coverage mapping, manual test management, and release checklists |
+| `023_manual_test_sources.sql` | Adds `source`, `source_ref`, `source_file` columns to `manual_tests` so hand-authored and Cucumber-imported scenarios can coexist, with a unique partial index on `(org_id, source, source_ref)` enforcing idempotent re-imports |

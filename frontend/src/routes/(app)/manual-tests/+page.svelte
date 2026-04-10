@@ -18,11 +18,22 @@
 		automated_test_key: string | null;
 		tags: string[];
 		created_at: string;
+		source: 'manual' | 'cucumber';
+		source_ref: string | null;
+		source_file: string | null;
+		auto_last_status: 'passed' | 'failed' | 'skipped' | 'pending' | null;
+		auto_last_run_at: string | null;
+	}
+
+	interface StepResult {
+		status: 'passed' | 'failed' | 'blocked' | 'skipped';
+		comment: string;
 	}
 
 	interface ManualTestDetail extends ManualTest {
-		steps: Array<string | { action: string; expected?: string }>;
+		steps: Array<string | { action: string; data?: string; expected?: string }>;
 		expected_result: string | null;
+		last_step_results: StepResult[];
 	}
 
 	interface Summary { total: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; }
@@ -126,6 +137,100 @@
 	let runStatus = $state<'passed' | 'failed' | 'blocked' | 'skipped'>('passed');
 	let runNotes = $state('');
 
+	// Step-by-step runner state. `runMode` toggles the detail modal into an
+	// interactive runner; `stepRuns` is seeded with one entry per step when
+	// the runner opens and then edited row-by-row.
+	let runMode = $state(false);
+	let stepRuns = $state<StepResult[]>([]);
+
+	function startRunner() {
+		if (!selected) return;
+		const n = selected.steps?.length ?? 0;
+		stepRuns = Array.from({ length: n }, () => ({ status: 'passed' as const, comment: '' }));
+		runNotes = '';
+		runMode = true;
+	}
+
+	function cancelRunner() {
+		runMode = false;
+		stepRuns = [];
+	}
+
+	function setStepStatus(i: number, status: StepResult['status']) {
+		stepRuns = stepRuns.map((s, idx) => (idx === i ? { ...s, status } : s));
+	}
+
+	// Mirror the backend's deriveOverallStatus so the user sees the final
+	// result before clicking save.
+	const derivedOverall = $derived.by<'passed' | 'failed' | 'blocked' | 'skipped' | 'not_run'>(() => {
+		if (!stepRuns.length) return 'not_run';
+		if (stepRuns.some(s => s.status === 'failed')) return 'failed';
+		if (stepRuns.some(s => s.status === 'blocked')) return 'blocked';
+		if (stepRuns.every(s => s.status === 'skipped')) return 'skipped';
+		return 'passed';
+	});
+
+	// Auto-continue a markdown-style list when the user presses Enter on a
+	// line that already starts with "- " or "* ". Pressing Enter on an empty
+	// bullet cancels the list instead of making a new empty one.
+	function handleNotesKey(e: KeyboardEvent) {
+		if (e.key !== 'Enter' || e.shiftKey) return;
+		const ta = e.currentTarget as HTMLTextAreaElement;
+		const pos = ta.selectionStart;
+		const before = ta.value.slice(0, pos);
+		const lineStart = before.lastIndexOf('\n') + 1;
+		const line = before.slice(lineStart);
+		const match = line.match(/^(\s*)([-*])\s+(.*)$/);
+		if (!match) return;
+		const [, indent, bullet, rest] = match;
+		e.preventDefault();
+		if (rest.trim() === '') {
+			// Empty bullet → drop it and exit the list
+			const newValue = ta.value.slice(0, lineStart) + ta.value.slice(pos);
+			ta.value = newValue;
+			runNotes = newValue;
+			ta.selectionStart = ta.selectionEnd = lineStart;
+			return;
+		}
+		const insert = `\n${indent}${bullet} `;
+		const newValue = ta.value.slice(0, pos) + insert + ta.value.slice(pos);
+		ta.value = newValue;
+		runNotes = newValue;
+		ta.selectionStart = ta.selectionEnd = pos + insert.length;
+	}
+
+	// Close whichever modal is topmost on Esc. The runner lives inside the
+	// detail modal, so if the user is in the runner we back out of it first
+	// rather than nuking the whole modal.
+	function handleEsc(e: KeyboardEvent) {
+		if (e.key !== 'Escape') return;
+		if (showCreate) {
+			closeCreate();
+			e.preventDefault();
+			return;
+		}
+		if (selected) {
+			if (runMode) cancelRunner();
+			else selected = null;
+			e.preventDefault();
+		}
+	}
+
+	async function saveRunnerResult() {
+		if (!selected) return;
+		const res = await authFetch(`${API_URL}/manual-tests/${selected.id}/result`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ step_results: stepRuns, notes: runNotes || null }),
+		});
+		if (res.ok) {
+			runMode = false;
+			selected = null;
+			stepRuns = [];
+			await load();
+		}
+	}
+
 	onMount(load);
 
 	async function load() {
@@ -189,6 +294,8 @@
 			selected = await res.json();
 			runStatus = 'passed';
 			runNotes = '';
+			runMode = false;
+			stepRuns = [];
 		}
 	}
 
@@ -215,7 +322,60 @@
 	function statusClass(s: string) {
 		return `status status-${s.replace('_', '-')}`;
 	}
+
+	// ── Cucumber import ──────────────────────────────────────────────────
+	let importing = $state(false);
+	let importMessage = $state<string | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	function openImport() {
+		importMessage = null;
+		fileInput?.click();
+	}
+
+	async function onFilesPicked(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const list = target.files;
+		if (!list || list.length === 0) return;
+
+		importing = true;
+		importMessage = null;
+		try {
+			const files = await Promise.all(
+				Array.from(list).map(async (f) => ({
+					path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+					content: await f.text(),
+				}))
+			);
+			const res = await authFetch(`${API_URL}/manual-tests/import-features`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ files }),
+			});
+			if (!res.ok) {
+				importMessage = `Import failed: ${res.status}`;
+			} else {
+				const r = await res.json();
+				importMessage = `Imported ${r.scanned} scenarios (${r.created} new, ${r.updated} updated)`;
+				await load();
+			}
+		} catch (err) {
+			importMessage = `Import error: ${(err as Error).message}`;
+		} finally {
+			importing = false;
+			if (fileInput) fileInput.value = '';
+		}
+	}
+
+	function autoStatusLabel(s: string | null): string {
+		if (!s) return 'No automated run yet';
+		if (s === 'passed') return 'Automated run: passing';
+		if (s === 'failed') return 'Automated run: failing';
+		return `Automated run: ${s}`;
+	}
 </script>
+
+<svelte:window onkeydown={handleEsc} />
 
 <div class="page">
 	<header class="page-header">
@@ -223,8 +383,26 @@
 			<h1>Manual tests</h1>
 			<p class="subtitle">Manage and execute manual regression tests alongside your automated suite.</p>
 		</div>
-		<button class="btn-primary" onclick={openCreate}>+ New test</button>
+		<div class="header-actions">
+			<button class="btn-ghost" onclick={openImport} disabled={importing}>
+				{importing ? 'Importing…' : '⇪ Import .feature files'}
+			</button>
+			<button class="btn-primary" onclick={openCreate}>+ New test</button>
+		</div>
 	</header>
+
+	<input
+		bind:this={fileInput}
+		type="file"
+		accept=".feature"
+		multiple
+		style="display: none"
+		onchange={onFilesPicked}
+	/>
+
+	{#if importMessage}
+		<p class="import-toast">{importMessage}</p>
+	{/if}
 
 	{#if summary}
 		<section class="summary">
@@ -417,6 +595,7 @@
 				<tr>
 					<th>Title</th>
 					<th>Suite</th>
+					<th>Type</th>
 					<th>Priority</th>
 					<th>Status</th>
 					<th>Last run</th>
@@ -431,9 +610,39 @@
 							<a href="#" onclick={(e) => { e.preventDefault(); openTest(t.id); }}>{t.title}</a>
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
+						<td>
+							{#if t.source === 'cucumber'}
+								<span class="badge automated" title="Imported from {t.source_file}">
+									{#if t.auto_last_status === 'passed'}
+										<span class="dot pass"></span>
+									{:else if t.auto_last_status === 'failed'}
+										<span class="dot fail"></span>
+									{:else}
+										<span class="dot not-run"></span>
+									{/if}
+									Automated
+								</span>
+							{:else}
+								<span class="badge manual">Manual</span>
+							{/if}
+						</td>
 						<td><span class="priority priority-{t.priority}">{t.priority}</span></td>
-						<td><span class={statusClass(t.status)}>{t.status.replace('_', ' ')}</span></td>
-						<td>{t.last_run_at ? new Date(t.last_run_at).toLocaleString() : '—'}</td>
+						<td>
+							{#if t.source === 'cucumber'}
+								<span class={statusClass(t.auto_last_status ?? 'not_run')}>
+									{(t.auto_last_status ?? 'not run').replace('_', ' ')}
+								</span>
+							{:else}
+								<span class={statusClass(t.status)}>{t.status.replace('_', ' ')}</span>
+							{/if}
+						</td>
+						<td>
+							{#if t.source === 'cucumber'}
+								{t.auto_last_run_at ? new Date(t.auto_last_run_at).toLocaleString() : '—'}
+							{:else}
+								{t.last_run_at ? new Date(t.last_run_at).toLocaleString() : '—'}
+							{/if}
+						</td>
 						<td><button class="btn-ghost" onclick={() => deleteTest(t.id)}>✕</button></td>
 					</tr>
 				{/each}
@@ -452,57 +661,162 @@
 					<h2>{selected.title}</h2>
 					<button class="btn-ghost" onclick={() => (selected = null)}>✕</button>
 				</header>
+
+				{#if selected.source === 'cucumber'}
+					<div class="auto-banner" class:pass={selected.auto_last_status === 'passed'} class:fail={selected.auto_last_status === 'failed'}>
+						<strong>✓ Covered by automation.</strong>
+						You do not need to run this manually — it is executed on every CI run from
+						<code>{selected.source_file}</code>.
+						<div class="auto-banner-status">
+							{autoStatusLabel(selected.auto_last_status)}
+							{#if selected.auto_last_run_at}
+								· {new Date(selected.auto_last_run_at).toLocaleString()}
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 				{#if selected.description}
 					<p>{selected.description}</p>
 				{/if}
 				{#if selected.steps?.length}
-					<h3>Test steps</h3>
-					<table class="step-grid readonly">
-						<thead>
-							<tr>
-								<th class="col-num">#</th>
-								<th class="col-action">Action</th>
-								<th class="col-data">Data</th>
-								<th class="col-expected">Expected result</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each selected.steps as step, i}
-								{@const s = typeof step === 'string' ? { action: step, data: '', expected: '' } : { action: step.action ?? '', data: (step as { data?: string }).data ?? '', expected: step.expected ?? '' }}
+					<div class="steps-header">
+						<h3>Test steps</h3>
+						{#if selected.source !== 'cucumber' && !runMode}
+							<button class="btn-primary" onclick={startRunner}>▶ Run test</button>
+						{/if}
+					</div>
+
+					{#if runMode}
+						<table class="step-grid runner">
+							<thead>
 								<tr>
-									<td class="col-num">{i + 1}</td>
-									<td>{s.action || '—'}</td>
-									<td>{s.data || '—'}</td>
-									<td>{s.expected || '—'}</td>
+									<th class="col-num">#</th>
+									<th class="col-action">Action</th>
+									<th class="col-data">Data</th>
+									<th class="col-expected">Expected</th>
+									<th class="col-result">Result</th>
+									<th class="col-comment">Comment</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{#each selected.steps as step, i}
+									{@const s = typeof step === 'string' ? { action: step, data: '', expected: '' } : { action: step.action ?? '', data: (step as { data?: string }).data ?? '', expected: step.expected ?? '' }}
+									<tr class={`runner-row runner-${stepRuns[i]?.status}`}>
+										<td class="col-num">{i + 1}</td>
+										<td>{s.action || '—'}</td>
+										<td>{s.data || '—'}</td>
+										<td>{s.expected || '—'}</td>
+										<td class="col-result">
+											<div class="result-buttons">
+												{#each (['passed', 'failed', 'blocked', 'skipped'] as const) as opt}
+													<button
+														type="button"
+														class="result-btn result-{opt}"
+														class:active={stepRuns[i]?.status === opt}
+														onclick={() => setStepStatus(i, opt)}
+														title={opt}
+													>
+														{opt === 'passed' ? '✓' : opt === 'failed' ? '✕' : opt === 'blocked' ? '⊘' : '—'}
+													</button>
+												{/each}
+											</div>
+										</td>
+										<td class="col-comment">
+											<textarea
+												rows="3"
+												placeholder="Optional comment…"
+												bind:value={stepRuns[i].comment}
+											></textarea>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{:else}
+						<table class="step-grid readonly">
+							<thead>
+								<tr>
+									<th class="col-num">#</th>
+									<th class="col-action">Action</th>
+									<th class="col-data">Data</th>
+									<th class="col-expected">Expected result</th>
+									{#if selected.last_step_results?.length}
+										<th class="col-result">Last result</th>
+										<th class="col-comment">Comment</th>
+									{/if}
+								</tr>
+							</thead>
+							<tbody>
+								{#each selected.steps as step, i}
+									{@const s = typeof step === 'string' ? { action: step, data: '', expected: '' } : { action: step.action ?? '', data: (step as { data?: string }).data ?? '', expected: step.expected ?? '' }}
+									{@const sr = selected.last_step_results?.[i]}
+									<tr>
+										<td class="col-num">{i + 1}</td>
+										<td>{s.action || '—'}</td>
+										<td>{s.data || '—'}</td>
+										<td>{s.expected || '—'}</td>
+										{#if selected.last_step_results?.length}
+											<td class="col-result">
+												{#if sr}<span class={statusClass(sr.status)}>{sr.status}</span>{:else}—{/if}
+											</td>
+											<td class="col-comment">{sr?.comment || '—'}</td>
+										{/if}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
 				{/if}
+
 				{#if selected.expected_result}
 					<h3>Overall expected result</h3>
 					<p>{selected.expected_result}</p>
 				{/if}
-				{#if selected.last_run_at}
+				{#if selected.last_run_at && !runMode}
 					<p class="dim">
 						Last run: <span class={statusClass(selected.status)}>{selected.status.replace('_', ' ')}</span>
 						by {selected.last_run_by_email ?? '—'} at {new Date(selected.last_run_at).toLocaleString()}
 					</p>
 				{/if}
 
-				<h3>Record result</h3>
-				<label>Status
-					<select bind:value={runStatus}>
-						<option value="passed">Passed</option>
-						<option value="failed">Failed</option>
-						<option value="blocked">Blocked</option>
-						<option value="skipped">Skipped</option>
-					</select>
+				{#if runMode}
+					<label class="notes-label">
+					Notes
+					<textarea
+						class="notes-area"
+						bind:value={runNotes}
+						onkeydown={handleNotesKey}
+						rows="8"
+						placeholder={"Overall notes — bullet lists auto-continue on Enter:\n- first observation\n- second observation"}
+					></textarea>
 				</label>
-				<label>Notes <textarea bind:value={runNotes} rows="3"></textarea></label>
-				<div class="actions">
-					<button class="btn-primary" onclick={recordResult}>Save result</button>
-				</div>
+					<div class="runner-footer">
+						<div class="derived">
+							Overall: <span class={statusClass(derivedOverall)}>{derivedOverall.replace('_', ' ')}</span>
+						</div>
+						<div class="actions">
+							<button class="btn-ghost" onclick={cancelRunner}>Cancel</button>
+							<button class="btn-primary" onclick={saveRunnerResult}>Save run</button>
+						</div>
+					</div>
+				{:else if selected.source !== 'cucumber'}
+					<details class="quick-result">
+						<summary>Record result without running</summary>
+						<label>Status
+							<select bind:value={runStatus}>
+								<option value="passed">Passed</option>
+								<option value="failed">Failed</option>
+								<option value="blocked">Blocked</option>
+								<option value="skipped">Skipped</option>
+							</select>
+						</label>
+						<label>Notes <textarea bind:value={runNotes} rows="3"></textarea></label>
+						<div class="actions">
+							<button class="btn-primary" onclick={recordResult}>Save result</button>
+						</div>
+					</details>
+				{/if}
 			</div>
 		</div>
 	{/if}
@@ -746,12 +1060,144 @@
 	.status-not-run { background: #e5e7eb; color: #4b5563; }
 	.empty, .error { padding: 2rem; text-align: center; color: var(--text-muted); }
 	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 300; }
-	.modal { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; width: min(600px, 90vw); max-height: 85vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+	.modal {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 1.5rem 1.75rem;
+		width: min(1100px, 95vw);
+		max-height: 92vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		box-sizing: border-box;
+	}
 	.modal header { display: flex; justify-content: space-between; align-items: center; }
 	.modal h2 { margin: 0; }
 	.modal h3 { margin: 0.5rem 0 0.25rem; font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); }
 	.steps { margin: 0; padding-left: 1.25rem; }
-	.modal label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--text-muted); }
-	.modal input, .modal textarea, .modal select { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.88rem; }
+	.modal label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		width: 100%;
+	}
+	.modal input, .modal textarea, .modal select {
+		padding: 0.55rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--text);
+		font-size: 0.92rem;
+		font-family: inherit;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.modal textarea { min-height: 4.5rem; resize: vertical; }
 	.dim { color: var(--text-muted); font-size: 0.8rem; }
+	.header-actions { display: flex; gap: 0.5rem; align-items: center; }
+	.import-toast {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+		margin: 0 0 0.75rem;
+		font-size: 0.82rem;
+		color: var(--text);
+	}
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.7rem;
+		padding: 0.15rem 0.5rem;
+		border-radius: 4px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.badge.manual    { background: #e5e7eb; color: #4b5563; }
+	.badge.automated { background: #dbeafe; color: #1e40af; }
+	.auto-banner {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		color: #1e3a8a;
+		border-radius: 6px;
+		padding: 0.6rem 0.8rem;
+		font-size: 0.82rem;
+		line-height: 1.4;
+	}
+	.auto-banner.pass { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+	.auto-banner.fail { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+	.auto-banner code {
+		background: rgba(0, 0, 0, 0.05);
+		padding: 0.05rem 0.3rem;
+		border-radius: 3px;
+		font-size: 0.78rem;
+	}
+	.auto-banner-status {
+		margin-top: 0.3rem;
+		font-size: 0.75rem;
+		opacity: 0.85;
+	}
+
+	/* ── Step-by-step runner ──────────────────────────────────────────── */
+	.steps-header { display: flex; justify-content: space-between; align-items: center; }
+	.steps-header h3 { margin: 1rem 0 0.5rem; }
+	.step-grid.runner .col-result { width: 160px; }
+	.step-grid.runner .col-comment { min-width: 340px; }
+	.step-grid.runner .col-comment textarea {
+		width: 100%;
+		min-height: 4.5rem;
+		padding: 0.5rem 0.65rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--bg);
+		color: var(--text);
+		font-family: inherit;
+		font-size: 0.88rem;
+		resize: vertical;
+		box-sizing: border-box;
+	}
+	.result-buttons { display: flex; gap: 0.25rem; }
+	.result-btn {
+		width: 28px; height: 28px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--bg);
+		color: var(--text-muted);
+		font-weight: 700;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.result-btn:hover { border-color: var(--text-muted); }
+	.result-btn.active.result-passed  { background: #16a34a; border-color: #16a34a; color: #fff; }
+	.result-btn.active.result-failed  { background: #dc2626; border-color: #dc2626; color: #fff; }
+	.result-btn.active.result-blocked { background: #d97706; border-color: #d97706; color: #fff; }
+	.result-btn.active.result-skipped { background: #6b7280; border-color: #6b7280; color: #fff; }
+	.runner-row.runner-failed  td { background: rgba(220, 38, 38, 0.06); }
+	.runner-row.runner-blocked td { background: rgba(217, 119, 6, 0.06); }
+	.runner-row.runner-skipped td { background: rgba(107, 114, 128, 0.06); }
+	.runner-footer {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		margin-top: 0.75rem;
+	}
+	.runner-footer .derived { font-size: 0.88rem; color: var(--text-muted); }
+	.notes-area {
+		min-height: 10rem;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		font-size: 0.88rem;
+		line-height: 1.45;
+	}
+	.quick-result { margin-top: 1rem; }
+	.quick-result summary { cursor: pointer; font-size: 0.85rem; color: var(--text-muted); }
+	.quick-result summary:hover { color: var(--text); }
 </style>
