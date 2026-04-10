@@ -17,7 +17,7 @@ export interface JiraIssueResult {
   url: string;
 }
 
-async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
+export async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
   const result = await pool.query(
     `SELECT jira_base_url, jira_email, jira_api_token, jira_project_key,
             jira_issue_type, jira_auto_create
@@ -158,6 +158,130 @@ export async function autoCreateIssuesForRun(
   } catch (err) {
     console.error("autoCreateIssuesForRun error:", err);
   }
+}
+
+// ── Version / release APIs ───────────────────────────────────────────────
+
+export interface JiraVersion {
+  id: string;
+  name: string;
+  description?: string;
+  released: boolean;
+  archived: boolean;
+  releaseDate?: string;
+  startDate?: string;
+  overdue?: boolean;
+  projectId?: number;
+}
+
+export interface JiraVersionIssueCounts {
+  issuesAffectedCount: number;
+  issuesFixedCount: number;
+  issueCountWithCustomFieldsShowingVersion?: number;
+}
+
+export interface JiraIssueSummary {
+  key: string;
+  url: string;
+  summary: string;
+  status: string;
+  statusCategory: string;
+  assignee: string | null;
+}
+
+/**
+ * Fetch every version for the configured Jira project. Sorted by Jira's own
+ * order (typically newest last). Throws on HTTP errors.
+ */
+export async function fetchProjectVersions(cfg: JiraConfig): Promise<JiraVersion[]> {
+  const res = await fetch(
+    `${cfg.baseUrl}/rest/api/2/project/${encodeURIComponent(cfg.projectKey)}/versions`,
+    {
+      headers: { Authorization: authHeader(cfg), Accept: "application/json" },
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Jira versions fetch failed: ${res.status} ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as JiraVersion[];
+}
+
+/**
+ * Case-insensitive name match against the project's version list. Returns
+ * null when nothing matches so callers can fall back to prompting the user.
+ */
+export async function findVersionByName(
+  cfg: JiraConfig,
+  name: string
+): Promise<JiraVersion | null> {
+  const versions = await fetchProjectVersions(cfg);
+  const needle = name.trim().toLowerCase();
+  return versions.find((v) => v.name.trim().toLowerCase() === needle) ?? null;
+}
+
+export async function fetchVersionIssueCounts(
+  cfg: JiraConfig,
+  versionId: string
+): Promise<JiraVersionIssueCounts> {
+  const res = await fetch(
+    `${cfg.baseUrl}/rest/api/2/version/${encodeURIComponent(versionId)}/relatedIssueCounts`,
+    { headers: { Authorization: authHeader(cfg), Accept: "application/json" } }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Jira counts fetch failed: ${res.status} ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as JiraVersionIssueCounts;
+}
+
+/**
+ * Issues with the given fixVersion, ordered so unresolved show first. We
+ * cap at `limit` so the readiness panel stays snappy.
+ */
+export async function fetchIssuesForVersion(
+  cfg: JiraConfig,
+  versionName: string,
+  limit = 25
+): Promise<JiraIssueSummary[]> {
+  // Escape double quotes in the version name for JQL safety.
+  const safeName = versionName.replace(/"/g, '\\"');
+  const jql = `project = "${cfg.projectKey}" AND fixVersion = "${safeName}" ORDER BY resolution ASC, updated DESC`;
+  const res = await fetch(`${cfg.baseUrl}/rest/api/2/search`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(cfg),
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      jql,
+      maxResults: limit,
+      fields: ["summary", "status", "assignee"],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Jira search failed: ${res.status} ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    issues: Array<{
+      key: string;
+      fields: {
+        summary: string;
+        status: { name: string; statusCategory: { key: string } };
+        assignee: { displayName: string } | null;
+      };
+    }>;
+  };
+  return data.issues.map((i) => ({
+    key: i.key,
+    url: `${cfg.baseUrl}/browse/${i.key}`,
+    summary: i.fields.summary,
+    status: i.fields.status?.name ?? "Unknown",
+    statusCategory: i.fields.status?.statusCategory?.key ?? "new",
+    assignee: i.fields.assignee?.displayName ?? null,
+  }));
 }
 
 function hashString(s: string): string {
