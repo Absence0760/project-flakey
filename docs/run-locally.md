@@ -20,13 +20,13 @@ This starts PostgreSQL on port 5432 and runs all migrations in `backend/migratio
 
 ```bash
 # Backend
-cd backend && npm install
+cd backend && pnpm install
 
 # Frontend
 cd frontend && pnpm install
 
 # CLI (optional, for uploading results)
-cd cli && npm install
+cd cli && pnpm install
 ```
 
 ### 3. Set up environment variables
@@ -47,7 +47,7 @@ The defaults work for local development. No changes needed unless you're using n
 ### 4. Seed sample data (optional)
 
 ```bash
-cd backend && npm run seed
+cd backend && pnpm run seed
 ```
 
 This creates:

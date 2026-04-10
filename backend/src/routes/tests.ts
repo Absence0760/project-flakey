@@ -164,4 +164,85 @@ router.get("/slowest/list", async (req, res) => {
   }
 });
 
+// GET /tests/search/list — search for automated tests to link to manual tests.
+//
+// Returns up to `limit` distinct (file_path, full_title) pairs matching `q`,
+// ranked by most-recently-seen. Each result includes the latest known status
+// and run id so the caller can show whether the automated counterpart is
+// currently passing.
+//
+// ?mode=files returns distinct spec file paths instead of individual tests,
+// for users who want to link a manual test to an entire spec rather than
+// one specific test within it.
+router.get("/search/list", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+    const q = ((req.query.q as string) ?? "").trim();
+    const mode = (req.query.mode as string) === "files" ? "files" : "tests";
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+
+    if (q.length < 2) {
+      res.json([]);
+      return;
+    }
+
+    const pattern = `%${q}%`;
+
+    if (mode === "files") {
+      const result = await tenantQuery(
+        orgId,
+        `SELECT
+           s.file_path,
+           r.suite_name,
+           COUNT(DISTINCT t.full_title)::int AS test_count,
+           MAX(r.created_at) AS last_run_at
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs  r ON r.id = s.run_id
+         WHERE s.file_path ILIKE $1
+         GROUP BY s.file_path, r.suite_name
+         ORDER BY last_run_at DESC
+         LIMIT $2`,
+        [pattern, limit]
+      );
+      res.json(result.rows);
+      return;
+    }
+
+    // mode === "tests": distinct (file_path, full_title) with most-recent status
+    const result = await tenantQuery(
+      orgId,
+      `WITH latest AS (
+         SELECT
+           s.file_path,
+           t.full_title,
+           r.suite_name,
+           t.status,
+           t.id     AS test_id,
+           r.id     AS run_id,
+           r.created_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY s.file_path, t.full_title
+             ORDER BY r.created_at DESC
+           ) AS rn
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs  r ON r.id = s.run_id
+         WHERE t.full_title ILIKE $1 OR s.file_path ILIKE $1
+       )
+       SELECT file_path, full_title, suite_name, status, test_id, run_id, created_at AS last_run_at
+       FROM latest
+       WHERE rn = 1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [pattern, limit]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /tests/search/list error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
