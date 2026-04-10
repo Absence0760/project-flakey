@@ -6,6 +6,8 @@ import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
+import { autoCreateIssuesForRun } from "../integrations/jira.js";
+import { maybeTriggerPagerDutyForRun } from "../integrations/pagerduty.js";
 import { getStorage } from "../storage.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
@@ -156,6 +158,8 @@ router.post("/", uploadFields, async (req, res) => {
 
     dispatchRunFailed(req.user!.orgId, runId!, run);
     postPRComment(req.user!.orgId, runId!, run);
+    autoCreateIssuesForRun(req.user!.orgId, runId!, run);
+    maybeTriggerPagerDutyForRun(req.user!.orgId, runId!, run);
 
     res.status(merged ? 200 : 201).json({ id: runId!, merged });
   } catch (err) {

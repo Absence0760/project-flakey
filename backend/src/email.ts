@@ -13,6 +13,14 @@ const transporter = nodemailer.createTransport({
 
 const FROM = process.env.EMAIL_FROM ?? "Flakey <noreply@flakey.dev>";
 
+/**
+ * Generic email sender used by the scheduled-reports dispatcher and any other
+ * system-initiated notifications.
+ */
+export async function sendEmail(opts: { to: string; subject: string; text: string; html?: string }): Promise<void> {
+  await transporter.sendMail({ from: FROM, ...opts });
+}
+
 export async function sendVerificationEmail(to: string, token: string): Promise<void> {
   const url = `${FRONTEND_URL}/verify-email/${token}`;
   await transporter.sendMail({
