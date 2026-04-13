@@ -1,0 +1,7 @@
+{
+  "name": "Flakey CI",
+  "values": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "enabled": true },
+    { "key": "apiKey", "value": "", "enabled": true }
+  ]
+}

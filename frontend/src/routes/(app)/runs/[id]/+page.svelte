@@ -5,6 +5,7 @@
   import { getAuth } from "$lib/auth";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import RunExtras from "$lib/components/RunExtras.svelte";
 
   const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
@@ -499,6 +500,9 @@
     <div class="run-notes">
       <NotesPanel targetType="run" targetKey={String(run.id)} compact />
     </div>
+
+    <!-- Coverage / a11y / visual extras -->
+    <RunExtras runId={run.id} />
 
     <!-- Live event feed -->
     {#if liveEvents.length > 0}

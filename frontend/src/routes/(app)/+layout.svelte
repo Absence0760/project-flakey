@@ -11,6 +11,8 @@
 		{ href: '/flaky', label: 'Flaky', icon: '⚡' },
 		{ href: '/slowest', label: 'Slowest', icon: '◷' },
 		{ href: '/errors', label: 'Errors', icon: '✗' },
+		{ href: '/manual-tests', label: 'Manual tests', icon: '☐' },
+		{ href: '/releases', label: 'Releases', icon: '⬢' },
 		{ href: '/settings', label: 'Settings', icon: '⚙' },
 	];
 
@@ -82,7 +84,7 @@
 	}
 
 	function isActive(href: string, pathname: string): boolean {
-		if (href === '/') return pathname === '/' || pathname.startsWith('/runs');
+		if (href === '/') return pathname === '/' || /^\/runs(\/|$)/.test(pathname);
 		if (href === '/dashboard') return pathname === '/dashboard';
 		return pathname.startsWith(href);
 	}

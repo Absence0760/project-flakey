@@ -22,9 +22,19 @@ import quarantineRouter from "./routes/quarantine.js";
 import predictRouter from "./routes/predict.js";
 import connectivityRouter from "./routes/connectivity.js";
 import liveRouter from "./routes/live.js";
+import jiraRouter from "./routes/jira.js";
+import pagerdutyRouter from "./routes/pagerduty.js";
+import reportsRouter from "./routes/reports.js";
+import coverageRouter from "./routes/coverage.js";
+import a11yRouter from "./routes/a11y.js";
+import visualRouter from "./routes/visual.js";
+import uiCoverageRouter from "./routes/ui-coverage.js";
+import manualTestsRouter from "./routes/manual-tests.js";
+import releasesRouter from "./routes/releases.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
+import { runScheduledReports } from "./scheduled-reports.js";
 import { getStorage } from "./storage.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
@@ -119,6 +129,15 @@ app.use("/analyze", requireAuth, analyzeRouter);
 app.use("/quarantine", requireAuth, quarantineRouter);
 app.use("/predict", requireAuth, predictRouter);
 app.use("/connectivity", requireAuth, connectivityRouter);
+app.use("/jira", requireAuth, jiraRouter);
+app.use("/pagerduty", requireAuth, pagerdutyRouter);
+app.use("/reports", requireAuth, reportsRouter);
+app.use("/coverage", requireAuth, coverageRouter);
+app.use("/a11y", requireAuth, a11yRouter);
+app.use("/visual", requireAuth, visualRouter);
+app.use("/ui-coverage", requireAuth, uiCoverageRouter);
+app.use("/manual-tests", requireAuth, manualTestsRouter);
+app.use("/releases", requireAuth, releasesRouter);
 // Live events — POST requires normal auth, GET stream accepts token as query param (for EventSource)
 app.use("/live", (req, res, next) => {
   if (req.query.token && !req.headers.authorization) {
@@ -134,4 +153,8 @@ app.listen(PORT, () => {
   // Run retention cleanup daily
   setTimeout(runRetentionCleanup, 10000);
   setInterval(runRetentionCleanup, 24 * 60 * 60 * 1000);
+
+  // Scheduled reports — check every 30 minutes
+  setTimeout(runScheduledReports, 20000);
+  setInterval(runScheduledReports, 30 * 60 * 1000);
 });

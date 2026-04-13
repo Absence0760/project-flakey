@@ -309,6 +309,14 @@
 <div class="page">
   <h1 class="page-title">Settings</h1>
 
+  <p class="settings-links">
+    <a href="/settings/integrations">Integrations &amp; automation →</a>
+    <span class="settings-links-sep">·</span>
+    <a href="/releases">Releases →</a>
+    <span class="settings-links-sep">·</span>
+    <a href="/manual-tests">Manual tests →</a>
+  </p>
+
   <!-- ═══ Connections ═══ -->
   <h2 class="section-heading">Connections</h2>
 
@@ -680,7 +688,12 @@
 <style>
   .page { max-width: 1100px; padding: 2rem; }
 
-  .page-title { font-size: 1.35rem; font-weight: 700; margin: 0 0 1.5rem; }
+  .page-title { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.5rem; }
+
+  .settings-links { margin: 0 0 1.25rem; font-size: 0.85rem; color: var(--text-muted); }
+  .settings-links a { color: var(--link); text-decoration: none; margin-right: 0.25rem; }
+  .settings-links a:hover { text-decoration: underline; }
+  .settings-links-sep { margin: 0 0.35rem; }
 
   .section-heading {
     font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
@@ -850,7 +863,7 @@
   .wh-events { display: flex; gap: 0.25rem; flex-shrink: 0; }
 
   /* Audit */
-  .audit-list { display: flex; flex-direction: column; }
+  .audit-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
   .audit-row {
     display: flex; align-items: baseline; gap: 0.75rem; padding: 0.4rem 0;
     border-top: 1px solid var(--border-light); font-size: 0.8rem;

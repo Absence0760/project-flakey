@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import pool, { tenantQuery } from "./db.js";
 import { getStorage } from "./storage.js";
 
 export async function runRetentionCleanup(): Promise<void> {
@@ -9,9 +9,16 @@ export async function runRetentionCleanup(): Promise<void> {
     );
 
     for (const org of orgs.rows) {
-      const runs = await pool.query(
-        "DELETE FROM runs WHERE org_id = $1 AND created_at < NOW() - ($2 || ' days')::INTERVAL RETURNING id",
-        [org.id, String(org.retention_days)]
+      const days = Number(org.retention_days);
+      if (!days || days <= 0) continue;
+
+      // `runs` has RLS; must run inside a tenant context so the
+      // current_setting('app.current_org_id')::int cast in the policy has a
+      // value to work with. Without it the cast blows up on an empty string.
+      const runs = await tenantQuery(
+        org.id,
+        "DELETE FROM runs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL RETURNING id",
+        [String(days)]
       );
 
       for (const run of runs.rows) {
@@ -21,6 +28,13 @@ export async function runRetentionCleanup(): Promise<void> {
       if (runs.rows.length > 0) {
         console.log(`Retention: deleted ${runs.rows.length} run(s) older than ${org.retention_days}d for org ${org.id}`);
       }
+    }
+    // Clean up expired org invites
+    const invites = await pool.query(
+      "DELETE FROM org_invites WHERE expires_at < NOW()"
+    );
+    if (invites.rowCount && invites.rowCount > 0) {
+      console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
     }
   } catch (err) {
     console.error("Retention cleanup error:", err);

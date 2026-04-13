@@ -594,6 +594,114 @@ The live reporter creates a placeholder run immediately so it appears in the das
 
 ---
 
+## Uploading quality metrics
+
+In addition to the run upload, the CLI and backend support uploading code
+coverage, accessibility scans, visual regression diffs, and UI coverage
+visits. Each metric is tied to an existing `run_id`, which you can capture
+from the response of `POST /runs` or `POST /runs/upload`.
+
+### Code coverage
+
+Point the CLI at an Istanbul `coverage-summary.json` (produced by `nyc`,
+`c8`, `jest --coverage`, or Cypress `@cypress/code-coverage`):
+
+```bash
+npx flakey-cli coverage --run-id 42 --file coverage/coverage-summary.json
+```
+
+The uploader reads the `total` object and stores the lines/branches/
+functions/statements percentages plus covered/total line counts. If the
+org has coverage gating enabled (Settings → Integrations), the backend
+will post a pass/fail commit status to the PR via the configured git
+provider.
+
+### Accessibility (axe-core)
+
+Dump axe-core results to JSON from any Cypress, Playwright, or Selenium
+test and upload them against the run:
+
+```bash
+npx flakey-cli a11y --run-id 42 --file axe-results.json --url /
+```
+
+Expected JSON shape is the native axe-core output:
+
+```json
+{
+  "url": "/",
+  "violations": [
+    { "id": "label", "impact": "critical", "description": "...", "helpUrl": "..." }
+  ],
+  "passes":    [ /* ... */ ],
+  "incomplete":[ /* ... */ ]
+}
+```
+
+The backend computes a score automatically using a weighted impact
+penalty: `100 − (critical×15 + serious×8 + moderate×4 + minor×1)`.
+
+### Visual regression
+
+Point the CLI at a manifest file that lists each screenshot comparison:
+
+```bash
+npx flakey-cli visual --run-id 42 --file visual-manifest.json
+```
+
+Manifest format (either a raw array or a `{diffs: [...]}` wrapper):
+
+```json
+{
+  "diffs": [
+    {
+      "name": "header-banner",
+      "status": "changed",
+      "diff_pct": 0.84,
+      "baseline_path": "runs/42/visual/header-banner.baseline.png",
+      "current_path":  "runs/42/visual/header-banner.current.png",
+      "diff_path":     "runs/42/visual/header-banner.diff.png"
+    },
+    { "name": "footer-links", "status": "unchanged", "diff_pct": 0 }
+  ]
+}
+```
+
+Valid statuses: `pending`, `changed`, `new`, `unchanged`, `approved`,
+`rejected`. Image paths should be relative to the artifact storage
+root (same conventions as screenshots in the main upload). Reviewers can
+approve or reject changed diffs inline from the run detail page.
+
+### UI coverage
+
+Track which routes your tests actually visit. The CLI accepts either a
+simple list of strings or an array of `{route_pattern}` objects:
+
+```bash
+npx flakey-cli ui-coverage --suite my-e2e --file visits.json --run-id 42
+```
+
+```json
+["/login", "/dashboard", "/runs", "/settings"]
+```
+
+To see untested pages, populate the "known routes" inventory once via the
+API (typically from a CI job that scans your SvelteKit / Next.js / Rails
+route tree):
+
+```bash
+curl -X POST http://localhost:3000/ui-coverage/routes \
+  -H "Authorization: Bearer $FLAKEY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"routes": ["/","/login","/dashboard","/admin/users","/admin/audit-log"]}'
+```
+
+Then `GET /ui-coverage/summary` returns the overall coverage percentage and
+`GET /ui-coverage/untested` lists routes that exist in the inventory but
+have never been visited by a test.
+
+---
+
 ## Auto-Cancellation
 
 CI workers can check the failure count mid-run and exit early:

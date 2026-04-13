@@ -1,0 +1,17 @@
+{
+  "name": "@flakeytesting/example-zap",
+  "private": true,
+  "type": "module",
+  "comments": {
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/cli\": \"latest\"",
+    "zap": "OWASP ZAP must be installed locally or run via Docker. See https://www.zaproxy.org/docs/docker/"
+  },
+  "scripts": {
+    "test:api": "docker run --rm -v $(pwd):/zap/wrk ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py -t $TARGET_URL -f openapi -J /zap/wrk/zap-report.json -x /zap/wrk/zap-report.xml -c /zap/wrk/rules.tsv || true; node scripts/convert.js; node scripts/upload.js api",
+    "test:all": "pnpm test:api"
+  },
+  "devDependencies": {
+    "@flakeytesting/cli": "link:../../packages/flakey-cli",
+    "tsx": "^4.19.0"
+  }
+}

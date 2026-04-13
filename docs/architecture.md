@@ -46,11 +46,21 @@ Normalizer converts format -> unified schema
         |
 Store in PostgreSQL (merged if same ci_run_id exists)
         |
-Dispatch: webhooks, PR comments, commit status checks, flaky detection
+Dispatch (fire-and-forget, parallel):
+  - Webhooks (Slack / Teams / Discord / generic)
+  - PR comments + commit status checks (GitHub / GitLab / Bitbucket)
+  - Jira auto-create (if enabled) — deduped per fingerprint
+  - PagerDuty trigger (if enabled) — deduped per suite+branch
+  - Coverage gating commit-status (if threshold configured)
+  - Flaky detection
         |
 Frontend reads from API (authenticated via JWT) -> displays results
         |
 AI analysis available on-demand (failure classification, flaky analysis)
+        |
+Scheduler (internal, advisory-lock coordinated):
+  - Retention cleanup (daily)
+  - Scheduled reports (every 30min, sends daily/weekly digests)
 ```
 
 ## Component breakdown
@@ -72,6 +82,8 @@ AI analysis available on-demand (failure classification, flaky analysis)
 - `POST /auth/register` — create account
 
 **Authenticated endpoints (JWT or API key):**
+
+*Runs, tests, errors, stats:*
 - `POST /runs` — receive report payload
 - `POST /runs/upload` — multipart upload with screenshots/videos
 - `GET /runs` — list runs (filtered by org via RLS)
@@ -80,6 +92,8 @@ AI analysis available on-demand (failure classification, flaky analysis)
 - `GET /stats` — dashboard aggregate stats with date range filtering
 - `GET /stats/trends` — time-series data (pass rate, failures, duration, top failures)
 - `GET /tests/:id` — single test detail with prev/next failure navigation
+
+*Auth & orgs:*
 - `GET /auth/me` — current user info + org list
 - `POST /auth/switch-org` — switch active organization
 - `GET/POST/DELETE /auth/api-keys` — manage API keys
@@ -89,6 +103,43 @@ AI analysis available on-demand (failure classification, flaky analysis)
 - `POST /orgs/invites/:token/accept` — accept invite
 - `DELETE /orgs/:id/members/:userId` — remove member
 
+*Quality metrics (Phase 10):*
+- `POST /coverage` — upload Istanbul-style coverage summary for a run
+- `GET /coverage/runs/:runId` — retrieve coverage for a run
+- `GET /coverage/trend` — coverage trend across recent runs
+- `GET/PATCH /coverage/settings` — PR coverage-gating threshold and enable flag
+- `POST /a11y` — upload axe-core results for a run (auto-scored from impact counts)
+- `GET /a11y/runs/:runId` — a11y reports for a run
+- `GET /a11y/trend` — a11y score trend across recent runs
+- `POST /visual` — upload a batch of visual-diff records for a run
+- `GET /visual/runs/:runId` — visual diffs for a run
+- `GET /visual/pending` — cross-run queue of pending/changed/new diffs
+- `PATCH /visual/:id` — approve/reject/update a visual diff's status
+- `POST /ui-coverage/visits` — record visited routes from a test run
+- `GET /ui-coverage` — list visited routes
+- `GET /ui-coverage/untested` — known routes without any visits
+- `GET /ui-coverage/summary` — overall coverage % vs the known-routes inventory
+- `POST/DELETE /ui-coverage/routes` — manage the known-routes inventory
+
+*Manual tests & releases (Phase 10):*
+- `GET/POST/PATCH/DELETE /manual-tests` — manage manual tests. GET responses join against the latest matching automated test so imported Cucumber scenarios surface their real automation status. PATCH is rejected with `409` for `source='cucumber'` rows (edit the `.feature` file and re-import instead)
+- `POST /manual-tests/import-features` — bulk import `.feature` files as manual tests. Body: `{ files: [{path, content}] }`. Upserts by `(org_id, 'cucumber', source_ref)` where `source_ref = <path>::<scenario name>`, so re-imports are idempotent. Scenario Outlines are expanded per `Examples:` row
+- `POST /manual-tests/:id/result` — record an execution outcome (manual source only)
+- `GET /manual-tests/summary` — status breakdown counts
+- `GET/POST/PATCH/DELETE /releases` — manage releases
+- `POST /releases/:id/sign-off` — sign off a release (refuses unless all required checklist items are checked)
+- `POST/PATCH/DELETE /releases/:id/items` — manage release checklist items
+
+*Integrations (Phase 9):*
+- `GET/PATCH /jira/settings` — configure Jira connection (token encrypted at rest)
+- `POST /jira/test` — validate Jira credentials via `/rest/api/2/myself`
+- `POST /jira/issues` — manually create an issue from a failure (deduped by fingerprint)
+- `GET /jira/issues` — list tracked issues
+- `GET/PATCH /pagerduty/settings` — configure PagerDuty (integration key encrypted at rest)
+- `POST /pagerduty/test` — fire a test event
+- `GET/POST/PATCH/DELETE /reports` — scheduled reports CRUD
+- `POST /reports/:id/run` — trigger a one-off dispatch (for testing)
+
 ### 3. Normalizer (`backend/src/normalizers/`)
 
 Each reporter has its own parser that converts to a unified internal schema. All parsers produce the same `NormalizedRun` structure. See `normalizer.md` for full details.
@@ -97,6 +148,8 @@ Supported reporters:
 - **Mochawesome** — Cypress/Mocha JSON output
 - **JUnit** — XML format (Jest, pytest, Go, Java, .NET, PHPUnit)
 - **Playwright** — Playwright JSON reporter output
+- **Jest** — Jest JSON output
+- **WebdriverIO** — WebdriverIO JSON output
 
 ### 4. Authentication & Multi-tenancy
 
@@ -142,9 +195,88 @@ specs (id, run_id, file_path, title, total, passed, failed, skipped, duration_ms
 tests (id, spec_id, title, full_title, status, duration_ms,
        error_message, error_stack, screenshot_paths, video_path,
        test_code, command_log)
+
+-- Quality metrics (Phase 10, org-scoped via RLS)
+coverage_reports (id, org_id, run_id, lines_pct, branches_pct, functions_pct,
+                  statements_pct, lines_covered, lines_total, files, created_at)
+
+a11y_reports (id, org_id, run_id, url, score, violations_count, violations,
+              passes_count, incomplete_count,
+              critical_count, serious_count, moderate_count, minor_count, created_at)
+
+visual_diffs (id, org_id, run_id, test_id, name, baseline_path, current_path,
+              diff_path, diff_pct, status, reviewed_by, reviewed_at, created_at)
+
+ui_coverage      (id, org_id, suite_name, route_pattern, visit_count,
+                  first_seen, last_seen, last_run_id)
+ui_known_routes  (id, org_id, route_pattern, label, source, created_at)
+
+-- Manual tests + releases (Phase 10, org-scoped via RLS)
+manual_tests (id, org_id, suite_name, title, description, steps, expected_result,
+              priority, status, last_run_at, last_run_by, last_run_notes,
+              automated_test_key, tags, created_by, created_at, updated_at,
+              source, source_ref, source_file)
+-- source ∈ {'manual','cucumber'}. When 'cucumber', source_ref =
+-- '<file>::<scenario name>' is the idempotency key for re-imports and
+-- source_file is displayed in the UI "covered by automation" banner.
+-- A unique partial index on (org_id, source, source_ref) WHERE source_ref
+-- IS NOT NULL enforces upsert semantics for imported rows.
+
+releases (id, org_id, version, name, status, target_date, description,
+          signed_off_by, signed_off_at, created_by, created_at, updated_at)
+release_checklist_items (id, org_id, release_id, label, required, checked,
+                         checked_by, checked_at, position, notes)
+
+-- Integrations (Phase 9)
+scheduled_reports (id, org_id, name, cadence, day_of_week, hour_utc, channel,
+                   destination, suite_filter, active, last_sent_at, created_at)
+failure_jira_issues (id, org_id, fingerprint, issue_key, issue_url,
+                     created_by, created_at)
+
+-- New columns on `organizations` for Phase 9 / 10:
+--   jira_base_url, jira_email, jira_api_token (encrypted), jira_project_key,
+--   jira_issue_type, jira_auto_create
+--   pagerduty_integration_key (encrypted), pagerduty_severity, pagerduty_auto_trigger
+--   coverage_threshold, coverage_gate_enabled
 ```
 
-### 6. Frontend (`frontend/`)
+### 6. Integrations (`backend/src/integrations/`)
+
+Fire-and-forget helpers invoked from the upload flow. Each reads its own
+configuration from the `organizations` table and silently no-ops if not
+configured, so enabling one integration never affects the others.
+
+- **`jira.ts`** — creates Jira issues via `/rest/api/2/issue`, deduped per
+  test fingerprint in the `failure_jira_issues` table. Reads the token via
+  `decryptSecret()`. The same module exposes `createIssueForFingerprint()`
+  used by the `/jira/issues` manual-create endpoint.
+- **`pagerduty.ts`** — fires Events API v2 triggers with a stable dedup key
+  (`flakey-<orgId>-<suite>-<branch>`) so a persistently failing suite does
+  not spam on-call.
+- **`coverage-gate.ts`** — when a coverage upload comes in and gating is
+  enabled, posts a commit status via whichever git provider the org has
+  configured, using the same provider abstraction as PR comments.
+
+### 7. Scheduled reports dispatcher (`backend/src/scheduled-reports.ts`)
+
+A periodic tick that selects due reports, renders a daily or weekly test
+summary, and delivers it via email, Slack, or a generic webhook. The
+dispatcher takes a Postgres session-scoped advisory lock
+(`pg_try_advisory_lock(0x666c616b79)`) before running, so multi-replica
+backends do not double-fire.
+
+### 8. Secrets encryption (`backend/src/crypto.ts`)
+
+AES-256-GCM envelope encryption for secrets stored on the `organizations`
+table (`jira_api_token`, `pagerduty_integration_key`). Ciphertext format:
+`v1:<base64 iv>:<base64 authTag>:<base64 ct>`. The key comes from the
+`FLAKEY_ENCRYPTION_KEY` env var (32 bytes as base64 or hex). If unset,
+`encryptSecret()` is a no-op and `decryptSecret()` passes plaintext
+through — so local development works without configuration, and rolling
+out the key is a non-breaking change (existing plaintext values continue
+to decrypt cleanly thanks to the `v1:` prefix check).
+
+### 9. Frontend (`frontend/`)
 
 SvelteKit app with Svelte 5, organized in route groups:
 
@@ -152,10 +284,13 @@ SvelteKit app with Svelte 5, organized in route groups:
 - **`/(app)/`** — authenticated shell with sidebar navigation
   - **Dashboard** — metrics cards, trend charts (pass rate, test volume, duration, top failures), date range picker, recent runs/failures
   - **Runs** — list view with suite filtering
-  - **Run detail** (`/runs/:id`) — progress ring, status filter tabs, test search, collapsible spec sections, error modal with screenshots/video/commands/source
+  - **Run detail** (`/runs/:id`) — progress ring, status filter tabs, test search, collapsible spec sections, error modal with screenshots/video/commands/source; tabbed `RunExtras` panel for coverage, accessibility, and visual-diff review inline on the same page
   - **Flaky** — tests that alternate between pass/fail across runs
   - **Errors** — failures grouped by error message with suite/run filtering
-  - **Settings** — project configuration (placeholder)
+  - **Manual tests** — CRUD for manual regression tests with status, steps, expected results, and result recording
+  - **Releases** — release cards with checklist progress bars; release detail view with checklist toggle, add/remove items, and sign-off button (disabled until required items checked)
+  - **Settings** — project configuration + link to `/settings/integrations`
+  - **Settings / Integrations** — consolidated admin page for Jira, PagerDuty, coverage gating, and scheduled reports (with test-connection buttons)
   - **Profile** — account info, API key management (create/list/delete)
 
 ## CI integration examples

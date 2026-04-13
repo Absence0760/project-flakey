@@ -95,19 +95,19 @@
 
 ## Phase 9 — Integrations + workflows
 
-- [ ] Jira integration (auto-create tickets from failures, link results to issues)
-- [ ] PagerDuty integration (trigger incidents from test failures)
-- [ ] Scheduled reports (daily/weekly email or Slack digests)
-- [ ] Code coverage tracking with PR gating
+- [x] Jira integration (auto-create tickets from failures, link results to issues)
+- [x] PagerDuty integration (trigger incidents from test failures)
+- [x] Scheduled reports (daily/weekly email or Slack digests)
+- [x] Code coverage tracking with PR gating
 - [x] MCP server for AI coding agent integration (Copilot, Cursor, Claude Code)
 
 ## Phase 10 — Extended testing capabilities
 
-- [ ] Accessibility testing (auto-check with historical scores and trend tracking)
-- [ ] Visual regression testing support
-- [ ] UI coverage mapping (identify untested pages/components)
-- [ ] Manual + automated test management (unified platform)
-- [ ] Release checklists with sign-off workflows
+- [x] Accessibility testing (auto-check with historical scores and trend tracking)
+- [x] Visual regression testing support
+- [x] UI coverage mapping (identify untested pages/components)
+- [x] Manual + automated test management (unified platform)
+- [x] Release checklists with sign-off workflows
 
 ## What this will not do (by design)
 

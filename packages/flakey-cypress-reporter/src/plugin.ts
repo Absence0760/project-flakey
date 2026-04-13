@@ -214,3 +214,37 @@ export function flakeyReporter(
     }
   });
 }
+
+interface SetupFlakeyOptions {
+  snapshots?: boolean;
+  live?: boolean;
+}
+
+export async function setupFlakey(
+  on: any,
+  config: any,
+  opts: SetupFlakeyOptions = {}
+): Promise<void> {
+  flakeyReporter(on, config);
+
+  if (opts.snapshots !== false) {
+    try {
+      // @ts-ignore — optional peer dependency
+      const { flakeySnapshots } = await import("@flakeytesting/cypress-snapshots/plugin");
+      flakeySnapshots(on, config);
+    } catch {
+      // @flakeytesting/cypress-snapshots not installed — skip
+    }
+  }
+
+  if (opts.live !== false) {
+    try {
+      // @ts-ignore — optional peer dependency
+      const { register } = await import("@flakeytesting/live-reporter/dist/mocha.js");
+      const { url, apiKey, suite } = (config.reporterOptions ?? {}) as Record<string, string>;
+      register(on, { url, apiKey, suite });
+    } catch {
+      // @flakeytesting/live-reporter not installed — skip
+    }
+  }
+}

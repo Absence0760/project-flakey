@@ -19,9 +19,17 @@
 
   let categoryFilter = $state<string>("all");
 
+  function syncCategoryToUrl() {
+    const url = new URL(window.location.href);
+    if (categoryFilter !== "all") url.searchParams.set("category", categoryFilter);
+    else url.searchParams.delete("category");
+    history.replaceState({}, "", url.toString());
+  }
+
   onMount(async () => {
     const a = $page.url.searchParams.get("a");
     const b = $page.url.searchParams.get("b");
+    categoryFilter = $page.url.searchParams.get("category") ?? "all";
 
     if (a && b) {
       await loadComparison(Number(a), Number(b));
@@ -54,6 +62,10 @@
   function startCompare() {
     if (!selectedA || !selectedB) return;
     selecting = false;
+    const url = new URL(window.location.href);
+    url.searchParams.set("a", selectedA);
+    url.searchParams.set("b", selectedB);
+    history.replaceState({}, "", url.toString());
     loadComparison(Number(selectedA), Number(selectedB));
   }
 
@@ -180,12 +192,12 @@
 
     <!-- Summary pills -->
     <div class="summary-bar">
-      <button class="summary-pill" class:active={categoryFilter === "all"} onclick={() => categoryFilter = "all"}>
+      <button class="summary-pill" class:active={categoryFilter === "all"} onclick={() => { categoryFilter = "all"; syncCategoryToUrl(); }}>
         All <span class="pill-count">{result.comparisons.length}</span>
       </button>
       {#each CATEGORY_ORDER as cat}
         {#if result.summary[cat]}
-          <button class="summary-pill {cat}" class:active={categoryFilter === cat} onclick={() => categoryFilter = cat}>
+          <button class="summary-pill {cat}" class:active={categoryFilter === cat} onclick={() => { categoryFilter = cat; syncCategoryToUrl(); }}>
             {CATEGORY_LABELS[cat]} <span class="pill-count">{result.summary[cat]}</span>
           </button>
         {/if}

@@ -374,8 +374,12 @@ export interface SuiteComparison {
   diff: { total: number; passed: number; failed: number; skipped: number; duration_ms: number; pass_rate: number } | null;
 }
 
-export async function fetchSuiteComparisons(): Promise<SuiteComparison[]> {
-  const res = await authFetch(`${API_URL}/compare/suites`);
+export async function fetchSuiteComparisons(filters?: { from?: string; to?: string }): Promise<SuiteComparison[]> {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const qs = params.toString();
+  const res = await authFetch(`${API_URL}/compare/suites${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`Failed to fetch suite comparisons: ${res.status}`);
   return res.json();
 }

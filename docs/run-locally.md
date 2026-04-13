@@ -20,13 +20,13 @@ This starts PostgreSQL on port 5432 and runs all migrations in `backend/migratio
 
 ```bash
 # Backend
-cd backend && npm install
+cd backend && pnpm install
 
 # Frontend
 cd frontend && pnpm install
 
 # CLI (optional, for uploading results)
-cd cli && npm install
+cd cli && pnpm install
 ```
 
 ### 3. Set up environment variables
@@ -47,13 +47,19 @@ The defaults work for local development. No changes needed unless you're using n
 ### 4. Seed sample data (optional)
 
 ```bash
-cd backend && npm run seed
+cd backend && pnpm run seed
 ```
 
 This creates:
 - Two users: `admin@flakey.dev` / `admin` and `demo@flakey.dev` / `demo123`
 - Two organizations: Acme Corp (admin's) and Demo Team (demo's)
 - 50 sample test runs spread across 18 months (assigned to Acme Corp)
+- Phase 9/10 sample data attached to Acme Corp:
+  - Coverage, accessibility, and visual-diff reports on the 3 most recent runs
+  - 10 known UI routes (7 visited, 3 untested) for the UI coverage view
+  - 5 manual tests across varied statuses (passed, failed, blocked, not run)
+  - Release `v2.4.0` with a partially completed sign-off checklist
+  - A weekly regression scheduled report
 
 ### 5. Start the backend and frontend
 
@@ -149,10 +155,11 @@ npx tsx src/index.ts \
 | `docker compose up -d` | Start PostgreSQL |
 | `docker compose down` | Stop PostgreSQL |
 | `docker compose down -v` | Stop PostgreSQL and delete data |
-| `npm run dev` | Start backend + frontend |
-| `npm run dev:backend` | Start backend only |
-| `npm run dev:frontend` | Start frontend only |
-| `cd backend && npm run seed` | Seed sample data |
+| `pnpm run dev` | Start backend + frontend |
+| `pnpm run dev:backend` | Start backend only |
+| `pnpm run dev:frontend` | Start frontend only |
+| `cd backend && pnpm run seed` | Seed sample data |
+| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [testing.md](testing.md)) |
 
 ## Environment variables
 
@@ -177,8 +184,13 @@ npx tsx src/index.ts \
 | `AI_BASE_URL` | _(none)_ | API URL for OpenAI-compatible models (e.g. `http://localhost:11434/v1` for Ollama) |
 | `AI_API_KEY` | _(none)_ | API key for the AI provider |
 | `AI_MODEL` | auto | Model name (defaults to `claude-haiku-4-5-20251001` for Anthropic, `llama3.2` for OpenAI) |
-| `SMTP_HOST` | `localhost` | SMTP server for email verification |
+| `SMTP_HOST` | `localhost` | SMTP server for email verification + scheduled-report email delivery |
 | `SMTP_PORT` | `1025` | SMTP port |
+| `SMTP_USER` | _(none)_ | SMTP username (optional, only if your relay requires auth) |
+| `SMTP_PASSWORD` | _(none)_ | SMTP password |
+| `SMTP_SECURE` | `false` | Set `true` for TLS |
+| `EMAIL_FROM` | `Flakey <noreply@flakey.dev>` | From-address used for all outgoing email |
+| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [integrations.md](integrations.md#secrets-encryption) |
 
 ### Frontend
 

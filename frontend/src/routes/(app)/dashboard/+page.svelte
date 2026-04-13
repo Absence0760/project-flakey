@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { page } from "$app/stores";
   import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "$lib/api";
   import DateRangePicker from "$lib/components/DateRangePicker.svelte";
   import TrendChart from "$lib/components/TrendChart.svelte";
@@ -15,8 +16,25 @@
     d.setDate(d.getDate() - n);
     return d.toISOString().slice(0, 10);
   }
+  function today(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
   let fromDate = $state<string | undefined>(daysAgo(7));
-  let toDate = $state<string | undefined>(undefined);
+  let toDate = $state<string | undefined>(today());
+
+  function syncUrl() {
+    const url = new URL(window.location.href);
+    if (fromDate) url.searchParams.set("from", fromDate); else url.searchParams.delete("from");
+    if (toDate) url.searchParams.set("to", toDate); else url.searchParams.delete("to");
+    history.replaceState({}, "", url.toString());
+  }
+  function readUrl() {
+    const p = $page.url.searchParams;
+    const f = p.get("from");
+    const t = p.get("to");
+    if (f) fromDate = f;
+    if (t) toDate = t;
+  }
 
   async function loadStats() {
     loading = true;
@@ -26,7 +44,7 @@
       [stats, trends, suites] = await Promise.all([
         fetchStats(filters),
         fetchTrends(filters),
-        fetchSuiteComparisons(),
+        fetchSuiteComparisons(filters),
       ]);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load stats";
@@ -37,11 +55,15 @@
 
   function handleDateChange(from: string | undefined, to: string | undefined) {
     fromDate = from ?? daysAgo(7);
-    toDate = to;
+    toDate = to ?? today();
+    syncUrl();
     loadStats();
   }
 
-  onMount(() => loadStats());
+  onMount(() => {
+    readUrl();
+    loadStats();
+  });
 
   function formatMs(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
@@ -580,6 +602,8 @@
     margin: 0;
     display: flex;
     flex-direction: column;
+    max-height: 360px;
+    overflow-y: auto;
     gap: 0.25rem;
   }
 

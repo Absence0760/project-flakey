@@ -1,0 +1,18 @@
+{
+  "name": "@flakeytesting/example-postman",
+  "private": true,
+  "type": "module",
+  "comments": {
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/cli\": \"latest\""
+  },
+  "scripts": {
+    "test:smoke": "newman run collection.json -e environment.json --reporters cli,junit --reporter-junit-export reports/results.xml; node scripts/upload.js smoke",
+    "test:all": "pnpm test:smoke"
+  },
+  "devDependencies": {
+    "@flakeytesting/cli": "link:../../packages/flakey-cli",
+    "newman": "^6.0.0",
+    "newman-reporter-junitfull": "^2.0.0",
+    "tsx": "^4.19.0"
+  }
+}
