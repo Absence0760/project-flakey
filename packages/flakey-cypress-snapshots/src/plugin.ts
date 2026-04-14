@@ -36,14 +36,21 @@ interface SnapshotBundle {
 interface FlakeySnapshotOptions {
   /** Output directory for snapshot files. Default: "cypress/snapshots" */
   outputDir?: string;
+  /** Enable or disable snapshot capture. Default: true */
+  enabled?: boolean;
 }
 
 export function flakeySnapshots(
   on: any,
-  _config: any,
+  config: any,
   options?: FlakeySnapshotOptions
 ): void {
   const outputDir = options?.outputDir ?? "cypress/snapshots";
+  const enabled = options?.enabled ?? true;
+
+  // Signal to the support file whether snapshots are enabled
+  config.env = config.env || {};
+  config.env.FLAKEY_SNAPSHOTS_ENABLED = enabled;
 
   on("task", {
     "flakey:saveSnapshot"(bundle: SnapshotBundle) {
