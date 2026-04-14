@@ -67,6 +67,10 @@ const SKIP_COMMANDS = new Set([
   "fixture", "screenshot", "debug", "pause",
 ]);
 
+function isEnabled(): boolean {
+  return Cypress.env('FLAKEY_SNAPSHOTS_ENABLED') === true;
+}
+
 Cypress.on("test:before:run", () => {
   steps = [];
   commandIndex = 0;
@@ -74,6 +78,8 @@ Cypress.on("test:before:run", () => {
 });
 
 Cypress.on("command:end", (command: any) => {
+  if (!isEnabled()) return;
+
   const name = command?.attributes?.name;
   if (!name || SKIP_COMMANDS.has(name)) return;
   if (steps.length >= 100) return;
@@ -97,6 +103,8 @@ Cypress.on("command:end", (command: any) => {
 });
 
 afterEach(function () {
+  if (!isEnabled()) return;
+
   // Capture the final DOM state if the test failed (the failing command's command:end doesn't fire)
   const testState = (this as any).currentTest?.state ?? (Cypress as any).state?.("runnable")?.state;
   if (testState === "failed") {

@@ -107,6 +107,11 @@ export default defineConfig({
         // Output directory for snapshot files
         // Default: "cypress/snapshots"
         outputDir: "cypress/snapshots",
+
+        // Enable or disable snapshot capture
+        // Default: true
+        // Useful for disabling in CI to reduce memory usage
+        enabled: !process.env.CI,
       });
     },
   },
