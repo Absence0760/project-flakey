@@ -36,6 +36,7 @@ router.post("/start", async (req, res) => {
     );
 
     const runId = result.rows[0].id;
+    liveEvents.registerRun(runId, orgId);
     liveEvents.emit(runId, { type: "run.started", runId, timestamp: Date.now() });
 
     // Persist the start event
@@ -193,6 +194,22 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
 }
 
 /**
+ * POST /live/:runId/abort — mark a live run as aborted (e.g. from a SIGINT/SIGTERM handler).
+ * Reporters can call this on graceful shutdown so the UI updates immediately.
+ */
+router.post("/:runId/abort", (req, res) => {
+  const runId = Number(req.params.runId);
+  if (!runId) {
+    res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+
+  const orgId = req.user!.orgId;
+  abortRun(runId, orgId, "Run aborted by reporter (process received shutdown signal).");
+  res.json({ ok: true });
+});
+
+/**
  * GET /live/:runId/stream — SSE endpoint for live test events.
  * Browsers/frontends connect here to receive real-time updates.
  */
@@ -232,5 +249,27 @@ router.get("/:runId/stream", (req, res) => {
     clearInterval(keepAlive);
   });
 });
+
+/** Emit and persist a run.aborted event, removing the run from the active set. */
+function abortRun(runId: number, orgId: number, reason: string): void {
+  const event: LiveTestEvent = {
+    type: "run.aborted",
+    runId,
+    timestamp: Date.now(),
+    error: reason,
+  };
+  liveEvents.emit(runId, event);
+  persistEvent(orgId, runId, event);
+}
+
+// Mark runs as aborted after 10 minutes of no events — handles terminal/process kills.
+const STALE_INACTIVITY_MS = 10 * 60 * 1000;
+setInterval(() => {
+  const stale = liveEvents.getStaleRuns(STALE_INACTIVITY_MS);
+  for (const { runId, orgId } of stale) {
+    console.log(`[live] Run ${runId} is stale — marking as aborted`);
+    abortRun(runId, orgId, "Run stopped unexpectedly — the test process may have been killed or the terminal was closed.");
+  }
+}, 30 * 1000); // check every 30 seconds
 
 export default router;

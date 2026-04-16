@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 
 export interface LiveTestEvent {
-  type: "run.started" | "test.started" | "test.passed" | "test.failed" | "test.skipped" | "spec.started" | "spec.finished" | "run.finished";
+  type: "run.started" | "test.started" | "test.passed" | "test.failed" | "test.skipped" | "spec.started" | "spec.finished" | "run.finished" | "run.aborted";
   timestamp: number;
   runId: number;
   spec?: string;
@@ -12,10 +12,21 @@ export interface LiveTestEvent {
   stats?: { total: number; passed: number; failed: number; skipped: number };
 }
 
+interface RunMeta {
+  orgId: number;
+  lastEventAt: number;
+}
+
 class LiveEventBus {
   private emitters = new Map<number, EventEmitter>();
   private timeouts = new Map<number, ReturnType<typeof setTimeout>>();
   private activeRuns = new Set<number>();
+  private runMeta = new Map<number, RunMeta>();
+
+  /** Register a run with its org ID so stale detection can work. Call when run.started. */
+  registerRun(runId: number, orgId: number): void {
+    this.runMeta.set(runId, { orgId, lastEventAt: Date.now() });
+  }
 
   /** Get or create an emitter for a run. Auto-cleans up after 30 minutes of inactivity. */
   getEmitter(runId: number): EventEmitter {
@@ -31,7 +42,11 @@ class LiveEventBus {
 
   /** Emit an event for a run. */
   emit(runId: number, event: LiveTestEvent): void {
-    // Mark as active on first event, remove on run.finished
+    // Track last activity for stale detection
+    const meta = this.runMeta.get(runId);
+    if (meta) meta.lastEventAt = Date.now();
+
+    // Mark as active on first event, remove on run.finished / run.aborted
     if (event.type === "run.started") {
       this.activeRuns.add(runId);
     }
@@ -46,7 +61,7 @@ class LiveEventBus {
       emitter.emit("event", event);
     }
 
-    if (event.type === "run.finished") {
+    if (event.type === "run.finished" || event.type === "run.aborted") {
       this.activeRuns.delete(runId);
       // Clean up emitter shortly after finish (give subscribers time to get the event)
       setTimeout(() => {
@@ -54,6 +69,7 @@ class LiveEventBus {
         this.emitters.delete(runId);
         const timeout = this.timeouts.get(runId);
         if (timeout) { clearTimeout(timeout); this.timeouts.delete(runId); }
+        this.runMeta.delete(runId);
       }, 5000);
     }
   }
@@ -69,6 +85,19 @@ class LiveEventBus {
     return Array.from(this.activeRuns);
   }
 
+  /** Get active runs that have received no event for longer than maxInactivityMs. */
+  getStaleRuns(maxInactivityMs: number): Array<{ runId: number; orgId: number }> {
+    const now = Date.now();
+    const result: Array<{ runId: number; orgId: number }> = [];
+    for (const runId of this.activeRuns) {
+      const meta = this.runMeta.get(runId);
+      if (meta && now - meta.lastEventAt > maxInactivityMs) {
+        result.push({ runId, orgId: meta.orgId });
+      }
+    }
+    return result;
+  }
+
   private resetTimeout(runId: number): void {
     const existing = this.timeouts.get(runId);
     if (existing) clearTimeout(existing);
@@ -77,6 +106,7 @@ class LiveEventBus {
       this.emitters.delete(runId);
       this.timeouts.delete(runId);
       this.activeRuns.delete(runId);
+      this.runMeta.delete(runId);
     }, 30 * 60 * 1000)); // 30 minutes
   }
 }

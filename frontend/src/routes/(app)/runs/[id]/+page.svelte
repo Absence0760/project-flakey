@@ -31,6 +31,7 @@
   let liveEvents = $state<LiveEvent[]>([]);
   let isLive = $state(false);
   let justFinished = $state(false);
+  let runAborted = $state(false);
   let eventSource: EventSource | null = null;
 
   function connectLive(runId: number) {
@@ -55,6 +56,11 @@
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
           // Clear the "just finished" banner after 10 seconds
           setTimeout(() => { justFinished = false; }, 10000);
+        } else if (event.type === "run.aborted") {
+          isLive = false;
+          runAborted = true;
+          eventSource?.close();
+          setTimeout(() => { runAborted = false; }, 30000);
         }
       } catch { /* ignore */ }
     };
@@ -401,6 +407,9 @@
             {#if justFinished}
               <span class="finished-badge">Run Complete</span>
             {/if}
+            {#if runAborted}
+              <span class="aborted-badge">Run Aborted</span>
+            {/if}
             <button class="copy-summary-btn" title="Copy as Jira markup" onclick={() => copySummary("jira")}>
               {#if copiedFormat === "jira"}
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
@@ -506,12 +515,14 @@
 
     <!-- Live event feed -->
     {#if liveEvents.length > 0}
-      <div class="live-feed" class:finished={justFinished && !isLive}>
+      <div class="live-feed" class:finished={justFinished && !isLive} class:aborted={runAborted}>
         <h3 class="live-feed-title">
           {#if isLive}
             Live Progress
           {:else if justFinished}
             Run Complete — {run?.failed ? `${run.failed} failed` : 'all passed'}
+          {:else if runAborted}
+            Run Aborted — test process was killed or terminal closed
           {:else}
             Live Progress (ended)
           {/if}
@@ -530,6 +541,8 @@
                   Run started
                 {:else if event.type === "run.finished"}
                   Run finished
+                {:else if event.type === "run.aborted"}
+                  Run aborted — {event.error ?? "test process stopped unexpectedly"}
                 {:else if event.type === "spec.started"}
                   {event.spec}
                 {:else if event.type === "spec.finished"}
@@ -1336,6 +1349,10 @@
     border-color: var(--color-pass);
     background: color-mix(in srgb, var(--color-pass) 4%, transparent);
   }
+  .live-feed.aborted {
+    border-color: var(--color-fail);
+    background: color-mix(in srgb, var(--color-fail) 4%, transparent);
+  }
   .live-feed-title {
     font-size: 0.8rem; font-weight: 600; margin: 0 0 0.5rem;
     color: var(--text-secondary);
@@ -1343,6 +1360,11 @@
   .finished-badge {
     padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
     background: var(--color-pass); color: #fff; letter-spacing: 0.03em;
+    animation: fade-in 0.3s ease-in;
+  }
+  .aborted-badge {
+    padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
+    background: var(--color-fail); color: #fff; letter-spacing: 0.03em;
     animation: fade-in 0.3s ease-in;
   }
   @keyframes fade-in {
