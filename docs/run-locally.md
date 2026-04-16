@@ -159,7 +159,7 @@ npx tsx src/index.ts \
 | `pnpm run dev:backend` | Start backend only |
 | `pnpm run dev:frontend` | Start frontend only |
 | `cd backend && pnpm run seed` | Seed sample data |
-| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [testing.md](testing.md)) |
+| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
 
 ## Environment variables
 
@@ -190,7 +190,7 @@ npx tsx src/index.ts \
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
 | `EMAIL_FROM` | `Better Testing <noreply@example.com>` | From-address used for all outgoing email |
-| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [integrations.md](integrations.md#secrets-encryption) |
+| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
 
 ### Frontend
 

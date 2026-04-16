@@ -16,7 +16,7 @@ Cypress plugin that captures DOM snapshots at each command step and bundles them
 | `outputDir` | `string` | `"cypress/snapshots"` | Where snapshot bundles are written. |
 | `enabled` | `boolean` | `true` | Set `false` to disable capture entirely (added in 0.5.0). Exposed to the support file via `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")`. |
 
-**The user-facing doc at `docs/cypress-snapshot-plugin.md` still mentions `mode`, `maxSteps`, and `maxBundleSize` — those do not exist in the code.** Don't reintroduce them unless actually implementing them; fix the doc instead.
+The user-facing doc lives at `docs/plugin.md` (next to this file).
 
 ## Layout
 

@@ -250,7 +250,7 @@ npx flakey-cli coverage \
 ```
 
 `$RUN_ID` comes from the response of the main run upload earlier in the
-pipeline. See [uploading-results.md](uploading-results.md#uploading-quality-metrics)
+pipeline. See [packages/flakey-cli/docs/uploading-results.md](../../packages/flakey-cli/docs/uploading-results.md#uploading-quality-metrics)
 for the full format reference.
 
 ---

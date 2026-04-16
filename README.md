@@ -150,7 +150,7 @@ npx flakey-cli visual --run-id 42 --file visual-manifest.json
 npx flakey-cli ui-coverage --suite my-e2e --file visits.json --run-id 42
 ```
 
-See [docs/uploading-results.md](docs/uploading-results.md#uploading-quality-metrics) for the expected file formats.
+See [packages/flakey-cli/docs/uploading-results.md](packages/flakey-cli/docs/uploading-results.md#uploading-quality-metrics) for the expected file formats.
 
 ### Postman (Newman)
 
@@ -348,16 +348,29 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 
 ## Documentation
 
-See the `docs/` directory:
+Repo-wide docs live in `docs/`. Package- and backend-specific docs live alongside their code.
+
+**Repo-wide:**
 
 - [Run locally](docs/run-locally.md)
 - [Architecture](docs/architecture.md)
-- [Uploading results](docs/uploading-results.md) — includes coverage, a11y, visual regression, and UI coverage uploaders
-- [Integrations & automation](docs/integrations.md) — Jira, PagerDuty, scheduled reports, coverage gating, secrets encryption
-- [Testing](docs/testing.md) — running the backend integration test suite
-- [Reporters & normalizers](docs/normalizer.md)
-- [Migrations](docs/migrations.md)
-- [AWS deployment](infra/README.md)
-- [Examples](docs/examples.md) (Cypress, Playwright, Selenium, WebdriverIO, Postman, OWASP ZAP)
 - [Roadmap](docs/roadmap.md)
-- [DOM snapshot plugin](docs/cypress-snapshot-plugin.md)
+- [Overview](docs/overview.md) · [Competitor comparison](docs/competitors.md)
+- [AWS deployment](infra/README.md)
+
+**Backend:**
+
+- [Integrations & automation](backend/docs/integrations.md) — Jira, PagerDuty, scheduled reports, coverage gating, secrets encryption
+- [Reporters & normalizers](backend/docs/normalizer.md)
+- [Migrations](backend/docs/migrations.md)
+- [Testing](backend/docs/testing.md) — running the backend integration test suite
+- [Manual tests](backend/docs/manual-tests.md)
+
+**Packages:**
+
+- [Uploading results](packages/flakey-cli/docs/uploading-results.md) — CLI uploaders (results, coverage, a11y, visual, UI coverage)
+- [Reporter package design](packages/flakey-core/docs/reporter-package.md)
+- [DOM snapshot plugin](packages/flakey-cypress-snapshots/docs/plugin.md)
+- [Cypress background](packages/flakey-cypress-reporter/docs/cypress-background.md)
+
+**Examples:** see [examples/README.md](examples/README.md) (Cypress, Playwright, Selenium, WebdriverIO, Postman, OWASP ZAP).

@@ -69,7 +69,7 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **UI coverage mapping**: track which routes/pages tests actually visit and compare against a known-routes inventory to surface untested pages and an overall coverage percentage
 
 ### Manual & Release Management
-- **Manual test management**: a unified platform for tracking manual regression tests alongside automated ones — steps, expected results, priority, status, execution history, and optional linkage to automated test keys. Supports hand-authored cases **and** bulk import of Cucumber `.feature` files, with imported scenarios auto-matched against the latest automated run so testers can see at a glance which cases are already covered (see [manual-tests.md](manual-tests.md))
+- **Manual test management**: a unified platform for tracking manual regression tests alongside automated ones — steps, expected results, priority, status, execution history, and optional linkage to automated test keys. Supports hand-authored cases **and** bulk import of Cucumber `.feature` files, with imported scenarios auto-matched against the latest automated run so testers can see at a glance which cases are already covered (see [backend/docs/manual-tests.md](../backend/docs/manual-tests.md))
 - **Release checklists with sign-off**: create releases with a default checklist (critical tests passing, regression suite executed, release notes, docs, stakeholder notification, rollback plan); mark required items, track who checked what, and enforce "all required items complete" before sign-off is allowed
 
 ### Issue Tracking & Incident Integrations
