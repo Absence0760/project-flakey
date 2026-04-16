@@ -87,7 +87,7 @@ router.get("/:runId/history", async (req, res) => {
  * POST /live/:runId/events — receive live test events from reporters.
  * Body: LiveTestEvent or LiveTestEvent[]
  */
-router.post("/:runId/events", (req, res) => {
+router.post("/:runId/events", async (req, res) => {
   const runId = Number(req.params.runId);
   if (!runId) {
     res.status(400).json({ error: "Invalid run ID" });
@@ -97,18 +97,28 @@ router.post("/:runId/events", (req, res) => {
   const orgId = req.user!.orgId;
   const events: LiveTestEvent[] = Array.isArray(req.body) ? req.body : [req.body];
 
+  const fullEvents: LiveTestEvent[] = [];
   for (const event of events) {
     const fullEvent = { ...event, runId, timestamp: event.timestamp ?? Date.now() };
+    fullEvents.push(fullEvent);
     liveEvents.emit(runId, fullEvent);
     persistEvent(orgId, runId, fullEvent);
-
-    // Insert real test results so they appear on the run detail page
-    if (event.type === "test.passed" || event.type === "test.failed" || event.type === "test.skipped") {
-      insertLiveTestResult(orgId, runId, fullEvent);
-    }
   }
 
+  // Send response immediately so the reporter isn't blocked
   res.json({ ok: true, listeners: liveEvents.hasListeners(runId) });
+
+  // Process DB writes sequentially after the response to avoid race conditions
+  // when multiple test events for the same spec arrive in a single batch.
+  for (const fullEvent of fullEvents) {
+    if (fullEvent.type === "spec.started") {
+      await upsertLiveSpec(orgId, runId, fullEvent);
+    } else if (fullEvent.type === "spec.finished") {
+      await updateLiveSpecStats(orgId, runId, fullEvent);
+    } else if (fullEvent.type === "test.passed" || fullEvent.type === "test.failed" || fullEvent.type === "test.skipped") {
+      await insertLiveTestResult(orgId, runId, fullEvent);
+    }
+  }
 });
 
 /** Persist a live event to the database (fire-and-forget). */
@@ -124,8 +134,75 @@ function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void 
 }
 
 /**
+ * Find the spec id for the given run + file_path, creating a row if needed.
+ * Returns the spec id, or null on error.
+ */
+async function findOrCreateSpec(orgId: number, runId: number, specPath: string): Promise<number | null> {
+  const existing = await tenantQuery(orgId,
+    "SELECT id FROM specs WHERE run_id = $1 AND file_path = $2 LIMIT 1",
+    [runId, specPath]
+  );
+  if (existing.rows.length > 0) return existing.rows[0].id as number;
+
+  const inserted = await tenantQuery(orgId,
+    `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
+     VALUES ($1, $2, $3, 0, 0, 0, 0, 0) RETURNING id`,
+    [runId, specPath, specPath.split("/").pop() ?? specPath]
+  );
+  return inserted.rows[0]?.id as number ?? null;
+}
+
+/**
+ * Ensure a spec row exists when a spec.started event arrives so it shows up
+ * on the run detail page even before any test events are received.
+ * Called sequentially — safe from race conditions within a single request.
+ */
+async function upsertLiveSpec(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
+  if (!event.spec) return;
+  try {
+    await findOrCreateSpec(orgId, runId, event.spec);
+  } catch (err: any) {
+    console.error("Failed to upsert live spec:", err.message);
+  }
+}
+
+/**
+ * Update a spec's aggregate stats when a spec.finished event arrives.
+ * Uses the stats payload sent by the reporter so the numbers are authoritative
+ * even when individual test events were not sent (e.g. Cucumber reporters).
+ */
+async function updateLiveSpecStats(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
+  if (!event.spec || !event.stats) return;
+  try {
+    await tenantQuery(orgId,
+      `UPDATE specs SET
+        total   = $3,
+        passed  = $4,
+        failed  = $5,
+        skipped = $6
+      WHERE run_id = $1 AND file_path = $2`,
+      [runId, event.spec, event.stats.total, event.stats.passed, event.stats.failed, event.stats.skipped]
+    );
+
+    await tenantQuery(orgId,
+      `UPDATE runs SET
+        total      = (SELECT COALESCE(SUM(total),      0) FROM specs WHERE run_id = $1),
+        passed     = (SELECT COALESCE(SUM(passed),     0) FROM specs WHERE run_id = $1),
+        failed     = (SELECT COALESCE(SUM(failed),     0) FROM specs WHERE run_id = $1),
+        skipped    = (SELECT COALESCE(SUM(skipped),    0) FROM specs WHERE run_id = $1),
+        duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM specs WHERE run_id = $1)
+      WHERE id = $1`,
+      [runId]
+    );
+  } catch (err: any) {
+    console.error("Failed to update live spec stats:", err.message);
+  }
+}
+
+/**
  * Insert a real spec + test row into the database for a live test event,
  * so test results appear on the run detail page in real-time.
+ * Called sequentially — safe from race conditions within a single request.
  */
 async function insertLiveTestResult(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
   if (!event.test) return;
@@ -139,23 +216,8 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
   const specPath = event.spec ?? "unknown";
 
   try {
-    // Find or create spec
-    let specResult = await tenantQuery(orgId,
-      "SELECT id FROM specs WHERE run_id = $1 AND file_path = $2 LIMIT 1",
-      [runId, specPath]
-    );
-
-    let specId: number;
-    if (specResult.rows.length > 0) {
-      specId = specResult.rows[0].id;
-    } else {
-      const newSpec = await tenantQuery(orgId,
-        `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-         VALUES ($1, $2, $3, 0, 0, 0, 0, 0) RETURNING id`,
-        [runId, specPath, specPath.split("/").pop() ?? specPath]
-      );
-      specId = newSpec.rows[0].id;
-    }
+    const specId = await findOrCreateSpec(orgId, runId, specPath);
+    if (specId === null) return;
 
     // Insert test
     await tenantQuery(orgId,
