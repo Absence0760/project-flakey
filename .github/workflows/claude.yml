@@ -32,36 +32,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run Claude Code
-        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          base_branch: main
           claude_args: "--max-turns 40 --allowedTools 'Bash(pnpm *),Bash(git *),Bash(gh *),Read,Write,Edit,Glob,Grep'"
-
-      # Comment `@claude` on the PR (not the issue) for follow-ups —
-      # the action only reuses an existing branch for PR-scoped mentions.
-      # Issue-scoped mentions always create a new timestamped branch.
-      - name: Open draft PR for issue
-        if: |
-          steps.claude.outputs.branch_name != '' && (
-            github.event_name == 'issues' ||
-            (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
-          )
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ steps.claude.outputs.branch_name }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-        run: |
-          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
-            echo "PR already exists for $BRANCH — skipping."
-            exit 0
-          fi
-          gh pr create \
-            --draft \
-            --base main \
-            --head "$BRANCH" \
-            --title "$ISSUE_TITLE" \
-            --body "Closes #${ISSUE_NUMBER}"
