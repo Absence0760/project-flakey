@@ -2,7 +2,7 @@
 
 ## Overview
 
-Flakey supports multiple test reporters. Each reporter outputs a different format — the normalizer layer converts any supported format into a single unified schema so the rest of the app (database, API, frontend) doesn't care which reporter was used.
+Better Testing supports multiple test reporters. Each reporter outputs a different format — the normalizer layer converts any supported format into a single unified schema so the rest of the app (database, API, frontend) doesn't care which reporter was used.
 
 ### Supported Reporters
 

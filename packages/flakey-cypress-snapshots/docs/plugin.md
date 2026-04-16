@@ -1,6 +1,6 @@
 # Cypress DOM Snapshot Plugin
 
-A Cypress plugin that captures DOM snapshots at each command step during test execution, enabling interactive DOM replay in the Flakey UI.
+A Cypress plugin that captures DOM snapshots at each command step during test execution, enabling interactive DOM replay in the Better Testing UI.
 
 ## Overview
 
@@ -92,18 +92,6 @@ export default defineConfig({
   e2e: {
     setupNodeEvents(on, config) {
       flakeySnapshots(on, config, {
-        // Capture mode: "all" | "failed" | "none"
-        // Default: "failed"
-        mode: "failed",
-
-        // Max steps per test before sampling
-        // Default: 200
-        maxSteps: 200,
-
-        // Max uncompressed bundle size in bytes
-        // Default: 2MB
-        maxBundleSize: 2 * 1024 * 1024,
-
         // Output directory for snapshot files
         // Default: "cypress/snapshots"
         outputDir: "cypress/snapshots",
@@ -160,15 +148,9 @@ import "@flakeytesting/cypress-snapshots/support";
 - **Total overhead per test**: ~50-200ms for 40 steps (<5% of typical test duration)
 - **Memory**: ~200KB held in memory per test, cleared between tests
 
-### Snapshot Modes
+### Disabling Capture
 
-| Mode | Behavior | Use Case |
-|---|---|---|
-| `"failed"` (default) | Only persists snapshots for tests that fail | Conservative storage, covers the primary debugging use case |
-| `"all"` | Persists snapshots for all tests | Debugging flaky tests that sometimes pass with incorrect DOM state |
-| `"none"` | Disables capture entirely | CI runs where storage or speed is critical |
-
-In `"failed"` mode, snapshots are still captured in memory during execution (the plugin doesn't know if a test will fail until it finishes), but the gzip/write step is skipped for passing tests.
+Set `enabled: false` to skip capture entirely — useful for CI runs where storage or speed is critical. The option is exposed to the support file via `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")`.
 
 ## Backend Changes
 
@@ -227,7 +209,7 @@ Renders a snapshot bundle in a sandboxed `<iframe>`:
 4. **Highlight**: Overlays a highlight box on the DOM element targeted by the current command (if the command has a selector)
 
 The iframe approach provides:
-- Complete style isolation (snapshot styles don't leak into the Flakey UI)
+- Complete style isolation (snapshot styles don't leak into the Better Testing UI)
 - Security sandboxing (no script execution)
 - Accurate viewport rendering at original dimensions
 
@@ -268,7 +250,6 @@ Applying 40 incremental mutation steps is sub-millisecond. The bottleneck is ifr
 - [ ] Implement MutationObserver-based capture at command boundaries
 - [ ] Implement base snapshot serialization on `cy.visit`
 - [ ] Write gzipped bundle to disk on `test:after:run`
-- [ ] Add `mode` configuration (all/failed/none)
 - [ ] Test with a sample Cypress project
 
 ### Phase 3: CLI Reporter
