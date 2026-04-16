@@ -73,6 +73,14 @@ export default class FlakeyPlaywrightReporter {
       result.status === "failed" || result.status === "timedOut" ? "failed" :
       "skipped";
 
+    // Print result to terminal as it happens
+    const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";
+    const errMsg = (result.error?.message ?? "").split("\n")[0];
+    process.stdout.write(`  ${icon} ${test.title} (${result.duration}ms)\n`);
+    if (status === "failed" && errMsg) {
+      process.stdout.write(`    ${errMsg}\n`);
+    }
+
     const titlePath = test.titlePath();
     const fullTitle = titlePath.filter(Boolean).join(" > ");
 
