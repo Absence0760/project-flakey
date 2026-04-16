@@ -1,10 +1,10 @@
 # Uploading Test Results
 
-This guide covers how to get test results from your test framework into Flakey, including screenshots and videos.
+This guide covers how to get test results from your test framework into Better Testing, including screenshots and videos.
 
 ## Prerequisites
 
-- Flakey backend running (default: `http://localhost:3000`)
+- Better Testing backend running (default: `http://localhost:3000`)
 - An authenticated user — either a JWT token or an API key
 
 ### Getting a token (quick)
@@ -12,7 +12,7 @@ This guide covers how to get test results from your test framework into Flakey, 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@flakey.dev","password":"admin"}' \
+  -d '{"email":"admin@example.com","password":"admin"}' \
   | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).token))")
 ```
 
@@ -27,7 +27,7 @@ TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
 
 ## Method 1: Direct Reporter (recommended)
 
-The simplest way to get results into Flakey. Install the reporter package, add it to your config, and results are uploaded automatically when the run finishes — including screenshots, videos, and DOM snapshots. No extra steps.
+The simplest way to get results into Better Testing. Install the reporter package, add it to your config, and results are uploaded automatically when the run finishes — including screenshots, videos, and DOM snapshots. No extra steps.
 
 ### Cypress
 
@@ -265,7 +265,7 @@ curl -X POST http://localhost:3000/runs/upload \
 
 ## How screenshots and videos are handled
 
-Each reporter handles artifacts differently. Flakey supports all of them automatically.
+Each reporter handles artifacts differently. Better Testing supports all of them automatically.
 
 ### Per-reporter artifact handling
 
@@ -450,7 +450,7 @@ go test -v ./... 2>&1 | go-junit-report > test-results/results.xml
   if: always()
   run: npx mochawesome-merge cypress/reports/*.json > cypress/reports/mochawesome.json
 
-- name: Upload to Flakey
+- name: Upload to Better Testing
   if: always()
   run: |
     npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
@@ -511,7 +511,7 @@ test:
 
 ## Parallel CI Runs
 
-When running tests across multiple CI workers (e.g. GitHub Actions matrix), each worker uploads separately. Flakey automatically merges uploads with the same `ci_run_id` + `suite_name` into a single run.
+When running tests across multiple CI workers (e.g. GitHub Actions matrix), each worker uploads separately. Better Testing automatically merges uploads with the same `ci_run_id` + `suite_name` into a single run.
 
 The `ci_run_id` is picked up automatically from CI environment variables:
 
@@ -535,7 +535,7 @@ jobs:
       - run: npx cypress run --spec $(curl -s "$FLAKEY_URL/predict/split?suite=e2e&workers=4" -H "Authorization: Bearer $FLAKEY_KEY" | jq -r ".workers[${{ matrix.shard - 1 }}].specs | join(\",\")")
 ```
 
-All 4 shards share the same `GITHUB_RUN_ID`, so their uploads merge into one run in Flakey.
+All 4 shards share the same `GITHUB_RUN_ID`, so their uploads merge into one run in Better Testing.
 
 ### Smart spec balancing
 
@@ -552,7 +552,7 @@ Returns spec assignments per worker with estimated duration.
 
 ## Live Reporting
 
-Stream test progress to Flakey in real-time during execution using `@flakeytesting/live-reporter`.
+Stream test progress to Better Testing in real-time during execution using `@flakeytesting/live-reporter`.
 
 ### Cypress setup
 

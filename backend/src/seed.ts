@@ -298,11 +298,11 @@ async function seed() {
     const demoHash = bcrypt.hashSync("demo123", 10);
     const admin = await client.query(
       "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Admin', 'admin') RETURNING id",
-      ["admin@flakey.dev", adminHash]
+      ["admin@example.com", adminHash]
     );
     const demo = await client.query(
       "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'viewer') RETURNING id",
-      ["demo@flakey.dev", demoHash]
+      ["demo@example.com", demoHash]
     );
     const adminId = admin.rows[0].id;
     const demoId = demo.rows[0].id;
@@ -321,7 +321,7 @@ async function seed() {
     await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [orgId, adminId]);
     await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [org2Id, demoId]);
 
-    console.log("Seeded users: admin@flakey.dev/admin (Acme Corp), demo@flakey.dev/demo123 (Demo Team)");
+    console.log("Seeded users: admin@example.com/admin (Acme Corp), demo@example.com/demo123 (Demo Team)");
 
     // Set RLS context for seeded runs
     await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);

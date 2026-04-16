@@ -1,6 +1,6 @@
 # Integrations & Automation
 
-Flakey's Settings → Integrations page configures four separate backend
+Better Testing's Settings → Integrations page configures four separate backend
 integrations that hook into the upload flow or run on a schedule:
 
 | Integration | Triggered by | Purpose |
@@ -70,10 +70,10 @@ real credentials does not need the ceremony.
 ### 1. Create a Jira API token
 
 1. Go to [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
-2. Click **Create API token** and give it a name like "Flakey"
+2. Click **Create API token** and give it a name like "Better Testing"
 3. Copy the generated token
 
-### 2. Configure Flakey
+### 2. Configure Better Testing
 
 1. Sign in as an org owner or admin
 2. Go to **Settings → Integrations**
@@ -93,7 +93,7 @@ real credentials does not need the ceremony.
 ### 3. How dedup works
 
 The first time a given failure fingerprint (hash of `spec_file ::
-full_title`) creates an issue, Flakey stores the issue key in the
+full_title`) creates an issue, Better Testing stores the issue key in the
 `failure_jira_issues` table. Subsequent failures with the same fingerprint
 reuse the existing issue — the API returns the same `{key, url}` pair
 rather than creating duplicates.
@@ -131,11 +131,11 @@ Returns every fingerprint → issue mapping the org has created.
 
 ### 1. Create a PagerDuty integration
 
-1. In PagerDuty, open the service you want Flakey to page
+1. In PagerDuty, open the service you want Better Testing to page
 2. **Integrations** tab → **Add another integration** → **Events API v2**
 3. Copy the **Integration Key** (a 32-char hex string)
 
-### 2. Configure Flakey
+### 2. Configure Better Testing
 
 1. Go to **Settings → Integrations**
 2. Fill in the PagerDuty section:
@@ -231,7 +231,7 @@ arrives via `POST /coverage`, if gating is enabled the backend:
    - **failure** if `lines_pct < threshold`
 3. The status context is `flakey/coverage/<suite>` so it does not
    collide with the main test-result commit status (`flakey/<suite>`)
-4. The target URL points to the Flakey run detail page
+4. The target URL points to the Better Testing run detail page
 
 Because this uses commit statuses rather than PR comments, coverage
 gating works even before a PR exists — the status attaches to the

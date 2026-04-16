@@ -1,6 +1,6 @@
 # Manual tests
 
-Flakey's **manual tests** view is a lightweight Xray-style test case
+Better Testing's **manual tests** view is a lightweight Xray-style test case
 inventory. Tests can come from two sources:
 
 | Source       | How it's created                                    | Who owns it        |
@@ -58,7 +58,7 @@ for `source = 'cucumber'` rows. The fix is always: change the
 
 ### Automation status
 
-Because imported scenarios are executed on every CI run, Flakey joins
+Because imported scenarios are executed on every CI run, Better Testing joins
 each one against the most recent matching automated test (by
 `file_path` and scenario title) and displays the result:
 
@@ -86,7 +86,7 @@ POST /manual-tests/import-features
 
 The client reads files in the browser and sends `{path, content}` pairs.
 `path` becomes the `source_file` value and is displayed in the detail
-banner, so prefer repo-relative paths (Flakey uses `webkitRelativePath`
+banner, so prefer repo-relative paths (Better Testing uses `webkitRelativePath`
 when a directory is selected).
 
 ```

@@ -1,4 +1,4 @@
-# Flakey
+# Better Testing
 
 A self-hosted, CI-agnostic test reporting dashboard. Collects test results from Cypress, Playwright, Jest, pytest, and any framework that outputs Mochawesome JSON, JUnit XML, or Playwright JSON. Displays results with trend charts, flaky test detection, and failure analysis.
 
@@ -45,7 +45,7 @@ npm run dev
 
 ### 5. Log in
 
-- **Email:** `admin@flakey.dev`
+- **Email:** `admin@example.com`
 - **Password:** `admin`
 
 ## Upload Test Results
@@ -168,7 +168,7 @@ ZAP results can be converted to JUnit XML and uploaded. See `examples/zap/` for 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@flakey.dev","password":"admin"}' \
+  -d '{"email":"admin@example.com","password":"admin"}' \
   | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).token))")
 
 curl -X POST http://localhost:3000/runs \
@@ -239,7 +239,7 @@ Create an API key from the Profile page for permanent access (no expiry).
 - **PagerDuty integration** — fire Events API v2 incidents on run failure with configurable severity and per-suite dedup keys
 - **Scheduled reports** — daily/weekly test digests delivered via email, Slack, or webhook; filterable by suite; advisory-lock coordinated so multi-replica backends don't double-fire
 - **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
-- **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-flakey/badge/my-suite)`
+- **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-better-testing/badge/my-suite)`
 - **Secrets encryption at rest** — Jira tokens and PagerDuty keys are AES-256-GCM encrypted (via `FLAKEY_ENCRYPTION_KEY`); gracefully falls back to plaintext in local dev
 
 ### Admin

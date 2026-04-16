@@ -1,4 +1,4 @@
-# Flakey — Project Overview
+# Better Testing — Project Overview
 
 ## What is this?
 
@@ -126,7 +126,3 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - Test source code
 - Reporter-specific metadata (Playwright: retries, tags, annotations; JUnit: classname, properties; Jest: ancestor titles)
 - Run metadata (branch, commit SHA, CI run ID, start/end time, reporter, suite name)
-
-## Name
-
-**Flakey** — leans into flakiness detection as a core feature, memorable, has personality.

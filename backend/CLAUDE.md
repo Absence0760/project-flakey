@@ -31,4 +31,4 @@ Use **npm** here, not pnpm. The backend has its own lockfile and is intentionall
 
 ## Email
 
-`src/email.ts` handles SMTP for auth verification, password reset, and scheduled reports. The default `EMAIL_FROM` still references the old brand (`Flakey <noreply@flakey.dev>`) — update it when configuring real SMTP.
+`src/email.ts` handles SMTP for auth verification, password reset, and scheduled reports. Default `EMAIL_FROM` is `Better Testing <noreply@example.com>` — override via env for real SMTP.
