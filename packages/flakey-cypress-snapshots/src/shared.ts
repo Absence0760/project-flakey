@@ -25,6 +25,21 @@ export function isEnabled(): boolean {
 export function serializeDOM(doc: Document): string {
   const clone = doc.documentElement.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("script").forEach((s) => s.remove());
+  const head = clone.querySelector("head");
+  // Inject <base href="…"> pointing at the captured page's origin so that
+  // relative asset URLs inside the snapshot (images, fonts, hashed CSS
+  // bundles like `/styles.6152230b54de2b15.css`, `/assets/images/*.svg`)
+  // resolve against the test app's origin when the snapshot is replayed in
+  // the dashboard iframe. Without this, the viewer's origin (e.g.
+  // localhost:7777) is used and every asset 404s. Skip if the captured
+  // page already has a <base> tag — the existing one is authoritative.
+  try {
+    if (head && !head.querySelector("base")) {
+      const base = doc.createElement("base");
+      base.setAttribute("href", doc.baseURI || (doc.location?.href ?? ""));
+      head.insertBefore(base, head.firstChild);
+    }
+  } catch {}
   try {
     const styleSheets = Array.from(doc.styleSheets);
     let cssText = "";
@@ -35,7 +50,6 @@ export function serializeDOM(doc: Document): string {
       const styleEl = doc.createElement("style");
       styleEl.setAttribute("data-flakey-inlined", "true");
       styleEl.textContent = cssText;
-      const head = clone.querySelector("head");
       if (head) {
         head.querySelectorAll('link[rel="stylesheet"]').forEach((l) => l.remove());
         head.appendChild(styleEl);
