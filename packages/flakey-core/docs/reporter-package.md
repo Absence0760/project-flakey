@@ -4,7 +4,7 @@
 
 Instead of generating mochawesome/JUnit output and normalizing it afterwards,
 the `@flakeytesting/*-reporter` packages plug directly into each test framework
-and POST results to the Flakey API in the unified schema.
+and POST results to the Better Testing API in the unified schema.
 
 No intermediate files. No normalizer needed. One package per framework.
 
@@ -19,7 +19,7 @@ packages/
 ├── flakey-core/                  ← @flakeytesting/core (shared)
 │   ├── src/
 │   │   ├── api-client.ts        # shared HTTP POST logic
-│   │   └── schema.ts            # unified schema types (shared with Flakey API)
+│   │   └── schema.ts            # unified schema types (shared with Better Testing API)
 │   └── package.json
 ├── flakey-cypress-reporter/      ← @flakeytesting/cypress-reporter
 │   ├── src/
@@ -282,7 +282,7 @@ export class ApiClient {
 {
   "name": "@flakeytesting/cypress-reporter",
   "version": "0.1.0",
-  "description": "Cypress reporter for Flakey dashboard",
+  "description": "Cypress reporter for Better Testing dashboard",
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/cypress-reporter.cjs",
@@ -319,7 +319,7 @@ Each reporter package only has a peer dependency on its own framework.
 
 The normalizer approach (mochawesome/JUnit) is still worth keeping as a fallback
 for teams that can't or won't change their reporter config. The `@flakeytesting/*-reporter`
-packages are the first-class path for teams fully buying into Flakey.
+packages are the first-class path for teams fully buying into Better Testing.
 
 ---
 
@@ -338,7 +338,7 @@ npm publish --access public
 # cd packages/flakey-webdriverio-reporter && npm publish --access public
 ```
 
-Once published, any team can install it and point it at their self-hosted Flakey instance.
+Once published, any team can install it and point it at their self-hosted Better Testing instance.
 
 ---
 
@@ -353,7 +353,7 @@ Builds NormalizedRun in memory
         ↓
 POST /api/runs on run end (no files written)
         ↓
-Flakey API stores directly — no normalizer needed
+Better Testing API stores directly — no normalizer needed
         ↓
 Svelte dashboard displays results
 ```

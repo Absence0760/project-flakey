@@ -11,7 +11,7 @@ const transporter = nodemailer.createTransport({
     : {}),
 });
 
-const FROM = process.env.EMAIL_FROM ?? "Flakey <noreply@flakey.dev>";
+const FROM = process.env.EMAIL_FROM ?? "Better Testing <noreply@example.com>";
 
 /**
  * Generic email sender used by the scheduled-reports dispatcher and any other
@@ -26,7 +26,7 @@ export async function sendVerificationEmail(to: string, token: string): Promise<
   await transporter.sendMail({
     from: FROM,
     to,
-    subject: "Verify your email — Flakey",
+    subject: "Verify your email — Better Testing",
     text: `Verify your email by visiting: ${url}\n\nThis link expires in 24 hours.`,
     html: `
       <h2>Verify your email</h2>
@@ -43,7 +43,7 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
   await transporter.sendMail({
     from: FROM,
     to,
-    subject: "Reset your password — Flakey",
+    subject: "Reset your password — Better Testing",
     text: `Reset your password by visiting: ${url}\n\nThis link expires in 1 hour.`,
     html: `
       <h2>Reset your password</h2>

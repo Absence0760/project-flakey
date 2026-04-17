@@ -1,6 +1,6 @@
 # Migrations
 
-Flakey uses plain SQL migration files in `backend/migrations/`. They are numbered sequentially (`001_initial.sql`, `002_test_artifacts.sql`, etc.) and run in order.
+Better Testing uses plain SQL migration files in `backend/migrations/`. They are numbered sequentially (`001_initial.sql`, `002_test_artifacts.sql`, etc.) and run in order.
 
 ## When migrations run automatically
 
@@ -108,3 +108,9 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `021_default_retention.sql` | Default 7-day data retention policy |
 | `022_phase_9_10.sql` | Jira + PagerDuty integrations, scheduled reports, code coverage, accessibility reports, visual regression diffs, UI coverage mapping, manual test management, and release checklists |
 | `023_manual_test_sources.sql` | Adds `source`, `source_ref`, `source_file` columns to `manual_tests` so hand-authored and Cucumber-imported scenarios can coexist, with a unique partial index on `(org_id, source, source_ref)` enforcing idempotent re-imports |
+| `024_manual_test_step_results.sql` | `last_step_results` JSONB column on `manual_tests` so the step-by-step runner can persist per-step pass/fail state |
+| `025_release_links.sql` | `release_runs` and `release_manual_tests` link tables pinning automated runs and manual tests to a release, plus `auto_rule` / `auto_details` columns on `release_checklist_items` for server-evaluated checklist rules |
+| `026_release_jira_version.sql` | `jira_version_id` / `jira_version_name` columns on `releases` pinning a Jira fix version to the release |
+| `027_manual_test_groups_and_sessions.sql` | `manual_test_groups` (named collections of manual tests), `group_id` on `manual_tests`, plus `release_test_sessions` and `release_test_session_results` for Xray-style test plan / execution cycles |
+| `028_release_test_result_accepted.sql` | Adds `accepted_as_known_issue`, `known_issue_ref`, `accepted_by`, `accepted_at` to `release_test_session_results` so a failed/blocked result can be explicitly deferred against a bug and stop blocking the release |
+| `029_traceability_evidence_assignees.sql` | `manual_test_requirements` (link a manual test to Jira/GitHub/Linear stories for coverage rollups), plus `attachments` / `assigned_to` / `filed_bug_key` / `filed_bug_url` on `release_test_session_results` and `target_date` on `release_test_sessions` |

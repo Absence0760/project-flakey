@@ -22,5 +22,5 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 -- Seed a default admin user (password: "admin")
 -- bcrypt hash of "admin"
 INSERT INTO users (email, password_hash, name, role)
-VALUES ('admin@flakey.dev', '$2b$10$Jn1RIGWrnSs77uzGaNRa1epUncrMzFwBjy00KbD3GWY14lZTR8jAO', 'Admin', 'admin')
+VALUES ('admin@example.com', '$2b$10$Jn1RIGWrnSs77uzGaNRa1epUncrMzFwBjy00KbD3GWY14lZTR8jAO', 'Admin', 'admin')
 ON CONFLICT (email) DO NOTHING;

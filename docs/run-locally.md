@@ -51,7 +51,7 @@ cd backend && pnpm run seed
 ```
 
 This creates:
-- Two users: `admin@flakey.dev` / `admin` and `demo@flakey.dev` / `demo123`
+- Two users: `admin@example.com` / `admin` and `demo@example.com` / `demo123`
 - Two organizations: Acme Corp (admin's) and Demo Team (demo's)
 - 50 sample test runs spread across 18 months (assigned to Acme Corp)
 - Phase 9/10 sample data attached to Acme Corp:
@@ -78,7 +78,7 @@ This starts both services concurrently:
 
 Open http://localhost:7777 and log in with:
 
-- **Email:** `admin@flakey.dev`
+- **Email:** `admin@example.com`
 - **Password:** `admin`
 
 Or register a new account — a personal organization is created automatically.
@@ -93,7 +93,7 @@ All data endpoints require authentication. You have three options:
 # 1. Get a JWT token
 TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@flakey.dev","password":"admin"}' \
+  -d '{"email":"admin@example.com","password":"admin"}' \
   | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).token))")
 
 # 2. Upload a mochawesome report
@@ -159,7 +159,7 @@ npx tsx src/index.ts \
 | `pnpm run dev:backend` | Start backend only |
 | `pnpm run dev:frontend` | Start frontend only |
 | `cd backend && pnpm run seed` | Seed sample data |
-| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [testing.md](testing.md)) |
+| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
 
 ## Environment variables
 
@@ -189,8 +189,8 @@ npx tsx src/index.ts \
 | `SMTP_USER` | _(none)_ | SMTP username (optional, only if your relay requires auth) |
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
-| `EMAIL_FROM` | `Flakey <noreply@flakey.dev>` | From-address used for all outgoing email |
-| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [integrations.md](integrations.md#secrets-encryption) |
+| `EMAIL_FROM` | `Better Testing <noreply@example.com>` | From-address used for all outgoing email |
+| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
 
 ### Frontend
 

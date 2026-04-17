@@ -2,7 +2,7 @@
 
 ## Feature matrix
 
-| Feature | Cypress Cloud | Sorry Cypress | Currents.dev | ReportPortal | Allure TestOps | Tesults | BuildPulse | Launchable | Flakey |
+| Feature | Cypress Cloud | Sorry Cypress | Currents.dev | ReportPortal | Allure TestOps | Tesults | BuildPulse | Launchable | Better Testing |
 |---|---|---|---|---|---|---|---|---|---|
 | **Reporting** | | | | | | | | | |
 | Pass/fail dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -76,7 +76,7 @@ Focused on flaky test detection and CI optimization. Core feature is flaky test 
 ### Launchable (now CloudBees Smart Tests)
 ML-powered predictive test selection — the core differentiator. Analyzes code changes + test history to predict which tests will fail, selecting only relevant tests per change. Claims 90% of failures caught in 20% of test time. Also provides AI failure classification and intelligent test scheduling. Acquired by CloudBees and integrated into their CI/CD platform. Framework-agnostic. Strongest claims on CI cost savings (3-5 cloud instances saved per test hour).
 
-## Key differentiators for Flakey
+## Key differentiators for Better Testing
 
 1. **Multi-reporter normalizer** — accepts Mochawesome, JUnit XML, and Playwright JSON via a normalizer layer
 2. **CI-native parallelization** — works with Bitbucket parallel steps and GitHub Actions matrix out of the box, no orchestration server needed
@@ -86,7 +86,7 @@ ML-powered predictive test selection — the core differentiator. Analyzes code 
 
 ## Biggest competitive gaps
 
-These are the most impactful features competitors offer that Flakey does not yet have (see roadmap Phases 7-10):
+These are the most impactful features competitors offer that Better Testing does not yet have (see roadmap Phases 7-10):
 
 1. **GitHub PR status checks and comments** (Cypress Cloud, Currents, BuildPulse) — most teams expect test results surfaced directly in PRs
 2. **AI/ML failure analysis** (ReportPortal, Launchable, Cypress Cloud) — auto-classify failures, surface similar historical failures, generate root cause summaries

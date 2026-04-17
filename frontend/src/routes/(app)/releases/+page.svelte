@@ -117,7 +117,7 @@
 </div>
 
 <style>
-	.page { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
 	.subtitle { color: var(--text-muted); font-size: 0.9rem; }
 	.create-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }

@@ -1,6 +1,6 @@
 # Manual tests
 
-Flakey's **manual tests** view is a lightweight Xray-style test case
+Better Testing's **manual tests** view is a lightweight Xray-style test case
 inventory. Tests can come from two sources:
 
 | Source       | How it's created                                    | Who owns it        |
@@ -58,7 +58,7 @@ for `source = 'cucumber'` rows. The fix is always: change the
 
 ### Automation status
 
-Because imported scenarios are executed on every CI run, Flakey joins
+Because imported scenarios are executed on every CI run, Better Testing joins
 each one against the most recent matching automated test (by
 `file_path` and scenario title) and displays the result:
 
@@ -86,7 +86,7 @@ POST /manual-tests/import-features
 
 The client reads files in the browser and sends `{path, content}` pairs.
 `path` becomes the `source_file` value and is displayed in the detail
-banner, so prefer repo-relative paths (Flakey uses `webkitRelativePath`
+banner, so prefer repo-relative paths (Better Testing uses `webkitRelativePath`
 when a directory is selected).
 
 ```
@@ -94,5 +94,64 @@ GET /manual-tests
 GET /manual-tests/:id
 ```
 
-Both now return `source`, `source_ref`, `source_file`, `auto_last_status`,
-and `auto_last_run_at` in addition to the existing fields.
+Both return `source`, `source_ref`, `source_file`, `auto_last_status`,
+`auto_last_run_at`, `group_id`, `group_name`, `requirement_count`,
+`total_runs`, `failure_count`, `pass_rate`, and `is_flaky` in addition
+to the hand-authored fields. `GET /manual-tests/:id` also returns a
+`requirements` array.
+
+## Groups
+
+Manual tests can be organised into **groups** — named collections like
+"Checkout Flow" or "Auth Suite" — so a whole group can be bulk-linked to
+a release in one click. Groups are per-org and free-form; a test belongs
+to at most one group (`manual_tests.group_id`).
+
+```
+GET    /manual-test-groups            — list with test counts
+POST   /manual-test-groups            — { name, description? }
+GET    /manual-test-groups/:id        — detail + members
+PATCH  /manual-test-groups/:id        — rename / update description
+DELETE /manual-test-groups/:id        — drops the group, sets member group_id = NULL
+
+POST   /releases/:id/manual-test-groups/:groupId
+   → bulk-links every test in the group to the release;
+     already-linked tests are skipped via ON CONFLICT.
+```
+
+Creating/editing a test accepts `group_id` in the request body; passing
+`null` removes the assignment. The list endpoint supports `?group_id=N`
+to filter by a group and `?group_id=none` to return only ungrouped tests.
+
+## Requirements traceability
+
+Each manual test can be linked to one or more **requirements** —
+identifiers (and optional URLs) in Jira / GitHub / Linear / other —
+so release readiness can show "Story ABC-42 → 3 tests, 2 passing".
+The provider is inferred from the URL when not set explicitly.
+
+```
+GET    /manual-tests/:id/requirements
+POST   /manual-tests/:id/requirements          — { ref_key, ref_url?, ref_title?, provider? }
+DELETE /manual-tests/:id/requirements/:reqId
+
+GET    /releases/:id/requirements
+   → rollup: for every requirement linked by a test that's also linked to
+     this release, return passed/failed/blocked/not-run counts derived
+     from the latest session's results.
+```
+
+## Flakiness
+
+Once a test has ≥ 2 recorded results across `release_test_session_results`,
+the list endpoint surfaces:
+
+- `total_runs` — executed results (passed + failed)
+- `failure_count` — number of failures
+- `pass_rate` — decimal 0–1 (null if fewer than 2 runs)
+- `is_flaky` — boolean; true when pass rate is strictly between 0 and 1
+
+The UI uses `is_flaky` to render a small `flaky` badge next to the test
+title and a pass-rate chip in the table's Signal column, and a "Flaky
+only" filter appears in the toolbar whenever at least one test has the
+flag set. This is computed live from history — no ingest job required.

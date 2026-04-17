@@ -142,7 +142,7 @@ Scheduler (internal, advisory-lock coordinated):
 
 ### 3. Normalizer (`backend/src/normalizers/`)
 
-Each reporter has its own parser that converts to a unified internal schema. All parsers produce the same `NormalizedRun` structure. See `normalizer.md` for full details.
+Each reporter has its own parser that converts to a unified internal schema. All parsers produce the same `NormalizedRun` structure. See [backend/docs/normalizer.md](../backend/docs/normalizer.md) for full details.
 
 Supported reporters:
 - **Mochawesome** — Cypress/Mocha JSON output

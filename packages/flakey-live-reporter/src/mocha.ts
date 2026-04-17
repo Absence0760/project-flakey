@@ -84,25 +84,10 @@ export function register(
     client?.send({ type: "spec.started", spec: spec.relative });
   });
 
-  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number }; tests?: Array<{ title: string[]; state: string; duration: number; err?: { message?: string } }> }) => {
-    // Send individual test results
-    if (results.tests) {
-      for (const test of results.tests) {
-        const title = test.title.join(" > ");
-        const type = test.state === "passed" ? "test.passed"
-          : test.state === "failed" ? "test.failed"
-          : "test.skipped" as const;
-        client?.send({
-          type,
-          spec: spec.relative,
-          test: title,
-          status: test.state,
-          duration_ms: test.duration,
-          error: test.err?.message,
-        });
-      }
-    }
-
+  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number } }) => {
+    // Individual test.passed/failed/skipped events are sent in real-time by the
+    // Flakey Cypress reporter (reporter.ts) as each test finishes. Here we only
+    // emit the spec-level summary so the live feed shows spec completion markers.
     client?.send({
       type: "spec.finished",
       spec: spec.relative,
