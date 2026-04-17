@@ -93,22 +93,25 @@ async function evaluateManualRegressionExecuted(
     const session = latestSession.rows[0];
     const results = await tenantQuery(
       orgId,
-      "SELECT status FROM release_test_session_results WHERE session_id = $1",
+      "SELECT status, accepted_as_known_issue FROM release_test_session_results WHERE session_id = $1",
       [session.id]
     );
     const rows = results.rows;
     if (rows.length === 0) {
       return { met: false, details: `Session #${session.session_number} has no tests` };
     }
-    const failed   = rows.filter((r) => r.status === "failed").length;
-    const blocked  = rows.filter((r) => r.status === "blocked").length;
-    const notRun   = rows.filter((r) => r.status === "not_run").length;
-    const executed = rows.length - notRun;
+    // Accepted failures/blocked are explicitly deferred against a bug — they
+    // no longer count as blockers. Everything else must be in a clean state.
+    const blockingFailed  = rows.filter((r) => r.status === "failed"  && !r.accepted_as_known_issue).length;
+    const blockingBlocked = rows.filter((r) => r.status === "blocked" && !r.accepted_as_known_issue).length;
+    const accepted        = rows.filter((r) => r.accepted_as_known_issue).length;
+    const notRun          = rows.filter((r) => r.status === "not_run").length;
     const label = `session #${session.session_number}`;
-    if (failed > 0)   return { met: false, details: `${failed} failing test(s) in ${label}` };
-    if (blocked > 0)  return { met: false, details: `${blocked} blocked test(s) in ${label}` };
-    if (notRun > 0)   return { met: false, details: `${notRun} of ${rows.length} test(s) not run in ${label}` };
-    return { met: true, details: `${executed}/${rows.length} tests executed cleanly in ${label}` };
+    if (blockingFailed > 0)  return { met: false, details: `${blockingFailed} failing test(s) in ${label}` };
+    if (blockingBlocked > 0) return { met: false, details: `${blockingBlocked} blocked test(s) in ${label}` };
+    if (notRun > 0)          return { met: false, details: `${notRun} of ${rows.length} test(s) not run in ${label}` };
+    const suffix = accepted > 0 ? ` (${accepted} accepted as known issue)` : "";
+    return { met: true, details: `${rows.length - accepted}/${rows.length} tests executed cleanly in ${label}${suffix}` };
   }
 
   const linked = await tenantQuery(
@@ -908,22 +911,24 @@ router.get("/:id/sessions", async (req, res) => {
       `SELECT s.id, s.session_number, s.label, s.mode, s.status,
               s.created_at, s.completed_at,
               u.email AS created_by_email,
-              COALESCE(c.total, 0)::int   AS total,
-              COALESCE(c.passed, 0)::int  AS passed,
-              COALESCE(c.failed, 0)::int  AS failed,
-              COALESCE(c.blocked, 0)::int AS blocked,
-              COALESCE(c.skipped, 0)::int AS skipped,
-              COALESCE(c.not_run, 0)::int AS not_run
+              COALESCE(c.total, 0)::int    AS total,
+              COALESCE(c.passed, 0)::int   AS passed,
+              COALESCE(c.failed, 0)::int   AS failed,
+              COALESCE(c.blocked, 0)::int  AS blocked,
+              COALESCE(c.skipped, 0)::int  AS skipped,
+              COALESCE(c.not_run, 0)::int  AS not_run,
+              COALESCE(c.accepted, 0)::int AS accepted
          FROM release_test_sessions s
          LEFT JOIN users u ON u.id = s.created_by
          LEFT JOIN (
            SELECT session_id,
-                  COUNT(*)                                     AS total,
-                  COUNT(*) FILTER (WHERE status = 'passed')    AS passed,
-                  COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
-                  COUNT(*) FILTER (WHERE status = 'blocked')   AS blocked,
-                  COUNT(*) FILTER (WHERE status = 'skipped')   AS skipped,
-                  COUNT(*) FILTER (WHERE status = 'not_run')   AS not_run
+                  COUNT(*)                                                                   AS total,
+                  COUNT(*) FILTER (WHERE status = 'passed')                                  AS passed,
+                  COUNT(*) FILTER (WHERE status = 'failed')                                  AS failed,
+                  COUNT(*) FILTER (WHERE status = 'blocked')                                 AS blocked,
+                  COUNT(*) FILTER (WHERE status = 'skipped')                                 AS skipped,
+                  COUNT(*) FILTER (WHERE status = 'not_run')                                 AS not_run,
+                  COUNT(*) FILTER (WHERE accepted_as_known_issue = TRUE)                     AS accepted
              FROM release_test_session_results
             GROUP BY session_id
          ) c ON c.session_id = s.id
@@ -974,10 +979,14 @@ router.post("/:id/sessions", async (req, res) => {
         [releaseId]
       );
       if (prev.rows.length > 0) {
+        // Skip results explicitly deferred as known issues — they're in the
+        // "we're shipping with this" bucket, not the "run again" bucket.
         const prevResults = await tenantQuery(
           req.user!.orgId,
           `SELECT manual_test_id FROM release_test_session_results
-            WHERE session_id = $1 AND status IN ('failed','blocked')`,
+            WHERE session_id = $1
+              AND status IN ('failed','blocked')
+              AND accepted_as_known_issue = FALSE`,
           [prev.rows[0].id]
         );
         scopeTestIds = prevResults.rows.map((r) => Number(r.manual_test_id));
@@ -1067,12 +1076,15 @@ router.get("/:id/sessions/:sessionId", async (req, res) => {
       req.user!.orgId,
       `SELECT r.id, r.manual_test_id, r.status, r.notes, r.step_results,
               r.run_at, u.email AS run_by_email,
+              r.accepted_as_known_issue, r.known_issue_ref,
+              r.accepted_at, au.email AS accepted_by_email,
               mt.title, mt.suite_name, mt.priority,
               mt.group_id, g.name AS group_name
          FROM release_test_session_results r
          JOIN manual_tests mt ON mt.id = r.manual_test_id
          LEFT JOIN manual_test_groups g ON g.id = mt.group_id
          LEFT JOIN users u ON u.id = r.run_by
+         LEFT JOIN users au ON au.id = r.accepted_by
         WHERE r.session_id = $1
         ORDER BY mt.priority DESC, mt.title`,
       [req.params.sessionId]
@@ -1238,6 +1250,98 @@ router.post("/:id/sessions/:sessionId/results/:testId", async (req, res) => {
     res.json({ updated: true, session_completed: sessionCompleted });
   } catch (err) {
     console.error("POST /releases/:id/sessions/:sessionId/results/:testId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions/:sessionId/results/:testId/accept
+// Defer a failed/blocked result as a known issue for this release so it
+// stops counting as a blocker and drops out of failures-only reruns.
+// Body: { known_issue_ref?: string }
+router.post("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const { known_issue_ref } = req.body ?? {};
+
+    const existing = await tenantQuery(
+      req.user!.orgId,
+      `SELECT r.id, r.status
+         FROM release_test_session_results r
+         JOIN release_test_sessions s ON s.id = r.session_id
+        WHERE r.session_id = $1 AND r.manual_test_id = $2 AND s.release_id = $3`,
+      [req.params.sessionId, req.params.testId, req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: "Result not found" });
+      return;
+    }
+    // Only failures and blocked can be deferred. Passing/skipped/not_run
+    // acceptance makes no sense and would hide real problems.
+    if (!["failed", "blocked"].includes(existing.rows[0].status)) {
+      res.status(400).json({ error: "Only failed or blocked results can be accepted as known issues" });
+      return;
+    }
+
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results
+          SET accepted_as_known_issue = TRUE,
+              known_issue_ref = $1,
+              accepted_by = $2,
+              accepted_at = NOW()
+        WHERE session_id = $3 AND manual_test_id = $4`,
+      [known_issue_ref ?? null, req.user!.id, req.params.sessionId, req.params.testId]
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_result_accept",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId, known_issue_ref }
+    );
+    res.json({ accepted: true });
+  } catch (err) {
+    console.error("POST accept known-issue error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE .../accept — revoke a prior acceptance so the result blocks again.
+router.delete("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results r
+          SET accepted_as_known_issue = FALSE,
+              known_issue_ref = NULL,
+              accepted_by = NULL,
+              accepted_at = NULL
+         FROM release_test_sessions s
+        WHERE r.session_id = s.id
+          AND r.session_id = $1
+          AND r.manual_test_id = $2
+          AND s.release_id = $3`,
+      [req.params.sessionId, req.params.testId, req.params.id]
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_result_unaccept",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId }
+    );
+    res.json({ unaccepted: true });
+  } catch (err) {
+    console.error("DELETE accept known-issue error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

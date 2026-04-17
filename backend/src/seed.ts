@@ -978,6 +978,21 @@ async function seed() {
         [adminId, session2Id, expiredCardId]
       );
     }
+
+    // Mark one of the session-1 blocked results as accepted-as-known-issue
+    // so the demo shows the deferred-failure UX out of the box.
+    const intlShipId = groupedTestIds["Ship to international address"];
+    if (intlShipId) {
+      await client.query(
+        `UPDATE release_test_session_results
+            SET accepted_as_known_issue = TRUE,
+                known_issue_ref = 'https://example.atlassian.net/browse/ACME-482',
+                accepted_by = $1,
+                accepted_at = NOW() - INTERVAL '1 day'
+          WHERE session_id = $2 AND manual_test_id = $3`,
+        [adminId, session1Id, intlShipId]
+      );
+    }
     console.log(`Seeded 2 test sessions on release v2.4.0 (1 completed, 1 in progress).`);
 
     // Scheduled report

@@ -89,6 +89,7 @@
 		blocked: number;
 		skipped: number;
 		not_run: number;
+		accepted: number;
 	}
 
 	interface SessionResult {
@@ -99,6 +100,10 @@
 		step_results: unknown[];
 		run_at: string | null;
 		run_by_email: string | null;
+		accepted_as_known_issue: boolean;
+		known_issue_ref: string | null;
+		accepted_at: string | null;
+		accepted_by_email: string | null;
 		title: string;
 		suite_name: string | null;
 		priority: string;
@@ -175,21 +180,52 @@
 	let groupPickerOpen = $state(false);
 	let groupLinkMessage = $state<string | null>(null);
 
-	// Sessions
+	// Sessions. sessionDetails is keyed by session id so past-session expansion
+	// can reuse a once-loaded result set instead of refetching on every open.
 	let sessions = $state<TestSession[]>([]);
-	let activeSessionDetail = $state<SessionDetail | null>(null);
+	let sessionDetails = $state<Record<number, SessionDetail>>({});
 	let sessionsLoading = $state(false);
 	let newSessionMode = $state<'full' | 'failures_only'>('full');
 	let newSessionLabel = $state('');
 	let showNewSessionForm = $state(false);
 	let sessionError = $state<string | null>(null);
+	let expandedSessionId = $state<number | null>(null);
 
 	// Per-row runner state
 	let runnerTestId = $state<number | null>(null);
 	let runnerStatus = $state<'passed' | 'failed' | 'blocked' | 'skipped'>('passed');
 	let runnerNotes = $state('');
+	let runnerAcceptKnown = $state(false);
+	let runnerKnownRef = $state('');
+
+	// "Accept as known issue" dialog (triggered from a row's Accept button —
+	// separate from the runner, for deferring an already-recorded failure).
+	let acceptTargetTestId = $state<number | null>(null);
+	let acceptKnownRef = $state('');
 
 	const inProgressSession = $derived(sessions.find(s => s.status === 'in_progress') ?? null);
+	const activeSessionDetail = $derived(
+		inProgressSession ? sessionDetails[inProgressSession.id] ?? null : null
+	);
+
+	// Failures currently blocking the release — from the active session if
+	// one exists, otherwise from the most recent completed session.
+	const readinessSession = $derived(
+		inProgressSession
+			? sessions.find(s => s.id === inProgressSession.id) ?? null
+			: sessions.find(s => s.status === 'completed') ?? null
+	);
+	const readinessSessionDetail = $derived(
+		readinessSession ? sessionDetails[readinessSession.id] ?? null : null
+	);
+	const blockingFailures = $derived(
+		(readinessSessionDetail?.results ?? []).filter(
+			r => (r.status === 'failed' || r.status === 'blocked') && !r.accepted_as_known_issue
+		)
+	);
+	const acceptedFailures = $derived(
+		(readinessSessionDetail?.results ?? []).filter(r => r.accepted_as_known_issue)
+	);
 
 	onMount(load);
 
@@ -207,10 +243,16 @@
 			readiness = readyRes.ok ? await readyRes.json() : null;
 			sessions = sRes.ok ? await sRes.json() : [];
 
-			// Auto-load the detail of the in-progress session (if any)
-			const inProg = sessions.find(s => s.status === 'in_progress');
-			if (inProg) await loadSessionDetail(inProg.id);
-			else activeSessionDetail = null;
+			// Detail for the "active" session drives the readiness failure
+			// list + the primary execution panel. Fall back to the most recent
+			// completed session when nothing is in progress.
+			sessionDetails = {};
+			const target = sessions.find(s => s.status === 'in_progress')
+				?? sessions.find(s => s.status === 'completed');
+			if (target) {
+				await loadSessionDetail(target.id);
+				expandedSessionId = target.id;
+			}
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
@@ -225,10 +267,32 @@
 		sessionsLoading = true;
 		try {
 			const res = await authFetch(`${API_URL}/releases/${releaseId}/sessions/${sessionId}`);
-			if (res.ok) activeSessionDetail = await res.json();
+			if (res.ok) {
+				const detail = await res.json() as SessionDetail;
+				sessionDetails = { ...sessionDetails, [sessionId]: detail };
+			}
 		} finally {
 			sessionsLoading = false;
 		}
+	}
+
+	async function toggleSessionExpanded(sessionId: number) {
+		if (expandedSessionId === sessionId) {
+			expandedSessionId = null;
+			return;
+		}
+		expandedSessionId = sessionId;
+		if (!sessionDetails[sessionId]) await loadSessionDetail(sessionId);
+	}
+
+	// Scroll a failing-test reference in the readiness panel to its row in
+	// the active session table and briefly highlight it.
+	function scrollToTestRow(testId: number) {
+		const el = document.getElementById(`session-row-${testId}`);
+		if (!el) return;
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		el.classList.add('row-flash');
+		setTimeout(() => el.classList.remove('row-flash'), 1600);
 	}
 
 	async function loadJira() {
@@ -390,17 +454,23 @@
 		runnerTestId = testId;
 		runnerStatus = 'passed';
 		runnerNotes = '';
+		runnerAcceptKnown = false;
+		runnerKnownRef = '';
 	}
 
 	function closeRunner() {
 		runnerTestId = null;
 		runnerNotes = '';
+		runnerAcceptKnown = false;
+		runnerKnownRef = '';
 	}
 
 	async function saveRunnerResult() {
 		if (!activeSessionDetail || runnerTestId === null) return;
+		const sessionId = activeSessionDetail.id;
+		const testId = runnerTestId;
 		const res = await authFetch(
-			`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${runnerTestId}`,
+			`${API_URL}/releases/${releaseId}/sessions/${sessionId}/results/${testId}`,
 			{
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -410,10 +480,61 @@
 				}),
 			}
 		);
-		if (res.ok) {
-			closeRunner();
-			await load();
+		if (!res.ok) return;
+
+		// If the user ticked "record and defer", chain the accept call so
+		// the result lands with known_issue_ref in a single UX motion.
+		if (runnerAcceptKnown && (runnerStatus === 'failed' || runnerStatus === 'blocked')) {
+			await authFetch(
+				`${API_URL}/releases/${releaseId}/sessions/${sessionId}/results/${testId}/accept`,
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ known_issue_ref: runnerKnownRef || null }),
+				}
+			);
 		}
+		closeRunner();
+		await load();
+	}
+
+	// ── Accept / revoke known-issue on an already-recorded result ────────
+	function openAcceptDialog(testId: number) {
+		acceptTargetTestId = testId;
+		acceptKnownRef = '';
+	}
+
+	function closeAcceptDialog() {
+		acceptTargetTestId = null;
+		acceptKnownRef = '';
+	}
+
+	async function confirmAccept() {
+		if (!activeSessionDetail || acceptTargetTestId === null) return;
+		const res = await authFetch(
+			`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${acceptTargetTestId}/accept`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ known_issue_ref: acceptKnownRef || null }),
+			}
+		);
+		closeAcceptDialog();
+		if (res.ok) await load();
+	}
+
+	async function revokeAcceptance(sessionId: number, testId: number) {
+		if (!confirm('Revoke known-issue acceptance? This test will block the release again.')) return;
+		await authFetch(
+			`${API_URL}/releases/${releaseId}/sessions/${sessionId}/results/${testId}/accept`,
+			{ method: 'DELETE' }
+		);
+		await load();
+	}
+
+	// Heuristic: treat a ref containing "://" as a URL — render as a link.
+	function isRefUrl(ref: string | null): boolean {
+		return !!ref && /:\/\//.test(ref);
 	}
 
 	async function addItem() {
@@ -540,6 +661,338 @@
 						</ul>
 					</div>
 				{/if}
+
+				{#if blockingFailures.length > 0}
+					<details class="readiness-failures" open>
+						<summary>
+							<span class="failure-count">{blockingFailures.length}</span>
+							test{blockingFailures.length === 1 ? '' : 's'} blocking this release
+							— click to jump to the active session
+						</summary>
+						<ul class="failure-links">
+							{#each blockingFailures as r}
+								<li>
+									<button
+										type="button"
+										class="failure-link"
+										onclick={() => scrollToTestRow(r.manual_test_id)}
+									>
+										<span class={`status-pill status-${r.status.replace('_','-')}`}>
+											{r.status}
+										</span>
+										<strong>{r.title}</strong>
+										<span class="dim">
+											{r.group_name ? `${r.group_name} · ` : ''}{r.priority}
+										</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+
+				{#if acceptedFailures.length > 0}
+					<details class="readiness-accepted">
+						<summary>
+							<span class="accepted-count">{acceptedFailures.length}</span>
+							known issue{acceptedFailures.length === 1 ? '' : 's'} deferred to a later release
+						</summary>
+						<ul class="failure-links">
+							{#each acceptedFailures as r}
+								<li>
+									<button
+										type="button"
+										class="failure-link"
+										onclick={() => scrollToTestRow(r.manual_test_id)}
+									>
+										<span class="status-pill status-accepted">known</span>
+										<strong>{r.title}</strong>
+										{#if r.known_issue_ref}
+											{#if isRefUrl(r.known_issue_ref)}
+												<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">
+													{r.known_issue_ref}
+												</a>
+											{:else}
+												<span class="known-ref">{r.known_issue_ref}</span>
+											{/if}
+										{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+			</section>
+		{/if}
+
+		<!-- ── Active session (primary execution panel) ─────────────────── -->
+		<section class="active-session-panel">
+			<details open>
+				<summary class="active-session-summary">
+					<div class="summary-left">
+						<h2>
+							{#if inProgressSession}
+								Active session · #{inProgressSession.session_number}
+							{:else}
+								Test execution
+							{/if}
+						</h2>
+						{#if inProgressSession}
+							<span class="mode-badge mode-{inProgressSession.mode}">
+								{inProgressSession.mode === 'full' ? 'Full' : 'Rerun failures'}
+							</span>
+							<span class="status-pill status-in_progress">In progress</span>
+						{/if}
+					</div>
+					<div class="summary-right">
+						{#if inProgressSession}
+							<span class="dim">
+								{inProgressSession.passed}p · {inProgressSession.failed}f · {inProgressSession.not_run} not run
+							</span>
+						{:else}
+							<span class="dim">No session in progress</span>
+						{/if}
+					</div>
+				</summary>
+
+				<div class="section-body">
+					{#if inProgressSession}
+						<div class="active-session-toolbar">
+							{#if inProgressSession.label}
+								<div class="session-label">{inProgressSession.label}</div>
+							{/if}
+							<div class="progress-bar full">
+								{#if inProgressSession.total > 0}
+									<div class="pb-passed"  style="width: {(inProgressSession.passed / inProgressSession.total) * 100}%"></div>
+									<div class="pb-failed"  style="width: {(inProgressSession.failed / inProgressSession.total) * 100}%"></div>
+									<div class="pb-blocked" style="width: {(inProgressSession.blocked / inProgressSession.total) * 100}%"></div>
+									<div class="pb-skipped" style="width: {(inProgressSession.skipped / inProgressSession.total) * 100}%"></div>
+								{/if}
+							</div>
+							<div class="actions">
+								<button class="btn-ghost" onclick={() => completeSession(inProgressSession!.id)}>
+									Mark session complete
+								</button>
+							</div>
+						</div>
+
+						{#if sessionsLoading && !activeSessionDetail}
+							<p class="empty">Loading…</p>
+						{:else if activeSessionDetail && activeSessionDetail.results.length > 0}
+							<table class="session-table">
+								<thead>
+									<tr>
+										<th>Title</th>
+										<th>Group</th>
+										<th>Priority</th>
+										<th>Status</th>
+										<th>Last run by</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each activeSessionDetail.results as r}
+										<tr
+											id={`session-row-${r.manual_test_id}`}
+											class:accepted={r.accepted_as_known_issue}
+										>
+											<td>
+												<strong>{r.title}</strong>
+												{#if r.accepted_as_known_issue}
+													<div class="known-issue-inline">
+														<span class="status-pill status-accepted">known issue</span>
+														{#if r.known_issue_ref}
+															{#if isRefUrl(r.known_issue_ref)}
+																<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">
+																	{r.known_issue_ref}
+																</a>
+															{:else}
+																<span class="known-ref">{r.known_issue_ref}</span>
+															{/if}
+														{/if}
+														<button
+															class="link-button"
+															onclick={() => revokeAcceptance(activeSessionDetail!.id, r.manual_test_id)}
+															title="Revoke acceptance"
+														>revoke</button>
+													</div>
+												{/if}
+												{#if r.notes}
+													<div class="result-notes">{r.notes}</div>
+												{/if}
+											</td>
+											<td>{r.group_name ?? '—'}</td>
+											<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
+											<td>
+												<span class={`status-pill status-${r.status.replace('_', '-')}`}>
+													{r.status.replace('_', ' ')}
+												</span>
+											</td>
+											<td class="dim">
+												{#if r.run_at}
+													{r.run_by_email ?? '—'}
+													<br /><span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
+												{:else}
+													—
+												{/if}
+											</td>
+											<td class="row-actions">
+												<button class="btn-ghost btn-small" onclick={() => openRunner(r.manual_test_id)}>
+													Record
+												</button>
+												{#if (r.status === 'failed' || r.status === 'blocked') && !r.accepted_as_known_issue}
+													<button
+														class="btn-ghost btn-small accept-btn"
+														onclick={() => openAcceptDialog(r.manual_test_id)}
+														title="Defer as known issue"
+													>
+														Accept
+													</button>
+												{/if}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{:else if activeSessionDetail}
+							<p class="empty">No tests in this session.</p>
+						{/if}
+					{:else}
+						<!-- No active session — offer to start one -->
+						<p class="empty">No session currently in progress.</p>
+						{#if !showNewSessionForm}
+							<button class="btn-primary" onclick={() => (showNewSessionForm = true)}>
+								+ Start new session
+							</button>
+						{:else}
+							<div class="new-session-form">
+								<label class="field">
+									<span class="field-label">Label (optional)</span>
+									<input bind:value={newSessionLabel} placeholder="e.g. Release candidate sanity pass" />
+								</label>
+								<label class="field">
+									<span class="field-label">Mode</span>
+									<select bind:value={newSessionMode}>
+										<option value="full">Full run — all linked tests</option>
+										<option value="failures_only">Rerun failures — unaccepted failed/blocked from latest session</option>
+									</select>
+								</label>
+								{#if sessionError}<p class="error inline">{sessionError}</p>{/if}
+								<div class="actions">
+									<button class="btn-ghost" onclick={() => (showNewSessionForm = false)}>Cancel</button>
+									<button class="btn-primary" onclick={createSession}>Start session</button>
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			</details>
+		</section>
+
+		<!-- ── Session history (collapsible; each session expandable) ───── -->
+		{#if sessions.length > 0}
+			<section class="session-history-panel">
+				<details>
+					<summary>
+						<div class="summary-left">
+							<h2>Session history</h2>
+							<span class="dim">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span>
+						</div>
+						<span class="summary-right dim">click to expand</span>
+					</summary>
+
+					<ul class="session-list">
+						{#each sessions as s}
+							<li class="session-card" class:in-progress={s.status === 'in_progress'}>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="session-head" onclick={() => toggleSessionExpanded(s.id)}>
+									<div>
+										<strong>Session #{s.session_number}</strong>
+										{#if s.label}<span class="session-label"> — {s.label}</span>{/if}
+										<span class="mode-badge mode-{s.mode}">
+											{s.mode === 'full' ? 'Full' : 'Rerun failures'}
+										</span>
+										<span class={`status-pill status-${s.status}`}>
+											{s.status === 'in_progress' ? 'In progress' : 'Completed'}
+										</span>
+										{#if s.accepted > 0}
+											<span class="status-pill status-accepted">{s.accepted} accepted</span>
+										{/if}
+									</div>
+									<span class="dim">{new Date(s.created_at).toLocaleString()} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
+								</div>
+								<div class="progress-bar">
+									{#if s.total > 0}
+										<div class="pb-passed"  style="width: {(s.passed / s.total) * 100}%"></div>
+										<div class="pb-failed"  style="width: {(s.failed / s.total) * 100}%"></div>
+										<div class="pb-blocked" style="width: {(s.blocked / s.total) * 100}%"></div>
+										<div class="pb-skipped" style="width: {(s.skipped / s.total) * 100}%"></div>
+									{/if}
+								</div>
+								<div class="session-counts">
+									<span><span class="pass">{s.passed}</span> passed</span>
+									<span><span class="fail">{s.failed}</span> failed</span>
+									<span>{s.blocked} blocked</span>
+									<span>{s.skipped} skipped</span>
+									<span>{s.not_run} not run</span>
+									<span class="dim">({s.total} total)</span>
+								</div>
+
+								{#if expandedSessionId === s.id}
+									{@const detail = sessionDetails[s.id]}
+									{#if !detail}
+										<p class="empty">Loading…</p>
+									{:else}
+										<table class="session-table nested">
+											<thead>
+												<tr>
+													<th>Title</th>
+													<th>Group</th>
+													<th>Status</th>
+													<th>Notes</th>
+													<th>Run by</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each detail.results as r}
+													<tr class:accepted={r.accepted_as_known_issue}>
+														<td><strong>{r.title}</strong></td>
+														<td>{r.group_name ?? '—'}</td>
+														<td>
+															<span class={`status-pill status-${r.status.replace('_', '-')}`}>
+																{r.status.replace('_', ' ')}
+															</span>
+															{#if r.accepted_as_known_issue}
+																<span class="status-pill status-accepted">known</span>
+																{#if r.known_issue_ref}
+																	{#if isRefUrl(r.known_issue_ref)}
+																		<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">{r.known_issue_ref}</a>
+																	{:else}
+																		<span class="known-ref">{r.known_issue_ref}</span>
+																	{/if}
+																{/if}
+															{/if}
+														</td>
+														<td class="notes-cell">{r.notes ?? '—'}</td>
+														<td class="dim">
+															{#if r.run_at}
+																{r.run_by_email ?? '—'}<br />
+																<span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
+															{:else}
+																—
+															{/if}
+														</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									{/if}
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</details>
 			</section>
 		{/if}
 
@@ -665,14 +1118,33 @@
 			{/if}
 		</section>
 
-		<section>
-			<div class="section-header">
-				<h2>Linked manual tests</h2>
-				<div class="header-actions">
-					<button class="btn-ghost" onclick={openGroupPicker}>+ Add by group</button>
-					<button class="btn-ghost" onclick={openManualTestPicker}>+ Link manual tests</button>
-				</div>
-			</div>
+		<section class="linked-tests-panel">
+			<details>
+				<summary>
+					<div class="summary-left">
+						<h2>Linked manual tests</h2>
+						<span class="dim">{release.linked_manual_tests.length} test{release.linked_manual_tests.length === 1 ? '' : 's'}</span>
+					</div>
+					<div class="summary-right">
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="btn-ghost"
+							role="button"
+							tabindex="0"
+							onclick={(e) => { e.preventDefault(); e.stopPropagation(); openGroupPicker(); }}
+						>+ Add by group</span>
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="btn-ghost"
+							role="button"
+							tabindex="0"
+							onclick={(e) => { e.preventDefault(); e.stopPropagation(); openManualTestPicker(); }}
+						>+ Link tests</span>
+					</div>
+				</summary>
+			<div class="section-body">
 			{#if groupLinkMessage}
 				<p class="import-toast">{groupLinkMessage}</p>
 			{/if}
@@ -747,134 +1219,10 @@
 					</ul>
 				</div>
 			{/if}
-		</section>
-
-		<section class="sessions-section">
-			<div class="section-header">
-				<h2>Test sessions</h2>
-				{#if !inProgressSession}
-					<button class="btn-ghost" onclick={() => (showNewSessionForm = !showNewSessionForm)}>
-						{showNewSessionForm ? 'Cancel' : '+ New session'}
-					</button>
-				{/if}
 			</div>
-
-			{#if showNewSessionForm && !inProgressSession}
-				<div class="new-session-form">
-					<label class="field">
-						<span class="field-label">Label (optional)</span>
-						<input bind:value={newSessionLabel} placeholder="e.g. Release candidate sanity pass" />
-					</label>
-					<label class="field">
-						<span class="field-label">Mode</span>
-						<select bind:value={newSessionMode}>
-							<option value="full">Full run — all linked tests</option>
-							<option value="failures_only">Rerun failures — failed/blocked from latest session</option>
-						</select>
-					</label>
-					{#if sessionError}<p class="error inline">{sessionError}</p>{/if}
-					<div class="actions">
-						<button class="btn-primary" onclick={createSession}>Start session</button>
-					</div>
-				</div>
-			{/if}
-
-			{#if sessions.length === 0}
-				<p class="empty">No test sessions yet. Link manual tests, then start a session to track execution.</p>
-			{:else}
-				<ul class="session-list">
-					{#each sessions as s}
-						<li class="session-card" class:in-progress={s.status === 'in_progress'}>
-							<div class="session-head">
-								<div>
-									<strong>Session #{s.session_number}</strong>
-									{#if s.label}<span class="session-label"> — {s.label}</span>{/if}
-									<span class="mode-badge mode-{s.mode}">
-										{s.mode === 'full' ? 'Full' : 'Rerun failures'}
-									</span>
-									<span class={`status-pill status-${s.status}`}>
-										{s.status === 'in_progress' ? 'In progress' : 'Completed'}
-									</span>
-								</div>
-								<span class="dim">{new Date(s.created_at).toLocaleString()}</span>
-							</div>
-							<div class="progress-bar">
-								{#if s.total > 0}
-									<div class="pb-passed" style="width: {(s.passed / s.total) * 100}%"></div>
-									<div class="pb-failed" style="width: {(s.failed / s.total) * 100}%"></div>
-									<div class="pb-blocked" style="width: {(s.blocked / s.total) * 100}%"></div>
-									<div class="pb-skipped" style="width: {(s.skipped / s.total) * 100}%"></div>
-								{/if}
-							</div>
-							<div class="session-counts">
-								<span><span class="pass">{s.passed}</span> passed</span>
-								<span><span class="fail">{s.failed}</span> failed</span>
-								<span>{s.blocked} blocked</span>
-								<span>{s.skipped} skipped</span>
-								<span>{s.not_run} not run</span>
-								<span class="dim">({s.total} total)</span>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-
-			{#if activeSessionDetail && inProgressSession}
-				<div class="active-session">
-					<div class="section-header">
-						<h3>Active session · #{activeSessionDetail.session_number}</h3>
-						<button class="btn-ghost" onclick={() => completeSession(activeSessionDetail!.id)}>
-							Mark session complete
-						</button>
-					</div>
-					{#if sessionsLoading}
-						<p class="empty">Loading…</p>
-					{:else if activeSessionDetail.results.length === 0}
-						<p class="empty">No tests in this session.</p>
-					{:else}
-						<table class="session-table">
-							<thead>
-								<tr>
-									<th>Title</th>
-									<th>Group</th>
-									<th>Priority</th>
-									<th>Status</th>
-									<th>Last run by</th>
-									<th></th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each activeSessionDetail.results as r}
-									<tr>
-										<td>{r.title}</td>
-										<td>{r.group_name ?? '—'}</td>
-										<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
-										<td>
-											<span class={`status-pill status-${r.status.replace('_', '-')}`}>
-												{r.status.replace('_', ' ')}
-											</span>
-										</td>
-										<td class="dim">
-											{#if r.run_at}
-												{r.run_by_email ?? '—'}
-												<br /><span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
-											{:else}
-												—
-											{/if}
-										</td>
-										<td>
-											<button class="btn-ghost btn-small" onclick={() => openRunner(r.manual_test_id)}>
-												Record
-											</button>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					{/if}
-				</div>
-			{/if}
+			</details>
 		</section>
+
 
 		{#if runnerTestId !== null}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -897,9 +1245,46 @@
 						<span class="field-label">Notes</span>
 						<textarea bind:value={runnerNotes} rows="4" placeholder="Optional"></textarea>
 					</label>
+					{#if runnerStatus === 'failed' || runnerStatus === 'blocked'}
+						<label class="checkbox-field">
+							<input type="checkbox" bind:checked={runnerAcceptKnown} />
+							Accept as known issue — don't block this release
+						</label>
+						{#if runnerAcceptKnown}
+							<label class="field">
+								<span class="field-label">Bug reference (optional)</span>
+								<input bind:value={runnerKnownRef} placeholder="ABC-123 or https://…" />
+							</label>
+						{/if}
+					{/if}
 					<div class="actions">
 						<button class="btn-ghost" onclick={closeRunner}>Cancel</button>
 						<button class="btn-primary" onclick={saveRunnerResult}>Save</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if acceptTargetTestId !== null}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal-overlay" onclick={closeAcceptDialog}>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="runner-modal" onclick={(e) => e.stopPropagation()}>
+					<h3>Accept as known issue</h3>
+					<p class="dim">
+						This test will stop blocking the release and will be excluded from
+						failures-only reruns. The bug reference stays associated with the test
+						for future releases.
+					</p>
+					<label class="field">
+						<span class="field-label">Bug reference (optional)</span>
+						<input bind:value={acceptKnownRef} placeholder="ABC-123 or https://…" />
+					</label>
+					<div class="actions">
+						<button class="btn-ghost" onclick={closeAcceptDialog}>Cancel</button>
+						<button class="btn-primary" onclick={confirmAccept}>Accept</button>
 					</div>
 				</div>
 			</div>
@@ -1310,4 +1695,164 @@
 		font-family: inherit;
 	}
 	.runner-modal .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+
+	/* ── Collapsible panels (active session, history, linked tests) ─── */
+	.active-session-panel details,
+	.session-history-panel details,
+	.linked-tests-panel details {
+		padding: 0;
+	}
+	.active-session-panel summary,
+	.session-history-panel summary,
+	.linked-tests-panel summary {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.85rem 1.25rem;
+		cursor: pointer;
+		list-style: none;
+		gap: 0.75rem;
+	}
+	.active-session-panel summary::-webkit-details-marker,
+	.session-history-panel summary::-webkit-details-marker,
+	.linked-tests-panel summary::-webkit-details-marker { display: none; }
+	.active-session-panel summary h2,
+	.session-history-panel summary h2,
+	.linked-tests-panel summary h2 {
+		margin: 0;
+		font-size: 1rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.summary-left  { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+	.summary-right { display: flex; align-items: center; gap: 0.35rem; }
+	.section-body  { padding: 0 1.25rem 1rem; }
+	.active-session-panel summary::before,
+	.session-history-panel summary::before,
+	.linked-tests-panel summary::before {
+		content: "▶";
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-right: 0.1rem;
+		transition: transform 0.15s;
+	}
+	.active-session-panel details[open] > summary::before,
+	.session-history-panel details[open] > summary::before,
+	.linked-tests-panel details[open] > summary::before { transform: rotate(90deg); }
+
+	.active-session-panel { border-left: 3px solid #2563eb; }
+	.active-session-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.6rem;
+		flex-wrap: wrap;
+	}
+	.active-session-toolbar .session-label { font-size: 0.9rem; color: var(--text-muted); }
+	.active-session-toolbar .progress-bar.full { flex: 1; min-width: 240px; height: 8px; }
+	.active-session-toolbar .actions { margin-left: auto; }
+
+	/* ── Readiness failures list ─────────────────────────────────────── */
+	.readiness-failures, .readiness-accepted {
+		margin-top: 0.75rem;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+	}
+	.readiness-accepted { background: #f0f9ff; border-color: #bae6fd; }
+	.readiness-failures summary,
+	.readiness-accepted summary {
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #991b1b;
+	}
+	.readiness-accepted summary { color: #075985; }
+	.failure-count { background: #fee2e2; color: #991b1b; padding: 0.05rem 0.45rem; border-radius: 4px; margin-right: 0.25rem; }
+	.accepted-count { background: #dbeafe; color: #1e40af; padding: 0.05rem 0.45rem; border-radius: 4px; margin-right: 0.25rem; }
+	.failure-links { list-style: none; padding: 0.5rem 0 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+	.failure-links li { padding: 0; }
+	.failure-link {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.35rem 0.5rem;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		cursor: pointer;
+		width: 100%;
+		text-align: left;
+		font-size: 0.85rem;
+		color: var(--text);
+	}
+	.failure-link:hover { background: var(--bg-secondary); border-color: var(--text-muted); }
+	.known-ref {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.78rem;
+		color: #2563eb;
+		text-decoration: none;
+	}
+	.known-ref:hover { text-decoration: underline; }
+
+	/* ── Active session table extras ─────────────────────────────────── */
+	.status-pill.status-accepted { background: #dbeafe; color: #1e40af; }
+	.session-table tr.accepted { background: #eff6ff; }
+	.session-table tr.row-flash {
+		animation: row-flash 1.6s ease-out;
+	}
+	@keyframes row-flash {
+		0%   { background: #fef08a; }
+		50%  { background: #fef9c3; }
+		100% { background: inherit; }
+	}
+	.session-table .row-actions { display: flex; gap: 0.25rem; }
+	.session-table .accept-btn { color: #0369a1; }
+	.known-issue-inline {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-top: 0.2rem;
+		font-size: 0.78rem;
+	}
+	.result-notes {
+		margin-top: 0.2rem;
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		white-space: pre-wrap;
+	}
+	.link-button {
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: 0.78rem;
+		padding: 0;
+	}
+	.link-button:hover { color: var(--text); }
+
+	/* ── Session history nested table ───────────────────────────────── */
+	.session-card .session-head { cursor: pointer; }
+	.session-table.nested {
+		margin-top: 0.5rem;
+		border: 1px solid var(--border);
+	}
+	.notes-cell {
+		max-width: 320px;
+		white-space: pre-wrap;
+		color: var(--text-secondary);
+	}
+
+	/* ── Runner: known-issue checkbox ────────────────────────────────── */
+	.runner-modal .checkbox-field {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.88rem;
+		color: var(--text);
+		padding: 0.25rem 0;
+	}
 </style>
