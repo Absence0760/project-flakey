@@ -401,10 +401,11 @@
         <div class="header-left">
           <div class="title-row">
             <h1>Run #{run.id}</h1>
-            <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
-              {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
-            </span>
-            {#if isLive}
+            {#if !isLive}
+              <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
+                {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
+              </span>
+            {:else}
               <span class="live-badge">LIVE</span>
             {/if}
             {#if justFinished}
