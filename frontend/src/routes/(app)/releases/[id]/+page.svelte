@@ -82,6 +82,7 @@
 		status: 'in_progress' | 'completed';
 		created_at: string;
 		completed_at: string | null;
+		target_date: string | null;
 		created_by_email: string | null;
 		total: number;
 		passed: number;
@@ -90,6 +91,14 @@
 		skipped: number;
 		not_run: number;
 		accepted: number;
+	}
+
+	interface Attachment {
+		key: string;
+		url: string;
+		filename: string;
+		size: number;
+		uploaded_at: string;
 	}
 
 	interface SessionResult {
@@ -104,11 +113,35 @@
 		known_issue_ref: string | null;
 		accepted_at: string | null;
 		accepted_by_email: string | null;
+		filed_bug_key: string | null;
+		filed_bug_url: string | null;
+		attachments: Attachment[];
+		assigned_to: number | null;
+		assigned_to_email: string | null;
 		title: string;
 		suite_name: string | null;
 		priority: string;
 		group_id: number | null;
 		group_name: string | null;
+	}
+
+	interface OrgMember {
+		id: number;
+		email: string;
+		role: string;
+	}
+
+	interface RequirementCoverage {
+		ref_key: string;
+		ref_url: string | null;
+		ref_title: string | null;
+		provider: string;
+		total: number;
+		passed: number;
+		failed: number;
+		blocked: number;
+		not_run: number;
+		tests: Array<{ id: number; title: string; priority: string; status: string }>;
 	}
 
 	interface SessionDetail {
@@ -120,6 +153,7 @@
 		status: 'in_progress' | 'completed';
 		created_at: string;
 		completed_at: string | null;
+		target_date: string | null;
 		created_by_email: string | null;
 		results: SessionResult[];
 	}
@@ -187,9 +221,40 @@
 	let sessionsLoading = $state(false);
 	let newSessionMode = $state<'full' | 'failures_only'>('full');
 	let newSessionLabel = $state('');
+	let newSessionTargetDate = $state('');
 	let showNewSessionForm = $state(false);
 	let sessionError = $state<string | null>(null);
 	let expandedSessionId = $state<number | null>(null);
+
+	// Org members — lazily loaded when the assignee dropdown first opens.
+	let members = $state<OrgMember[]>([]);
+	async function loadMembers() {
+		if (members.length > 0) return;
+		const auth = await authFetch(`${API_URL}/auth/me`);
+		if (!auth.ok) return;
+		const me = await auth.json() as { orgId: number };
+		const res = await authFetch(`${API_URL}/orgs/${me.orgId}/members`);
+		if (res.ok) members = await res.json();
+	}
+
+	// Requirements coverage for this release.
+	let requirementsCoverage = $state<RequirementCoverage[]>([]);
+	async function loadRequirementsCoverage() {
+		const res = await authFetch(`${API_URL}/releases/${releaseId}/requirements`);
+		if (res.ok) requirementsCoverage = await res.json();
+	}
+
+	// Bug-file modal state (a separate dialog from accept — this actually
+	// creates a Jira issue on confirm).
+	let bugFileTargetTestId = $state<number | null>(null);
+	let bugFileAlsoAccept = $state(true);
+	let bugFileBusy = $state(false);
+	let bugFileMessage = $state<string | null>(null);
+
+	// Evidence upload — one "active" test at a time, triggered from the row.
+	let evidenceUploadBusy = $state<number | null>(null);
+	let evidenceInput = $state<HTMLInputElement | null>(null);
+	let evidenceTargetTestId = $state<number | null>(null);
 
 	// Per-row runner state
 	let runnerTestId = $state<number | null>(null);
@@ -281,6 +346,9 @@
 			release = await rRes.json();
 			readiness = readyRes.ok ? await readyRes.json() : null;
 			sessions = sRes.ok ? await sRes.json() : [];
+
+			// Requirements coverage — loaded in parallel but non-critical.
+			loadRequirementsCoverage();
 
 			// Detail for the "active" session drives the readiness failure
 			// list + the primary execution panel. Fall back to the most recent
@@ -466,6 +534,7 @@
 			body: JSON.stringify({
 				mode: newSessionMode,
 				label: newSessionLabel.trim() || null,
+				target_date: newSessionTargetDate || null,
 			}),
 		});
 		if (!res.ok) {
@@ -474,6 +543,7 @@
 			return;
 		}
 		newSessionLabel = '';
+		newSessionTargetDate = '';
 		newSessionMode = 'full';
 		showNewSessionForm = false;
 		await load();
@@ -585,6 +655,116 @@
 	// Heuristic: treat a ref containing "://" as a URL — render as a link.
 	function isRefUrl(ref: string | null): boolean {
 		return !!ref && /:\/\//.test(ref);
+	}
+
+	// ── File bug (Jira) ────────────────────────────────────────────────
+	function openBugFileDialog(testId: number) {
+		bugFileTargetTestId = testId;
+		bugFileAlsoAccept = true;
+		bugFileMessage = null;
+	}
+	function closeBugFileDialog() {
+		bugFileTargetTestId = null;
+		bugFileMessage = null;
+	}
+	async function confirmFileBug() {
+		if (!activeSessionDetail || bugFileTargetTestId === null) return;
+		bugFileBusy = true;
+		bugFileMessage = null;
+		try {
+			const res = await authFetch(
+				`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${bugFileTargetTestId}/file-bug`,
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ mark_known_issue: bugFileAlsoAccept }),
+				}
+			);
+			if (res.ok) {
+				const body = await res.json() as { key: string; url: string; already_filed?: boolean };
+				bugFileMessage = body.already_filed
+					? `Already filed as ${body.key}`
+					: `Filed ${body.key}`;
+				await load();
+				// Keep the dialog open a beat so the user sees the confirmation.
+				setTimeout(closeBugFileDialog, 1200);
+			} else {
+				const body = await res.json().catch(() => ({}));
+				bugFileMessage = (body as { error?: string }).error ?? 'Failed to file bug';
+			}
+		} finally {
+			bugFileBusy = false;
+		}
+	}
+
+	// ── Assign tester ──────────────────────────────────────────────────
+	async function assignTester(testId: number, userId: number | null) {
+		if (!activeSessionDetail) return;
+		await authFetch(
+			`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${testId}/assign`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ user_id: userId }),
+			}
+		);
+		await load();
+	}
+
+	// ── Evidence upload ────────────────────────────────────────────────
+	function triggerEvidenceUpload(testId: number) {
+		evidenceTargetTestId = testId;
+		evidenceInput?.click();
+	}
+	async function onEvidencePicked(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const files = target.files;
+		if (!files || files.length === 0 || !activeSessionDetail || evidenceTargetTestId === null) return;
+		evidenceUploadBusy = evidenceTargetTestId;
+		try {
+			const form = new FormData();
+			for (const f of Array.from(files)) form.append('files', f);
+			await authFetch(
+				`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${evidenceTargetTestId}/evidence`,
+				{ method: 'POST', body: form }
+			);
+			await load();
+		} finally {
+			evidenceUploadBusy = null;
+			evidenceTargetTestId = null;
+			if (evidenceInput) evidenceInput.value = '';
+		}
+	}
+	async function deleteEvidence(testId: number, key: string) {
+		if (!activeSessionDetail) return;
+		const ok = await openConfirm({
+			title: 'Remove attachment?',
+			message: 'This removes the attachment from the result. The underlying file is retained for audit.',
+			confirmLabel: 'Remove',
+			tone: 'danger',
+		});
+		if (!ok) return;
+		await authFetch(
+			`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${testId}/evidence`,
+			{
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ key }),
+			}
+		);
+		await load();
+	}
+
+	function humanSize(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	}
+	function isImage(filename: string): boolean {
+		return /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
+	}
+	function absoluteAttachmentUrl(url: string): string {
+		return url.startsWith('http') ? url : `${API_URL}${url}`;
 	}
 
 	async function addItem() {
@@ -781,6 +961,86 @@
 			</section>
 		{/if}
 
+		{#if requirementsCoverage.length > 0}
+			<section class="requirements-panel">
+				<details>
+					<summary>
+						<div class="summary-left">
+							<h2>Requirements coverage</h2>
+							<span class="dim">
+								{requirementsCoverage.length} requirement{requirementsCoverage.length === 1 ? '' : 's'}
+								—
+								{requirementsCoverage.filter(r => r.passed === r.total).length} fully passing
+							</span>
+						</div>
+						<span class="summary-right dim">click to expand</span>
+					</summary>
+					<div class="section-body">
+						<table class="req-table">
+							<thead>
+								<tr>
+									<th>Requirement</th>
+									<th>Provider</th>
+									<th>Coverage</th>
+									<th>Tests</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each requirementsCoverage as r}
+									<tr class:req-fully-passing={r.passed === r.total} class:req-has-failures={r.failed > 0 || r.blocked > 0}>
+										<td>
+											{#if r.ref_url}
+												<a href={r.ref_url} target="_blank" rel="noopener" class="req-key">{r.ref_key}</a>
+											{:else}
+												<span class="req-key">{r.ref_key}</span>
+											{/if}
+											{#if r.ref_title}<div class="dim small">{r.ref_title}</div>{/if}
+										</td>
+										<td><span class={`provider-badge provider-${r.provider}`}>{r.provider}</span></td>
+										<td>
+											<div class="coverage-bar">
+												{#if r.total > 0}
+													<div class="cov-pass" style="width: {(r.passed / r.total) * 100}%"></div>
+													<div class="cov-fail" style="width: {((r.failed + r.blocked) / r.total) * 100}%"></div>
+												{/if}
+											</div>
+											<div class="dim small">
+												{r.passed}/{r.total} passed
+												{#if r.failed > 0} · <span class="fail">{r.failed} failed</span>{/if}
+												{#if r.blocked > 0} · {r.blocked} blocked{/if}
+												{#if r.not_run > 0} · {r.not_run} not run{/if}
+											</div>
+										</td>
+										<td>
+											{#each r.tests as t}
+												<div class="req-test-row">
+													<button
+														type="button"
+														class="link-button"
+														onclick={() => scrollToTestRow(t.id)}
+													>{t.title}</button>
+													<span class={`status-pill status-${t.status.replace('_', '-')}`}>{t.status.replace('_', ' ')}</span>
+												</div>
+											{/each}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</details>
+			</section>
+		{/if}
+
+		<!-- Hidden input for evidence uploads -->
+		<input
+			bind:this={evidenceInput}
+			type="file"
+			multiple
+			style="display: none"
+			onchange={onEvidencePicked}
+		/>
+
 		<!-- ── Active session (primary execution panel) ─────────────────── -->
 		<section class="active-session-panel">
 			<details open>
@@ -817,6 +1077,11 @@
 							{#if inProgressSession.label}
 								<div class="session-label">{inProgressSession.label}</div>
 							{/if}
+							{#if inProgressSession.target_date}
+								<div class="target-badge" title="Target date">
+									🎯 {inProgressSession.target_date}
+								</div>
+							{/if}
 							<div class="progress-bar full">
 								{#if inProgressSession.total > 0}
 									<div class="pb-passed"  style="width: {(inProgressSession.passed / inProgressSession.total) * 100}%"></div>
@@ -841,8 +1106,9 @@
 										<th>Title</th>
 										<th>Group</th>
 										<th>Priority</th>
+										<th>Assignee</th>
 										<th>Status</th>
-										<th>Last run by</th>
+										<th>Last run</th>
 										<th></th>
 									</tr>
 								</thead>
@@ -854,6 +1120,17 @@
 										>
 											<td>
 												<strong>{r.title}</strong>
+												{#if r.filed_bug_key}
+													<a
+														href={r.filed_bug_url ?? '#'}
+														target="_blank"
+														rel="noopener"
+														class="bug-chip"
+														title="Filed bug"
+													>
+														🐞 {r.filed_bug_key}
+													</a>
+												{/if}
 												{#if r.accepted_as_known_issue}
 													<div class="known-issue-inline">
 														<span class="status-pill status-accepted">known issue</span>
@@ -876,9 +1153,48 @@
 												{#if r.notes}
 													<div class="result-notes">{r.notes}</div>
 												{/if}
+												{#if r.attachments && r.attachments.length > 0}
+													<div class="attachments">
+														{#each r.attachments as a}
+															{#if isImage(a.filename)}
+																<a href={absoluteAttachmentUrl(a.url)} target="_blank" rel="noopener" class="att-thumb">
+																	<img src={absoluteAttachmentUrl(a.url)} alt={a.filename} />
+																</a>
+															{:else}
+																<a href={absoluteAttachmentUrl(a.url)} target="_blank" rel="noopener" class="att-file" title="{a.filename} ({humanSize(a.size)})">
+																	📎 {a.filename}
+																</a>
+															{/if}
+															<button
+																class="att-remove"
+																title="Remove attachment"
+																onclick={() => deleteEvidence(r.manual_test_id, a.key)}
+															>✕</button>
+														{/each}
+													</div>
+												{/if}
 											</td>
 											<td>{r.group_name ?? '—'}</td>
 											<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
+											<td>
+												<select
+													class="assignee-select"
+													value={r.assigned_to ?? ''}
+													onfocus={loadMembers}
+													onchange={(e) => {
+														const val = (e.target as HTMLSelectElement).value;
+														assignTester(r.manual_test_id, val ? Number(val) : null);
+													}}
+												>
+													<option value="">Unassigned</option>
+													{#if r.assigned_to_email && !members.find(m => m.id === r.assigned_to)}
+														<option value={r.assigned_to}>{r.assigned_to_email}</option>
+													{/if}
+													{#each members as m}
+														<option value={m.id}>{m.email}</option>
+													{/each}
+												</select>
+											</td>
 											<td>
 												<span class={`status-pill status-${r.status.replace('_', '-')}`}>
 													{r.status.replace('_', ' ')}
@@ -896,6 +1212,23 @@
 												<button class="btn-ghost btn-small" onclick={() => openRunner(r.manual_test_id)}>
 													Record
 												</button>
+												<button
+													class="btn-ghost btn-small"
+													onclick={() => triggerEvidenceUpload(r.manual_test_id)}
+													disabled={evidenceUploadBusy === r.manual_test_id}
+													title="Attach screenshot or file"
+												>
+													{evidenceUploadBusy === r.manual_test_id ? '…' : '📎'}
+												</button>
+												{#if (r.status === 'failed' || r.status === 'blocked') && !r.filed_bug_key}
+													<button
+														class="btn-ghost btn-small bug-btn"
+														onclick={() => openBugFileDialog(r.manual_test_id)}
+														title="File Jira bug"
+													>
+														🐞 File bug
+													</button>
+												{/if}
 												{#if (r.status === 'failed' || r.status === 'blocked') && !r.accepted_as_known_issue}
 													<button
 														class="btn-ghost btn-small accept-btn"
@@ -925,6 +1258,10 @@
 								<label class="field">
 									<span class="field-label">Label (optional)</span>
 									<input bind:value={newSessionLabel} placeholder="e.g. Release candidate sanity pass" />
+								</label>
+								<label class="field">
+									<span class="field-label">Target date (optional)</span>
+									<input type="date" bind:value={newSessionTargetDate} />
 								</label>
 								<label class="field">
 									<span class="field-label">Mode</span>
@@ -974,6 +1311,9 @@
 										</span>
 										{#if s.accepted > 0}
 											<span class="status-pill status-accepted">{s.accepted} accepted</span>
+										{/if}
+										{#if s.target_date}
+											<span class="target-badge" title="Target date">🎯 {s.target_date}</span>
 										{/if}
 									</div>
 									<span class="dim">{new Date(s.created_at).toLocaleString()} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
@@ -1341,6 +1681,35 @@
 					<div class="actions">
 						<button class="btn-ghost" onclick={closeAcceptDialog}>Cancel</button>
 						<button class="btn-primary" onclick={confirmAccept}>Accept</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if bugFileTargetTestId !== null}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal-overlay" onclick={closeBugFileDialog}>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="runner-modal" onclick={(e) => e.stopPropagation()}>
+					<h3>File Jira bug</h3>
+					<p class="dim">
+						Creates a new Jira issue pre-filled with the test title, steps, recorded
+						status, and tester notes. The issue key is linked back to this result.
+					</p>
+					<label class="checkbox-field">
+						<input type="checkbox" bind:checked={bugFileAlsoAccept} />
+						Also mark as accepted — don't block this release
+					</label>
+					{#if bugFileMessage}
+						<p class="inline-toast">{bugFileMessage}</p>
+					{/if}
+					<div class="actions">
+						<button class="btn-ghost" onclick={closeBugFileDialog} disabled={bugFileBusy}>Cancel</button>
+						<button class="btn-primary" onclick={confirmFileBug} disabled={bugFileBusy}>
+							{bugFileBusy ? 'Filing…' : 'File bug'}
+						</button>
 					</div>
 				</div>
 			</div>
@@ -1955,4 +2324,158 @@
 		color: #fff;
 	}
 	.btn-danger:hover { background: #b91c1c; }
+
+	/* ── Requirements coverage panel ──────────────────────────────── */
+	.requirements-panel details summary {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.85rem 1.25rem;
+		cursor: pointer;
+		list-style: none;
+		gap: 0.75rem;
+	}
+	.requirements-panel summary::-webkit-details-marker { display: none; }
+	.requirements-panel summary::before {
+		content: "▶";
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-right: 0.1rem;
+		transition: transform 0.15s;
+	}
+	.requirements-panel details[open] > summary::before { transform: rotate(90deg); }
+	.requirements-panel summary h2 { margin: 0; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.4rem; }
+	.req-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.85rem;
+	}
+	.req-table th, .req-table td {
+		padding: 0.45rem 0.65rem;
+		text-align: left;
+		border-bottom: 1px solid var(--border);
+		vertical-align: top;
+	}
+	.req-table th {
+		background: var(--bg-secondary);
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		font-weight: 600;
+	}
+	.req-fully-passing { background: #f0fdf4; }
+	.req-has-failures  { background: #fef2f2; }
+	.req-key {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.82rem;
+		color: #2563eb;
+		text-decoration: none;
+		font-weight: 600;
+	}
+	.req-key:hover { text-decoration: underline; }
+	.coverage-bar {
+		display: flex;
+		height: 6px;
+		background: #e5e7eb;
+		border-radius: 3px;
+		overflow: hidden;
+		margin-bottom: 0.25rem;
+	}
+	.cov-pass { background: #16a34a; }
+	.cov-fail { background: #dc2626; }
+	.req-test-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.15rem 0;
+	}
+	.provider-badge {
+		font-size: 0.62rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 3px;
+		text-transform: uppercase;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+	}
+	.provider-jira   { background: #dbeafe; color: #1e40af; }
+	.provider-github { background: #e5e7eb; color: #1f2937; }
+	.provider-linear { background: #ede9fe; color: #5b21b6; }
+	.provider-other  { background: #f3f4f6; color: #6b7280; }
+
+	/* ── Session table: assignee, attachments, bug chip ─────────────── */
+	.assignee-select {
+		padding: 0.2rem 0.35rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--bg);
+		color: var(--text);
+		font-size: 0.78rem;
+		max-width: 140px;
+	}
+	.bug-chip {
+		display: inline-block;
+		margin-left: 0.35rem;
+		font-size: 0.68rem;
+		padding: 0.08rem 0.4rem;
+		background: #fee2e2;
+		color: #991b1b;
+		border-radius: 4px;
+		text-decoration: none;
+		font-weight: 600;
+	}
+	.bug-chip:hover { text-decoration: underline; }
+	.bug-btn { color: #991b1b; }
+	.attachments {
+		display: flex;
+		gap: 0.35rem;
+		margin-top: 0.4rem;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+	.att-thumb img {
+		width: 52px;
+		height: 52px;
+		object-fit: cover;
+		border-radius: 4px;
+		border: 1px solid var(--border);
+	}
+	.att-file {
+		padding: 0.25rem 0.5rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 0.75rem;
+		color: var(--text);
+		text-decoration: none;
+	}
+	.att-file:hover { background: var(--bg); }
+	.att-remove {
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.72rem;
+		padding: 0;
+		margin-left: -0.25rem;
+	}
+	.att-remove:hover { color: #dc2626; }
+	.target-badge {
+		font-size: 0.72rem;
+		padding: 0.15rem 0.5rem;
+		background: #fef3c7;
+		color: #92400e;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+	.inline-toast {
+		margin: 0;
+		padding: 0.4rem 0.55rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 4px;
+		font-size: 0.82rem;
+		color: #1e3a8a;
+	}
+	.small { font-size: 0.72rem; }
 </style>

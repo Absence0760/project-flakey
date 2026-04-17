@@ -1,14 +1,22 @@
 import { Router } from "express";
+import multer from "multer";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import {
   getJiraConfig,
+  createJiraIssue,
   fetchProjectVersions,
   findVersionByName,
   fetchVersionIssueCounts,
   fetchIssuesForVersion,
   type JiraVersion,
 } from "../integrations/jira.js";
+import { getStorage } from "../storage.js";
+
+const evidenceUpload = multer({
+  dest: "uploads/tmp",
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB per attachment — plenty for screenshots
+});
 
 const router = Router();
 
@@ -909,7 +917,7 @@ router.get("/:id/sessions", async (req, res) => {
     const result = await tenantQuery(
       req.user!.orgId,
       `SELECT s.id, s.session_number, s.label, s.mode, s.status,
-              s.created_at, s.completed_at,
+              s.created_at, s.completed_at, s.target_date,
               u.email AS created_by_email,
               COALESCE(c.total, 0)::int    AS total,
               COALESCE(c.passed, 0)::int   AS passed,
@@ -953,6 +961,7 @@ router.post("/:id/sessions", async (req, res) => {
     }
     const releaseId = Number(req.params.id);
     const label: string | null = req.body?.label ?? null;
+    const targetDate: string | null = req.body?.target_date ?? null;
     const mode: string = SESSION_MODES.includes(req.body?.mode) ? req.body.mode : "full";
 
     // Forbid parallel sessions: an in_progress one must be closed first.
@@ -1019,10 +1028,10 @@ router.post("/:id/sessions", async (req, res) => {
     const session = await tenantQuery(
       req.user!.orgId,
       `INSERT INTO release_test_sessions
-         (org_id, release_id, session_number, label, mode, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, session_number, label, mode, status, created_at`,
-      [req.user!.orgId, releaseId, sessionNumber, label, mode, req.user!.id]
+         (org_id, release_id, session_number, label, mode, created_by, target_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, session_number, label, mode, status, created_at, target_date`,
+      [req.user!.orgId, releaseId, sessionNumber, label, mode, req.user!.id, targetDate]
     );
     const sessionId = session.rows[0].id;
 
@@ -1061,7 +1070,7 @@ router.get("/:id/sessions/:sessionId", async (req, res) => {
     const session = await tenantQuery(
       req.user!.orgId,
       `SELECT s.id, s.release_id, s.session_number, s.label, s.mode, s.status,
-              s.created_at, s.completed_at,
+              s.created_at, s.completed_at, s.target_date,
               u.email AS created_by_email
          FROM release_test_sessions s
          LEFT JOIN users u ON u.id = s.created_by
@@ -1078,6 +1087,9 @@ router.get("/:id/sessions/:sessionId", async (req, res) => {
               r.run_at, u.email AS run_by_email,
               r.accepted_as_known_issue, r.known_issue_ref,
               r.accepted_at, au.email AS accepted_by_email,
+              r.filed_bug_key, r.filed_bug_url,
+              r.attachments,
+              r.assigned_to, asg.email AS assigned_to_email,
               mt.title, mt.suite_name, mt.priority,
               mt.group_id, g.name AS group_name
          FROM release_test_session_results r
@@ -1085,6 +1097,7 @@ router.get("/:id/sessions/:sessionId", async (req, res) => {
          LEFT JOIN manual_test_groups g ON g.id = mt.group_id
          LEFT JOIN users u ON u.id = r.run_by
          LEFT JOIN users au ON au.id = r.accepted_by
+         LEFT JOIN users asg ON asg.id = r.assigned_to
         WHERE r.session_id = $1
         ORDER BY mt.priority DESC, mt.title`,
       [req.params.sessionId]
@@ -1109,6 +1122,10 @@ router.patch("/:id/sessions/:sessionId", async (req, res) => {
     if (req.body.label !== undefined) {
       sets.push(`label = $${i++}`);
       params.push(req.body.label);
+    }
+    if (req.body.target_date !== undefined) {
+      sets.push(`target_date = $${i++}`);
+      params.push(req.body.target_date);
     }
     if (req.body.status !== undefined) {
       if (req.body.status !== "in_progress" && req.body.status !== "completed") {
@@ -1306,6 +1323,309 @@ router.post("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) 
     res.json({ accepted: true });
   } catch (err) {
     console.error("POST accept known-issue error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions/:sessionId/results/:testId/file-bug
+// Create a bug in the configured tracker (Jira today) pre-filled from the
+// test data, and record the issue key/url on the session result. If the
+// user passed `mark_known_issue: true`, also flip accepted_as_known_issue
+// so the release can ship. Currently only Jira — other providers in time.
+router.post("/:id/sessions/:sessionId/results/:testId/file-bug", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const cfg = await getJiraConfig(req.user!.orgId);
+    if (!cfg) {
+      res.status(400).json({ error: "Jira is not configured for this org" });
+      return;
+    }
+
+    const existing = await tenantQuery(
+      req.user!.orgId,
+      `SELECT r.id, r.status, r.notes, r.filed_bug_key, r.filed_bug_url,
+              mt.title, mt.suite_name, mt.description, mt.steps
+         FROM release_test_session_results r
+         JOIN manual_tests mt ON mt.id = r.manual_test_id
+         JOIN release_test_sessions s ON s.id = r.session_id
+        WHERE r.session_id = $1 AND r.manual_test_id = $2 AND s.release_id = $3`,
+      [req.params.sessionId, req.params.testId, req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: "Result not found" });
+      return;
+    }
+    const row = existing.rows[0];
+    if (row.filed_bug_key) {
+      res.json({ key: row.filed_bug_key, url: row.filed_bug_url, already_filed: true });
+      return;
+    }
+
+    // Compose a useful issue body. Keep the title under Jira's 250-char cap.
+    const summary = `[Manual test failure] ${row.title}`;
+    const steps = Array.isArray(row.steps) ? row.steps : [];
+    const stepsText = steps.length
+      ? steps.map((s: unknown, i: number) => {
+          const obj = s as { action?: string; data?: string; expected?: string };
+          const parts = [
+            obj.action ? obj.action : "",
+            obj.data ? `(data: ${obj.data})` : "",
+            obj.expected ? `→ ${obj.expected}` : "",
+          ].filter(Boolean);
+          return `${i + 1}. ${parts.join(" ")}`;
+        }).join("\n")
+      : "(no steps recorded)";
+    const release = await tenantQuery(
+      req.user!.orgId,
+      "SELECT version, name FROM releases WHERE id = $1",
+      [req.params.id]
+    );
+    const relLabel = release.rows[0]
+      ? `${release.rows[0].version}${release.rows[0].name ? ` (${release.rows[0].name})` : ""}`
+      : `release #${req.params.id}`;
+    const description = [
+      `*Manual test failed during release testing of ${relLabel}.*`,
+      ``,
+      `*Test:* ${row.title}`,
+      row.suite_name ? `*Suite:* ${row.suite_name}` : "",
+      ``,
+      `*Steps:*`,
+      stepsText,
+      ``,
+      `*Recorded status:* ${row.status}`,
+      row.notes ? `*Tester notes:*\n${row.notes}` : "",
+    ].filter(Boolean).join("\n");
+
+    const issue = await createJiraIssue(cfg, summary, description);
+
+    // Persist the issue on the result. If requested, also mark as accepted.
+    const markKnown = req.body?.mark_known_issue === true;
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results
+          SET filed_bug_key = $1,
+              filed_bug_url = $2,
+              known_issue_ref = COALESCE(known_issue_ref, $2),
+              accepted_as_known_issue = CASE WHEN $3 THEN TRUE ELSE accepted_as_known_issue END,
+              accepted_by = CASE WHEN $3 AND accepted_by IS NULL THEN $4 ELSE accepted_by END,
+              accepted_at = CASE WHEN $3 AND accepted_at IS NULL THEN NOW() ELSE accepted_at END
+        WHERE session_id = $5 AND manual_test_id = $6`,
+      [issue.key, issue.url, markKnown, req.user!.id, req.params.sessionId, req.params.testId]
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_result_file_bug",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId, issue: issue.key, mark_known_issue: markKnown }
+    );
+    res.json({ key: issue.key, url: issue.url, already_filed: false });
+  } catch (err) {
+    console.error("POST file-bug error:", err);
+    res.status(500).json({ error: (err as Error).message ?? "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions/:sessionId/results/:testId/assign
+// Body: { user_id: number | null } — assign (or un-assign) a tester to a
+// specific test-in-session. Scoped to the user's org via RLS.
+router.post("/:id/sessions/:sessionId/results/:testId/assign", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const userId = req.body?.user_id;
+    const normalised = userId === null || userId === undefined
+      ? null
+      : Number.isInteger(Number(userId)) ? Number(userId) : null;
+
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results r
+          SET assigned_to = $1
+         FROM release_test_sessions s
+        WHERE r.session_id = s.id
+          AND r.session_id = $2
+          AND r.manual_test_id = $3
+          AND s.release_id = $4`,
+      [normalised, req.params.sessionId, req.params.testId, req.params.id]
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_result_assign",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId, user_id: normalised }
+    );
+    res.json({ assigned: true, user_id: normalised });
+  } catch (err) {
+    console.error("POST assign error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions/:sessionId/results/:testId/evidence
+// Multipart upload — accepts multiple `files` fields. Each goes to the
+// configured storage backend; the JSONB column holds metadata only.
+router.post(
+  "/:id/sessions/:sessionId/results/:testId/evidence",
+  evidenceUpload.array("files", 20),
+  async (req, res) => {
+    try {
+      if (req.user!.orgRole === "viewer") {
+        res.status(403).json({ error: "Admin role required" });
+        return;
+      }
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) {
+        res.status(400).json({ error: "No files uploaded" });
+        return;
+      }
+
+      const existing = await tenantQuery(
+        req.user!.orgId,
+        `SELECT r.id
+           FROM release_test_session_results r
+           JOIN release_test_sessions s ON s.id = r.session_id
+          WHERE r.session_id = $1 AND r.manual_test_id = $2 AND s.release_id = $3`,
+        [req.params.sessionId, req.params.testId, req.params.id]
+      );
+      if (existing.rows.length === 0) {
+        res.status(404).json({ error: "Result not found" });
+        return;
+      }
+
+      const storage = getStorage();
+      const added: Array<{ key: string; url: string; filename: string; size: number; uploaded_by: number; uploaded_at: string }> = [];
+      for (const f of files) {
+        const ts = Date.now();
+        const safeName = f.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const key = `evidence/${req.params.sessionId}/${req.params.testId}/${ts}-${safeName}`;
+        await storage.put(f.path, key);
+        const url = await storage.getUrl(key);
+        added.push({
+          key,
+          url,
+          filename: f.originalname,
+          size: f.size,
+          uploaded_by: req.user!.id,
+          uploaded_at: new Date().toISOString(),
+        });
+      }
+
+      await tenantQuery(
+        req.user!.orgId,
+        `UPDATE release_test_session_results
+            SET attachments = attachments || $1::jsonb
+          WHERE session_id = $2 AND manual_test_id = $3`,
+        [JSON.stringify(added), req.params.sessionId, req.params.testId]
+      );
+      await logAudit(
+        req.user!.orgId,
+        req.user!.id,
+        "release.session_result_evidence",
+        "release",
+        req.params.id,
+        { session_id: req.params.sessionId, manual_test_id: req.params.testId, files: added.length }
+      );
+      res.json({ added });
+    } catch (err) {
+      console.error("POST evidence error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+// DELETE .../evidence — body: { key: string } removes the matching
+// attachment entry. The underlying storage object is left in place so
+// deletions can't lose audit evidence; reap via retention instead.
+router.delete("/:id/sessions/:sessionId/results/:testId/evidence", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const { key } = req.body ?? {};
+    if (!key) {
+      res.status(400).json({ error: "key required" });
+      return;
+    }
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results r
+          SET attachments = (
+            SELECT COALESCE(jsonb_agg(a), '[]'::jsonb)
+              FROM jsonb_array_elements(r.attachments) a
+             WHERE a->>'key' <> $1
+          )
+         FROM release_test_sessions s
+        WHERE r.session_id = s.id
+          AND r.session_id = $2
+          AND r.manual_test_id = $3
+          AND s.release_id = $4`,
+      [key, req.params.sessionId, req.params.testId, req.params.id]
+    );
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error("DELETE evidence error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /releases/:id/requirements — coverage rollup. Groups linked manual
+// tests by each of their requirements and reports pass/fail counts against
+// the most recent session so the release page can show "Story ABC-42 →
+// 3 tests, 2 passing".
+router.get("/:id/requirements", async (req, res) => {
+  try {
+    const result = await tenantQuery(
+      req.user!.orgId,
+      `WITH latest_session AS (
+         SELECT id FROM release_test_sessions
+          WHERE release_id = $1
+          ORDER BY session_number DESC LIMIT 1
+       ),
+       latest_results AS (
+         SELECT r.manual_test_id, r.status
+           FROM release_test_session_results r
+          WHERE r.session_id = (SELECT id FROM latest_session)
+       ),
+       test_status AS (
+         SELECT mt.id AS manual_test_id,
+                COALESCE(lr.status, mt.status) AS effective_status,
+                mt.title, mt.priority
+           FROM manual_tests mt
+           JOIN release_manual_tests rmt ON rmt.manual_test_id = mt.id
+           LEFT JOIN latest_results lr ON lr.manual_test_id = mt.id
+          WHERE rmt.release_id = $1
+       )
+       SELECT req.ref_key, req.ref_url, req.ref_title, req.provider,
+              COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE ts.effective_status = 'passed')::int  AS passed,
+              COUNT(*) FILTER (WHERE ts.effective_status = 'failed')::int  AS failed,
+              COUNT(*) FILTER (WHERE ts.effective_status = 'blocked')::int AS blocked,
+              COUNT(*) FILTER (WHERE ts.effective_status = 'not_run')::int AS not_run,
+              jsonb_agg(jsonb_build_object(
+                'id', ts.manual_test_id,
+                'title', ts.title,
+                'priority', ts.priority,
+                'status', ts.effective_status
+              ) ORDER BY ts.title) AS tests
+         FROM manual_test_requirements req
+         JOIN test_status ts ON ts.manual_test_id = req.manual_test_id
+        GROUP BY req.ref_key, req.ref_url, req.ref_title, req.provider
+        ORDER BY req.ref_key`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET requirements coverage error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

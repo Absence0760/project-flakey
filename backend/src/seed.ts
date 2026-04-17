@@ -993,6 +993,61 @@ async function seed() {
         [adminId, session1Id, intlShipId]
       );
     }
+
+    // Requirements traceability: link a few grouped tests to example
+    // Jira/GitHub refs so the coverage panel isn't empty out of the box.
+    const reqSeed: Array<{ test: string; key: string; url: string; title: string; provider: string }> = [
+      {
+        test: "Guest checkout with valid card",
+        key: "ACME-501", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-501",
+        title: "Checkout v2 launch — guest flow",
+      },
+      {
+        test: "Apply discount code at checkout",
+        key: "ACME-501", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-501",
+        title: "Checkout v2 launch — guest flow",
+      },
+      {
+        test: "Checkout with expired card",
+        key: "ACME-512", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-512",
+        title: "Payment error banners",
+      },
+      {
+        test: "Login with valid credentials",
+        key: "gh#284", provider: "github",
+        url: "https://github.com/acme/app/issues/284",
+        title: "Passkey login rollout",
+      },
+      {
+        test: "MFA challenge with authenticator app",
+        key: "gh#284", provider: "github",
+        url: "https://github.com/acme/app/issues/284",
+        title: "Passkey login rollout",
+      },
+    ];
+    for (const r of reqSeed) {
+      const testId = groupedTestIds[r.test];
+      if (!testId) continue;
+      await client.query(
+        `INSERT INTO manual_test_requirements
+           (org_id, manual_test_id, ref_key, ref_url, ref_title, provider, added_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (manual_test_id, ref_key) DO NOTHING`,
+        [orgId, testId, r.key, r.url, r.title, r.provider, adminId]
+      );
+    }
+
+    // Assign a couple of active-session tests to the admin so the
+    // Assignee dropdown renders with a real value.
+    await client.query(
+      `UPDATE release_test_session_results
+          SET assigned_to = $1
+        WHERE session_id = $2`,
+      [adminId, session2Id]
+    );
     console.log(`Seeded 2 test sessions on release v2.4.0 (1 completed, 1 in progress).`);
 
     // Scheduled report

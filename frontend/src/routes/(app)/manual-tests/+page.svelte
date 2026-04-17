@@ -25,6 +25,20 @@
 		auto_last_run_at: string | null;
 		group_id: number | null;
 		group_name: string | null;
+		requirement_count: number;
+		total_runs: number;
+		failure_count: number;
+		pass_rate: number | null;
+		is_flaky: boolean;
+	}
+
+	interface Requirement {
+		id: number;
+		ref_key: string;
+		ref_url: string | null;
+		ref_title: string | null;
+		provider: 'jira' | 'github' | 'linear' | 'other';
+		added_at: string;
 	}
 
 	interface Group {
@@ -44,6 +58,7 @@
 		steps: Array<string | { action: string; data?: string; expected?: string }>;
 		expected_result: string | null;
 		last_step_results: StepResult[];
+		requirements: Requirement[];
 	}
 
 	interface Summary { total: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; }
@@ -56,6 +71,7 @@
 	let filterStatus = $state<'all' | 'not_run' | 'passed' | 'failed' | 'blocked' | 'skipped'>('all');
 	let filterSuite = $state<string>('all');
 	let filterGroup = $state<string>('all');
+	let filterFlakyOnly = $state(false);
 
 	const isAdmin = $derived(getAuth().user?.orgRole !== 'viewer');
 
@@ -93,10 +109,13 @@
 		return tests.filter(t => {
 			if (filterSuite !== 'all' && t.suite_name !== filterSuite) return false;
 			if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+			if (filterFlakyOnly && !t.is_flaky) return false;
 			if (!matchesGroup(t)) return false;
 			return true;
 		});
 	});
+
+	const flakyCount = $derived(tests.filter(t => t.is_flaky).length);
 
 	interface StepRow {
 		action: string;
@@ -353,6 +372,50 @@
 			selected = null;
 			await load();
 		}
+	}
+
+	// ── Requirements (story / ticket traceability) ────────────────────
+	let newReqKey = $state('');
+	let newReqUrl = $state('');
+	let newReqTitle = $state('');
+
+	async function addRequirement() {
+		if (!selected || !newReqKey.trim()) return;
+		const res = await authFetch(`${API_URL}/manual-tests/${selected.id}/requirements`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				ref_key: newReqKey.trim(),
+				ref_url: newReqUrl.trim() || null,
+				ref_title: newReqTitle.trim() || null,
+			}),
+		});
+		if (res.ok) {
+			newReqKey = '';
+			newReqUrl = '';
+			newReqTitle = '';
+			await refreshSelected();
+			await load();
+		}
+	}
+
+	async function removeRequirement(reqId: number) {
+		if (!selected) return;
+		await authFetch(`${API_URL}/manual-tests/${selected.id}/requirements/${reqId}`, {
+			method: 'DELETE',
+		});
+		await refreshSelected();
+		await load();
+	}
+
+	async function refreshSelected() {
+		if (!selected) return;
+		const res = await authFetch(`${API_URL}/manual-tests/${selected.id}`);
+		if (res.ok) selected = await res.json();
+	}
+
+	function providerLabel(p: string): string {
+		return ({ jira: 'Jira', github: 'GitHub', linear: 'Linear', other: '' }[p] ?? '').trim();
 	}
 
 	async function deleteTest(id: number) {
@@ -758,6 +821,12 @@
 					<option value={String(g.id)}>{g.name} ({g.test_count})</option>
 				{/each}
 			</select>
+			{#if flakyCount > 0}
+				<label class="flaky-toggle">
+					<input type="checkbox" bind:checked={filterFlakyOnly} />
+					Flaky only ({flakyCount})
+				</label>
+			{/if}
 		</div>
 	</div>
 
@@ -778,6 +847,8 @@
 					<th>Group</th>
 					<th>Type</th>
 					<th>Priority</th>
+					<th>Reqs</th>
+					<th>Signal</th>
 					<th>Status</th>
 					<th>Last run</th>
 					<th></th>
@@ -789,6 +860,7 @@
 						<td>
 							<!-- svelte-ignore a11y_invalid_attribute -->
 							<a href="#" onclick={(e) => { e.preventDefault(); openTest(t.id); }}>{t.title}</a>
+							{#if t.is_flaky}<span class="badge flaky" title="Mixed pass/fail across sessions">flaky</span>{/if}
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
 						<td>{t.group_name ?? '—'}</td>
@@ -809,6 +881,29 @@
 							{/if}
 						</td>
 						<td><span class="priority priority-{t.priority}">{t.priority}</span></td>
+						<td>
+							{#if t.requirement_count > 0}
+								<span class="badge req-badge" title="{t.requirement_count} linked requirement(s)">
+									{t.requirement_count}
+								</span>
+							{:else}
+								<span class="dim">—</span>
+							{/if}
+						</td>
+						<td>
+							{#if t.total_runs >= 2 && t.pass_rate !== null}
+								<span
+									class="badge signal-badge"
+									class:signal-bad={t.pass_rate < 0.5}
+									class:signal-flaky={t.is_flaky}
+									title="{t.total_runs} runs · {t.failure_count} failure(s)"
+								>
+									{Math.round(t.pass_rate * 100)}%
+								</span>
+							{:else}
+								<span class="dim">—</span>
+							{/if}
+						</td>
 						<td>
 							{#if t.source === 'cucumber'}
 								<span class={statusClass(t.auto_last_status ?? 'not_run')}>
@@ -1060,6 +1155,38 @@
 				{#if selected.expected_result}
 					<h3>Overall expected result</h3>
 					<p>{selected.expected_result}</p>
+				{/if}
+
+				<h3>Requirements</h3>
+				{#if (selected.requirements ?? []).length === 0}
+					<p class="dim">No linked requirements yet.</p>
+				{:else}
+					<ul class="req-list">
+						{#each selected.requirements as r}
+							<li>
+								<span class={`provider-badge provider-${r.provider}`}>{providerLabel(r.provider) || r.provider}</span>
+								{#if r.ref_url}
+									<a href={r.ref_url} target="_blank" rel="noopener" class="req-key">{r.ref_key}</a>
+								{:else}
+									<span class="req-key">{r.ref_key}</span>
+								{/if}
+								{#if r.ref_title}<span class="dim">— {r.ref_title}</span>{/if}
+								{#if isAdmin}
+									<button class="icon-btn danger" title="Unlink" onclick={() => removeRequirement(r.id)}>✕</button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if isAdmin}
+					<div class="add-req">
+						<input bind:value={newReqKey} placeholder="ABC-123 or gh#42" class="req-input-key" />
+						<input bind:value={newReqUrl} placeholder="https://… (optional)" class="req-input-url" />
+						<input bind:value={newReqTitle} placeholder="Title (optional)" class="req-input-title" />
+						<button class="btn-ghost btn-small" onclick={addRequirement} disabled={!newReqKey.trim()}>
+							+ Link
+						</button>
+					</div>
 				{/if}
 				{#if selected.last_run_at && !runMode}
 					<p class="dim">
@@ -1503,4 +1630,58 @@
 	.confirm-message { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.45; margin: 0; }
 	.btn-danger { background: #dc2626; color: #fff; }
 	.btn-danger:hover { background: #b91c1c; }
+
+	/* ── Flakiness + requirements badges ─────────────────────────────── */
+	.badge.flaky { background: #fef3c7; color: #92400e; margin-left: 0.4rem; }
+	.req-badge { background: #ede9fe; color: #5b21b6; font-size: 0.7rem; padding: 0.05rem 0.45rem; border-radius: 4px; font-weight: 600; }
+	.signal-badge {
+		background: #dcfce7;
+		color: #166534;
+		font-size: 0.7rem;
+		padding: 0.05rem 0.45rem;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+	.signal-badge.signal-flaky { background: #fef3c7; color: #92400e; }
+	.signal-badge.signal-bad   { background: #fee2e2; color: #991b1b; }
+	.flaky-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		margin-left: 0.4rem;
+	}
+
+	/* ── Requirements editor ─────────────────────────────────────────── */
+	.req-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+	.req-list li { display: flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; }
+	.provider-badge {
+		font-size: 0.62rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 3px;
+		text-transform: uppercase;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+	}
+	.provider-jira   { background: #dbeafe; color: #1e40af; }
+	.provider-github { background: #e5e7eb; color: #1f2937; }
+	.provider-linear { background: #ede9fe; color: #5b21b6; }
+	.provider-other  { background: #f3f4f6; color: #6b7280; }
+	.req-key {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.82rem;
+		color: #2563eb;
+		text-decoration: none;
+		font-weight: 600;
+	}
+	.req-key:hover { text-decoration: underline; }
+	.add-req {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1.4fr auto;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		align-items: center;
+	}
+	.add-req input { padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 0.85rem; }
 </style>

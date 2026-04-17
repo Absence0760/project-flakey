@@ -2,8 +2,10 @@ import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { parseFeature, scenarioToManualSteps } from "../cucumber-parser.js";
+import requirementsRouter from "./manual-test-requirements.js";
 
 const router = Router();
+router.use("/:id/requirements", requirementsRouter);
 
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
@@ -38,6 +40,9 @@ router.get("/", async (req, res) => {
     }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
+    // Flakiness is computed from session-result history: a test is "flaky"
+    // if it's been run at least twice and its pass rate is strictly between
+    // 0% and 100% (i.e. mixed outcomes on the same test across sessions).
     const result = await tenantQuery(
       req.user!.orgId,
       `WITH auto_latest AS (
@@ -47,6 +52,15 @@ router.get("/", async (req, res) => {
            JOIN specs s ON s.id = t.spec_id
            JOIN runs  r ON r.id = s.run_id
            ORDER BY s.file_path, t.title, r.created_at DESC
+       ),
+       flakiness AS (
+         SELECT manual_test_id,
+                COUNT(*)                                          AS total_runs,
+                COUNT(*) FILTER (WHERE status = 'passed')::float  AS passes,
+                COUNT(*) FILTER (WHERE status = 'failed')         AS failures
+           FROM release_test_session_results
+          WHERE status IN ('passed', 'failed')
+          GROUP BY manual_test_id
        )
        SELECT mt.id, mt.suite_name, mt.title, mt.description, mt.priority, mt.status,
               mt.last_run_at, mt.last_run_notes, mt.last_step_results,
@@ -56,7 +70,18 @@ router.get("/", async (req, res) => {
               mt.created_at, mt.updated_at,
               u.email AS last_run_by_email,
               a.status     AS auto_last_status,
-              a.created_at AS auto_last_run_at
+              a.created_at AS auto_last_run_at,
+              COALESCE(rq.requirement_count, 0)::int AS requirement_count,
+              COALESCE(f.total_runs, 0)::int   AS total_runs,
+              COALESCE(f.failures, 0)::int     AS failure_count,
+              CASE
+                WHEN COALESCE(f.total_runs, 0) < 2 THEN NULL
+                ELSE ROUND(f.passes / NULLIF(f.total_runs, 0)::numeric, 2)
+              END AS pass_rate,
+              CASE
+                WHEN COALESCE(f.total_runs, 0) < 2 THEN false
+                ELSE f.passes > 0 AND f.passes < f.total_runs
+              END AS is_flaky
        FROM manual_tests mt
        LEFT JOIN users u ON u.id = mt.last_run_by
        LEFT JOIN manual_test_groups g ON g.id = mt.group_id
@@ -64,6 +89,12 @@ router.get("/", async (req, res) => {
               ON mt.source = 'cucumber'
              AND a.file_path LIKE '%' || mt.source_file
              AND a.title = mt.title
+       LEFT JOIN flakiness f ON f.manual_test_id = mt.id
+       LEFT JOIN (
+         SELECT manual_test_id, COUNT(*) AS requirement_count
+           FROM manual_test_requirements
+          GROUP BY manual_test_id
+       ) rq ON rq.manual_test_id = mt.id
        ${whereClause}
        ORDER BY mt.updated_at DESC`,
       params
@@ -127,7 +158,15 @@ router.get("/:id", async (req, res) => {
       res.status(404).json({ error: "Not found" });
       return;
     }
-    res.json(result.rows[0]);
+    const reqs = await tenantQuery(
+      req.user!.orgId,
+      `SELECT id, ref_key, ref_url, ref_title, provider, added_at
+         FROM manual_test_requirements
+        WHERE manual_test_id = $1
+        ORDER BY added_at`,
+      [req.params.id]
+    );
+    res.json({ ...result.rows[0], requirements: reqs.rows });
   } catch (err) {
     console.error("GET /manual-tests/:id error:", err);
     res.status(500).json({ error: "Internal server error" });
