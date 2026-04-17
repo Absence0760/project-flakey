@@ -28,4 +28,10 @@ Don't promote the optional peers to required; users should be able to use the re
 
 ## Live run id resolution
 
-The Mocha reporter runs in a separate Node process from `setupNodeEvents` and does not inherit env mutations set during plugin registration. `readLiveRunId()` in `src/reporter.ts` therefore checks `process.env.FLAKEY_LIVE_RUN_ID` first, then falls back to reading `$TMPDIR/flakey-reporter/live-run-id` (written by `@flakeytesting/live-reporter`'s `register()`). Both paths must resolve to the same numeric id for per-test live events (`test.started` / `test.passed` / `test.failed` / `test.skipped`) to stream correctly. If you see tests running but no per-test events in the dashboard, check that both paths agree.
+The Mocha reporter runs in a separate Node process from `setupNodeEvents` and does not inherit env mutations set during plugin registration. `readLiveRunId()` in `src/reporter.ts` therefore checks sources in order:
+
+1. `process.env.FLAKEY_LIVE_RUN_ID` — fast path when the reporter is launched in the same process or env was explicitly propagated.
+2. `$TMPDIR/flakey-reporter/live-run-id-<process.ppid>` — the PID-scoped file written by `@flakeytesting/live-reporter`'s `register()`. The reporter's parent is the main Cypress process, which is also the PID live-reporter uses when writing the file, so both sides resolve to the same path.
+3. `$TMPDIR/flakey-reporter/live-run-id` — legacy un-scoped path, retained for back-compat with older live-reporter builds.
+
+Sources must resolve to the same numeric id for per-test live events (`test.started` / `test.passed` / `test.failed` / `test.skipped`) to stream correctly. If you see tests running but no per-test events in the dashboard, check that the resolver is picking up the right file. The PID scoping also lets two concurrent `cypress run` invocations on the same machine coexist without overwriting each other's run ids.

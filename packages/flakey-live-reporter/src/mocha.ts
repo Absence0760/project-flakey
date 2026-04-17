@@ -23,7 +23,11 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { LiveClient, installShutdownHandler } from "./index.js";
 
-const RUN_ID_FILE = join(tmpdir(), "flakey-reporter", "live-run-id");
+// Use the main Cypress process's PID to scope the file per invocation.
+// The Mocha reporter (child process) reads the same path via `process.ppid`.
+// Two concurrent `npx cypress run` terminals on the same machine have
+// different main PIDs and therefore do not collide on this file.
+const RUN_ID_FILE = join(tmpdir(), "flakey-reporter", `live-run-id-${process.pid}`);
 
 interface MochaLiveConfig {
   url?: string;

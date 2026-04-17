@@ -62,16 +62,28 @@ interface NormalizedTest {
 // ---- Shared temp directory for buffering spec results ----
 
 const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
-const FLAKEY_RUN_ID_FILE = join(FLAKEY_TMP_DIR, "live-run-id");
 
+// live-reporter (running in the main Cypress process) writes the run id to
+// `live-run-id-<main-pid>`. The Mocha reporter (this file) runs in a child
+// process of that main, so `process.ppid` gives us the matching path. The
+// PID-scoped name lets two concurrent `cypress run` terminals on the same
+// machine use distinct files and avoid stomping each other's run ids.
 function readLiveRunId(): number {
   const fromEnv = Number(process.env.FLAKEY_LIVE_RUN_ID);
   if (fromEnv) return fromEnv;
-  try {
-    return Number(readFileSync(FLAKEY_RUN_ID_FILE, "utf8").trim()) || 0;
-  } catch {
-    return 0;
+  // Try parent PID first (live-reporter's own PID = our ppid).
+  // Fall back to the legacy un-scoped name for back-compat with older
+  // live-reporter versions that still write to `live-run-id`.
+  for (const path of [
+    join(FLAKEY_TMP_DIR, `live-run-id-${process.ppid}`),
+    join(FLAKEY_TMP_DIR, "live-run-id"),
+  ]) {
+    try {
+      const id = Number(readFileSync(path, "utf8").trim());
+      if (id) return id;
+    } catch { /* try next */ }
   }
+  return 0;
 }
 
 // ---- Mocha types ----
