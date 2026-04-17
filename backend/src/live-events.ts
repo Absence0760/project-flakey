@@ -28,6 +28,11 @@ class LiveEventBus {
     this.runMeta.set(runId, { orgId, lastEventAt: Date.now() });
   }
 
+  /** Has this run been registered for stale detection? */
+  hasRun(runId: number): boolean {
+    return this.runMeta.has(runId);
+  }
+
   /** Get or create an emitter for a run. Auto-cleans up after 30 minutes of inactivity. */
   getEmitter(runId: number): EventEmitter {
     let emitter = this.emitters.get(runId);

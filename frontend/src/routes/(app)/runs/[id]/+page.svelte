@@ -60,7 +60,10 @@
           isLive = false;
           runAborted = true;
           eventSource?.close();
-          setTimeout(() => { runAborted = false; }, 30000);
+          // Refetch so run.aborted persists as the header pill after the
+          // transient banner times out.
+          fetchRun(runId).then(r => { run = r; }).catch(() => {});
+          setTimeout(() => { runAborted = false; }, 10000);
         }
       } catch { /* ignore */ }
     };
@@ -409,6 +412,10 @@
             {/if}
             {#if runAborted}
               <span class="aborted-badge">Run Aborted</span>
+            {:else if run.aborted}
+              <span class="aborted-pill" title={run.aborted_reason ?? "Run aborted before completion"}>
+                ABORTED
+              </span>
             {/if}
             <button class="copy-summary-btn" title="Copy as Jira markup" onclick={() => copySummary("jira")}>
               {#if copiedFormat === "jira"}
@@ -1367,6 +1374,15 @@
     padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
     background: var(--color-fail); color: #fff; letter-spacing: 0.03em;
     animation: fade-in 0.3s ease-in;
+  }
+  /* Persistent (non-transient) pill shown on any previously-aborted run's
+     header so the status is discoverable after the banner times out. */
+  .aborted-pill {
+    padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.04em;
+    background: color-mix(in srgb, var(--color-fail) 15%, transparent);
+    color: var(--color-fail);
+    border: 1px solid color-mix(in srgb, var(--color-fail) 35%, transparent);
   }
   @keyframes fade-in {
     from { opacity: 0; transform: scale(0.9); }

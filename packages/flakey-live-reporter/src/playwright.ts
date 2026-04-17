@@ -11,7 +11,7 @@
  * so the main reporter's upload merges into it.
  */
 
-import { LiveClient } from "./index.js";
+import { LiveClient, installShutdownHandler } from "./index.js";
 
 interface PlaywrightReporterConfig {
   url?: string;
@@ -25,6 +25,7 @@ interface PlaywrightReporterConfig {
 
 export default class PlaywrightLiveReporter {
   private client: LiveClient | null = null;
+  private teardownShutdown: (() => void) | null = null;
   private url: string;
   private apiKey: string;
   private suite: string;
@@ -78,6 +79,9 @@ export default class PlaywrightLiveReporter {
       type: "run.started",
       stats: { total: suite.allTests().length, passed: 0, failed: 0, skipped: 0 },
     });
+    this.teardownShutdown = installShutdownHandler(this.client, {
+      reason: "Playwright process received a shutdown signal.",
+    });
   }
 
   onTestBegin(test: { title: string; parent?: { title?: string; location?: { file: string } } }) {
@@ -107,6 +111,8 @@ export default class PlaywrightLiveReporter {
   async onEnd(result: { status: string }) {
     this.client?.send({ type: "run.finished", status: result.status });
     await this.client?.flush();
+    this.teardownShutdown?.();
+    this.teardownShutdown = null;
     if (this.runId) {
       console.log(`[flakey-live] Run #${this.runId} complete`);
     }

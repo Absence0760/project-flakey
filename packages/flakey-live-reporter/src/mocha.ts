@@ -18,7 +18,7 @@
  * Env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID (optional override)
  */
 
-import { LiveClient } from "./index.js";
+import { LiveClient, installShutdownHandler } from "./index.js";
 
 interface MochaLiveConfig {
   url?: string;
@@ -41,6 +41,7 @@ export function register(
   if (!url || !apiKey) return;
 
   let client: LiveClient | null = null;
+  let teardownShutdown: (() => void) | null = null;
   let runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
 
   on("before:run", async () => {
@@ -78,6 +79,11 @@ export function register(
 
     client = new LiveClient({ url, apiKey, runId });
     client.send({ type: "run.started" });
+    // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
+    // so the LIVE badge clears instead of waiting for the stale timeout.
+    teardownShutdown = installShutdownHandler(client, {
+      reason: "Cypress process received a shutdown signal.",
+    });
   });
 
   on("before:spec", (spec: { relative: string }) => {
@@ -103,6 +109,10 @@ export function register(
   on("after:run", async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
     client?.send({ type: "run.finished" });
     await client?.flush();
+    // Normal exit path — release the signal handlers so an unrelated SIGTERM
+    // later in the process lifecycle doesn't spuriously abort a finished run.
+    teardownShutdown?.();
+    teardownShutdown = null;
     if (runId) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;
