@@ -1,8 +1,8 @@
 # Examples
 
-Working examples showing how to integrate Flakey with different test frameworks. Each example is a standalone project you can clone, run, and see results appear in your Flakey dashboard.
+Working examples showing how to integrate Better Testing with different test frameworks. Each example is a standalone project you can clone, run, and see results appear in your Better Testing dashboard.
 
-Use these as a starting point for your own project, or run them locally to see Flakey in action.
+Use these as a starting point for your own project, or run them locally to see Better Testing in action.
 
 ## Structure
 
@@ -31,7 +31,7 @@ cd examples/cypress
 pnpm test:live
 ```
 
-This uses `@flakeytesting/live-reporter` alongside the main Cypress reporter. The run appears in the Flakey dashboard immediately with a pulsing LIVE badge, and test results stream in as each spec completes.
+This uses `@flakeytesting/live-reporter` alongside the main Cypress reporter. The run appears in the Better Testing dashboard immediately with a pulsing LIVE badge, and test results stream in as each spec completes.
 
 ## Sample App
 
@@ -82,9 +82,9 @@ All interactive elements have `data-testid` attributes for reliable selectors:
 
 ### Prerequisites
 
-1. Flakey backend running on `http://localhost:3000`
-2. Flakey frontend running on `http://localhost:7777`
-3. An API key from Flakey (Profile > API Keys)
+1. Better Testing backend running on `http://localhost:3000`
+2. Better Testing frontend running on `http://localhost:7777`
+3. An API key from Better Testing (Profile > API Keys)
 
 ### Start the sample app
 
@@ -125,7 +125,7 @@ FLAKEY_API_KEY=fk_your_key pnpm test
 
 ### Verify results
 
-After a test run, check Flakey:
+After a test run, check Better Testing:
 - `http://localhost:7777` — the run should appear on the dashboard
 - `http://localhost:3000/runs` — API endpoint should list the new run
 
@@ -159,9 +159,9 @@ Every example tests the same scenarios so you can compare how different framewor
 - Select dropdowns work
 - Checkbox toggle works
 
-## Flakey Setup
+## Better Testing Setup
 
-Each example is pre-configured to upload results to Flakey. Here's how each framework connects:
+Each example is pre-configured to upload results to Better Testing. Here's how each framework connects:
 
 | Framework | Reporter | Upload Method |
 |---|---|---|
@@ -230,13 +230,13 @@ export const config = {
 
 ### Selenium
 
-Selenium doesn't have a native Flakey reporter. Use a standard reporter (JUnit XML or mochawesome) and upload via the CLI:
+Selenium doesn't have a native Better Testing reporter. Use a standard reporter (JUnit XML or mochawesome) and upload via the CLI:
 
 ```bash
 # Run tests (generates JUnit XML)
 pnpm test
 
-# Upload to Flakey
+# Upload to Better Testing
 npx tsx ../../packages/flakey-cli/src/index.ts \
   --report-dir test-results \
   --suite integration-selenium \

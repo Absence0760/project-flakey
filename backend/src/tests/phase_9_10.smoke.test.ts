@@ -56,6 +56,14 @@ async function authGet(path: string): Promise<Response> {
   return fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 }
 
+async function authDelete(path: string, body?: unknown): Promise<Response> {
+  return fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
 before(async () => {
   server = spawn("node", ["--import", "tsx", "src/index.ts"], {
     env: {
@@ -306,17 +314,25 @@ test("manual tests CRUD + result recording", async () => {
 });
 
 test("release checklist + sign-off enforcement", async () => {
+  // Use an explicit checklist so the auto-ruled items from the default
+  // aren't in the picture — they can't be toggled manually and their
+  // evaluation depends on runs/sessions that this release doesn't have.
   const create = await authPost("/releases", {
     version: "v0.1.0-smoke",
     name: "Smoke release",
     target_date: "2026-12-31",
+    items: [
+      { label: "Release notes drafted", required: true },
+      { label: "Stakeholders notified", required: true },
+      { label: "Documentation updated", required: false },
+    ],
   });
   assert.equal(create.status, 201);
   releaseId = ((await create.json()) as { id: number }).id;
 
   const detail = await authGet(`/releases/${releaseId}`);
   const data = (await detail.json()) as { items: Array<{ id: number; required: boolean; checked: boolean }> };
-  assert.ok(data.items.length >= 5);
+  assert.equal(data.items.length, 3);
 
   // Attempt sign-off while items are unchecked — should fail
   const fail = await authPost(`/releases/${releaseId}/sign-off`, {});
@@ -337,4 +353,190 @@ test("release checklist + sign-off enforcement", async () => {
   const afterData = (await after.json()) as { status: string; signed_off_at: string | null };
   assert.equal(afterData.status, "signed_off");
   assert.ok(afterData.signed_off_at);
+});
+
+// ─── Manual test groups + bulk-link ─────────────────────────────────────
+test("manual test groups: create, assign test, bulk-link to release", async () => {
+  // Create a group
+  const created = await authPost("/manual-test-groups", {
+    name: `Smoke group ${Date.now()}`,
+    description: "Covers login + signup",
+  });
+  assert.equal(created.status, 201);
+  const group = (await created.json()) as { id: number; name: string };
+
+  // Rename the group
+  const renamed = await authPatch(`/manual-test-groups/${group.id}`, {
+    description: "Updated description",
+  });
+  assert.equal(renamed.status, 200);
+
+  // Put an existing manual test in the group
+  const update = await authPatch(`/manual-tests/${manualTestId}`, {
+    group_id: group.id,
+  });
+  assert.equal(update.status, 200);
+
+  // The list endpoint should now return the test under the group filter
+  const listed = await authGet(`/manual-tests?group_id=${group.id}`);
+  const rows = (await listed.json()) as Array<{ id: number; group_id: number | null; group_name: string | null }>;
+  assert.ok(rows.some((r) => r.id === manualTestId && r.group_id === group.id));
+
+  // Create a fresh release for the bulk-link flow (the existing one is
+  // already signed off and would add noise to later tests).
+  const rel = await authPost("/releases", {
+    version: "v0.2.0-groups",
+    name: "Groups smoke",
+  });
+  assert.equal(rel.status, 201);
+  const { id: bulkReleaseId } = (await rel.json()) as { id: number };
+
+  // Bulk-link the group's tests into the release
+  const linkRes = await authPost(
+    `/releases/${bulkReleaseId}/manual-test-groups/${group.id}`,
+    {}
+  );
+  assert.equal(linkRes.status, 200);
+  const linked = (await linkRes.json()) as { linked: number; total_in_group: number };
+  assert.equal(linked.total_in_group, 1);
+  assert.equal(linked.linked, 1);
+
+  // Re-linking is idempotent (0 new links, group size unchanged)
+  const reLink = await authPost(
+    `/releases/${bulkReleaseId}/manual-test-groups/${group.id}`,
+    {}
+  );
+  const reLinked = (await reLink.json()) as { linked: number; total_in_group: number };
+  assert.equal(reLinked.linked, 0);
+  assert.equal(reLinked.total_in_group, 1);
+});
+
+// ─── Release test sessions + result recording + accept-known-issue ──────
+test("release sessions: create, record, fail, accept, auto-complete", async () => {
+  // New release so we don't collide with sign-off test
+  const rel = await authPost("/releases", {
+    version: "v0.3.0-sessions",
+    name: "Sessions smoke",
+  });
+  const { id: sessionReleaseId } = (await rel.json()) as { id: number };
+
+  // Link the one manual test we have from earlier
+  const link = await authPost(`/releases/${sessionReleaseId}/manual-tests`, {
+    manual_test_ids: [manualTestId],
+  });
+  assert.equal(link.status, 200);
+
+  // Starting a session with no target-date, full mode
+  const create = await authPost(`/releases/${sessionReleaseId}/sessions`, {
+    label: "Initial pass",
+    mode: "full",
+    target_date: "2026-12-01",
+  });
+  assert.equal(create.status, 201);
+  const session = (await create.json()) as {
+    id: number;
+    session_number: number;
+    status: string;
+    target_date: string | null;
+    seeded: number;
+  };
+  assert.equal(session.session_number, 1);
+  assert.equal(session.status, "in_progress");
+  assert.equal(session.seeded, 1);
+  assert.ok(session.target_date);
+
+  // Creating a second session while one is in_progress should 409
+  const dup = await authPost(`/releases/${sessionReleaseId}/sessions`, {
+    mode: "full",
+  });
+  assert.equal(dup.status, 409);
+
+  // Record the result as failed — session should still be in_progress
+  // because only one test was seeded and it's now in a terminal state,
+  // which means auto-complete kicks in. Verify that branch.
+  const record = await authPost(
+    `/releases/${sessionReleaseId}/sessions/${session.id}/results/${manualTestId}`,
+    { status: "failed", notes: "Smoke check failed" }
+  );
+  assert.equal(record.status, 200);
+  const recordBody = (await record.json()) as { updated: boolean; session_completed: boolean };
+  assert.equal(recordBody.updated, true);
+  // Only one result in scope → session should auto-complete once it reaches a terminal state
+  assert.equal(recordBody.session_completed, true);
+
+  // Accept the failure as a known issue
+  const accept = await authPost(
+    `/releases/${sessionReleaseId}/sessions/${session.id}/results/${manualTestId}/accept`,
+    { known_issue_ref: "ABC-999" }
+  );
+  assert.equal(accept.status, 200);
+
+  // Detail should reflect acceptance
+  const detail = await authGet(`/releases/${sessionReleaseId}/sessions/${session.id}`);
+  const detailBody = (await detail.json()) as {
+    results: Array<{ manual_test_id: number; accepted_as_known_issue: boolean; known_issue_ref: string | null }>;
+  };
+  const res = detailBody.results.find((r) => r.manual_test_id === manualTestId)!;
+  assert.ok(res);
+  assert.equal(res.accepted_as_known_issue, true);
+  assert.equal(res.known_issue_ref, "ABC-999");
+
+  // Readiness rule should now be met because the only failure is accepted
+  const readiness = await authGet(`/releases/${sessionReleaseId}/readiness`);
+  const readyBody = (await readiness.json()) as {
+    rules: Record<string, { met: boolean; details: string }>;
+    manual_tests: { passed: number; failed: number; accepted: number; linked: number };
+  };
+  const rule = readyBody.rules.manual_regression_executed;
+  assert.equal(rule.met, true, `expected rule to be met, details: ${rule.details}`);
+  assert.match(rule.details, /accepted/);
+  assert.equal(readyBody.manual_tests.accepted, 1);
+
+  // Revoke acceptance → rule should go back to unmet
+  const revoke = await authDelete(
+    `/releases/${sessionReleaseId}/sessions/${session.id}/results/${manualTestId}/accept`
+  );
+  assert.equal(revoke.status, 200);
+  const readiness2 = await authGet(`/releases/${sessionReleaseId}/readiness`);
+  const readyBody2 = (await readiness2.json()) as {
+    rules: Record<string, { met: boolean; details: string }>;
+  };
+  assert.equal(readyBody2.rules.manual_regression_executed.met, false);
+
+  // Starting a failures_only session should seed the revoked failure
+  const rerun = await authPost(`/releases/${sessionReleaseId}/sessions`, {
+    label: "Rerun failures",
+    mode: "failures_only",
+  });
+  assert.equal(rerun.status, 201);
+  const rerunBody = (await rerun.json()) as { session_number: number; mode: string; seeded: number };
+  assert.equal(rerunBody.session_number, 2);
+  assert.equal(rerunBody.mode, "failures_only");
+  assert.equal(rerunBody.seeded, 1);
+});
+
+// ─── Requirements traceability ──────────────────────────────────────────
+test("manual test requirements: link, rollup, unlink", async () => {
+  // Attach a Jira requirement to our existing manual test
+  const add = await authPost(`/manual-tests/${manualTestId}/requirements`, {
+    ref_key: "ACME-777",
+    ref_url: "https://example.atlassian.net/browse/ACME-777",
+    ref_title: "Smoke requirement",
+  });
+  assert.equal(add.status, 201);
+  const req = (await add.json()) as { id: number; provider: string };
+  // Provider inferred from Atlassian URL
+  assert.equal(req.provider, "jira");
+
+  // Requirement shows up in the test detail response
+  const detail = await authGet(`/manual-tests/${manualTestId}`);
+  const detailBody = (await detail.json()) as {
+    requirements: Array<{ ref_key: string }>;
+    requirement_count?: number;
+  };
+  assert.ok(detailBody.requirements.some((r) => r.ref_key === "ACME-777"));
+
+  // Unlink
+  const del = await authDelete(`/manual-tests/${manualTestId}/requirements/${req.id}`);
+  assert.equal(del.status, 200);
 });
