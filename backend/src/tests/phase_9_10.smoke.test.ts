@@ -64,6 +64,24 @@ async function authDelete(path: string, body?: unknown): Promise<Response> {
   });
 }
 
+// Some live-event side-effects are fire-and-forget on the server, so the
+// DB write may not have landed by the time a test reads back. Poll the
+// endpoint briefly until the predicate holds (or give up).
+async function waitFor<T>(
+  fn: () => Promise<T>,
+  predicate: (v: T) => boolean,
+  timeoutMs = 2000
+): Promise<T> {
+  const start = Date.now();
+  let last: T = await fn();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate(last)) return last;
+    await new Promise((r) => setTimeout(r, 100));
+    last = await fn();
+  }
+  return last;
+}
+
 before(async () => {
   server = spawn("node", ["--import", "tsx", "src/index.ts"], {
     env: {
@@ -75,6 +93,9 @@ before(async () => {
       JWT_SECRET: "smoke-test-secret",
       ALLOW_REGISTRATION: "true",
       NODE_ENV: "test",
+      // Short stale-run timeout so the abort tests don't have to wait
+      // 10 minutes to exercise the auto-abort path.
+      FLAKEY_LIVE_TIMEOUT_MS: "1500",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -539,4 +560,91 @@ test("manual test requirements: link, rollup, unlink", async () => {
   // Unlink
   const del = await authDelete(`/manual-tests/${manualTestId}/requirements/${req.id}`);
   assert.equal(del.status, 200);
+});
+
+// ─── Live-run abort: explicit endpoint ──────────────────────────────────
+test("live run abort: POST /abort emits run.aborted and clears active set", async () => {
+  const start = await authPost("/live/start", { suite: "smoke-abort-explicit" });
+  assert.equal(start.status, 201);
+  const { id: runId } = (await start.json()) as { id: number };
+
+  // Run should show up in the active set
+  const active1 = await authGet("/live/active");
+  const active1Body = (await active1.json()) as { runs: number[] };
+  assert.ok(active1Body.runs.includes(runId), "run should be active after /live/start");
+
+  // Explicit abort
+  const abort = await authPost(`/live/${runId}/abort`, {
+    reason: "Smoke test — explicit abort",
+  });
+  assert.equal(abort.status, 200);
+
+  // Active set should no longer include the run
+  const active2 = await authGet("/live/active");
+  const active2Body = (await active2.json()) as { runs: number[] };
+  assert.ok(!active2Body.runs.includes(runId), "run should leave active after abort");
+
+  // History should contain the persisted run.aborted event with our reason.
+  // persistEvent is fire-and-forget so poll until it lands.
+  const events = await waitFor(
+    async () => {
+      const h = await authGet(`/live/${runId}/history`);
+      return (await h.json()) as Array<{ type: string; error?: string | null }>;
+    },
+    (list) => list.some((e) => e.type === "run.aborted")
+  );
+  const aborted = events.find((e) => e.type === "run.aborted");
+  assert.ok(aborted, "history should include run.aborted event");
+  assert.equal(aborted!.error, "Smoke test — explicit abort");
+});
+
+// ─── Live-run abort: stale timeout path ─────────────────────────────────
+test("live run abort: stale runs get auto-aborted after timeout", async () => {
+  const start = await authPost("/live/start", { suite: "smoke-abort-stale" });
+  const { id: runId } = (await start.json()) as { id: number };
+
+  // Wait longer than FLAKEY_LIVE_TIMEOUT_MS (1500ms) + check cadence (~375ms)
+  // so the stale detector definitely fires.
+  await new Promise((r) => setTimeout(r, 2500));
+
+  // Active set should no longer include the run
+  const active = await authGet("/live/active");
+  const activeBody = (await active.json()) as { runs: number[] };
+  assert.ok(!activeBody.runs.includes(runId), "stale run should be auto-aborted");
+
+  // History should include the persisted run.aborted event (fire-and-forget)
+  const events = await waitFor(
+    async () => {
+      const h = await authGet(`/live/${runId}/history`);
+      return (await h.json()) as Array<{ type: string }>;
+    },
+    (list) => list.some((e) => e.type === "run.aborted")
+  );
+  assert.ok(events.some((e) => e.type === "run.aborted"), "run.aborted must land in history");
+});
+
+// ─── Runs list exposes aborted flag ─────────────────────────────────────
+test("GET /runs marks aborted runs with aborted=true", async () => {
+  const start = await authPost("/live/start", { suite: "smoke-abort-flag" });
+  const { id: runId } = (await start.json()) as { id: number };
+  await authPost(`/live/${runId}/abort`, { reason: "flag test" });
+
+  // The aborted flag is derived from live_events, which are written async,
+  // so poll until the list reflects the abort.
+  const runs = await waitFor(
+    async () => {
+      const l = await authGet("/runs?limit=100");
+      const body = (await l.json()) as { runs: Array<{ id: number; aborted?: boolean }> };
+      return body.runs;
+    },
+    (rs) => !!rs.find((r) => r.id === runId)?.aborted
+  );
+  const row = runs.find((r) => r.id === runId);
+  assert.ok(row, "aborted run should appear in /runs");
+  assert.equal(row!.aborted, true, "aborted flag should propagate from live_events");
+
+  const detail = await authGet(`/runs/${runId}`);
+  const detailBody = (await detail.json()) as { aborted?: boolean; aborted_reason?: string };
+  assert.equal(detailBody.aborted, true);
+  assert.equal(detailBody.aborted_reason, "flag test");
 });

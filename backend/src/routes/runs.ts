@@ -93,6 +93,10 @@ router.get("/", async (req, res) => {
         (SELECT array_agg(sub.file_path) FROM (
            SELECT s.file_path FROM specs s WHERE s.run_id = r.id ORDER BY s.id LIMIT 5
          ) sub) AS spec_files,
+        EXISTS (
+          SELECT 1 FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+        ) AS aborted,
         COALESCE((
           SELECT count(*)::int
           FROM tests t
@@ -180,7 +184,16 @@ router.get("/:id", async (req, res) => {
     const runId = req.params.id;
 
     const runResult = await tenantQuery(orgId,
-      `SELECT r.*, so.rerun_command_template
+      `SELECT r.*, so.rerun_command_template,
+        EXISTS (
+          SELECT 1 FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+        ) AS aborted,
+        (
+          SELECT le.error_message FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+          ORDER BY le.id DESC LIMIT 1
+        ) AS aborted_reason
        FROM runs r
        LEFT JOIN suite_overrides so ON so.suite_name = r.suite_name AND so.org_id = r.org_id
        WHERE r.id = $1`,

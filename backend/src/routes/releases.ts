@@ -88,6 +88,23 @@ async function evaluateCriticalTestsPassing(
   if (rows.length === 0) {
     return { met: false, details: "No runs uploaded yet" };
   }
+  // An aborted live run didn't finish — treat it as unresolved, not passing.
+  // The stats in `runs` reflect only what was captured before the process died,
+  // so a "0 failed" count there is not a meaningful signal.
+  const runIds = rows.map((r) => Number(r.id));
+  const aborted = await tenantQuery(
+    orgId,
+    `SELECT DISTINCT run_id FROM live_events
+      WHERE run_id = ANY($1::int[]) AND event_type = 'run.aborted'`,
+    [runIds]
+  );
+  if (aborted.rows.length > 0) {
+    return {
+      met: false,
+      details: `${aborted.rows.length} linked run(s) aborted — rerun required`,
+    };
+  }
+
   const totalFailed = rows.reduce((sum, r) => sum + Number(r.failed ?? 0), 0);
   const totalTests  = rows.reduce((sum, r) => sum + Number(r.total  ?? 0), 0);
   const label = scope === "linked" ? `${rows.length} linked run(s)` : "latest run";
@@ -98,7 +115,6 @@ async function evaluateCriticalTestsPassing(
   // Pull the actual failing test rows so the readiness panel can list
   // them by name and link straight into the run page. Capped to avoid
   // dumping hundreds of failures inline.
-  const runIds = rows.map((r) => Number(r.id));
   const failingTests = await tenantQuery(
     orgId,
     `SELECT t.title, t.status, s.file_path, s.run_id
