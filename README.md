@@ -88,6 +88,34 @@ Results, screenshots, and videos upload when the run finishes. DOM snapshots str
 
 Concurrent `cypress run` invocations on the same machine are supported out of the box — the reporter walks each process's ancestor chain to find the nearest shared ancestor with the plugin, so the two process trees stay isolated without needing a custom `TMPDIR`.
 
+#### Using `cypress-multi-reporters`
+
+If you wrap the Mocha reporter with [`cypress-multi-reporters`](https://www.npmjs.com/package/cypress-multi-reporters) (e.g. to run `mochawesome` alongside Flakey), `config.reporterOptions` is reshaped by the wrapper, so pass Flakey's options explicitly as the third arg:
+
+```typescript
+const flakeyOptions = {
+  url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+  apiKey: process.env.FLAKEY_API_KEY!,
+  suite: "my-project",
+};
+
+export default defineConfig({
+  reporter: "cypress-multi-reporters",
+  reporterOptions: {
+    reporterEnabled: "mochawesome, @flakeytesting/cypress-reporter",
+    mochawesomeReporterOptions: { reportDir: "cypress/reports/mochawesome", json: true },
+    flakeytestingCypressReporterReporterOptions: flakeyOptions,
+  },
+  e2e: {
+    setupNodeEvents(on, config) {
+      flakeyReporter(on, config, flakeyOptions);           // <-- pass flakeyOptions explicitly
+      flakeySnapshots(on, config);
+      return config;
+    },
+  },
+});
+```
+
 ### Playwright
 
 ```bash

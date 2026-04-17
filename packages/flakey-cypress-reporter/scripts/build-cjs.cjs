@@ -7,6 +7,7 @@ const requires = [
   'const{readFileSync,writeFileSync,mkdirSync,readdirSync,statSync,existsSync}=require("fs");',
   'const{join,basename}=require("path");',
   'const{tmpdir}=require("os");',
+  'const{execSync}=require("child_process");',
 ].join("\n") + "\n";
 
 // Strip ESM imports and convert export

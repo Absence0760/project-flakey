@@ -21,6 +21,7 @@
 import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
 import { join, basename } from "path";
 import { tmpdir } from "os";
+import { execSync } from "child_process";
 
 // ---- Types ----
 
@@ -61,36 +62,48 @@ interface NormalizedTest {
 
 // ---- Temp directories ----
 //
-// FLAKEY_BASE_DIR holds the live-run-id hand-off file written by
-// live-reporter (one per main Cypress PID). FLAKEY_TMP_DIR is the
-// per-invocation subdir where this reporter buffers spec results — scoped
-// by the main Cypress process's PID (== our `process.ppid`) so two
-// concurrent `cypress run` terminals don't stomp each other's spec buffers.
-// plugin.ts uses the matching `run-${process.pid}` path on its side.
+// Buffer dir is scoped by the numeric live-run-id. The Mocha reporter and
+// the plugin (setupNodeEvents) live in different processes whose PIDs don't
+// always line up — Cypress 15 inserts an intermediate process layer between
+// setupNodeEvents and the Mocha reporter, so `process.ppid` here is not the
+// plugin's pid. We walk our own ancestor chain looking for a matching
+// live-run-id file written by live-reporter under every ancestor's pid.
+// The nearest shared ancestor wins, usually the cypress-CLI pid.
 
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
-const FLAKEY_TMP_DIR = join(FLAKEY_BASE_DIR, `run-${process.ppid}`);
 
-// live-reporter (running in the main Cypress process) writes the run id to
-// `flakey-reporter/live-run-id-<main-pid>`. The Mocha reporter (this file)
-// runs in a child process of that main, so `process.ppid` gives us the
-// matching path.
+function getAncestorPids(startPid: number, maxDepth = 12): number[] {
+  const chain = [startPid];
+  let pid = startPid;
+  for (let i = 0; i < maxDepth; i++) {
+    try {
+      const out = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const ppid = Number(out);
+      if (!ppid || ppid === 1 || ppid === pid) break;
+      chain.push(ppid);
+      pid = ppid;
+    } catch {
+      break;
+    }
+  }
+  return chain;
+}
+
 function readLiveRunId(): number {
   const fromEnv = Number(process.env.FLAKEY_LIVE_RUN_ID);
   if (fromEnv) return fromEnv;
-  // Try parent PID first (live-reporter's own PID = our ppid).
-  // Fall back to the legacy un-scoped name for back-compat with older
-  // live-reporter versions that still write to `live-run-id`.
-  for (const path of [
-    join(FLAKEY_BASE_DIR, `live-run-id-${process.ppid}`),
-    join(FLAKEY_BASE_DIR, "live-run-id"),
-  ]) {
+  for (const pid of getAncestorPids(process.pid)) {
     try {
-      const id = Number(readFileSync(path, "utf8").trim());
+      const id = Number(readFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), "utf8").trim());
       if (id) return id;
     } catch { /* try next */ }
   }
   return 0;
+}
+
+function getBufferDir(): string {
+  const id = readLiveRunId();
+  return id ? join(FLAKEY_BASE_DIR, `run-${id}`) : FLAKEY_BASE_DIR;
 }
 
 // ---- Mocha types ----
@@ -249,12 +262,13 @@ class FlakeyCypressReporter {
   }
 
   private saveToTmp() {
-    mkdirSync(FLAKEY_TMP_DIR, { recursive: true });
+    const dir = getBufferDir();
+    mkdirSync(dir, { recursive: true });
 
     for (const { spec, tests } of this.specMap.values()) {
       spec.tests = tests;
       const safeName = spec.file_path.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 100);
-      const filePath = join(FLAKEY_TMP_DIR, `${safeName}_${Date.now()}.json`);
+      const filePath = join(dir, `${safeName}_${Date.now()}.json`);
       writeFileSync(filePath, JSON.stringify(spec));
     }
   }

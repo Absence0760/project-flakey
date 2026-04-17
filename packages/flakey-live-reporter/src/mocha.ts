@@ -21,13 +21,35 @@
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { execSync } from "child_process";
 import { LiveClient, installShutdownHandler } from "./index.js";
 
-// Use the main Cypress process's PID to scope the file per invocation.
-// The Mocha reporter (child process) reads the same path via `process.ppid`.
-// Two concurrent `npx cypress run` terminals on the same machine have
-// different main PIDs and therefore do not collide on this file.
-const RUN_ID_FILE = join(tmpdir(), "flakey-reporter", `live-run-id-${process.pid}`);
+const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
+
+// Walk the current process's ancestor chain (self → parent → parent's parent
+// → …). The Mocha reporter (running in a different process tree branch than
+// setupNodeEvents in some Cypress versions, e.g. 15+) walks its own chain
+// and reads `live-run-id-<pid>` for each ancestor until it finds a match.
+// Writing one file per ancestor gives the reporter a stable handoff point:
+// usually the cypress-CLI pid is a common ancestor of both processes.
+// Concurrent `cypress run` invocations have distinct cypress-CLI pids so
+// their writes never collide.
+function getAncestorPids(startPid: number, maxDepth = 12): number[] {
+  const chain = [startPid];
+  let pid = startPid;
+  for (let i = 0; i < maxDepth; i++) {
+    try {
+      const out = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const ppid = Number(out);
+      if (!ppid || ppid === 1 || ppid === pid) break;
+      chain.push(ppid);
+      pid = ppid;
+    } catch {
+      break;
+    }
+  }
+  return chain;
+}
 
 interface MochaLiveConfig {
   url?: string;
@@ -57,43 +79,53 @@ export function register(
   let teardownShutdown: (() => void) | null = null;
   let runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
 
+  // Guard the /live/start call behind a shared promise so concurrent
+  // before:run handler invocations (Cypress 15+ fires before:run twice
+  // in some configurations) don't each create a separate placeholder run.
+  let startPromise: Promise<void> | null = null;
+
   on("before:run", async () => {
-    // If no runId, create a placeholder run via /live/start
     if (!runId && suite) {
-      try {
-        const res = await fetch(`${url}/live/start`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            suite,
-            branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-            commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-            ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { id: number; ci_run_id: string };
-          runId = data.id;
-          // Set CI_RUN_ID so the main reporter merges into this run
-          if (data.ci_run_id) {
-            process.env.CI_RUN_ID = data.ci_run_id;
-          }
-          // Expose the numeric run id so other plugins (e.g. cypress-snapshots) can stream artifacts mid-run.
-          process.env.FLAKEY_LIVE_RUN_ID = String(runId);
-          // Also write to a temp file — Cypress runs the Mocha reporter in a separate
-          // process that doesn't inherit env mutations from setupNodeEvents.
+      if (!startPromise) {
+        startPromise = (async () => {
           try {
-            mkdirSync(join(tmpdir(), "flakey-reporter"), { recursive: true });
-            writeFileSync(RUN_ID_FILE, String(runId));
-          } catch { /* ignore */ }
-          console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
-        }
-      } catch (err) {
-        console.error("[flakey-live] Failed to start live run:", err);
+            const res = await fetch(`${url}/live/start`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                suite,
+                branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
+                commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
+                ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json() as { id: number; ci_run_id: string };
+              runId = data.id;
+              if (data.ci_run_id) {
+                process.env.CI_RUN_ID = data.ci_run_id;
+              }
+              process.env.FLAKEY_LIVE_RUN_ID = String(runId);
+              try {
+                mkdirSync(FLAKEY_BASE_DIR, { recursive: true });
+                // Write one run-id file per ancestor pid so the Mocha reporter
+                // (which may live in a different process tree branch) can find
+                // a match by walking its own ancestor chain.
+                for (const pid of getAncestorPids(process.pid)) {
+                  writeFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
+                }
+              } catch { /* ignore */ }
+              console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+            }
+          } catch (err) {
+            console.error("[flakey-live] Failed to start live run:", err);
+          }
+        })();
       }
+      await startPromise;
     }
 
     if (!runId) return;
@@ -134,7 +166,9 @@ export function register(
     // later in the process lifecycle doesn't spuriously abort a finished run.
     teardownShutdown?.();
     teardownShutdown = null;
-    try { unlinkSync(RUN_ID_FILE); } catch { /* ignore */ }
+    for (const pid of getAncestorPids(process.pid)) {
+      try { unlinkSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`)); } catch { /* ignore */ }
+    }
     if (runId) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;

@@ -3,7 +3,6 @@ import createBundler from "@bahmutov/cypress-esbuild-preprocessor";
 import { addCucumberPreprocessorPlugin } from "@badeball/cypress-cucumber-preprocessor";
 import { createEsbuildPlugin } from "@badeball/cypress-cucumber-preprocessor/esbuild";
 import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
-import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 import { readFileSync, existsSync } from "fs";
 
 // Load .env file if it exists
@@ -35,8 +34,11 @@ export default defineConfig({
         createBundler({ plugins: [createEsbuildPlugin(config)] }),
       );
 
+      // setupFlakey wires up flakeyReporter + flakeySnapshots + live-reporter
+      // in one call. For Cucumber, the support file also needs
+      // `import "@flakeytesting/cypress-snapshots/cucumber"` to capture
+      // Gherkin step markers in each snapshot bundle.
       await setupFlakey(on, config);
-      flakeySnapshots(on, config);
 
       return config;
     },

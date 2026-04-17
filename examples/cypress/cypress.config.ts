@@ -1,6 +1,5 @@
 import { defineConfig } from "cypress";
 import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
-import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
 import { readFileSync, existsSync } from "fs";
 
 // Load .env file if it exists
@@ -35,8 +34,8 @@ export default defineConfig({
     specPattern: specPatterns[suite] ?? "cypress/e2e/**/*.cy.ts",
     video: true,
     async setupNodeEvents(on, config) {
+      // setupFlakey wires up flakeyReporter + flakeySnapshots + live-reporter.
       await setupFlakey(on, config);
-      flakeySnapshots(on, config);
       return config;
     },
   },
