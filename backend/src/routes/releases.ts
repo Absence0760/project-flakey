@@ -87,13 +87,14 @@ async function evaluateManualRegressionExecuted(
   orgId: number,
   releaseId: number
 ): Promise<RuleResult> {
-  // Prefer the latest completed session (richest signal, preserves history).
-  // Fall back to flat release_manual_tests statuses if no completed session
-  // exists yet — then to org-wide high/critical priority tests.
+  // Use the most-recent session (in-progress or completed) so readiness
+  // tracks the active cycle in real time as results are recorded. Fall
+  // back to flat release_manual_tests statuses only when no session
+  // exists, then to org-wide high/critical priority tests.
   const latestSession = await tenantQuery(
     orgId,
-    `SELECT id, session_number, label FROM release_test_sessions
-      WHERE release_id = $1 AND status = 'completed'
+    `SELECT id, session_number, label, status FROM release_test_sessions
+      WHERE release_id = $1
       ORDER BY session_number DESC LIMIT 1`,
     [releaseId]
   );
@@ -114,10 +115,20 @@ async function evaluateManualRegressionExecuted(
     const blockingBlocked = rows.filter((r) => r.status === "blocked" && !r.accepted_as_known_issue).length;
     const accepted        = rows.filter((r) => r.accepted_as_known_issue).length;
     const notRun          = rows.filter((r) => r.status === "not_run").length;
-    const label = `session #${session.session_number}`;
+    const inProgress = session.status === "in_progress";
+    const label = inProgress
+      ? `session #${session.session_number} (in progress)`
+      : `session #${session.session_number}`;
     if (blockingFailed > 0)  return { met: false, details: `${blockingFailed} failing test(s) in ${label}` };
     if (blockingBlocked > 0) return { met: false, details: `${blockingBlocked} blocked test(s) in ${label}` };
     if (notRun > 0)          return { met: false, details: `${notRun} of ${rows.length} test(s) not run in ${label}` };
+    // An in-progress session with no not_run/failed is effectively passing
+    // but still in-progress — readiness should not turn green until the
+    // session is completed (the acting tester is still expected to Mark
+    // session complete). Keep it unmet to force that explicit action.
+    if (inProgress) {
+      return { met: false, details: `All tests executed in ${label} — mark session complete to pass` };
+    }
     const suffix = accepted > 0 ? ` (${accepted} accepted as known issue)` : "";
     return { met: true, details: `${rows.length - accepted}/${rows.length} tests executed cleanly in ${label}${suffix}` };
   }
@@ -301,19 +312,47 @@ router.get("/:id/readiness", async (req, res) => {
       [releaseId]
     );
 
-    const manualStats = await tenantQuery(
+    // Prefer the most-recent session's result counts so the readiness card
+    // updates live as testers record outcomes. Fall back to the flat
+    // release_manual_tests statuses when no session has been started.
+    const latestSessionId = await tenantQuery(
       orgId,
-      `SELECT COUNT(*)::int AS linked,
-              COUNT(*) FILTER (WHERE mt.status = 'passed')::int  AS passed,
-              COUNT(*) FILTER (WHERE mt.status = 'failed')::int  AS failed,
-              COUNT(*) FILTER (WHERE mt.status = 'blocked')::int AS blocked,
-              COUNT(*) FILTER (WHERE mt.status = 'skipped')::int AS skipped,
-              COUNT(*) FILTER (WHERE mt.status = 'not_run')::int AS not_run
-         FROM release_manual_tests rmt
-         JOIN manual_tests mt ON mt.id = rmt.manual_test_id
-        WHERE rmt.release_id = $1`,
+      `SELECT id FROM release_test_sessions
+        WHERE release_id = $1
+        ORDER BY session_number DESC LIMIT 1`,
       [releaseId]
     );
+    let manualStats;
+    if (latestSessionId.rows.length > 0) {
+      manualStats = await tenantQuery(
+        orgId,
+        `SELECT COUNT(*)::int AS linked,
+                COUNT(*) FILTER (WHERE status = 'passed')::int  AS passed,
+                COUNT(*) FILTER (WHERE status = 'failed')::int  AS failed,
+                COUNT(*) FILTER (WHERE status = 'blocked')::int AS blocked,
+                COUNT(*) FILTER (WHERE status = 'skipped')::int AS skipped,
+                COUNT(*) FILTER (WHERE status = 'not_run')::int AS not_run,
+                COUNT(*) FILTER (WHERE accepted_as_known_issue = TRUE)::int AS accepted
+           FROM release_test_session_results
+          WHERE session_id = $1`,
+        [latestSessionId.rows[0].id]
+      );
+    } else {
+      manualStats = await tenantQuery(
+        orgId,
+        `SELECT COUNT(*)::int AS linked,
+                COUNT(*) FILTER (WHERE mt.status = 'passed')::int  AS passed,
+                COUNT(*) FILTER (WHERE mt.status = 'failed')::int  AS failed,
+                COUNT(*) FILTER (WHERE mt.status = 'blocked')::int AS blocked,
+                COUNT(*) FILTER (WHERE mt.status = 'skipped')::int AS skipped,
+                COUNT(*) FILTER (WHERE mt.status = 'not_run')::int AS not_run,
+                0::int AS accepted
+           FROM release_manual_tests rmt
+           JOIN manual_tests mt ON mt.id = rmt.manual_test_id
+          WHERE rmt.release_id = $1`,
+        [releaseId]
+      );
+    }
 
     const blockingItems = await tenantQuery(
       orgId,
@@ -735,38 +774,43 @@ router.delete("/:id/jira/match", async (req, res) => {
 
 // ── Linked runs ─────────────────────────────────────────────────────────
 
-// POST /releases/:id/runs — body: { run_id }
+// POST /releases/:id/runs — body: { run_id } or { run_ids: [...] }
 router.post("/:id/runs", async (req, res) => {
   try {
     if (req.user!.orgRole === "viewer") {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const runId = Number(req.body?.run_id);
-    if (!Number.isInteger(runId)) {
-      res.status(400).json({ error: "run_id required" });
+    const ids: number[] = Array.isArray(req.body?.run_ids)
+      ? req.body.run_ids.map(Number).filter((n: number) => Number.isInteger(n))
+      : Number.isInteger(Number(req.body?.run_id))
+        ? [Number(req.body.run_id)]
+        : [];
+    if (ids.length === 0) {
+      res.status(400).json({ error: "run_id(s) required" });
       return;
     }
     // Tenant-scope check — RLS guarantees we only see our own runs, so a
     // missing row means "not our run" or "doesn't exist".
-    const exists = await tenantQuery(
-      req.user!.orgId,
-      "SELECT 1 FROM runs WHERE id = $1",
-      [runId]
-    );
-    if (exists.rows.length === 0) {
-      res.status(404).json({ error: "Run not found" });
-      return;
+    let linked = 0;
+    for (const runId of ids) {
+      const exists = await tenantQuery(
+        req.user!.orgId,
+        "SELECT 1 FROM runs WHERE id = $1",
+        [runId]
+      );
+      if (exists.rows.length === 0) continue;
+      await tenantQuery(
+        req.user!.orgId,
+        `INSERT INTO release_runs (release_id, run_id, org_id, added_by)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (release_id, run_id) DO NOTHING`,
+        [req.params.id, runId, req.user!.orgId, req.user!.id]
+      );
+      linked++;
     }
-    await tenantQuery(
-      req.user!.orgId,
-      `INSERT INTO release_runs (release_id, run_id, org_id, added_by)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (release_id, run_id) DO NOTHING`,
-      [req.params.id, runId, req.user!.orgId, req.user!.id]
-    );
-    await logAudit(req.user!.orgId, req.user!.id, "release.link_run", "release", req.params.id, { run_id: runId });
-    res.json({ linked: true });
+    await logAudit(req.user!.orgId, req.user!.id, "release.link_runs", "release", req.params.id, { count: linked });
+    res.json({ linked });
   } catch (err) {
     console.error("POST /releases/:id/runs error:", err);
     res.status(500).json({ error: "Internal server error" });

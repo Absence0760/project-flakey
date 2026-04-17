@@ -58,7 +58,7 @@
 
 	interface Readiness {
 		runs: { linked: number; total: number; passed: number; failed: number; skipped: number };
-		manual_tests: { linked: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number };
+		manual_tests: { linked: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; accepted: number };
 		rules: Record<string, { met: boolean; details: string }>;
 		blocking_items: Array<{ id: number; label: string; auto_rule: string | null; auto_details: string | null }>;
 		ready: boolean;
@@ -205,6 +205,7 @@
 	// Linker state — lazily populated when the user opens either link panel
 	let availableRuns = $state<RunSummary[]>([]);
 	let runPickerOpen = $state(false);
+	let runSelection = $state<Set<number>>(new Set());
 	let availableManualTests = $state<ManualTestSummary[]>([]);
 	let manualTestPickerOpen = $state(false);
 	let manualTestSelection = $state<Set<number>>(new Set());
@@ -442,6 +443,7 @@
 	// ── Linked runs ──────────────────────────────────────────────────────
 	async function openRunPicker() {
 		runPickerOpen = true;
+		runSelection = new Set();
 		if (availableRuns.length === 0) {
 			const res = await authFetch(`${API_URL}/runs?limit=50`);
 			if (res.ok) {
@@ -451,13 +453,25 @@
 		}
 	}
 
-	async function linkRun(runId: number) {
+	function toggleRunSelection(id: number) {
+		const next = new Set(runSelection);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		runSelection = next;
+	}
+
+	async function linkRuns() {
+		if (runSelection.size === 0) {
+			runPickerOpen = false;
+			return;
+		}
 		await authFetch(`${API_URL}/releases/${releaseId}/runs`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ run_id: runId }),
+			body: JSON.stringify({ run_ids: Array.from(runSelection) }),
 		});
 		runPickerOpen = false;
+		runSelection = new Set();
 		await load();
 	}
 
@@ -755,6 +769,35 @@
 		await load();
 	}
 
+	// Readable short-form dates for badges / toolbars.
+	function formatDate(d: string | null | undefined): string {
+		if (!d) return '';
+		const date = new Date(d);
+		if (Number.isNaN(date.getTime())) return '';
+		return date.toLocaleDateString(undefined, {
+			year: 'numeric', month: 'short', day: 'numeric',
+		});
+	}
+	function formatDateTime(d: string | null | undefined): string {
+		if (!d) return '';
+		const date = new Date(d);
+		if (Number.isNaN(date.getTime())) return '';
+		return date.toLocaleString(undefined, {
+			month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+		});
+	}
+	function truncate(s: string | null, n: number): string {
+		if (!s) return '';
+		return s.length > n ? s.slice(0, n - 1) + '…' : s;
+	}
+	// Derive a compact user label from an email so assignee chips don't
+	// have to render full "firstname.lastname@really-long-domain.com".
+	function shortName(email: string | null | undefined): string {
+		if (!email) return '';
+		const local = email.split('@')[0];
+		return local.split(/[._+-]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ');
+	}
+
 	function humanSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -831,7 +874,7 @@
 			<div class="header-side">
 				<span class="status status-{release.status}">{release.status.replace('_', ' ')}</span>
 				{#if release.target_date}
-					<span class="target">Target {release.target_date}</span>
+					<span class="target">Target {formatDate(release.target_date)}</span>
 				{/if}
 			</div>
 		</header>
@@ -868,6 +911,9 @@
 								{readiness.manual_tests.failed} failed ·
 								{readiness.manual_tests.blocked} blocked ·
 								{readiness.manual_tests.not_run} not run
+								{#if readiness.manual_tests.accepted > 0}
+									· {readiness.manual_tests.accepted} accepted
+								{/if}
 							</div>
 						{:else}
 							<div class="card-sub">No manual tests linked — falling back to high/critical priority tests org-wide.</div>
@@ -973,8 +1019,7 @@
 								{requirementsCoverage.filter(r => r.passed === r.total).length} fully passing
 							</span>
 						</div>
-						<span class="summary-right dim">click to expand</span>
-					</summary>
+						</summary>
 					<div class="section-body">
 						<table class="req-table">
 							<thead>
@@ -1073,22 +1118,29 @@
 
 				<div class="section-body">
 					{#if inProgressSession}
+						{@const executed = inProgressSession.passed + inProgressSession.failed + inProgressSession.blocked + inProgressSession.skipped}
+						{@const pct = inProgressSession.total > 0 ? Math.round((executed / inProgressSession.total) * 100) : 0}
 						<div class="active-session-toolbar">
-							{#if inProgressSession.label}
-								<div class="session-label">{inProgressSession.label}</div>
-							{/if}
-							{#if inProgressSession.target_date}
-								<div class="target-badge" title="Target date">
-									🎯 {inProgressSession.target_date}
-								</div>
-							{/if}
-							<div class="progress-bar full">
-								{#if inProgressSession.total > 0}
-									<div class="pb-passed"  style="width: {(inProgressSession.passed / inProgressSession.total) * 100}%"></div>
-									<div class="pb-failed"  style="width: {(inProgressSession.failed / inProgressSession.total) * 100}%"></div>
-									<div class="pb-blocked" style="width: {(inProgressSession.blocked / inProgressSession.total) * 100}%"></div>
-									<div class="pb-skipped" style="width: {(inProgressSession.skipped / inProgressSession.total) * 100}%"></div>
+							<div class="toolbar-meta">
+								{#if inProgressSession.label}
+									<span class="session-label">{inProgressSession.label}</span>
 								{/if}
+								{#if inProgressSession.target_date}
+									<span class="target-badge" title="Target date">🎯 {formatDate(inProgressSession.target_date)}</span>
+								{/if}
+							</div>
+							<div class="progress-wrap">
+								<div class="progress-bar full">
+									{#if inProgressSession.total > 0}
+										<div class="pb-passed"  style="width: {(inProgressSession.passed / inProgressSession.total) * 100}%"></div>
+										<div class="pb-failed"  style="width: {(inProgressSession.failed / inProgressSession.total) * 100}%"></div>
+										<div class="pb-blocked" style="width: {(inProgressSession.blocked / inProgressSession.total) * 100}%"></div>
+										<div class="pb-skipped" style="width: {(inProgressSession.skipped / inProgressSession.total) * 100}%"></div>
+									{/if}
+								</div>
+								<div class="progress-caption dim">
+									{executed}/{inProgressSession.total} executed · {pct}% complete
+								</div>
 							</div>
 							<div class="actions">
 								<button class="btn-ghost" onclick={() => completeSession(inProgressSession!.id)}>
@@ -1151,7 +1203,7 @@
 													</div>
 												{/if}
 												{#if r.notes}
-													<div class="result-notes">{r.notes}</div>
+													<div class="result-notes" title={r.notes}>{truncate(r.notes, 90)}</div>
 												{/if}
 												{#if r.attachments && r.attachments.length > 0}
 													<div class="attachments">
@@ -1176,34 +1228,45 @@
 											</td>
 											<td>{r.group_name ?? '—'}</td>
 											<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
-											<td>
-												<select
-													class="assignee-select"
-													value={r.assigned_to ?? ''}
-													onfocus={loadMembers}
-													onchange={(e) => {
-														const val = (e.target as HTMLSelectElement).value;
-														assignTester(r.manual_test_id, val ? Number(val) : null);
-													}}
-												>
-													<option value="">Unassigned</option>
-													{#if r.assigned_to_email && !members.find(m => m.id === r.assigned_to)}
-														<option value={r.assigned_to}>{r.assigned_to_email}</option>
+											<td class="assignee-cell">
+												<div class="assignee-wrap">
+													{#if r.assigned_to_email}
+														<div class="assignee-chip" title={r.assigned_to_email}>
+															<span class="avatar">{r.assigned_to_email[0].toUpperCase()}</span>
+															<span class="assignee-name">{shortName(r.assigned_to_email)}</span>
+														</div>
+													{:else}
+														<span class="dim">Unassigned</span>
 													{/if}
-													{#each members as m}
-														<option value={m.id}>{m.email}</option>
-													{/each}
-												</select>
+													<select
+														class="assignee-select"
+														value={r.assigned_to ?? ''}
+														onfocus={loadMembers}
+														onchange={(e) => {
+															const val = (e.target as HTMLSelectElement).value;
+															assignTester(r.manual_test_id, val ? Number(val) : null);
+														}}
+														aria-label="Assign tester"
+													>
+														<option value="">Unassigned</option>
+														{#if r.assigned_to_email && !members.find(m => m.id === r.assigned_to)}
+															<option value={r.assigned_to}>{r.assigned_to_email}</option>
+														{/if}
+														{#each members as m}
+															<option value={m.id}>{m.email}</option>
+														{/each}
+													</select>
+												</div>
 											</td>
 											<td>
 												<span class={`status-pill status-${r.status.replace('_', '-')}`}>
 													{r.status.replace('_', ' ')}
 												</span>
 											</td>
-											<td class="dim">
+											<td class="last-run-cell dim">
 												{#if r.run_at}
-													{r.run_by_email ?? '—'}
-													<br /><span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
+													<div class="last-run-by" title={r.run_by_email ?? ''}>{shortName(r.run_by_email)}</div>
+													<div class="dim small">{formatDateTime(r.run_at)}</div>
 												{:else}
 													—
 												{/if}
@@ -1291,8 +1354,7 @@
 							<h2>Session history</h2>
 							<span class="dim">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span>
 						</div>
-						<span class="summary-right dim">click to expand</span>
-					</summary>
+						</summary>
 
 					<ul class="session-list">
 						{#each sessions as s}
@@ -1313,10 +1375,10 @@
 											<span class="status-pill status-accepted">{s.accepted} accepted</span>
 										{/if}
 										{#if s.target_date}
-											<span class="target-badge" title="Target date">🎯 {s.target_date}</span>
+											<span class="target-badge" title="Target date">🎯 {formatDate(s.target_date)}</span>
 										{/if}
 									</div>
-									<span class="dim">{new Date(s.created_at).toLocaleString()} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
+									<span class="dim">{formatDateTime(s.created_at)} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
 								</div>
 								<div class="progress-bar">
 									{#if s.total > 0}
@@ -1370,11 +1432,11 @@
 																{/if}
 															{/if}
 														</td>
-														<td class="notes-cell">{r.notes ?? '—'}</td>
+														<td class="notes-cell" title={r.notes ?? ''}>{truncate(r.notes, 120) || '—'}</td>
 														<td class="dim">
 															{#if r.run_at}
-																{r.run_by_email ?? '—'}<br />
-																<span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
+																<span title={r.run_by_email ?? ''}>{shortName(r.run_by_email)}</span><br />
+																<span class="dim small">{formatDateTime(r.run_at)}</span>
 															{:else}
 																—
 															{/if}
@@ -1465,11 +1527,25 @@
 			</section>
 		{/if}
 
-		<section>
-			<div class="section-header">
-				<h2>Linked automated runs</h2>
-				<button class="btn-ghost" onclick={openRunPicker}>+ Link run</button>
-			</div>
+		<section class="linked-runs-panel">
+			<details>
+				<summary>
+					<div class="summary-left">
+						<h2>Linked automated runs</h2>
+						<span class="dim">{release.linked_runs.length} run{release.linked_runs.length === 1 ? '' : 's'}</span>
+					</div>
+					<div class="summary-right">
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="btn-ghost"
+							role="button"
+							tabindex="0"
+							onclick={(e) => { e.preventDefault(); e.stopPropagation(); openRunPicker(); }}
+						>+ Link runs</span>
+					</div>
+				</summary>
+			<div class="section-body">
 			{#if release.linked_runs.length === 0}
 				<p class="empty">No runs linked. Readiness will use the latest run for the org.</p>
 			{:else}
@@ -1478,7 +1554,7 @@
 						<li>
 							<a href={`/runs/${r.id}`}>
 								<strong>{r.suite_name}</strong>
-								<span class="dim">#{r.id} · {r.branch || 'main'} · {new Date(r.created_at).toLocaleString()}</span>
+								<span class="dim">#{r.id} · {r.branch || 'main'} · {formatDateTime(r.created_at)}</span>
 							</a>
 							<span class="mini-stats">
 								<span class="pass">{r.passed}</span> /
@@ -1494,17 +1570,28 @@
 			{#if runPickerOpen}
 				<div class="picker">
 					<div class="picker-header">
-						<strong>Pick a run to link</strong>
-						<button class="btn-ghost" onclick={() => (runPickerOpen = false)}>Close</button>
+						<strong>Pick runs to link ({runSelection.size} selected)</strong>
+						<div>
+							<button class="btn-ghost" onclick={() => (runPickerOpen = false)}>Cancel</button>
+							<button class="btn-primary" onclick={linkRuns}>Link selected</button>
+						</div>
 					</div>
 					<ul class="picker-list">
 						{#each availableRuns as r}
+							{@const alreadyLinked = release.linked_runs.some(x => x.id === r.id)}
 							<li>
-								<button type="button" class="picker-row" onclick={() => linkRun(r.id)}>
+								<label class="picker-row" class:disabled={alreadyLinked}>
+									<input
+										type="checkbox"
+										disabled={alreadyLinked}
+										checked={runSelection.has(r.id)}
+										onchange={() => toggleRunSelection(r.id)}
+									/>
 									<strong>{r.suite_name}</strong>
-									<span class="dim">#{r.id} · {r.branch || 'main'} · {new Date(r.created_at).toLocaleString()}</span>
+									<span class="dim">#{r.id} · {r.branch || 'main'} · {formatDateTime(r.created_at)}</span>
 									<span class="mini-stats">{r.passed}/{r.failed}/{r.total}</span>
-								</button>
+									{#if alreadyLinked}<span class="dim">(linked)</span>{/if}
+								</label>
 							</li>
 						{:else}
 							<li class="empty">No runs found.</li>
@@ -1512,6 +1599,8 @@
 					</ul>
 				</div>
 			{/if}
+			</div>
+			</details>
 		</section>
 
 		<section class="linked-tests-panel">
@@ -1820,7 +1909,7 @@
 </div>
 
 <style>
-	.page { max-width: 880px; margin: 0 auto; padding: 1.5rem; }
+	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
 	.back:hover { color: var(--text); }
 	.release-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 0.75rem 0 1.5rem; gap: 1rem; }
@@ -1871,12 +1960,24 @@
 	.card-big { font-size: 1.3rem; font-weight: 700; margin: 0.25rem 0 0.1rem; color: var(--text); }
 	.card-sub { font-size: 0.78rem; color: var(--text-muted); }
 	.rules { display: flex; flex-direction: column; gap: 0.4rem; }
-	.rule { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.45rem 0.6rem; border-radius: 6px; background: #fef2f2; border: 1px solid #fecaca; }
-	.rule.met { background: #f0fdf4; border-color: #bbf7d0; }
-	.rule-icon { font-weight: 700; color: #dc2626; }
-	.rule.met .rule-icon { color: #16a34a; }
-	.rule-name { font-size: 0.82rem; font-weight: 600; text-transform: capitalize; }
-	.rule-detail { font-size: 0.75rem; color: var(--text-muted); }
+	.rule {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: 6px;
+		background: rgba(220, 38, 38, 0.08);
+		border: 1px solid rgba(220, 38, 38, 0.35);
+		color: var(--text);
+	}
+	.rule.met {
+		background: rgba(22, 163, 74, 0.08);
+		border-color: rgba(22, 163, 74, 0.35);
+	}
+	.rule-icon { font-weight: 700; color: #f87171; }
+	.rule.met .rule-icon { color: #4ade80; }
+	.rule-name { font-size: 0.85rem; font-weight: 600; text-transform: capitalize; color: inherit; }
+	.rule-detail { font-size: 0.78rem; color: var(--text-muted); }
 	.blockers { margin-top: 0.75rem; font-size: 0.82rem; }
 	.blockers ul { margin: 0.3rem 0 0 1rem; padding: 0; }
 	.dim { color: var(--text-muted); }
@@ -2024,7 +2125,7 @@
 		padding: 0.6rem 0.75rem;
 		background: var(--bg-secondary);
 	}
-	.session-card.in-progress { border-left: 3px solid #2563eb; background: #eff6ff; }
+	.session-card.in-progress { border-left: 3px solid #2563eb; background: rgba(37, 99, 235, 0.08); }
 	.session-head {
 		display: flex;
 		justify-content: space-between;
@@ -2052,6 +2153,9 @@
 		text-transform: uppercase;
 		font-weight: 600;
 		margin-left: 0.4rem;
+		white-space: nowrap;
+		display: inline-block;
+		letter-spacing: 0.02em;
 	}
 	.status-pill.status-in_progress { background: #dbeafe; color: #1e40af; }
 	.status-pill.status-completed   { background: #dcfce7; color: #166534; }
@@ -2110,7 +2214,7 @@
 		letter-spacing: 0.04em;
 	}
 	.session-table tr:last-child td { border-bottom: none; }
-	.priority { font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
+	.priority { font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; white-space: nowrap; display: inline-block; }
 	.priority-low { background: #e5e7eb; color: #4b5563; }
 	.priority-medium { background: #dbeafe; color: #1e40af; }
 	.priority-high { background: #fef3c7; color: #92400e; }
@@ -2152,28 +2256,50 @@
 	.runner-modal .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
 
 	/* ── Collapsible panels (active session, history, linked tests) ─── */
+	/* Zero the outer section padding so summary + body control their own
+	   insets — this lines titles up with non-collapsible section headers. */
+	.active-session-panel,
+	.session-history-panel,
+	.linked-tests-panel,
+	.linked-runs-panel,
+	.requirements-panel {
+		padding: 0;
+	}
 	.active-session-panel details,
 	.session-history-panel details,
-	.linked-tests-panel details {
+	.linked-tests-panel details,
+	.linked-runs-panel details,
+	.requirements-panel details {
 		padding: 0;
 	}
 	.active-session-panel summary,
 	.session-history-panel summary,
-	.linked-tests-panel summary {
-		display: flex;
-		justify-content: space-between;
+	.linked-tests-panel summary,
+	.linked-runs-panel summary,
+	.requirements-panel details summary {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
 		align-items: center;
-		padding: 0.85rem 1.25rem;
+		padding: 1rem 1.25rem;
 		cursor: pointer;
 		list-style: none;
 		gap: 0.75rem;
 	}
+	.active-session-panel summary > .summary-right,
+	.session-history-panel summary > .summary-right,
+	.linked-tests-panel summary > .summary-right,
+	.linked-runs-panel summary > .summary-right,
+	.requirements-panel summary > .summary-right {
+		justify-self: end;
+	}
 	.active-session-panel summary::-webkit-details-marker,
 	.session-history-panel summary::-webkit-details-marker,
-	.linked-tests-panel summary::-webkit-details-marker { display: none; }
+	.linked-tests-panel summary::-webkit-details-marker,
+	.linked-runs-panel summary::-webkit-details-marker { display: none; }
 	.active-session-panel summary h2,
 	.session-history-panel summary h2,
-	.linked-tests-panel summary h2 {
+	.linked-tests-panel summary h2,
+	.linked-runs-panel summary h2 {
 		margin: 0;
 		font-size: 1rem;
 		display: inline-flex;
@@ -2185,7 +2311,8 @@
 	.section-body  { padding: 0 1.25rem 1rem; }
 	.active-session-panel summary::before,
 	.session-history-panel summary::before,
-	.linked-tests-panel summary::before {
+	.linked-tests-panel summary::before,
+	.linked-runs-panel summary::before {
 		content: "▶";
 		font-size: 0.7rem;
 		color: var(--text-muted);
@@ -2194,29 +2321,50 @@
 	}
 	.active-session-panel details[open] > summary::before,
 	.session-history-panel details[open] > summary::before,
-	.linked-tests-panel details[open] > summary::before { transform: rotate(90deg); }
+	.linked-tests-panel details[open] > summary::before,
+	.linked-runs-panel details[open] > summary::before { transform: rotate(90deg); }
 
 	.active-session-panel { border-left: 3px solid #2563eb; }
 	.active-session-toolbar {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		margin-bottom: 0.6rem;
+		margin-bottom: 0.85rem;
 		flex-wrap: wrap;
 	}
-	.active-session-toolbar .session-label { font-size: 0.9rem; color: var(--text-muted); }
-	.active-session-toolbar .progress-bar.full { flex: 1; min-width: 240px; height: 8px; }
+	.active-session-toolbar .toolbar-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.active-session-toolbar .session-label { font-size: 0.88rem; color: var(--text-muted); }
+	.active-session-toolbar .progress-wrap {
+		flex: 1;
+		min-width: 240px;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.active-session-toolbar .progress-bar.full { height: 10px; }
+	.progress-caption { font-size: 0.75rem; }
 	.active-session-toolbar .actions { margin-left: auto; }
 
 	/* ── Readiness failures list ─────────────────────────────────────── */
 	.readiness-failures, .readiness-accepted {
 		margin-top: 0.75rem;
-		background: #fef2f2;
-		border: 1px solid #fecaca;
+		background: rgba(220, 38, 38, 0.08);
+		border: 1px solid rgba(220, 38, 38, 0.35);
 		border-radius: 6px;
 		padding: 0.5rem 0.75rem;
+		color: var(--text);
 	}
-	.readiness-accepted { background: #f0f9ff; border-color: #bae6fd; }
+	.readiness-accepted {
+		background: rgba(37, 99, 235, 0.08);
+		border-color: rgba(37, 99, 235, 0.35);
+	}
+	.readiness-failures summary,
+	.readiness-accepted summary { color: inherit; }
 	.readiness-failures summary,
 	.readiness-accepted summary {
 		cursor: pointer;
@@ -2254,7 +2402,7 @@
 
 	/* ── Active session table extras ─────────────────────────────────── */
 	.status-pill.status-accepted { background: #dbeafe; color: #1e40af; }
-	.session-table tr.accepted { background: #eff6ff; }
+	.session-table tr.accepted { background: rgba(37, 99, 235, 0.08); }
 	.session-table tr.row-flash {
 		animation: row-flash 1.6s ease-out;
 	}
@@ -2263,8 +2411,14 @@
 		50%  { background: #fef9c3; }
 		100% { background: inherit; }
 	}
-	.session-table .row-actions { display: flex; gap: 0.25rem; }
+	.session-table .row-actions {
+		display: flex;
+		gap: 0.25rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
 	.session-table .accept-btn { color: #0369a1; }
+	.session-table .row-actions .btn-ghost { white-space: nowrap; }
 	.known-issue-inline {
 		display: inline-flex;
 		align-items: center;
@@ -2276,7 +2430,9 @@
 		margin-top: 0.2rem;
 		font-size: 0.78rem;
 		color: var(--text-muted);
-		white-space: pre-wrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.link-button {
 		background: transparent;
@@ -2290,7 +2446,12 @@
 	.link-button:hover { color: var(--text); }
 
 	/* ── Session history nested table ───────────────────────────────── */
-	.session-card .session-head { cursor: pointer; }
+	.session-card .session-head {
+		cursor: pointer;
+		padding: 0.15rem 0.25rem;
+		border-radius: 4px;
+	}
+	.session-card .session-head:hover { background: rgba(255, 255, 255, 0.04); }
 	.session-table.nested {
 		margin-top: 0.5rem;
 		border: 1px solid var(--border);
@@ -2326,15 +2487,6 @@
 	.btn-danger:hover { background: #b91c1c; }
 
 	/* ── Requirements coverage panel ──────────────────────────────── */
-	.requirements-panel details summary {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.85rem 1.25rem;
-		cursor: pointer;
-		list-style: none;
-		gap: 0.75rem;
-	}
 	.requirements-panel summary::-webkit-details-marker { display: none; }
 	.requirements-panel summary::before {
 		content: "▶";
@@ -2363,8 +2515,8 @@
 		color: var(--text-muted);
 		font-weight: 600;
 	}
-	.req-fully-passing { background: #f0fdf4; }
-	.req-has-failures  { background: #fef2f2; }
+	.req-fully-passing { background: rgba(22, 163, 74, 0.08); }
+	.req-has-failures  { background: rgba(220, 38, 38, 0.08); }
 	.req-key {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.82rem;
@@ -2404,14 +2556,65 @@
 	.provider-other  { background: #f3f4f6; color: #6b7280; }
 
 	/* ── Session table: assignee, attachments, bug chip ─────────────── */
+	.session-table { table-layout: fixed; width: 100%; }
+	.session-table th, .session-table td { vertical-align: top; }
+	.session-table th:nth-child(1) { width: auto; min-width: 260px; }  /* Title — flex */
+	.session-table th:nth-child(2) { width: 130px; }                    /* Group */
+	.session-table th:nth-child(3) { width: 90px; }                     /* Priority */
+	.session-table th:nth-child(4) { width: 170px; }                    /* Assignee */
+	.session-table th:nth-child(5) { width: 95px; }                     /* Status */
+	.session-table th:nth-child(6) { width: 140px; }                    /* Last run */
+	.session-table th:nth-child(7) { width: 250px; }                    /* Actions */
+	.session-table td > strong { display: block; line-height: 1.3; }
+	.session-table td { overflow-wrap: anywhere; }
+
+	.assignee-cell { position: relative; }
+	.assignee-wrap { position: relative; display: flex; align-items: center; min-height: 24px; }
 	.assignee-select {
-		padding: 0.2rem 0.35rem;
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		opacity: 0;
+		cursor: pointer;
+		border: none;
+		background: transparent;
+	}
+	.assignee-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.15rem 0.55rem 0.15rem 0.15rem;
+		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 4px;
-		background: var(--bg);
-		color: var(--text);
+		border-radius: 999px;
 		font-size: 0.78rem;
-		max-width: 140px;
+		max-width: 100%;
+	}
+	.assignee-chip .avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: #2563eb;
+		color: #fff;
+		font-size: 0.7rem;
+		font-weight: 600;
+		flex-shrink: 0;
+	}
+	.assignee-chip .assignee-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.last-run-cell { white-space: nowrap; }
+	.last-run-by {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.bug-chip {
 		display: inline-block;
