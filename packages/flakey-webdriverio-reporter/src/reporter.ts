@@ -79,6 +79,15 @@ export default class FlakeyWdioReporter extends WDIOReporter {
     const entry = this.specMap.get(specKey)!;
     const duration = test.duration ?? 0;
 
+    // Print result to terminal as it happens
+    const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";
+    const err = (test as any).error ?? (test as any).errors?.[0];
+    const errMsg = (err?.message ?? "").split("\n")[0];
+    process.stdout.write(`  ${icon} ${test.title} (${duration}ms)\n`);
+    if (status === "failed" && errMsg) {
+      process.stdout.write(`    ${errMsg}\n`);
+    }
+
     const normalizedTest: NormalizedTest = {
       title: test.title,
       full_title: test.fullTitle || `${entry.spec.title} > ${test.title}`,
@@ -87,7 +96,6 @@ export default class FlakeyWdioReporter extends WDIOReporter {
       screenshot_paths: [],
     };
 
-    const err = (test as any).error ?? (test as any).errors?.[0];
     if (err) {
       normalizedTest.error = {
         message: err.message,

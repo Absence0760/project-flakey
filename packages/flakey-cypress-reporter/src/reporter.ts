@@ -116,12 +116,44 @@ class FlakeyCypressReporter {
   constructor(runner: MochaRunner, options: { reporterOptions: ReporterOptions }) {
     this.options = options.reporterOptions;
 
+    runner.on("test", (test: MochaTest) => this.onTestStart(test));
     runner.on("pass", (test: MochaTest) => this.addTest(test, "passed"));
     runner.on("fail", (test: MochaTest, err: Error) => this.addTest(test, "failed", err));
     runner.on("pending", (test: MochaTest) => this.addTest(test, "skipped"));
 
     runner.on("end", () => {
       this.saveToTmp();
+    });
+  }
+
+  /** Send a live event to the backend (fire-and-forget). Only fires when a live run is active. */
+  private sendLiveEvent(event: {
+    type: string;
+    test?: string;
+    spec?: string;
+    status?: string;
+    duration_ms?: number;
+    error?: string;
+  }): void {
+    const runId = Number(process.env.FLAKEY_LIVE_RUN_ID);
+    if (!runId || !this.options.url || !this.options.apiKey) return;
+
+    const url = this.options.url.replace(/\/$/, "");
+    fetch(`${url}/live/${runId}/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.options.apiKey}`,
+      },
+      body: JSON.stringify([{ ...event, timestamp: Date.now() }]),
+    }).catch(() => {}); // best-effort, never throws
+  }
+
+  private onTestStart(test: MochaTest): void {
+    this.sendLiveEvent({
+      type: "test.started",
+      test: test.fullTitle(),
+      spec: getSpecFile(test),
     });
   }
 
@@ -143,6 +175,27 @@ class FlakeyCypressReporter {
 
     const entry = this.specMap.get(filePath)!;
     const duration = test.duration ?? 0;
+
+    // Print result to terminal as it happens
+    const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";
+    const errMsg = (err?.message ?? test.err?.message ?? "").split("\n")[0];
+    process.stdout.write(`    ${icon} ${test.title} (${duration}ms)\n`);
+    if (status === "failed" && errMsg) {
+      process.stdout.write(`      ${errMsg}\n`);
+    }
+
+    // Stream result to live backend as it happens
+    const eventType = status === "passed" ? "test.passed"
+      : status === "failed" ? "test.failed"
+      : "test.skipped";
+    this.sendLiveEvent({
+      type: eventType,
+      test: test.fullTitle(),
+      spec: filePath,
+      status,
+      duration_ms: duration,
+      error: status === "failed" ? (err?.message ?? test.err?.message) : undefined,
+    });
 
     const normalizedTest: NormalizedTest = {
       title: test.title,
