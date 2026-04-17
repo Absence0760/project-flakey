@@ -699,7 +699,8 @@
 
 <style>
   .page {
-    max-width: 1100px;
+    max-width: 1440px;
+    margin: 0 auto;
     padding: 1.5rem 2rem 3rem;
   }
 

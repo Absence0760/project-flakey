@@ -109,6 +109,17 @@
 - [x] Manual + automated test management (unified platform)
 - [x] Release checklists with sign-off workflows
 
+## Phase 11 — Release-grade test execution
+
+- [x] Manual test groups (bulk-link by group to a release)
+- [x] Xray-style test sessions per release (full / failures-only cycles with history)
+- [x] Accept-as-known-issue for failed results (deferred against a bug ref)
+- [x] One-click Jira bug filing from a failed session result
+- [x] Requirements traceability (Jira/GitHub/Linear) with per-release coverage rollup
+- [x] Step-level evidence attachments (screenshots, files)
+- [x] Per-test assignees + session target dates
+- [x] Manual-test flakiness signals derived from session history
+
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)

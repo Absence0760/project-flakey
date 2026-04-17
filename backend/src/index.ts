@@ -30,6 +30,7 @@ import a11yRouter from "./routes/a11y.js";
 import visualRouter from "./routes/visual.js";
 import uiCoverageRouter from "./routes/ui-coverage.js";
 import manualTestsRouter from "./routes/manual-tests.js";
+import manualTestGroupsRouter from "./routes/manual-test-groups.js";
 import releasesRouter from "./routes/releases.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
@@ -137,6 +138,7 @@ app.use("/a11y", requireAuth, a11yRouter);
 app.use("/visual", requireAuth, visualRouter);
 app.use("/ui-coverage", requireAuth, uiCoverageRouter);
 app.use("/manual-tests", requireAuth, manualTestsRouter);
+app.use("/manual-test-groups", requireAuth, manualTestGroupsRouter);
 app.use("/releases", requireAuth, releasesRouter);
 // Live events — POST requires normal auth, GET stream accepts token as query param (for EventSource)
 app.use("/live", (req, res, next) => {

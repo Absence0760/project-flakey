@@ -2,8 +2,10 @@ import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { parseFeature, scenarioToManualSteps } from "../cucumber-parser.js";
+import requirementsRouter from "./manual-test-requirements.js";
 
 const router = Router();
+router.use("/:id/requirements", requirementsRouter);
 
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
@@ -20,12 +22,27 @@ router.get("/", async (req, res) => {
   try {
     const suite = req.query.suite as string | undefined;
     const status = req.query.status as string | undefined;
+    const groupIdRaw = req.query.group_id as string | undefined;
     const where: string[] = [];
     const params: unknown[] = [];
-    if (suite) { params.push(suite); where.push(`suite_name = $${params.length}`); }
-    if (status) { params.push(status); where.push(`status = $${params.length}`); }
+    if (suite) { params.push(suite); where.push(`mt.suite_name = $${params.length}`); }
+    if (status) { params.push(status); where.push(`mt.status = $${params.length}`); }
+    if (groupIdRaw !== undefined) {
+      if (groupIdRaw === "none" || groupIdRaw === "null") {
+        where.push("mt.group_id IS NULL");
+      } else {
+        const gid = Number(groupIdRaw);
+        if (Number.isInteger(gid)) {
+          params.push(gid);
+          where.push(`mt.group_id = $${params.length}`);
+        }
+      }
+    }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
+    // Flakiness is computed from session-result history: a test is "flaky"
+    // if it's been run at least twice and its pass rate is strictly between
+    // 0% and 100% (i.e. mixed outcomes on the same test across sessions).
     const result = await tenantQuery(
       req.user!.orgId,
       `WITH auto_latest AS (
@@ -35,21 +52,49 @@ router.get("/", async (req, res) => {
            JOIN specs s ON s.id = t.spec_id
            JOIN runs  r ON r.id = s.run_id
            ORDER BY s.file_path, t.title, r.created_at DESC
+       ),
+       flakiness AS (
+         SELECT manual_test_id,
+                COUNT(*)                                           AS total_runs,
+                COUNT(*) FILTER (WHERE status = 'passed')::numeric AS passes,
+                COUNT(*) FILTER (WHERE status = 'failed')          AS failures
+           FROM release_test_session_results
+          WHERE status IN ('passed', 'failed')
+          GROUP BY manual_test_id
        )
        SELECT mt.id, mt.suite_name, mt.title, mt.description, mt.priority, mt.status,
               mt.last_run_at, mt.last_run_notes, mt.last_step_results,
               mt.automated_test_key, mt.tags,
               mt.source, mt.source_ref, mt.source_file,
+              mt.group_id, g.name AS group_name,
               mt.created_at, mt.updated_at,
               u.email AS last_run_by_email,
               a.status     AS auto_last_status,
-              a.created_at AS auto_last_run_at
+              a.created_at AS auto_last_run_at,
+              COALESCE(rq.requirement_count, 0)::int AS requirement_count,
+              COALESCE(f.total_runs, 0)::int   AS total_runs,
+              COALESCE(f.failures, 0)::int     AS failure_count,
+              CASE
+                WHEN COALESCE(f.total_runs, 0) < 2 THEN NULL
+                ELSE ROUND(f.passes / NULLIF(f.total_runs, 0)::numeric, 2)
+              END AS pass_rate,
+              CASE
+                WHEN COALESCE(f.total_runs, 0) < 2 THEN false
+                ELSE f.passes > 0 AND f.passes < f.total_runs
+              END AS is_flaky
        FROM manual_tests mt
        LEFT JOIN users u ON u.id = mt.last_run_by
+       LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
              AND a.file_path LIKE '%' || mt.source_file
              AND a.title = mt.title
+       LEFT JOIN flakiness f ON f.manual_test_id = mt.id
+       LEFT JOIN (
+         SELECT manual_test_id, COUNT(*) AS requirement_count
+           FROM manual_test_requirements
+          GROUP BY manual_test_id
+       ) rq ON rq.manual_test_id = mt.id
        ${whereClause}
        ORDER BY mt.updated_at DESC`,
       params
@@ -96,10 +141,12 @@ router.get("/:id", async (req, res) => {
            ORDER BY s.file_path, t.title, r.created_at DESC
        )
        SELECT mt.*, u.email AS last_run_by_email,
+              g.name       AS group_name,
               a.status     AS auto_last_status,
               a.created_at AS auto_last_run_at
        FROM manual_tests mt
        LEFT JOIN users u ON u.id = mt.last_run_by
+       LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
              AND a.file_path LIKE '%' || mt.source_file
@@ -111,7 +158,15 @@ router.get("/:id", async (req, res) => {
       res.status(404).json({ error: "Not found" });
       return;
     }
-    res.json(result.rows[0]);
+    const reqs = await tenantQuery(
+      req.user!.orgId,
+      `SELECT id, ref_key, ref_url, ref_title, provider, added_at
+         FROM manual_test_requirements
+        WHERE manual_test_id = $1
+        ORDER BY added_at`,
+      [req.params.id]
+    );
+    res.json({ ...result.rows[0], requirements: reqs.rows });
   } catch (err) {
     console.error("GET /manual-tests/:id error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -125,19 +180,22 @@ router.post("/", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const { suite_name, title, description, steps, expected_result, priority, automated_test_key, tags } = req.body;
+    const { suite_name, title, description, steps, expected_result, priority, automated_test_key, tags, group_id } = req.body;
     if (!title) {
       res.status(400).json({ error: "title required" });
       return;
     }
     const pri = PRIORITIES.includes(priority) ? priority : "medium";
+    const gid = group_id === null || group_id === undefined || group_id === ""
+      ? null
+      : Number.isInteger(Number(group_id)) ? Number(group_id) : null;
 
     const result = await tenantQuery(
       req.user!.orgId,
       `INSERT INTO manual_tests
         (org_id, suite_name, title, description, steps, expected_result, priority,
-         automated_test_key, tags, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         automated_test_key, tags, group_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         req.user!.orgId,
@@ -149,6 +207,7 @@ router.post("/", async (req, res) => {
         pri,
         automated_test_key ?? null,
         Array.isArray(tags) ? tags : [],
+        gid,
         req.user!.id,
       ]
     );
@@ -299,6 +358,12 @@ router.patch("/:id", async (req, res) => {
     if (body.priority !== undefined && PRIORITIES.includes(body.priority)) assign("priority", body.priority);
     if (body.automated_test_key !== undefined) assign("automated_test_key", body.automated_test_key);
     if (body.tags !== undefined) assign("tags", Array.isArray(body.tags) ? body.tags : []);
+    if (body.group_id !== undefined) {
+      const gid = body.group_id === null || body.group_id === ""
+        ? null
+        : Number.isInteger(Number(body.group_id)) ? Number(body.group_id) : null;
+      assign("group_id", gid);
+    }
 
     sets.push(`updated_at = NOW()`);
 
