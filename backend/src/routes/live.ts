@@ -124,6 +124,8 @@ router.post("/:runId/events", async (req, res) => {
       await upsertLiveSpec(orgId, runId, fullEvent);
     } else if (fullEvent.type === "spec.finished") {
       await updateLiveSpecStats(orgId, runId, fullEvent);
+    } else if (fullEvent.type === "test.started") {
+      await upsertPendingTest(orgId, runId, fullEvent);
     } else if (fullEvent.type === "test.passed" || fullEvent.type === "test.failed" || fullEvent.type === "test.skipped") {
       await insertLiveTestResult(orgId, runId, fullEvent);
     }
@@ -213,6 +215,32 @@ async function updateLiveSpecStats(orgId: number, runId: number, event: LiveTest
  * so test results appear on the run detail page in real-time.
  * Called sequentially — safe from race conditions within a single request.
  */
+/**
+ * Insert a placeholder test row when a test.started event arrives, so the UI
+ * can show the test as pending while it's still running.
+ */
+async function upsertPendingTest(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
+  if (!event.test) return;
+  const specPath = event.spec ?? "unknown";
+  try {
+    const specId = await findOrCreateSpec(orgId, runId, specPath);
+    if (specId === null) return;
+    const existing = await tenantQuery(orgId,
+      `SELECT 1 FROM tests WHERE spec_id = $1 AND full_title = $2 LIMIT 1`,
+      [specId, event.test]
+    );
+    if (existing.rowCount && existing.rowCount > 0) return;
+    await tenantQuery(orgId,
+      `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
+       VALUES ($1, $2, $3, 'pending', 0, NULL, '{}')`,
+      [specId, event.test, event.test]
+    );
+    await recomputeSpecAndRunStats(orgId, runId, specId);
+  } catch (err: any) {
+    console.error("Failed to upsert pending test:", err.message);
+  }
+}
+
 async function insertLiveTestResult(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
   if (!event.test) return;
 
@@ -228,39 +256,47 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
     const specId = await findOrCreateSpec(orgId, runId, specPath);
     if (specId === null) return;
 
-    // Insert test
-    await tenantQuery(orgId,
-      `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
-       VALUES ($1, $2, $3, $4, $5, $6, '{}')`,
-      [specId, event.test, event.test, status, event.duration_ms ?? 0, event.error ?? null]
+    // Upsert test row — update the pending row inserted on test.started if present.
+    const updated = await tenantQuery(orgId,
+      `UPDATE tests SET status = $3, duration_ms = $4, error_message = $5
+       WHERE spec_id = $1 AND full_title = $2 AND status = 'pending'`,
+      [specId, event.test, status, event.duration_ms ?? 0, event.error ?? null]
     );
+    if (!updated.rowCount) {
+      await tenantQuery(orgId,
+        `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
+         VALUES ($1, $2, $3, $4, $5, $6, '{}')`,
+        [specId, event.test, event.test, status, event.duration_ms ?? 0, event.error ?? null]
+      );
+    }
 
-    // Update spec stats
-    await tenantQuery(orgId,
-      `UPDATE specs SET
-        total = (SELECT COUNT(*) FROM tests WHERE spec_id = $1),
-        passed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'passed'),
-        failed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'failed'),
-        skipped = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status IN ('skipped', 'pending')),
-        duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM tests WHERE spec_id = $1)
-      WHERE id = $1`,
-      [specId]
-    );
-
-    // Update run stats
-    await tenantQuery(orgId,
-      `UPDATE runs SET
-        total = (SELECT COALESCE(SUM(total), 0) FROM specs WHERE run_id = $1),
-        passed = (SELECT COALESCE(SUM(passed), 0) FROM specs WHERE run_id = $1),
-        failed = (SELECT COALESCE(SUM(failed), 0) FROM specs WHERE run_id = $1),
-        skipped = (SELECT COALESCE(SUM(skipped), 0) FROM specs WHERE run_id = $1),
-        duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM specs WHERE run_id = $1)
-      WHERE id = $1`,
-      [runId]
-    );
+    await recomputeSpecAndRunStats(orgId, runId, specId);
   } catch (err: any) {
     console.error("Failed to insert live test result:", err.message);
   }
+}
+
+async function recomputeSpecAndRunStats(orgId: number, runId: number, specId: number): Promise<void> {
+  await tenantQuery(orgId,
+    `UPDATE specs SET
+      total = (SELECT COUNT(*) FROM tests WHERE spec_id = $1),
+      passed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'passed'),
+      failed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'failed'),
+      skipped = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status IN ('skipped', 'pending')),
+      duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM tests WHERE spec_id = $1)
+    WHERE id = $1`,
+    [specId]
+  );
+  await tenantQuery(orgId,
+    `UPDATE runs SET
+      total = (SELECT COALESCE(SUM(total), 0) FROM specs WHERE run_id = $1),
+      passed = (SELECT COALESCE(SUM(passed), 0) FROM specs WHERE run_id = $1),
+      failed = (SELECT COALESCE(SUM(failed), 0) FROM specs WHERE run_id = $1),
+      skipped = (SELECT COALESCE(SUM(skipped), 0) FROM specs WHERE run_id = $1),
+      duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM specs WHERE run_id = $1)
+    WHERE id = $1`,
+    [runId]
+  );
 }
 
 /**
@@ -298,6 +334,19 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     const key = `runs/${runId}/snapshots/${fileName}`;
 
     await getStorage().put(file.path, key);
+
+    // If a test row already exists for this run + title, link the snapshot.
+    // Match full_title OR trailing substring (older clients send leaf title only).
+    // If no row exists yet, the final /runs/upload fallback handles it.
+    await tenantQuery(orgId,
+      `UPDATE tests SET snapshot_path = $3
+       FROM specs
+       WHERE specs.id = tests.spec_id
+         AND specs.run_id = $1
+         AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $2)`,
+      [runId, testTitle, key]
+    );
+
     res.status(200).json({ key });
   } catch (err) {
     console.error("POST /live/:runId/snapshot error:", err);

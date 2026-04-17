@@ -29,10 +29,40 @@
   }
 
   let liveEvents = $state<LiveEvent[]>([]);
+  const displayedEvents = $derived.by(() => {
+    const finishedTests = new Set(
+      liveEvents
+        .filter(e => e.type === "test.passed" || e.type === "test.failed" || e.type === "test.skipped")
+        .map(e => e.test)
+    );
+    const finishedSpecs = new Set(
+      liveEvents.filter(e => e.type === "spec.finished").map(e => e.spec)
+    );
+    return liveEvents
+      .filter(e => {
+        if (e.type === "test.started" && e.test && finishedTests.has(e.test)) return false;
+        if (e.type === "spec.started" && e.spec && finishedSpecs.has(e.spec)) return false;
+        return true;
+      })
+      .slice()
+      .reverse();
+  });
   let isLive = $state(false);
   let justFinished = $state(false);
   let runAborted = $state(false);
   let eventSource: EventSource | null = null;
+  let livePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function startLivePoll(runId: number) {
+    if (livePollTimer) return;
+    livePollTimer = setInterval(() => {
+      fetchRun(runId).then(r => { run = r; }).catch(() => {});
+    }, 3000);
+  }
+
+  function stopLivePoll() {
+    if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+  }
 
   function connectLive(runId: number) {
     const token = getAuth().token;
@@ -44,6 +74,7 @@
         const event = JSON.parse(e.data) as LiveEvent;
         if (event.type === "connected") {
           isLive = true;
+          startLivePoll(runId);
           return;
         }
         liveEvents = [...liveEvents.slice(-99), event];
@@ -53,6 +84,7 @@
           isLive = false;
           justFinished = true;
           eventSource?.close();
+          stopLivePoll();
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
           // Clear the "just finished" banner after 10 seconds
           setTimeout(() => { justFinished = false; }, 10000);
@@ -60,6 +92,7 @@
           isLive = false;
           runAborted = true;
           eventSource?.close();
+          stopLivePoll();
           // Refetch so run.aborted persists as the header pill after the
           // transient banner times out.
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
@@ -70,6 +103,7 @@
 
     eventSource.onerror = () => {
       isLive = false;
+      stopLivePoll();
     };
   }
 
@@ -121,7 +155,8 @@
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
           await loadLiveHistory(id);
-          connectLive(id);
+          const terminated = liveEvents.some(e => e.type === "run.finished" || e.type === "run.aborted");
+          if (!terminated) connectLive(id);
         }
       }
     } catch (e) {
@@ -133,6 +168,7 @@
 
   onDestroy(() => {
     eventSource?.close();
+    stopLivePoll();
   });
 
   function formatDuration(ms: number): string {
@@ -536,7 +572,7 @@
           {/if}
         </h3>
         <div class="live-events">
-          {#each liveEvents.slice().reverse() as event}
+          {#each displayedEvents as event}
             <div class="live-event" class:passed={event.type === "test.passed"} class:failed={event.type === "test.failed"} class:started={event.type === "test.started"}>
               <span class="live-dot"
                 class:dot-pass={event.type === "test.passed"}

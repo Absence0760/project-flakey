@@ -15,6 +15,39 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
 
+  interface SnapshotStep { index: number; commandName: string; commandMessage: string; }
+  let snapshotSteps = $state<SnapshotStep[]>([]);
+  let expandedGroups = $state<Set<number>>(new Set());
+
+  interface SnapshotGroup {
+    headerIdx: number | null;      // snapshotSteps index of the gherkin marker, or null for synthetic pre-first-gherkin "Setup"
+    headerLabel: string;            // e.g. "Given I do X" or "Setup"
+    headerKeyword: string;          // e.g. "GHERKIN" or "SETUP"
+    childIdxs: number[];            // snapshotSteps indexes of non-gherkin children
+  }
+  let snapshotGroups = $derived.by<SnapshotGroup[]>(() => {
+    const groups: SnapshotGroup[] = [];
+    let current: SnapshotGroup | null = null;
+    snapshotSteps.forEach((s, i) => {
+      if (s.commandName === "gherkin") {
+        current = { headerIdx: i, headerLabel: s.commandMessage, headerKeyword: "GHERKIN", childIdxs: [] };
+        groups.push(current);
+      } else {
+        if (!current) {
+          current = { headerIdx: null, headerLabel: "Setup (before hooks)", headerKeyword: "SETUP", childIdxs: [] };
+          groups.push(current);
+        }
+        current.childIdxs.push(i);
+      }
+    });
+    return groups;
+  });
+  function toggleGroup(g: number) {
+    const next = new Set(expandedGroups);
+    if (next.has(g)) next.delete(g); else next.add(g);
+    expandedGroups = next;
+  }
+
   // Left panel state
   let leftTab = $state<"screenshot" | "video" | "snapshot">("screenshot");
   let currentScreenshot = $state(0);
@@ -50,13 +83,17 @@
     }
     try {
       test = await fetchTest(id);
-      if (test.snapshot_path) leftTab = "snapshot";
+      snapshotSteps = [];
+      if (test.snapshot_path) {
+        leftTab = "snapshot";
+        loadSnapshotSteps(test.snapshot_path);
+      }
       else if (test.screenshot_paths?.length) leftTab = "screenshot";
       else if (test.video_path) leftTab = "video";
       else leftTab = "screenshot";
 
       if (!preserveHistory) {
-        if (test.snapshot_path && test.command_log?.length) rightTab = "commands";
+        if (test.snapshot_path) rightTab = "commands";
         else if (test.error_message) rightTab = "info";
         else if (test.metadata && Object.keys(test.metadata).length > 0) rightTab = "details";
         else if (test.command_log?.length) rightTab = "commands";
@@ -68,6 +105,18 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadSnapshotSteps(path: string) {
+    try {
+      const res = await fetch(`${UPLOADS_URL}/${path}`);
+      if (!res.ok) return;
+      const ds = new DecompressionStream("gzip");
+      const decompressed = res.body!.pipeThrough(ds);
+      const blob = await new Response(decompressed).blob();
+      const bundle = JSON.parse(await blob.text());
+      if (Array.isArray(bundle?.steps)) snapshotSteps = bundle.steps;
+    } catch { /* ignore — viewer will surface errors */ }
   }
 
   function navigate(id: number | null) {
@@ -143,6 +192,7 @@
   let hasVideo = $derived(!!test?.video_path);
   let hasCode = $derived(!!test?.test_code);
   let hasCommands = $derived((test?.command_log?.length ?? 0) > 0);
+  let hasSnapshotSteps = $derived(snapshotSteps.length > 0);
   let hasSnapshot = $derived(!!test?.snapshot_path);
   let snapshotStep = $state(0);
   let lockedStep = $state<number | null>(null);
@@ -327,7 +377,7 @@
                 Info
               </button>
               <button class="pane-tab" class:active={rightTab === "commands"} onclick={() => rightTab = "commands"}>
-                Commands {hasCommands ? `(${test.command_log?.length})` : ""}
+                Commands {hasCommands ? `(${test.command_log?.length})` : hasSnapshotSteps ? `(${snapshotSteps.length})` : ""}
               </button>
               {#if hasCode}
                 <button class="pane-tab" class:active={rightTab === "code"} onclick={() => rightTab = "code"}>
@@ -421,6 +471,70 @@
                             {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
                           </span>
                         </li>
+                      {/each}
+                    </ol>
+                  </div>
+                {:else if hasSnapshotSteps}
+                  <div class="commands-panel">
+                    <div class="commands-header">
+                      <span class="commands-title">Snapshot Steps</span>
+                      <span class="commands-count">{snapshotSteps.length} steps</span>
+                    </div>
+                    <ol class="command-list" onmouseleave={() => hoverStep = null}>
+                      {#each snapshotGroups as group, g}
+                        {@const isOpen = expandedGroups.has(g)}
+                        {#if group.headerIdx !== null}
+                          <li
+                            class="cmd cmd-clickable cmd-gherkin"
+                            class:cmd-active={activeSnapshotStep === group.headerIdx}
+                            class:cmd-locked={lockedStep === group.headerIdx}
+                            onmouseenter={() => { hoverStep = group.headerIdx; leftTab = "snapshot"; }}
+                            onclick={() => {
+                              toggleGroup(g);
+                              lockedStep = group.headerIdx;
+                              snapshotStep = group.headerIdx!;
+                              leftTab = "snapshot";
+                            }}
+                          >
+                            <span class="cmd-num">{(group.headerIdx ?? 0) + 1}</span>
+                            <span class="cmd-body">
+                              <span class="cmd-chevron">{isOpen ? "▾" : "▸"}</span>
+                              <span class="cmd-name">{group.headerKeyword}</span>
+                              <span class="cmd-arg">{group.headerLabel}</span>
+                            </span>
+                            <span class="cmd-group-count">{group.childIdxs.length}</span>
+                          </li>
+                        {:else}
+                          <li
+                            class="cmd cmd-clickable cmd-setup"
+                            onclick={() => toggleGroup(g)}
+                          >
+                            <span class="cmd-num"></span>
+                            <span class="cmd-body">
+                              <span class="cmd-chevron">{isOpen ? "▾" : "▸"}</span>
+                              <span class="cmd-name">{group.headerKeyword}</span>
+                              <span class="cmd-arg">{group.headerLabel}</span>
+                            </span>
+                            <span class="cmd-group-count">{group.childIdxs.length}</span>
+                          </li>
+                        {/if}
+                        {#if isOpen}
+                          {#each group.childIdxs as i}
+                            <li
+                              class="cmd cmd-clickable cmd-child"
+                              class:cmd-active={activeSnapshotStep === i}
+                              class:cmd-locked={lockedStep === i}
+                              onmouseenter={() => { hoverStep = i; leftTab = "snapshot"; }}
+                              onclick={() => { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = "snapshot"; }}
+                            >
+                              <span class="cmd-num">{i + 1}</span>
+                              <span class="cmd-body">
+                                <span class="cmd-name">{snapshotSteps[i].commandName}</span>
+                                {#if snapshotSteps[i].commandMessage}<span class="cmd-arg">{snapshotSteps[i].commandMessage}</span>{/if}
+                              </span>
+                            </li>
+                          {/each}
+                        {/if}
                       {/each}
                     </ol>
                   </div>
@@ -1142,6 +1256,51 @@
 
   .cmd-failed {
     background: var(--error-bg);
+  }
+
+  .cmd-gherkin {
+    background: color-mix(in srgb, var(--link, #3b82f6) 10%, transparent);
+    border-left: 2px solid var(--link, #3b82f6);
+    font-weight: 600;
+  }
+  .cmd-gherkin .cmd-name {
+    color: var(--link, #3b82f6);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+  }
+  .cmd-gherkin .cmd-arg {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .cmd-setup {
+    background: var(--bg-subtle, rgba(255,255,255,0.03));
+    border-left: 2px solid var(--text-muted);
+    font-weight: 600;
+  }
+  .cmd-setup .cmd-name {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+  }
+  .cmd-chevron {
+    display: inline-block;
+    width: 0.8em;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+  }
+  .cmd-group-count {
+    margin-left: auto;
+    padding: 0 0.4rem;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    background: var(--bg-hover, rgba(128,128,128,0.12));
+    border-radius: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cmd-child {
+    padding-left: 1.5rem;
   }
 
   .cmd-failed:hover {

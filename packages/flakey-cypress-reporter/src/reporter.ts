@@ -62,6 +62,17 @@ interface NormalizedTest {
 // ---- Shared temp directory for buffering spec results ----
 
 const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
+const FLAKEY_RUN_ID_FILE = join(FLAKEY_TMP_DIR, "live-run-id");
+
+function readLiveRunId(): number {
+  const fromEnv = Number(process.env.FLAKEY_LIVE_RUN_ID);
+  if (fromEnv) return fromEnv;
+  try {
+    return Number(readFileSync(FLAKEY_RUN_ID_FILE, "utf8").trim()) || 0;
+  } catch {
+    return 0;
+  }
+}
 
 // ---- Mocha types ----
 
@@ -114,7 +125,7 @@ class FlakeyCypressReporter {
   private specMap = new Map<string, { spec: NormalizedSpec; tests: NormalizedTest[] }>();
 
   constructor(runner: MochaRunner, options: { reporterOptions: ReporterOptions }) {
-    this.options = options.reporterOptions;
+    this.options = options.reporterOptions ?? ({} as ReporterOptions);
 
     runner.on("test", (test: MochaTest) => this.onTestStart(test));
     runner.on("pass", (test: MochaTest) => this.addTest(test, "passed"));
@@ -135,7 +146,7 @@ class FlakeyCypressReporter {
     duration_ms?: number;
     error?: string;
   }): void {
-    const runId = Number(process.env.FLAKEY_LIVE_RUN_ID);
+    const runId = readLiveRunId();
     if (!runId || !this.options.url || !this.options.apiKey) return;
 
     const url = this.options.url.replace(/\/$/, "");

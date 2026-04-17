@@ -7,13 +7,21 @@
   "exports": {
     "./plugin": "./plugin.js",
     "./support": "./support.js",
+    "./cucumber": "./cucumber.js",
     "./dist/*": "./dist/*"
   },
   "files": [
     "dist",
     "plugin.js",
-    "support.js"
+    "plugin.d.ts",
+    "support.js",
+    "support.d.ts",
+    "cucumber.js",
+    "cucumber.d.ts"
   ],
+  "peerDependenciesMeta": {
+    "@badeball/cypress-cucumber-preprocessor": { "optional": true }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
@@ -32,11 +40,13 @@
     "directory": "packages/flakey-cypress-snapshots"
   },
   "peerDependencies": {
-    "cypress": ">=12.0.0"
+    "cypress": ">=12.0.0",
+    "@badeball/cypress-cucumber-preprocessor": ">=20.0.0"
   },
   "devDependencies": {
+    "@badeball/cypress-cucumber-preprocessor": "^24.0.0",
     "@types/node": "^25.5.2",
-    "cypress": "^13.0.0",
+    "cypress": "^15.0.0",
     "typescript": "^5.5.4"
   }
 }

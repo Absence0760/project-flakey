@@ -18,7 +18,12 @@
  * Env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID (optional override)
  */
 
+import { writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import { LiveClient, installShutdownHandler } from "./index.js";
+
+const RUN_ID_FILE = join(tmpdir(), "flakey-reporter", "live-run-id");
 
 interface MochaLiveConfig {
   url?: string;
@@ -74,6 +79,12 @@ export function register(
           }
           // Expose the numeric run id so other plugins (e.g. cypress-snapshots) can stream artifacts mid-run.
           process.env.FLAKEY_LIVE_RUN_ID = String(runId);
+          // Also write to a temp file — Cypress runs the Mocha reporter in a separate
+          // process that doesn't inherit env mutations from setupNodeEvents.
+          try {
+            mkdirSync(join(tmpdir(), "flakey-reporter"), { recursive: true });
+            writeFileSync(RUN_ID_FILE, String(runId));
+          } catch { /* ignore */ }
           console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
         }
       } catch (err) {
@@ -119,6 +130,7 @@ export function register(
     // later in the process lifecycle doesn't spuriously abort a finished run.
     teardownShutdown?.();
     teardownShutdown = null;
+    try { unlinkSync(RUN_ID_FILE); } catch { /* ignore */ }
     if (runId) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;

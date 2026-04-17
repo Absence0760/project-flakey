@@ -1,0 +1,78 @@
+export interface SnapshotStep {
+  index: number;
+  commandName: string;
+  commandMessage: string;
+  timestamp: number;
+  html: string;
+  scrollX: number;
+  scrollY: number;
+}
+
+export const state: {
+  steps: SnapshotStep[];
+  commandIndex: number;
+  testStartTime: number;
+} = {
+  steps: [],
+  commandIndex: 0,
+  testStartTime: 0,
+};
+
+export function isEnabled(): boolean {
+  return Cypress.env("FLAKEY_SNAPSHOTS_ENABLED") === true;
+}
+
+export function serializeDOM(doc: Document): string {
+  const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("script").forEach((s) => s.remove());
+  try {
+    const styleSheets = Array.from(doc.styleSheets);
+    let cssText = "";
+    for (const sheet of styleSheets) {
+      try { cssText += Array.from(sheet.cssRules).map((r) => r.cssText).join("\n") + "\n"; } catch {}
+    }
+    if (cssText) {
+      const styleEl = doc.createElement("style");
+      styleEl.setAttribute("data-flakey-inlined", "true");
+      styleEl.textContent = cssText;
+      const head = clone.querySelector("head");
+      if (head) {
+        head.querySelectorAll('link[rel="stylesheet"]').forEach((l) => l.remove());
+        head.appendChild(styleEl);
+      }
+    }
+  } catch {}
+  return "<!DOCTYPE html>\n" + clone.outerHTML;
+}
+
+export function getAppDocument(): Document | null {
+  try {
+    const aut = (window as any).top?.document?.querySelector("iframe.aut-iframe") as HTMLIFrameElement | null;
+    if (aut?.contentDocument) return aut.contentDocument;
+    const $aut = (Cypress as any).$("iframe.aut-iframe", (window as any).top?.document);
+    if ($aut.length && $aut[0].contentDocument) return $aut[0].contentDocument;
+  } catch {}
+  return null;
+}
+
+const MAX_STEPS = 300;
+
+export function pushStep(name: string, message: string): void {
+  if (!isEnabled()) return;
+  const doc = getAppDocument();
+  if (!doc) return;
+  try {
+    const html = serializeDOM(doc);
+    const win = doc.defaultView;
+    state.steps.push({
+      index: state.commandIndex++,
+      commandName: name,
+      commandMessage: message,
+      timestamp: Date.now() - state.testStartTime,
+      html,
+      scrollX: win?.scrollX ?? 0,
+      scrollY: win?.scrollY ?? 0,
+    });
+    while (state.steps.length > MAX_STEPS) state.steps.shift();
+  } catch {}
+}
