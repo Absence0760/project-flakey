@@ -55,9 +55,9 @@ router.get("/", async (req, res) => {
        ),
        flakiness AS (
          SELECT manual_test_id,
-                COUNT(*)                                          AS total_runs,
-                COUNT(*) FILTER (WHERE status = 'passed')::float  AS passes,
-                COUNT(*) FILTER (WHERE status = 'failed')         AS failures
+                COUNT(*)                                           AS total_runs,
+                COUNT(*) FILTER (WHERE status = 'passed')::numeric AS passes,
+                COUNT(*) FILTER (WHERE status = 'failed')          AS failures
            FROM release_test_session_results
           WHERE status IN ('passed', 'failed')
           GROUP BY manual_test_id
