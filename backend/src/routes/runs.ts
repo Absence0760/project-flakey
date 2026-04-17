@@ -41,22 +41,48 @@ router.post("/", async (req, res) => {
       merged = result.merged;
 
       for (const spec of run.specs) {
+        // Upsert against uniq_specs_run_file (migration 030). The live path
+        // may have already created this spec row during spec.started; this
+        // upload is the authoritative stats snapshot, so overwrite.
         const specResult = await client.query(
           `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (run_id, file_path) DO UPDATE SET
+             title       = EXCLUDED.title,
+             total       = EXCLUDED.total,
+             passed      = EXCLUDED.passed,
+             failed      = EXCLUDED.failed,
+             skipped     = EXCLUDED.skipped,
+             duration_ms = EXCLUDED.duration_ms
+           RETURNING id`,
           [runId, spec.file_path, spec.title, spec.stats.total, spec.stats.passed, spec.stats.failed, spec.stats.skipped, spec.stats.duration_ms]
         );
         const specId = specResult.rows[0].id;
 
+        // Replace any live-path test rows for this spec — the upload carries
+        // the authoritative per-test list, so prior pending/partial rows
+        // would otherwise accumulate as duplicates. Snapshot the live-path's
+        // snapshot_path linkages (written by /live/:runId/snapshot mid-run)
+        // so we can re-apply them to the fresh rows by matching full_title.
+        const preserved = await client.query(
+          `SELECT full_title, snapshot_path FROM tests WHERE spec_id = $1 AND snapshot_path IS NOT NULL`,
+          [specId]
+        );
+        const snapshotByTitle = new Map<string, string>();
+        for (const row of preserved.rows) snapshotByTitle.set(row.full_title, row.snapshot_path);
+
+        await client.query(`DELETE FROM tests WHERE spec_id = $1`, [specId]);
+
         for (const test of spec.tests) {
           await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [specId, test.title, test.full_title, test.status, test.duration_ms,
              test.error?.message ?? null, test.error?.stack ?? null,
              test.screenshot_paths, test.video_path ?? null,
              test.test_code ?? null, test.command_log ? JSON.stringify(test.command_log) : null,
-             test.metadata ? JSON.stringify(test.metadata) : null]
+             test.metadata ? JSON.stringify(test.metadata) : null,
+             snapshotByTitle.get(test.full_title) ?? null]
           );
         }
       }
@@ -93,6 +119,10 @@ router.get("/", async (req, res) => {
         (SELECT array_agg(sub.file_path) FROM (
            SELECT s.file_path FROM specs s WHERE s.run_id = r.id ORDER BY s.id LIMIT 5
          ) sub) AS spec_files,
+        EXISTS (
+          SELECT 1 FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+        ) AS aborted,
         COALESCE((
           SELECT count(*)::int
           FROM tests t
@@ -180,7 +210,16 @@ router.get("/:id", async (req, res) => {
     const runId = req.params.id;
 
     const runResult = await tenantQuery(orgId,
-      `SELECT r.*, so.rerun_command_template
+      `SELECT r.*, so.rerun_command_template,
+        EXISTS (
+          SELECT 1 FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+        ) AS aborted,
+        (
+          SELECT le.error_message FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+          ORDER BY le.id DESC LIMIT 1
+        ) AS aborted_reason
        FROM runs r
        LEFT JOIN suite_overrides so ON so.suite_name = r.suite_name AND so.org_id = r.org_id
        WHERE r.id = $1`,

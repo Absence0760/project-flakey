@@ -11,7 +11,7 @@
  * so the main reporter's upload merges into it.
  */
 
-import { LiveClient } from "./index.js";
+import { LiveClient, installShutdownHandler } from "./index.js";
 
 interface WdioLiveConfig {
   url?: string;
@@ -25,6 +25,7 @@ interface WdioLiveConfig {
 
 export default class WebdriverIOLiveReporter {
   private client: LiveClient | null = null;
+  private teardownShutdown: (() => void) | null = null;
   private url: string;
   private apiKey: string;
   private suite: string;
@@ -74,6 +75,9 @@ export default class WebdriverIOLiveReporter {
 
     this.client = new LiveClient({ url: this.url, apiKey: this.apiKey, runId: this.runId });
     this.client.send({ type: "run.started" });
+    this.teardownShutdown = installShutdownHandler(this.client, {
+      reason: "WebdriverIO process received a shutdown signal.",
+    });
   }
 
   onSuiteStart(suite: { file?: string; title?: string }) {
@@ -113,6 +117,8 @@ export default class WebdriverIOLiveReporter {
   async onRunnerEnd() {
     this.client?.send({ type: "run.finished" });
     await this.client?.flush();
+    this.teardownShutdown?.();
+    this.teardownShutdown = null;
     if (this.runId) {
       console.log(`[flakey-live] Run #${this.runId} complete`);
     }

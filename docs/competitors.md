@@ -23,8 +23,8 @@
 | GitHub PR comments | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✅ |
 | GitLab MR integration | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ |
 | Bitbucket PR integration | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
-| Jira integration | ✅ | ✗ | ✅ | ✅ | ✅ | ✅ | ✅ | ✗ | ✗ |
-| Scheduled reports | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ |
+| Jira integration | ✅ | ✗ | ✅ | ✅ | ✅ | ✅ | ✅ | ✗ | ✅ |
+| Scheduled reports | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✗ | ✅ |
 | **Parallelization** | | | | | | | | | |
 | Live test orchestration | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Smart spec balancing | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
@@ -33,11 +33,11 @@
 | Real-time run progress | ✅ | ✅ | ✅ | ✗ | ± | ✗ | ✗ | ✗ | ✅ |
 | Auto-cancellation | ✅ | ✗ | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | **Extended testing** | | | | | | | | | |
-| Code coverage tracking | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ | ✗ |
-| Accessibility testing | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| UI coverage mapping | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Visual regression testing | ✗ | ✗ | ± | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Manual test management | ✗ | ✗ | ✗ | ± | ✅ | ✅ | ✗ | ✗ | ✗ |
+| Code coverage tracking | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✗ | ✅ |
+| Accessibility testing | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| UI coverage mapping | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| Visual regression testing | ✗ | ✗ | ± | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| Manual test management | ✗ | ✗ | ✗ | ± | ✅ | ✅ | ✗ | ✗ | ✅ |
 | **Integration & hosting** | | | | | | | | | |
 | Self-hostable | ✗ | ✅ | ✗ | ✅ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | No vendor lock-in | ✗ | ± | ✗ | ✅ | ✗ | ± | ± | ± | ✅ |
@@ -86,11 +86,9 @@ ML-powered predictive test selection — the core differentiator. Analyzes code 
 
 ## Biggest competitive gaps
 
-These are the most impactful features competitors offer that Better Testing does not yet have (see roadmap Phases 7-10):
+These are the remaining areas where mature competitors still have an edge:
 
-1. **GitHub PR status checks and comments** (Cypress Cloud, Currents, BuildPulse) — most teams expect test results surfaced directly in PRs
-2. **AI/ML failure analysis** (ReportPortal, Launchable, Cypress Cloud) — auto-classify failures, surface similar historical failures, generate root cause summaries
-3. **Flaky test quarantining** (Currents, BuildPulse, Launchable) — isolate flaky tests from blocking CI without removing them from the suite
-4. **Jira integration** (Cypress Cloud, Currents, ReportPortal, Allure, Tesults, BuildPulse) — auto-create tickets from test failures
-5. **Predictive test selection** (Launchable) — ML picks which tests to run based on code changes, cutting test time dramatically
-6. **Code coverage tracking** (BuildPulse) — coverage metrics with PR gating
+1. **Live test orchestration / spec balancing over a single run** (Cypress Cloud, Currents, Sorry Cypress) — Better Testing assumes your CI does parallel matrix; it stitches results via `ci_run_id` but does not actively allocate specs across machines.
+2. **Test Replay polish** (Cypress Cloud) — Cloud's Test Replay captures network requests, console logs, and full UI events. Better Testing captures per-command DOM snapshots (with Gherkin markers for Cucumber projects) but not network-level replay.
+3. **Commercial support / SLAs** — paid vendors offer response teams; Better Testing is self-hosted OSS.
+4. **Analytics maturity** — trend charts, slowest-tests dashboards, and top-failures views on established vendors have had years of iteration; Better Testing has the data but fewer curated views.

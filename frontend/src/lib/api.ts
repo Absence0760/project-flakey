@@ -46,6 +46,7 @@ export interface Run {
   spec_count: number;
   spec_files: string[] | null;
   new_failures: number;
+  aborted?: boolean;
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;
@@ -148,6 +149,7 @@ export interface RunDetail extends Run {
   rerun_command_template: string | null;
   prev_id: number | null;
   next_id: number | null;
+  aborted_reason?: string | null;
 }
 
 export interface ErrorGroup {

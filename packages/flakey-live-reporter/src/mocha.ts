@@ -18,7 +18,38 @@
  * Env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID (optional override)
  */
 
-import { LiveClient } from "./index.js";
+import { writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { execSync } from "child_process";
+import { LiveClient, installShutdownHandler } from "./index.js";
+
+const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
+
+// Walk the current process's ancestor chain (self → parent → parent's parent
+// → …). The Mocha reporter (running in a different process tree branch than
+// setupNodeEvents in some Cypress versions, e.g. 15+) walks its own chain
+// and reads `live-run-id-<pid>` for each ancestor until it finds a match.
+// Writing one file per ancestor gives the reporter a stable handoff point:
+// usually the cypress-CLI pid is a common ancestor of both processes.
+// Concurrent `cypress run` invocations have distinct cypress-CLI pids so
+// their writes never collide.
+function getAncestorPids(startPid: number, maxDepth = 12): number[] {
+  const chain = [startPid];
+  let pid = startPid;
+  for (let i = 0; i < maxDepth; i++) {
+    try {
+      const out = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const ppid = Number(out);
+      if (!ppid || ppid === 1 || ppid === pid) break;
+      chain.push(ppid);
+      pid = ppid;
+    } catch {
+      break;
+    }
+  }
+  return chain;
+}
 
 interface MochaLiveConfig {
   url?: string;
@@ -40,69 +71,82 @@ export function register(
 
   if (!url || !apiKey) return;
 
+  // Make credentials visible to sibling plugins (e.g. cypress-snapshots streaming).
+  process.env.FLAKEY_API_URL = url;
+  process.env.FLAKEY_API_KEY = apiKey;
+
   let client: LiveClient | null = null;
+  let teardownShutdown: (() => void) | null = null;
   let runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
 
+  // Guard the /live/start call behind a shared promise so concurrent
+  // before:run handler invocations (Cypress 15+ fires before:run twice
+  // in some configurations) don't each create a separate placeholder run.
+  let startPromise: Promise<void> | null = null;
+
   on("before:run", async () => {
-    // If no runId, create a placeholder run via /live/start
     if (!runId && suite) {
-      try {
-        const res = await fetch(`${url}/live/start`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            suite,
-            branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-            commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-            ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { id: number; ci_run_id: string };
-          runId = data.id;
-          // Set CI_RUN_ID so the main reporter merges into this run
-          if (data.ci_run_id) {
-            process.env.CI_RUN_ID = data.ci_run_id;
+      if (!startPromise) {
+        startPromise = (async () => {
+          try {
+            const res = await fetch(`${url}/live/start`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                suite,
+                branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
+                commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
+                ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json() as { id: number; ci_run_id: string };
+              runId = data.id;
+              if (data.ci_run_id) {
+                process.env.CI_RUN_ID = data.ci_run_id;
+              }
+              process.env.FLAKEY_LIVE_RUN_ID = String(runId);
+              try {
+                mkdirSync(FLAKEY_BASE_DIR, { recursive: true });
+                // Write one run-id file per ancestor pid so the Mocha reporter
+                // (which may live in a different process tree branch) can find
+                // a match by walking its own ancestor chain.
+                for (const pid of getAncestorPids(process.pid)) {
+                  writeFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
+                }
+              } catch { /* ignore */ }
+              console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+            }
+          } catch (err) {
+            console.error("[flakey-live] Failed to start live run:", err);
           }
-          console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
-        }
-      } catch (err) {
-        console.error("[flakey-live] Failed to start live run:", err);
+        })();
       }
+      await startPromise;
     }
 
     if (!runId) return;
 
     client = new LiveClient({ url, apiKey, runId });
     client.send({ type: "run.started" });
+    // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
+    // so the LIVE badge clears instead of waiting for the stale timeout.
+    teardownShutdown = installShutdownHandler(client, {
+      reason: "Cypress process received a shutdown signal.",
+    });
   });
 
   on("before:spec", (spec: { relative: string }) => {
     client?.send({ type: "spec.started", spec: spec.relative });
   });
 
-  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number }; tests?: Array<{ title: string[]; state: string; duration: number; err?: { message?: string } }> }) => {
-    // Send individual test results
-    if (results.tests) {
-      for (const test of results.tests) {
-        const title = test.title.join(" > ");
-        const type = test.state === "passed" ? "test.passed"
-          : test.state === "failed" ? "test.failed"
-          : "test.skipped" as const;
-        client?.send({
-          type,
-          spec: spec.relative,
-          test: title,
-          status: test.state,
-          duration_ms: test.duration,
-          error: test.err?.message,
-        });
-      }
-    }
-
+  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number } }) => {
+    // Individual test.passed/failed/skipped events are sent in real-time by the
+    // Flakey Cypress reporter (reporter.ts) as each test finishes. Here we only
+    // emit the spec-level summary so the live feed shows spec completion markers.
     client?.send({
       type: "spec.finished",
       spec: spec.relative,
@@ -118,6 +162,13 @@ export function register(
   on("after:run", async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
     client?.send({ type: "run.finished" });
     await client?.flush();
+    // Normal exit path — release the signal handlers so an unrelated SIGTERM
+    // later in the process lifecycle doesn't spuriously abort a finished run.
+    teardownShutdown?.();
+    teardownShutdown = null;
+    for (const pid of getAncestorPids(process.pid)) {
+      try { unlinkSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`)); } catch { /* ignore */ }
+    }
     if (runId) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;

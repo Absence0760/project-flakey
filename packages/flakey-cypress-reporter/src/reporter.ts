@@ -21,6 +21,7 @@
 import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
 import { join, basename } from "path";
 import { tmpdir } from "os";
+import { execSync } from "child_process";
 
 // ---- Types ----
 
@@ -59,9 +60,51 @@ interface NormalizedTest {
   video_path?: string;
 }
 
-// ---- Shared temp directory for buffering spec results ----
+// ---- Temp directories ----
+//
+// Buffer dir is scoped by the numeric live-run-id. The Mocha reporter and
+// the plugin (setupNodeEvents) live in different processes whose PIDs don't
+// always line up — Cypress 15 inserts an intermediate process layer between
+// setupNodeEvents and the Mocha reporter, so `process.ppid` here is not the
+// plugin's pid. We walk our own ancestor chain looking for a matching
+// live-run-id file written by live-reporter under every ancestor's pid.
+// The nearest shared ancestor wins, usually the cypress-CLI pid.
 
-const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
+const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
+
+function getAncestorPids(startPid: number, maxDepth = 12): number[] {
+  const chain = [startPid];
+  let pid = startPid;
+  for (let i = 0; i < maxDepth; i++) {
+    try {
+      const out = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const ppid = Number(out);
+      if (!ppid || ppid === 1 || ppid === pid) break;
+      chain.push(ppid);
+      pid = ppid;
+    } catch {
+      break;
+    }
+  }
+  return chain;
+}
+
+function readLiveRunId(): number {
+  const fromEnv = Number(process.env.FLAKEY_LIVE_RUN_ID);
+  if (fromEnv) return fromEnv;
+  for (const pid of getAncestorPids(process.pid)) {
+    try {
+      const id = Number(readFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), "utf8").trim());
+      if (id) return id;
+    } catch { /* try next */ }
+  }
+  return 0;
+}
+
+function getBufferDir(): string {
+  const id = readLiveRunId();
+  return id ? join(FLAKEY_BASE_DIR, `run-${id}`) : FLAKEY_BASE_DIR;
+}
 
 // ---- Mocha types ----
 
@@ -114,14 +157,46 @@ class FlakeyCypressReporter {
   private specMap = new Map<string, { spec: NormalizedSpec; tests: NormalizedTest[] }>();
 
   constructor(runner: MochaRunner, options: { reporterOptions: ReporterOptions }) {
-    this.options = options.reporterOptions;
+    this.options = options.reporterOptions ?? ({} as ReporterOptions);
 
+    runner.on("test", (test: MochaTest) => this.onTestStart(test));
     runner.on("pass", (test: MochaTest) => this.addTest(test, "passed"));
     runner.on("fail", (test: MochaTest, err: Error) => this.addTest(test, "failed", err));
     runner.on("pending", (test: MochaTest) => this.addTest(test, "skipped"));
 
     runner.on("end", () => {
       this.saveToTmp();
+    });
+  }
+
+  /** Send a live event to the backend (fire-and-forget). Only fires when a live run is active. */
+  private sendLiveEvent(event: {
+    type: string;
+    test?: string;
+    spec?: string;
+    status?: string;
+    duration_ms?: number;
+    error?: string;
+  }): void {
+    const runId = readLiveRunId();
+    if (!runId || !this.options.url || !this.options.apiKey) return;
+
+    const url = this.options.url.replace(/\/$/, "");
+    fetch(`${url}/live/${runId}/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.options.apiKey}`,
+      },
+      body: JSON.stringify([{ ...event, timestamp: Date.now() }]),
+    }).catch(() => {}); // best-effort, never throws
+  }
+
+  private onTestStart(test: MochaTest): void {
+    this.sendLiveEvent({
+      type: "test.started",
+      test: test.fullTitle(),
+      spec: getSpecFile(test),
     });
   }
 
@@ -143,6 +218,27 @@ class FlakeyCypressReporter {
 
     const entry = this.specMap.get(filePath)!;
     const duration = test.duration ?? 0;
+
+    // Print result to terminal as it happens
+    const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";
+    const errMsg = (err?.message ?? test.err?.message ?? "").split("\n")[0];
+    process.stdout.write(`    ${icon} ${test.title} (${duration}ms)\n`);
+    if (status === "failed" && errMsg) {
+      process.stdout.write(`      ${errMsg}\n`);
+    }
+
+    // Stream result to live backend as it happens
+    const eventType = status === "passed" ? "test.passed"
+      : status === "failed" ? "test.failed"
+      : "test.skipped";
+    this.sendLiveEvent({
+      type: eventType,
+      test: test.fullTitle(),
+      spec: filePath,
+      status,
+      duration_ms: duration,
+      error: status === "failed" ? (err?.message ?? test.err?.message) : undefined,
+    });
 
     const normalizedTest: NormalizedTest = {
       title: test.title,
@@ -166,12 +262,13 @@ class FlakeyCypressReporter {
   }
 
   private saveToTmp() {
-    mkdirSync(FLAKEY_TMP_DIR, { recursive: true });
+    const dir = getBufferDir();
+    mkdirSync(dir, { recursive: true });
 
     for (const { spec, tests } of this.specMap.values()) {
       spec.tests = tests;
       const safeName = spec.file_path.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 100);
-      const filePath = join(FLAKEY_TMP_DIR, `${safeName}_${Date.now()}.json`);
+      const filePath = join(dir, `${safeName}_${Date.now()}.json`);
       writeFileSync(filePath, JSON.stringify(spec));
     }
   }

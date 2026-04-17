@@ -827,6 +827,229 @@ async function seed() {
     }
     console.log(`Seeded release v2.4.0 with ${checklist.length} checklist items.`);
 
+    // ── Manual test groups + more manual tests ──────────────────────────
+    const groups = [
+      { name: "Checkout Flow", description: "Cart → payment → confirmation happy paths and edge cases." },
+      { name: "Auth Suite",    description: "Login, logout, MFA, and password reset flows." },
+      { name: "Billing Smoke", description: "Invoice + subscription quick sanity checks." },
+    ];
+    const groupIds: Record<string, number> = {};
+    for (const g of groups) {
+      const res = await client.query(
+        `INSERT INTO manual_test_groups (org_id, name, description, created_by)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (org_id, name) DO UPDATE SET description = EXCLUDED.description
+         RETURNING id`,
+        [orgId, g.name, g.description, adminId]
+      );
+      groupIds[g.name] = res.rows[0].id;
+    }
+
+    const groupedTests: Array<{
+      group: string; title: string; suite: string; priority: string;
+      status: string; notes: string; description?: string;
+    }> = [
+      // Checkout Flow
+      { group: "Checkout Flow", title: "Guest checkout with valid card", suite: "regression", priority: "high",     status: "passed",  notes: "", description: "Unauthenticated user completes checkout." },
+      { group: "Checkout Flow", title: "Checkout with expired card",     suite: "regression", priority: "critical", status: "failed",  notes: "Decline banner missing — generic 'payment error' shown instead.", description: "Card declined flow." },
+      { group: "Checkout Flow", title: "Apply discount code at checkout", suite: "regression", priority: "medium",   status: "passed",  notes: "", description: "PROMO10 reduces total by 10%." },
+      { group: "Checkout Flow", title: "Checkout with multiple line items", suite: "regression", priority: "high",   status: "not_run", notes: "" },
+      { group: "Checkout Flow", title: "Ship to international address",  suite: "regression", priority: "medium",   status: "blocked", notes: "Waiting on tax service staging env.", description: "UK + tax calc." },
+      { group: "Checkout Flow", title: "Abandon cart and return",        suite: "regression", priority: "low",      status: "passed",  notes: "", description: "Cart persists across session." },
+      // Auth Suite
+      { group: "Auth Suite", title: "Login with valid credentials",           suite: "auth", priority: "critical", status: "passed",  notes: "" },
+      { group: "Auth Suite", title: "Login with wrong password shows error",  suite: "auth", priority: "high",     status: "passed",  notes: "" },
+      { group: "Auth Suite", title: "Password reset via email link",          suite: "auth", priority: "critical", status: "not_run", notes: "" },
+      { group: "Auth Suite", title: "MFA challenge with authenticator app",   suite: "auth", priority: "critical", status: "failed",  notes: "TOTP accepted but session cookie not set on redirect." },
+      // Billing Smoke
+      { group: "Billing Smoke", title: "Invoice PDF downloads correctly",           suite: "billing", priority: "medium", status: "passed",  notes: "" },
+      { group: "Billing Smoke", title: "Upgrade plan mid-cycle prorates correctly", suite: "billing", priority: "high",   status: "not_run", notes: "" },
+      { group: "Billing Smoke", title: "Cancel subscription keeps access until period end", suite: "billing", priority: "medium", status: "passed", notes: "" },
+    ];
+
+    const groupedTestIds: Record<string, number> = {};
+    for (const t of groupedTests) {
+      const res = await client.query(
+        `INSERT INTO manual_tests
+          (org_id, suite_name, title, description, steps, priority, status,
+           group_id, created_by, last_run_at, last_run_by, last_run_notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        [
+          orgId,
+          t.suite,
+          t.title,
+          t.description ?? null,
+          JSON.stringify([
+            { action: "Set up preconditions", data: "", expected: "" },
+            { action: "Perform the action under test", data: "", expected: "" },
+            { action: "Verify the outcome", data: "", expected: "" },
+          ]),
+          t.priority,
+          t.status,
+          groupIds[t.group],
+          adminId,
+          t.status === "not_run" ? null : new Date(now - randomInt(1, 7) * DAY_MS),
+          t.status === "not_run" ? null : adminId,
+          t.notes || null,
+        ]
+      );
+      if (res.rows[0]?.id) groupedTestIds[t.title] = res.rows[0].id;
+    }
+    console.log(`Seeded ${groups.length} manual test groups with ${groupedTests.length} tests.`);
+
+    // ── Link grouped tests to the release ───────────────────────────────
+    await client.query(
+      `INSERT INTO release_manual_tests (release_id, manual_test_id, org_id, added_by)
+       SELECT $1, mt.id, $2, $3
+         FROM manual_tests mt
+        WHERE mt.org_id = $2 AND mt.group_id IS NOT NULL
+       ON CONFLICT (release_id, manual_test_id) DO NOTHING`,
+      [releaseId, orgId, adminId]
+    );
+
+    // ── Release test sessions: one completed + one in-progress rerun ────
+    const completedAt = new Date(now - 2 * DAY_MS);
+    const session1 = await client.query(
+      `INSERT INTO release_test_sessions
+         (org_id, release_id, session_number, label, mode, status, created_by, completed_at)
+       VALUES ($1, $2, 1, 'Initial regression pass', 'full', 'completed', $3, $4)
+       RETURNING id`,
+      [orgId, releaseId, adminId, completedAt]
+    );
+    const session1Id = session1.rows[0].id;
+
+    // Session #1 results — mirror the initial test statuses so the history
+    // is internally consistent (failures/blocked on same tests as the flat status).
+    for (const t of groupedTests) {
+      const testId = groupedTestIds[t.title];
+      if (!testId) continue;
+      const sessionStatus = t.status === "not_run" ? "passed" : t.status;
+      await client.query(
+        `INSERT INTO release_test_session_results
+           (org_id, session_id, manual_test_id, status, notes, run_by, run_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (session_id, manual_test_id) DO NOTHING`,
+        [
+          orgId,
+          session1Id,
+          testId,
+          sessionStatus,
+          t.notes || null,
+          adminId,
+          new Date(completedAt.getTime() + randomInt(0, 4 * 60) * 60 * 1000),
+        ]
+      );
+    }
+
+    // Session #2 — failures-only rerun, in progress
+    const session2 = await client.query(
+      `INSERT INTO release_test_sessions
+         (org_id, release_id, session_number, label, mode, status, created_by)
+       VALUES ($1, $2, 2, 'Rerun failures', 'failures_only', 'in_progress', $3)
+       RETURNING id`,
+      [orgId, releaseId, adminId]
+    );
+    const session2Id = session2.rows[0].id;
+
+    // Seed the rerun with the failed/blocked tests from session #1 (not_run).
+    await client.query(
+      `INSERT INTO release_test_session_results (org_id, session_id, manual_test_id)
+       SELECT $1, $2, prev.manual_test_id
+         FROM release_test_session_results prev
+        WHERE prev.session_id = $3 AND prev.status IN ('failed','blocked')
+       ON CONFLICT (session_id, manual_test_id) DO NOTHING`,
+      [orgId, session2Id, session1Id]
+    );
+
+    // Record one of the rerun results so the in-progress session shows
+    // partial progress (and demonstrates the auto-complete logic staying off
+    // while other tests remain not_run).
+    const expiredCardId = groupedTestIds["Checkout with expired card"];
+    if (expiredCardId) {
+      await client.query(
+        `UPDATE release_test_session_results
+            SET status = 'passed',
+                notes = 'Fix confirmed — decline banner now shows for expired card.',
+                run_by = $1,
+                run_at = NOW() - INTERVAL '30 minutes'
+          WHERE session_id = $2 AND manual_test_id = $3`,
+        [adminId, session2Id, expiredCardId]
+      );
+    }
+
+    // Mark one of the session-1 blocked results as accepted-as-known-issue
+    // so the demo shows the deferred-failure UX out of the box.
+    const intlShipId = groupedTestIds["Ship to international address"];
+    if (intlShipId) {
+      await client.query(
+        `UPDATE release_test_session_results
+            SET accepted_as_known_issue = TRUE,
+                known_issue_ref = 'https://example.atlassian.net/browse/ACME-482',
+                accepted_by = $1,
+                accepted_at = NOW() - INTERVAL '1 day'
+          WHERE session_id = $2 AND manual_test_id = $3`,
+        [adminId, session1Id, intlShipId]
+      );
+    }
+
+    // Requirements traceability: link a few grouped tests to example
+    // Jira/GitHub refs so the coverage panel isn't empty out of the box.
+    const reqSeed: Array<{ test: string; key: string; url: string; title: string; provider: string }> = [
+      {
+        test: "Guest checkout with valid card",
+        key: "ACME-501", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-501",
+        title: "Checkout v2 launch — guest flow",
+      },
+      {
+        test: "Apply discount code at checkout",
+        key: "ACME-501", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-501",
+        title: "Checkout v2 launch — guest flow",
+      },
+      {
+        test: "Checkout with expired card",
+        key: "ACME-512", provider: "jira",
+        url: "https://example.atlassian.net/browse/ACME-512",
+        title: "Payment error banners",
+      },
+      {
+        test: "Login with valid credentials",
+        key: "gh#284", provider: "github",
+        url: "https://github.com/acme/app/issues/284",
+        title: "Passkey login rollout",
+      },
+      {
+        test: "MFA challenge with authenticator app",
+        key: "gh#284", provider: "github",
+        url: "https://github.com/acme/app/issues/284",
+        title: "Passkey login rollout",
+      },
+    ];
+    for (const r of reqSeed) {
+      const testId = groupedTestIds[r.test];
+      if (!testId) continue;
+      await client.query(
+        `INSERT INTO manual_test_requirements
+           (org_id, manual_test_id, ref_key, ref_url, ref_title, provider, added_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (manual_test_id, ref_key) DO NOTHING`,
+        [orgId, testId, r.key, r.url, r.title, r.provider, adminId]
+      );
+    }
+
+    // Assign a couple of active-session tests to the admin so the
+    // Assignee dropdown renders with a real value.
+    await client.query(
+      `UPDATE release_test_session_results
+          SET assigned_to = $1
+        WHERE session_id = $2`,
+      [adminId, session2Id]
+    );
+    console.log(`Seeded 2 test sessions on release v2.4.0 (1 completed, 1 in progress).`);
+
     // Scheduled report
     await client.query(
       `INSERT INTO scheduled_reports (org_id, name, cadence, day_of_week, hour_utc, channel, destination, suite_filter)

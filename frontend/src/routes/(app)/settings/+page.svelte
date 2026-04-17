@@ -311,10 +311,6 @@
 
   <p class="settings-links">
     <a href="/settings/integrations">Integrations &amp; automation →</a>
-    <span class="settings-links-sep">·</span>
-    <a href="/releases">Releases →</a>
-    <span class="settings-links-sep">·</span>
-    <a href="/manual-tests">Manual tests →</a>
   </p>
 
   <!-- ═══ Connections ═══ -->
@@ -686,14 +682,13 @@
 </div>
 
 <style>
-  .page { max-width: 1100px; padding: 2rem; }
+  .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 
   .page-title { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.5rem; }
 
   .settings-links { margin: 0 0 1.25rem; font-size: 0.85rem; color: var(--text-muted); }
-  .settings-links a { color: var(--link); text-decoration: none; margin-right: 0.25rem; }
+  .settings-links a { color: var(--link); text-decoration: none; }
   .settings-links a:hover { text-decoration: underline; }
-  .settings-links-sep { margin: 0 0.35rem; }
 
   .section-heading {
     font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;

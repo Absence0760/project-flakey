@@ -55,7 +55,7 @@ export async function recalculateRunStats(client: pg.PoolClient, runId: number):
       skipped = sub.skipped,
       pending = sub.pending,
       duration_ms = sub.duration_ms,
-      finished_at = sub.finished_at
+      finished_at = GREATEST(runs.finished_at, NOW())
      FROM (
        SELECT
          COALESCE(SUM(s.total), 0)::int AS total,
@@ -63,10 +63,8 @@ export async function recalculateRunStats(client: pg.PoolClient, runId: number):
          COALESCE(SUM(s.failed), 0)::int AS failed,
          COALESCE(SUM(s.skipped), 0)::int AS skipped,
          0 AS pending,
-         COALESCE(SUM(s.duration_ms), 0)::bigint AS duration_ms,
-         GREATEST(runs.finished_at, NOW()) AS finished_at
+         COALESCE(SUM(s.duration_ms), 0)::bigint AS duration_ms
        FROM specs s
-       JOIN runs ON runs.id = $1
        WHERE s.run_id = $1
      ) sub
      WHERE runs.id = $1`,

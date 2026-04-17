@@ -89,12 +89,37 @@ router.post("/", uploadFields, async (req, res) => {
       }
 
       for (const spec of run.specs) {
+        // Upsert against uniq_specs_run_file (migration 030). The live path
+        // may have already created this spec row during spec.started; this
+        // upload is the authoritative stats snapshot, so overwrite.
         const specResult = await client.query(
           `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (run_id, file_path) DO UPDATE SET
+             title       = EXCLUDED.title,
+             total       = EXCLUDED.total,
+             passed      = EXCLUDED.passed,
+             failed      = EXCLUDED.failed,
+             skipped     = EXCLUDED.skipped,
+             duration_ms = EXCLUDED.duration_ms
+           RETURNING id`,
           [runId, spec.file_path, spec.title, spec.stats.total, spec.stats.passed, spec.stats.failed, spec.stats.skipped, spec.stats.duration_ms]
         );
         const specId = specResult.rows[0].id;
+
+        // Replace any live-path test rows for this spec — the upload carries
+        // the authoritative per-test list, so prior pending/partial rows
+        // would otherwise accumulate as duplicates. Snapshot the live-path's
+        // snapshot_path linkages (written by /live/:runId/snapshot mid-run)
+        // so we can re-apply them to the fresh rows by matching full_title.
+        const preserved = await client.query(
+          `SELECT full_title, snapshot_path FROM tests WHERE spec_id = $1 AND snapshot_path IS NOT NULL`,
+          [specId]
+        );
+        const snapshotByTitle = new Map<string, string>();
+        for (const row of preserved.rows) snapshotByTitle.set(row.full_title, row.snapshot_path);
+
+        await client.query(`DELETE FROM tests WHERE spec_id = $1`, [specId]);
 
         for (const test of spec.tests) {
           const matchedScreenshots: string[] = [];
@@ -125,7 +150,8 @@ router.post("/", uploadFields, async (req, res) => {
             }
           }
 
-          // Match snapshot file to test
+          // Match snapshot file to test: prefer end-of-run batch upload match,
+          // fall back to the live-streamed link preserved above.
           let snapshotPath: string | null = null;
           for (const [snapshotNorm, snapshotRelPath] of snapshotMap) {
             if (snapshotNorm.includes(testNorm) && testNorm.length > 5) {
@@ -133,6 +159,7 @@ router.post("/", uploadFields, async (req, res) => {
               break;
             }
           }
+          if (!snapshotPath) snapshotPath = snapshotByTitle.get(test.full_title) ?? null;
 
           await client.query(
             `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)

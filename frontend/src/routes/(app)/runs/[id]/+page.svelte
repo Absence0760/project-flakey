@@ -29,9 +29,40 @@
   }
 
   let liveEvents = $state<LiveEvent[]>([]);
+  const displayedEvents = $derived.by(() => {
+    const finishedTests = new Set(
+      liveEvents
+        .filter(e => e.type === "test.passed" || e.type === "test.failed" || e.type === "test.skipped")
+        .map(e => e.test)
+    );
+    const finishedSpecs = new Set(
+      liveEvents.filter(e => e.type === "spec.finished").map(e => e.spec)
+    );
+    return liveEvents
+      .filter(e => {
+        if (e.type === "test.started" && e.test && finishedTests.has(e.test)) return false;
+        if (e.type === "spec.started" && e.spec && finishedSpecs.has(e.spec)) return false;
+        return true;
+      })
+      .slice()
+      .reverse();
+  });
   let isLive = $state(false);
   let justFinished = $state(false);
+  let runAborted = $state(false);
   let eventSource: EventSource | null = null;
+  let livePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function startLivePoll(runId: number) {
+    if (livePollTimer) return;
+    livePollTimer = setInterval(() => {
+      fetchRun(runId).then(r => { run = r; }).catch(() => {});
+    }, 3000);
+  }
+
+  function stopLivePoll() {
+    if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+  }
 
   function connectLive(runId: number) {
     const token = getAuth().token;
@@ -43,6 +74,7 @@
         const event = JSON.parse(e.data) as LiveEvent;
         if (event.type === "connected") {
           isLive = true;
+          startLivePoll(runId);
           return;
         }
         liveEvents = [...liveEvents.slice(-99), event];
@@ -52,15 +84,26 @@
           isLive = false;
           justFinished = true;
           eventSource?.close();
+          stopLivePoll();
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
           // Clear the "just finished" banner after 10 seconds
           setTimeout(() => { justFinished = false; }, 10000);
+        } else if (event.type === "run.aborted") {
+          isLive = false;
+          runAborted = true;
+          eventSource?.close();
+          stopLivePoll();
+          // Refetch so run.aborted persists as the header pill after the
+          // transient banner times out.
+          fetchRun(runId).then(r => { run = r; }).catch(() => {});
+          setTimeout(() => { runAborted = false; }, 10000);
         }
       } catch { /* ignore */ }
     };
 
     eventSource.onerror = () => {
       isLive = false;
+      stopLivePoll();
     };
   }
 
@@ -112,7 +155,8 @@
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
           await loadLiveHistory(id);
-          connectLive(id);
+          const terminated = liveEvents.some(e => e.type === "run.finished" || e.type === "run.aborted");
+          if (!terminated) connectLive(id);
         }
       }
     } catch (e) {
@@ -124,6 +168,7 @@
 
   onDestroy(() => {
     eventSource?.close();
+    stopLivePoll();
   });
 
   function formatDuration(ms: number): string {
@@ -392,14 +437,22 @@
         <div class="header-left">
           <div class="title-row">
             <h1>Run #{run.id}</h1>
-            <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
-              {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
-            </span>
-            {#if isLive}
+            {#if !isLive}
+              <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
+                {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
+              </span>
+            {:else}
               <span class="live-badge">LIVE</span>
             {/if}
             {#if justFinished}
               <span class="finished-badge">Run Complete</span>
+            {/if}
+            {#if runAborted}
+              <span class="aborted-badge">Run Aborted</span>
+            {:else if run.aborted}
+              <span class="aborted-pill" title={run.aborted_reason ?? "Run aborted before completion"}>
+                ABORTED
+              </span>
             {/if}
             <button class="copy-summary-btn" title="Copy as Jira markup" onclick={() => copySummary("jira")}>
               {#if copiedFormat === "jira"}
@@ -506,18 +559,20 @@
 
     <!-- Live event feed -->
     {#if liveEvents.length > 0}
-      <div class="live-feed" class:finished={justFinished && !isLive}>
+      <div class="live-feed" class:finished={justFinished && !isLive} class:aborted={runAborted}>
         <h3 class="live-feed-title">
           {#if isLive}
             Live Progress
           {:else if justFinished}
             Run Complete — {run?.failed ? `${run.failed} failed` : 'all passed'}
+          {:else if runAborted}
+            Run Aborted — test process was killed or terminal closed
           {:else}
             Live Progress (ended)
           {/if}
         </h3>
         <div class="live-events">
-          {#each liveEvents.slice().reverse() as event}
+          {#each displayedEvents as event}
             <div class="live-event" class:passed={event.type === "test.passed"} class:failed={event.type === "test.failed"} class:started={event.type === "test.started"}>
               <span class="live-dot"
                 class:dot-pass={event.type === "test.passed"}
@@ -530,6 +585,8 @@
                   Run started
                 {:else if event.type === "run.finished"}
                   Run finished
+                {:else if event.type === "run.aborted"}
+                  Run aborted — {event.error ?? "test process stopped unexpectedly"}
                 {:else if event.type === "spec.started"}
                   {event.spec}
                 {:else if event.type === "spec.finished"}
@@ -699,7 +756,8 @@
 
 <style>
   .page {
-    max-width: 1100px;
+    max-width: 1440px;
+    margin: 0 auto;
     padding: 1.5rem 2rem 3rem;
   }
 
@@ -1336,6 +1394,10 @@
     border-color: var(--color-pass);
     background: color-mix(in srgb, var(--color-pass) 4%, transparent);
   }
+  .live-feed.aborted {
+    border-color: var(--color-fail);
+    background: color-mix(in srgb, var(--color-fail) 4%, transparent);
+  }
   .live-feed-title {
     font-size: 0.8rem; font-weight: 600; margin: 0 0 0.5rem;
     color: var(--text-secondary);
@@ -1344,6 +1406,20 @@
     padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
     background: var(--color-pass); color: #fff; letter-spacing: 0.03em;
     animation: fade-in 0.3s ease-in;
+  }
+  .aborted-badge {
+    padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 700;
+    background: var(--color-fail); color: #fff; letter-spacing: 0.03em;
+    animation: fade-in 0.3s ease-in;
+  }
+  /* Persistent (non-transient) pill shown on any previously-aborted run's
+     header so the status is discoverable after the banner times out. */
+  .aborted-pill {
+    padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.04em;
+    background: color-mix(in srgb, var(--color-fail) 15%, transparent);
+    color: var(--color-fail);
+    border: 1px solid color-mix(in srgb, var(--color-fail) 35%, transparent);
   }
   @keyframes fade-in {
     from { opacity: 0; transform: scale(0.9); }

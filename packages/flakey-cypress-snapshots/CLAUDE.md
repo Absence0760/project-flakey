@@ -1,6 +1,6 @@
 # @flakeytesting/cypress-snapshots
 
-Cypress plugin that captures DOM snapshots at each command step and bundles them for upload alongside the run.
+Cypress plugin that captures DOM snapshots at each command step and bundles them for upload alongside the run. Snapshots stream to the backend mid-run when a live run is active; otherwise they're written to disk and uploaded by the reporter/CLI at end-of-run.
 
 ## Commands
 
@@ -18,11 +18,22 @@ Cypress plugin that captures DOM snapshots at each command step and bundles them
 
 The user-facing doc lives at `docs/plugin.md` (next to this file).
 
+## Live streaming
+
+When `FLAKEY_API_URL`, `FLAKEY_API_KEY`, and `FLAKEY_LIVE_RUN_ID` are all set in `process.env`, the `flakey:saveSnapshot` task streams the compressed bundle to `POST /live/:runId/snapshot` immediately after writing to disk. On a 2xx response the local file is `unlinkSync`ed. On failure the file is retained so the end-of-run batch uploader (reporter / CLI) can still ship it. These env vars are populated automatically by `@flakeytesting/live-reporter`'s `register()`.
+
+## Test title format
+
+`bundle.testTitle` is the full title path joined with spaces (e.g. `"Content Class Features Tests UI tests Edit displayName"`), derived from `Cypress.currentTest.titlePath`, not the leaf title. This matches the backend `tests.full_title` column for linking.
+
 ## Layout
 
-- `src/plugin.ts` — Cypress plugin (runs in Node; wires `after:spec` etc.)
-- `src/support.ts` — Cypress support file (runs in the browser; captures DOM)
-- `plugin.js` / `support.js` — thin JS entries that re-export from `dist/`
+- `src/plugin.ts` — Cypress plugin (runs in Node; registers the `flakey:saveSnapshot` task; handles disk write + streaming upload)
+- `src/support.ts` — Cypress support file (runs in the browser; wires `command:end` → `pushStep` and the `afterEach` bundle save)
+- `src/shared.ts` — shared browser-side state: ring buffer (max 300 steps), `pushStep`, `serializeDOM`, `getAppDocument`, `isEnabled`. Imported by both `support.ts` and `cucumber.ts`.
+- `src/cucumber.ts` — optional Cucumber/Gherkin integration. Registers a `BeforeStep` hook via `@badeball/cypress-cucumber-preprocessor` that pushes `commandName: "gherkin"` markers into the bundle. Only pulled in when the consumer imports the `./cucumber` subpath.
+- `plugin.js` / `support.js` / `cucumber.js` — thin JS entries that re-export from `dist/`.
+- `plugin.d.ts` / `support.d.ts` / `cucumber.d.ts` — type stubs so consumers on default Node module resolution get types without relying on the `exports` conditional map.
 - Build output goes to `dist/`; published files are declared in `package.json` `files`.
 
 ## Consumer wiring
@@ -42,8 +53,12 @@ export default defineConfig({
 
 // cypress/support/e2e.ts
 import "@flakeytesting/cypress-snapshots/support";
+
+// Cucumber projects only — adds Gherkin step markers to the bundle:
+// import "@flakeytesting/cypress-snapshots/cucumber";
 ```
 
 ## Peer deps
 
-`cypress >=12.0.0`. Don't add Cypress as a direct dep.
+- `cypress >=12.0.0` (required). Don't add Cypress as a direct dep.
+- `@badeball/cypress-cucumber-preprocessor >=20.0.0` (optional — only needed when the consumer imports the `./cucumber` subpath).

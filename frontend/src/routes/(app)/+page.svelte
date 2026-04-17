@@ -391,7 +391,7 @@
         <div class="pinned-list">
           {#each pinnedRuns as pr}
             <a href="/runs/{pr.id}" class="pinned-card">
-              <span class="run-status-dot" class:pass={pr.failed === 0} class:fail={pr.failed > 0}></span>
+              <span class="run-status-dot" class:live={liveRunIds.has(pr.id)} class:pass={pr.failed === 0} class:fail={pr.failed > 0}></span>
               <span class="pinned-id">#{pr.id}</span>
               <span class="pinned-suite">{pr.suite_name}</span>
               {#if pr.failed > 0}
@@ -426,7 +426,7 @@
             </button>
           {/if}
           <div class="card-left">
-            <span class="run-status-dot" class:pass={run.failed === 0} class:fail={run.failed > 0}></span>
+            <span class="run-status-dot" class:live={liveRunIds.has(run.id)} class:pass={run.failed === 0} class:fail={run.failed > 0}></span>
             <div class="card-info">
               <div class="card-title-row">
                 <span class="run-id">#{run.id}</span>
@@ -531,7 +531,7 @@
 {/if}
 
 <style>
-  .page { max-width: 1100px; padding: 2rem; }
+  .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 
   .header {
     display: flex; align-items: center; justify-content: space-between;
@@ -683,6 +683,7 @@
   .run-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .run-status-dot.pass { background: var(--color-pass); }
   .run-status-dot.fail { background: var(--color-fail); }
+  .run-status-dot.live { background: #3b82f6; animation: live-pulse 2s ease-in-out infinite; }
 
   .card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
 

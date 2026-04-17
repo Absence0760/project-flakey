@@ -6,7 +6,7 @@
     selectedStep: number;
   };
 
-  let { snapshotPath, selectedStep }: Props = $props();
+  let { snapshotPath, selectedStep = $bindable() }: Props = $props();
 
   interface SnapshotStep {
     index: number;
@@ -123,6 +123,14 @@
         ></iframe>
       </div>
     </div>
+    <div class="step-nav">
+      <button class="step-btn" onclick={() => selectedStep = Math.max(0, selectedStep - 1)} disabled={selectedStep <= 0} aria-label="Previous step">‹</button>
+      <span class="step-info">
+        <span class="step-count">{Math.min(selectedStep, bundle.steps.length - 1) + 1} / {bundle.steps.length}</span>
+        <span class="step-name">{currentStep.commandName}{currentStep.commandMessage ? ` — ${currentStep.commandMessage}` : ""}</span>
+      </span>
+      <button class="step-btn" onclick={() => selectedStep = Math.min(bundle!.steps.length - 1, selectedStep + 1)} disabled={selectedStep >= bundle.steps.length - 1} aria-label="Next step">›</button>
+    </div>
   {:else}
     <div class="snapshot-status">No snapshot data available.</div>
   {/if}
@@ -167,4 +175,37 @@
     border: none;
     display: block;
   }
+
+  .step-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border, rgba(255,255,255,0.08));
+    background: var(--bg-subtle, rgba(255,255,255,0.02));
+    font-size: 0.8rem;
+  }
+  .step-btn {
+    background: none;
+    border: 1px solid var(--border, rgba(255,255,255,0.15));
+    color: var(--text-primary);
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .step-btn:disabled { opacity: 0.4; cursor: default; }
+  .step-btn:not(:disabled):hover { background: var(--bg-hover, rgba(128,128,128,0.1)); }
+  .step-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    overflow: hidden;
+  }
+  .step-count { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .step-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

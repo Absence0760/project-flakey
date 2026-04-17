@@ -345,6 +345,9 @@
                 <a href="/runs/{run.id}">
                   <span class="run-id">#{run.id}</span>
                   <span class="run-suite">{run.suite_name}</span>
+                  {#if run.aborted}
+                    <span class="run-badge aborted" title="Run aborted before completion">ABORTED</span>
+                  {/if}
                   <span class="run-result" class:has-failures={run.failed > 0}>
                     {run.passed}/{run.total}
                   </span>
@@ -380,7 +383,9 @@
 
 <style>
   .page {
-    padding: 2rem 2rem;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem;
   }
 
   .header {
@@ -642,6 +647,18 @@
 
   .run-result.has-failures {
     color: var(--color-fail);
+  }
+
+  .run-badge.aborted {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-fail) 15%, transparent);
+    color: var(--color-fail);
+    border: 1px solid color-mix(in srgb, var(--color-fail) 35%, transparent);
+    margin-right: 0.4rem;
   }
 
   .run-time {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { authFetch } from '$lib/auth';
+	import { authFetch, getAuth } from '$lib/auth';
 	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
 
 	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -23,6 +23,30 @@
 		source_file: string | null;
 		auto_last_status: 'passed' | 'failed' | 'skipped' | 'pending' | null;
 		auto_last_run_at: string | null;
+		group_id: number | null;
+		group_name: string | null;
+		requirement_count: number;
+		total_runs: number;
+		failure_count: number;
+		pass_rate: number | null;
+		is_flaky: boolean;
+	}
+
+	interface Requirement {
+		id: number;
+		ref_key: string;
+		ref_url: string | null;
+		ref_title: string | null;
+		provider: 'jira' | 'github' | 'linear' | 'other';
+		added_at: string;
+	}
+
+	interface Group {
+		id: number;
+		name: string;
+		description: string | null;
+		test_count: number;
+		created_at: string;
 	}
 
 	interface StepResult {
@@ -34,16 +58,22 @@
 		steps: Array<string | { action: string; data?: string; expected?: string }>;
 		expected_result: string | null;
 		last_step_results: StepResult[];
+		requirements: Requirement[];
 	}
 
 	interface Summary { total: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; }
 
 	let tests = $state<ManualTest[]>([]);
+	let groups = $state<Group[]>([]);
 	let summary = $state<Summary | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let filterStatus = $state<'all' | 'not_run' | 'passed' | 'failed' | 'blocked' | 'skipped'>('all');
 	let filterSuite = $state<string>('all');
+	let filterGroup = $state<string>('all');
+	let filterFlakyOnly = $state(false);
+
+	const isAdmin = $derived(getAuth().user?.orgRole !== 'viewer');
 
 	// Unique suites from the loaded tests, for the project filter
 	const suites = $derived.by(() => {
@@ -52,11 +82,19 @@
 		return Array.from(set).sort();
 	});
 
-	// Client-side counts for the filter tabs (respect the suite filter but
-	// not the status filter, so counts always reflect "how many would show
+	function matchesGroup(t: ManualTest): boolean {
+		if (filterGroup === 'all') return true;
+		if (filterGroup === 'none') return t.group_id == null;
+		return String(t.group_id) === filterGroup;
+	}
+
+	// Client-side counts for the filter tabs (respect the suite & group filter
+	// but not the status filter, so counts always reflect "how many would show
 	// if I clicked this tab")
 	const statusCounts = $derived.by(() => {
-		const scoped = filterSuite === 'all' ? tests : tests.filter(t => t.suite_name === filterSuite);
+		const scoped = tests.filter(t =>
+			(filterSuite === 'all' || t.suite_name === filterSuite) && matchesGroup(t)
+		);
 		return {
 			all: scoped.length,
 			not_run: scoped.filter(t => t.status === 'not_run').length,
@@ -71,9 +109,13 @@
 		return tests.filter(t => {
 			if (filterSuite !== 'all' && t.suite_name !== filterSuite) return false;
 			if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+			if (filterFlakyOnly && !t.is_flaky) return false;
+			if (!matchesGroup(t)) return false;
 			return true;
 		});
 	});
+
+	const flakyCount = $derived(tests.filter(t => t.is_flaky).length);
 
 	interface StepRow {
 		action: string;
@@ -93,6 +135,7 @@
 	let newSteps = $state<StepRow[]>([emptyStep()]);
 	let newAutomatedKey = $state('');
 	let newTagsText = $state('');
+	let newGroupId = $state<string>('');
 
 	function resetCreateForm() {
 		newTitle = '';
@@ -102,6 +145,7 @@
 		newSteps = [emptyStep()];
 		newAutomatedKey = '';
 		newTagsText = '';
+		newGroupId = '';
 	}
 
 	function openCreate() {
@@ -204,6 +248,16 @@
 	// rather than nuking the whole modal.
 	function handleEsc(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
+		if (confirmState) {
+			resolveConfirm(false);
+			e.preventDefault();
+			return;
+		}
+		if (showGroups) {
+			closeGroups();
+			e.preventDefault();
+			return;
+		}
 		if (showCreate) {
 			closeCreate();
 			e.preventDefault();
@@ -238,17 +292,24 @@
 		try {
 			// Load the full list; filtering happens client-side so the tab
 			// counts always reflect the live set of tests.
-			const [listRes, sumRes] = await Promise.all([
+			const [listRes, sumRes, grpRes] = await Promise.all([
 				authFetch(`${API_URL}/manual-tests`),
 				authFetch(`${API_URL}/manual-tests/summary`),
+				authFetch(`${API_URL}/manual-test-groups`),
 			]);
 			tests = await listRes.json();
 			summary = await sumRes.json();
+			groups = grpRes.ok ? await grpRes.json() : [];
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function reloadGroups() {
+		const res = await authFetch(`${API_URL}/manual-test-groups`);
+		if (res.ok) groups = await res.json();
 	}
 
 	async function createTest() {
@@ -280,6 +341,7 @@
 				steps,
 				automated_test_key: newAutomatedKey || null,
 				tags,
+				group_id: newGroupId ? Number(newGroupId) : null,
 			}),
 		});
 		if (res.ok) {
@@ -312,8 +374,58 @@
 		}
 	}
 
+	// ── Requirements (story / ticket traceability) ────────────────────
+	let newReqKey = $state('');
+	let newReqUrl = $state('');
+	let newReqTitle = $state('');
+
+	async function addRequirement() {
+		if (!selected || !newReqKey.trim()) return;
+		const res = await authFetch(`${API_URL}/manual-tests/${selected.id}/requirements`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				ref_key: newReqKey.trim(),
+				ref_url: newReqUrl.trim() || null,
+				ref_title: newReqTitle.trim() || null,
+			}),
+		});
+		if (res.ok) {
+			newReqKey = '';
+			newReqUrl = '';
+			newReqTitle = '';
+			await refreshSelected();
+			await load();
+		}
+	}
+
+	async function removeRequirement(reqId: number) {
+		if (!selected) return;
+		await authFetch(`${API_URL}/manual-tests/${selected.id}/requirements/${reqId}`, {
+			method: 'DELETE',
+		});
+		await refreshSelected();
+		await load();
+	}
+
+	async function refreshSelected() {
+		if (!selected) return;
+		const res = await authFetch(`${API_URL}/manual-tests/${selected.id}`);
+		if (res.ok) selected = await res.json();
+	}
+
+	function providerLabel(p: string): string {
+		return ({ jira: 'Jira', github: 'GitHub', linear: 'Linear', other: '' }[p] ?? '').trim();
+	}
+
 	async function deleteTest(id: number) {
-		if (!confirm('Delete this manual test?')) return;
+		const ok = await openConfirm({
+			title: 'Delete manual test?',
+			message: 'This permanently removes the test and all of its recorded run history. This cannot be undone.',
+			confirmLabel: 'Delete',
+			tone: 'danger',
+		});
+		if (!ok) return;
 		await authFetch(`${API_URL}/manual-tests/${id}`, { method: 'DELETE' });
 		if (selected?.id === id) selected = null;
 		await load();
@@ -373,6 +485,117 @@
 		if (s === 'failed') return 'Automated run: failing';
 		return `Automated run: ${s}`;
 	}
+
+	// ── Generic confirm / alert modal ────────────────────────────────────
+	interface ConfirmState {
+		title: string;
+		message: string;
+		confirmLabel: string;
+		cancelLabel: string | null;
+		tone: 'default' | 'danger';
+		resolve: (result: boolean) => void;
+	}
+	let confirmState = $state<ConfirmState | null>(null);
+
+	function openConfirm(opts: {
+		title: string;
+		message: string;
+		confirmLabel?: string;
+		cancelLabel?: string | null;
+		tone?: 'default' | 'danger';
+	}): Promise<boolean> {
+		return new Promise((resolve) => {
+			confirmState = {
+				title: opts.title,
+				message: opts.message,
+				confirmLabel: opts.confirmLabel ?? 'Confirm',
+				cancelLabel: opts.cancelLabel === null ? null : (opts.cancelLabel ?? 'Cancel'),
+				tone: opts.tone ?? 'default',
+				resolve,
+			};
+		});
+	}
+
+	function resolveConfirm(result: boolean) {
+		if (!confirmState) return;
+		const { resolve } = confirmState;
+		confirmState = null;
+		resolve(result);
+	}
+
+	// ── Manage Groups modal ──────────────────────────────────────────────
+	let showGroups = $state(false);
+	let groupName = $state('');
+	let groupDescription = $state('');
+	let groupError = $state<string | null>(null);
+	let editingGroupId = $state<number | null>(null);
+
+	function openGroups() {
+		groupName = '';
+		groupDescription = '';
+		groupError = null;
+		editingGroupId = null;
+		showGroups = true;
+	}
+
+	function closeGroups() {
+		showGroups = false;
+	}
+
+	function startEditGroup(g: Group) {
+		editingGroupId = g.id;
+		groupName = g.name;
+		groupDescription = g.description ?? '';
+		groupError = null;
+	}
+
+	function cancelEditGroup() {
+		editingGroupId = null;
+		groupName = '';
+		groupDescription = '';
+		groupError = null;
+	}
+
+	async function saveGroup() {
+		if (!groupName.trim()) return;
+		groupError = null;
+		const url = editingGroupId
+			? `${API_URL}/manual-test-groups/${editingGroupId}`
+			: `${API_URL}/manual-test-groups`;
+		const method = editingGroupId ? 'PATCH' : 'POST';
+		const res = await authFetch(url, {
+			method,
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: groupName.trim(),
+				description: groupDescription || null,
+			}),
+		});
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({}));
+			groupError = (body as { error?: string }).error ?? `Failed (${res.status})`;
+			return;
+		}
+		groupName = '';
+		groupDescription = '';
+		editingGroupId = null;
+		await Promise.all([reloadGroups(), load()]);
+	}
+
+	async function deleteGroup(id: number) {
+		const ok = await openConfirm({
+			title: 'Delete group?',
+			message: 'Tests in this group will become ungrouped. The tests themselves are not deleted.',
+			confirmLabel: 'Delete group',
+			tone: 'danger',
+		});
+		if (!ok) return;
+		const res = await authFetch(`${API_URL}/manual-test-groups/${id}`, { method: 'DELETE' });
+		if (res.ok) {
+			await Promise.all([reloadGroups(), load()]);
+			if (editingGroupId === id) cancelEditGroup();
+		}
+	}
 </script>
 
 <svelte:window onkeydown={handleEsc} />
@@ -384,6 +607,9 @@
 			<p class="subtitle">Manage and execute manual regression tests alongside your automated suite.</p>
 		</div>
 		<div class="header-actions">
+			{#if isAdmin}
+				<button class="btn-ghost" onclick={openGroups}>⛿ Manage groups</button>
+			{/if}
 			<button class="btn-ghost" onclick={openImport} disabled={importing}>
 				{importing ? 'Importing…' : '⇪ Import .feature files'}
 			</button>
@@ -454,6 +680,15 @@
 							<label class="field field-wide">
 								<span class="field-label">Description</span>
 								<textarea bind:value={newDescription} rows="2" placeholder="Optional — what is this test verifying?"></textarea>
+							</label>
+							<label class="field">
+								<span class="field-label">Group</span>
+								<select bind:value={newGroupId}>
+									<option value="">— None —</option>
+									{#each groups as g}
+										<option value={String(g.id)}>{g.name}</option>
+									{/each}
+								</select>
 							</label>
 							<label class="field">
 								<span class="field-label">Tags</span>
@@ -578,6 +813,20 @@
 					<option value={s}>{s}</option>
 				{/each}
 			</select>
+			<label for="group-select">Group</label>
+			<select id="group-select" bind:value={filterGroup}>
+				<option value="all">All groups</option>
+				<option value="none">— Ungrouped —</option>
+				{#each groups as g}
+					<option value={String(g.id)}>{g.name} ({g.test_count})</option>
+				{/each}
+			</select>
+			{#if flakyCount > 0}
+				<label class="flaky-toggle">
+					<input type="checkbox" bind:checked={filterFlakyOnly} />
+					Flaky only ({flakyCount})
+				</label>
+			{/if}
 		</div>
 	</div>
 
@@ -595,8 +844,11 @@
 				<tr>
 					<th>Title</th>
 					<th>Suite</th>
+					<th>Group</th>
 					<th>Type</th>
 					<th>Priority</th>
+					<th>Reqs</th>
+					<th>Signal</th>
 					<th>Status</th>
 					<th>Last run</th>
 					<th></th>
@@ -608,8 +860,10 @@
 						<td>
 							<!-- svelte-ignore a11y_invalid_attribute -->
 							<a href="#" onclick={(e) => { e.preventDefault(); openTest(t.id); }}>{t.title}</a>
+							{#if t.is_flaky}<span class="badge flaky" title="Mixed pass/fail across sessions">flaky</span>{/if}
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
+						<td>{t.group_name ?? '—'}</td>
 						<td>
 							{#if t.source === 'cucumber'}
 								<span class="badge automated" title="Imported from {t.source_file}">
@@ -627,6 +881,29 @@
 							{/if}
 						</td>
 						<td><span class="priority priority-{t.priority}">{t.priority}</span></td>
+						<td>
+							{#if t.requirement_count > 0}
+								<span class="badge req-badge" title="{t.requirement_count} linked requirement(s)">
+									{t.requirement_count}
+								</span>
+							{:else}
+								<span class="dim">—</span>
+							{/if}
+						</td>
+						<td>
+							{#if t.total_runs >= 2 && t.pass_rate !== null}
+								<span
+									class="badge signal-badge"
+									class:signal-bad={t.pass_rate < 0.5}
+									class:signal-flaky={t.is_flaky}
+									title="{t.total_runs} runs · {t.failure_count} failure(s)"
+								>
+									{Math.round(t.pass_rate * 100)}%
+								</span>
+							{:else}
+								<span class="dim">—</span>
+							{/if}
+						</td>
 						<td>
 							{#if t.source === 'cucumber'}
 								<span class={statusClass(t.auto_last_status ?? 'not_run')}>
@@ -648,6 +925,112 @@
 				{/each}
 			</tbody>
 		</table>
+	{/if}
+
+	{#if showGroups}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-overlay" onclick={closeGroups}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal groups-modal" onclick={(e) => e.stopPropagation()}>
+				<header class="modal-header">
+					<h2>Manage groups</h2>
+					<button class="btn-ghost" onclick={closeGroups} aria-label="Close">✕</button>
+				</header>
+				<div class="modal-body">
+					<section class="form-section">
+						<h3 class="form-section-title">
+							{editingGroupId ? 'Edit group' : 'New group'}
+						</h3>
+						<div class="form-grid">
+							<label class="field field-wide">
+								<span class="field-label">Name <span class="req">*</span></span>
+								<input bind:value={groupName} placeholder="e.g. Checkout Flow" />
+							</label>
+							<label class="field field-wide">
+								<span class="field-label">Description</span>
+								<textarea bind:value={groupDescription} rows="2" placeholder="Optional"></textarea>
+							</label>
+						</div>
+						{#if groupError}
+							<p class="error inline">{groupError}</p>
+						{/if}
+						<div class="actions">
+							{#if editingGroupId}
+								<button class="btn-ghost" onclick={cancelEditGroup}>Cancel edit</button>
+							{/if}
+							<button class="btn-primary" onclick={saveGroup} disabled={!groupName.trim()}>
+								{editingGroupId ? 'Save group' : 'Create group'}
+							</button>
+						</div>
+					</section>
+
+					<section class="form-section">
+						<h3 class="form-section-title">Existing groups</h3>
+						{#if groups.length === 0}
+							<p class="empty">No groups yet.</p>
+						{:else}
+							<table class="tests">
+								<thead>
+									<tr>
+										<th>Name</th>
+										<th>Description</th>
+										<th>Tests</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each groups as g}
+										<tr>
+											<td><strong>{g.name}</strong></td>
+											<td>{g.description ?? '—'}</td>
+											<td>{g.test_count}</td>
+											<td class="row-actions">
+												<button class="btn-ghost btn-small" onclick={() => startEditGroup(g)}>Edit</button>
+												<button class="btn-ghost btn-small" onclick={() => deleteGroup(g.id)}>✕</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+					</section>
+				</div>
+				<footer class="modal-footer">
+					<button class="btn-ghost" onclick={closeGroups}>Close</button>
+				</footer>
+			</div>
+		</div>
+	{/if}
+
+	{#if confirmState}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-overlay" onclick={() => resolveConfirm(false)}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal confirm-modal" onclick={(e) => e.stopPropagation()}>
+				<header>
+					<h2>{confirmState.title}</h2>
+				</header>
+				<p class="confirm-message">{confirmState.message}</p>
+				<div class="actions">
+					{#if confirmState.cancelLabel !== null}
+						<button class="btn-ghost" onclick={() => resolveConfirm(false)}>
+							{confirmState.cancelLabel}
+						</button>
+					{/if}
+					<button
+						class="btn-primary"
+						class:btn-danger={confirmState.tone === 'danger'}
+						onclick={() => resolveConfirm(true)}
+					>
+						{confirmState.confirmLabel}
+					</button>
+				</div>
+			</div>
+		</div>
 	{/if}
 
 	{#if selected}
@@ -773,6 +1156,38 @@
 					<h3>Overall expected result</h3>
 					<p>{selected.expected_result}</p>
 				{/if}
+
+				<h3>Requirements</h3>
+				{#if (selected.requirements ?? []).length === 0}
+					<p class="dim">No linked requirements yet.</p>
+				{:else}
+					<ul class="req-list">
+						{#each selected.requirements as r}
+							<li>
+								<span class={`provider-badge provider-${r.provider}`}>{providerLabel(r.provider) || r.provider}</span>
+								{#if r.ref_url}
+									<a href={r.ref_url} target="_blank" rel="noopener" class="req-key">{r.ref_key}</a>
+								{:else}
+									<span class="req-key">{r.ref_key}</span>
+								{/if}
+								{#if r.ref_title}<span class="dim">— {r.ref_title}</span>{/if}
+								{#if isAdmin}
+									<button class="icon-btn danger" title="Unlink" onclick={() => removeRequirement(r.id)}>✕</button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if isAdmin}
+					<div class="add-req">
+						<input bind:value={newReqKey} placeholder="ABC-123 or gh#42" class="req-input-key" />
+						<input bind:value={newReqUrl} placeholder="https://… (optional)" class="req-input-url" />
+						<input bind:value={newReqTitle} placeholder="Title (optional)" class="req-input-title" />
+						<button class="btn-ghost btn-small" onclick={addRequirement} disabled={!newReqKey.trim()}>
+							+ Link
+						</button>
+					</div>
+				{/if}
 				{#if selected.last_run_at && !runMode}
 					<p class="dim">
 						Last run: <span class={statusClass(selected.status)}>{selected.status.replace('_', ' ')}</span>
@@ -823,7 +1238,7 @@
 </div>
 
 <style>
-	.page { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
 	.subtitle { color: var(--text-muted); font-size: 0.9rem; }
 	.summary { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
@@ -1200,4 +1615,73 @@
 	.quick-result { margin-top: 1rem; }
 	.quick-result summary { cursor: pointer; font-size: 0.85rem; color: var(--text-muted); }
 	.quick-result summary:hover { color: var(--text); }
+	.modal.groups-modal {
+		width: min(720px, 95vw);
+		max-width: 720px;
+		height: auto;
+		max-height: 92vh;
+		padding: 0;
+		gap: 0;
+	}
+	.error.inline { padding: 0.35rem 0.5rem; color: #991b1b; font-size: 0.82rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; text-align: left; }
+	.row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; }
+	.modal.confirm-modal { width: min(460px, 95vw); }
+	.modal.confirm-modal header h2 { font-size: 1.05rem; }
+	.confirm-message { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.45; margin: 0; }
+	.btn-danger { background: #dc2626; color: #fff; }
+	.btn-danger:hover { background: #b91c1c; }
+
+	/* ── Flakiness + requirements badges ─────────────────────────────── */
+	.badge.flaky { background: #fef3c7; color: #92400e; margin-left: 0.4rem; }
+	.req-badge { background: #ede9fe; color: #5b21b6; font-size: 0.7rem; padding: 0.05rem 0.45rem; border-radius: 4px; font-weight: 600; }
+	.signal-badge {
+		background: #dcfce7;
+		color: #166534;
+		font-size: 0.7rem;
+		padding: 0.05rem 0.45rem;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+	.signal-badge.signal-flaky { background: #fef3c7; color: #92400e; }
+	.signal-badge.signal-bad   { background: #fee2e2; color: #991b1b; }
+	.flaky-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		margin-left: 0.4rem;
+	}
+
+	/* ── Requirements editor ─────────────────────────────────────────── */
+	.req-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+	.req-list li { display: flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; }
+	.provider-badge {
+		font-size: 0.62rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 3px;
+		text-transform: uppercase;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+	}
+	.provider-jira   { background: #dbeafe; color: #1e40af; }
+	.provider-github { background: #e5e7eb; color: #1f2937; }
+	.provider-linear { background: #ede9fe; color: #5b21b6; }
+	.provider-other  { background: #f3f4f6; color: #6b7280; }
+	.req-key {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.82rem;
+		color: #2563eb;
+		text-decoration: none;
+		font-weight: 600;
+	}
+	.req-key:hover { text-decoration: underline; }
+	.add-req {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1.4fr auto;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		align-items: center;
+	}
+	.add-req input { padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 0.85rem; }
 </style>

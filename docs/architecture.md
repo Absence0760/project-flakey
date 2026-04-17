@@ -30,15 +30,26 @@
 ```
 Test run starts
         |
-        ├── Live reporter streams events in real-time (optional)
+        ├── Live reporter (optional): POST /live/start → numeric runId returned
+        |       │ • writes runId to $TMPDIR/flakey-reporter/live-run-id (cross-process bridge for sibling plugins)
+        |       │ • sets process.env.FLAKEY_API_URL / FLAKEY_API_KEY / FLAKEY_LIVE_RUN_ID
         |       |
-        |   POST /live/:runId/events → SSE to frontend
+        |       ├── POST /live/:runId/events  → SSE to frontend + upserts tests rows in real time
+        |       |     • test.started → inserts tests row with status='pending'
+        |       |     • test.passed/failed/skipped → updates that row
+        |       |
+        |       ├── POST /live/:runId/snapshot (cypress-snapshots, mid-test)
+        |       |     • stores to runs/{id}/snapshots/… in S3 / local disk
+        |       |     • updates tests.snapshot_path by full_title match
+        |       |     • plugin unlinks local file on 2xx; retained on failure
+        |       |
+        |       └── POST /live/:runId/abort (on SIGINT/SIGTERM)
         |
 Test run completes
         |
 Reporter generates output (mochawesome / JUnit / Playwright / Jest / WebdriverIO)
         |
-CLI or direct reporter uploads results + screenshots/videos
+CLI or direct reporter uploads results + screenshots/videos + any snapshots still on disk
         |
 POST to backend API (authenticated via API key)
         |
@@ -194,7 +205,7 @@ specs (id, run_id, file_path, title, total, passed, failed, skipped, duration_ms
 
 tests (id, spec_id, title, full_title, status, duration_ms,
        error_message, error_stack, screenshot_paths, video_path,
-       test_code, command_log)
+       snapshot_path, test_code, command_log, metadata)
 
 -- Quality metrics (Phase 10, org-scoped via RLS)
 coverage_reports (id, org_id, run_id, lines_pct, branches_pct, functions_pct,

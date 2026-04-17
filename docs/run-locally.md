@@ -19,14 +19,14 @@ This starts PostgreSQL on port 5432 and runs all migrations in `backend/migratio
 ### 2. Install dependencies
 
 ```bash
-# Backend
-cd backend && pnpm install
+# Backend (npm, not pnpm — backend has its own lockfile)
+cd backend && npm install
 
 # Frontend
 cd frontend && pnpm install
 
 # CLI (optional, for uploading results)
-cd cli && pnpm install
+cd packages/flakey-cli && pnpm install
 ```
 
 ### 3. Set up environment variables
@@ -39,7 +39,7 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 
 # CLI (optional)
-cp cli/.env.example cli/.env
+cp packages/flakey-cli/.env.example packages/flakey-cli/.env
 ```
 
 The defaults work for local development. No changes needed unless you're using non-standard ports.
@@ -47,7 +47,7 @@ The defaults work for local development. No changes needed unless you're using n
 ### 4. Seed sample data (optional)
 
 ```bash
-cd backend && pnpm run seed
+cd backend && npm run seed
 ```
 
 This creates:
@@ -66,7 +66,7 @@ This creates:
 From the project root:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 This starts both services concurrently:
@@ -120,7 +120,7 @@ curl -X POST http://localhost:3000/runs \
 #### Option C: Use the CLI uploader
 
 ```bash
-cd cli
+cd packages/flakey-cli
 
 # With --api-key flag
 npx tsx src/index.ts \
@@ -155,11 +155,11 @@ npx tsx src/index.ts \
 | `docker compose up -d` | Start PostgreSQL |
 | `docker compose down` | Stop PostgreSQL |
 | `docker compose down -v` | Stop PostgreSQL and delete data |
-| `pnpm run dev` | Start backend + frontend |
-| `pnpm run dev:backend` | Start backend only |
-| `pnpm run dev:frontend` | Start frontend only |
-| `cd backend && pnpm run seed` | Seed sample data |
-| `cd backend && pnpm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
+| `pnpm dev` | Start backend + frontend |
+| `pnpm dev:backend` | Start backend only |
+| `pnpm dev:frontend` | Start frontend only |
+| `cd backend && npm run seed` | Seed sample data |
+| `cd backend && npm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
 
 ## Environment variables
 
