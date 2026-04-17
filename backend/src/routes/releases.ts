@@ -44,7 +44,21 @@ const DEFAULT_CHECKLIST: Array<{ label: string; required: boolean; auto_rule?: s
 // auto_details so the UI can explain *why* an item is (un)checked without
 // re-running the query.
 
-interface RuleResult { met: boolean; details: string }
+// A failing item surfaced in the readiness panel so the user can drill into
+// what's blocking the release without leaving the page.
+interface FailingItem {
+  label: string;              // test title / manual-test title
+  sublabel?: string;          // spec file / group / priority / status
+  href?: string;              // full link (/runs/:id) for automated tests
+  test_id?: number;           // manual-test id → scroll-to-row in active session
+  status?: string;            // passed|failed|blocked|not_run — for styling
+}
+
+interface RuleResult {
+  met: boolean;
+  details: string;
+  failing_items?: FailingItem[];
+}
 
 async function evaluateCriticalTestsPassing(
   orgId: number,
@@ -80,7 +94,33 @@ async function evaluateCriticalTestsPassing(
   if (totalFailed === 0) {
     return { met: true, details: `${totalTests} tests passing across ${label}` };
   }
-  return { met: false, details: `${totalFailed} failing test(s) across ${label}` };
+
+  // Pull the actual failing test rows so the readiness panel can list
+  // them by name and link straight into the run page. Capped to avoid
+  // dumping hundreds of failures inline.
+  const runIds = rows.map((r) => Number(r.id));
+  const failingTests = await tenantQuery(
+    orgId,
+    `SELECT t.title, t.status, s.file_path, s.run_id
+       FROM tests t
+       JOIN specs s ON s.id = t.spec_id
+      WHERE s.run_id = ANY($1::int[])
+        AND t.status = 'failed'
+      ORDER BY s.file_path, t.title
+      LIMIT 50`,
+    [runIds]
+  );
+  const failing_items: FailingItem[] = failingTests.rows.map((r) => ({
+    label: r.title,
+    sublabel: r.file_path,
+    href: `/runs/${r.run_id}`,
+    status: "failed",
+  }));
+  return {
+    met: false,
+    details: `${totalFailed} failing test(s) across ${label}`,
+    failing_items,
+  };
 }
 
 async function evaluateManualRegressionExecuted(
@@ -102,7 +142,13 @@ async function evaluateManualRegressionExecuted(
     const session = latestSession.rows[0];
     const results = await tenantQuery(
       orgId,
-      "SELECT status, accepted_as_known_issue FROM release_test_session_results WHERE session_id = $1",
+      `SELECT r.status, r.accepted_as_known_issue, r.manual_test_id,
+              mt.title, mt.priority, g.name AS group_name
+         FROM release_test_session_results r
+         JOIN manual_tests mt ON mt.id = r.manual_test_id
+         LEFT JOIN manual_test_groups g ON g.id = mt.group_id
+        WHERE r.session_id = $1
+        ORDER BY mt.priority DESC, mt.title`,
       [session.id]
     );
     const rows = results.rows;
@@ -111,17 +157,43 @@ async function evaluateManualRegressionExecuted(
     }
     // Accepted failures/blocked are explicitly deferred against a bug — they
     // no longer count as blockers. Everything else must be in a clean state.
-    const blockingFailed  = rows.filter((r) => r.status === "failed"  && !r.accepted_as_known_issue).length;
-    const blockingBlocked = rows.filter((r) => r.status === "blocked" && !r.accepted_as_known_issue).length;
-    const accepted        = rows.filter((r) => r.accepted_as_known_issue).length;
-    const notRun          = rows.filter((r) => r.status === "not_run").length;
+    const blockingFailedRows  = rows.filter((r) => r.status === "failed"  && !r.accepted_as_known_issue);
+    const blockingBlockedRows = rows.filter((r) => r.status === "blocked" && !r.accepted_as_known_issue);
+    const notRunRows          = rows.filter((r) => r.status === "not_run");
+    const accepted            = rows.filter((r) => r.accepted_as_known_issue).length;
     const inProgress = session.status === "in_progress";
     const label = inProgress
       ? `session #${session.session_number} (in progress)`
       : `session #${session.session_number}`;
-    if (blockingFailed > 0)  return { met: false, details: `${blockingFailed} failing test(s) in ${label}` };
-    if (blockingBlocked > 0) return { met: false, details: `${blockingBlocked} blocked test(s) in ${label}` };
-    if (notRun > 0)          return { met: false, details: `${notRun} of ${rows.length} test(s) not run in ${label}` };
+
+    const toItem = (r: { manual_test_id: number; title: string; priority: string; group_name: string | null; status: string }): FailingItem => ({
+      label: r.title,
+      sublabel: [r.group_name, r.priority].filter(Boolean).join(" · "),
+      test_id: Number(r.manual_test_id),
+      status: r.status,
+    });
+
+    if (blockingFailedRows.length > 0) {
+      return {
+        met: false,
+        details: `${blockingFailedRows.length} failing test(s) in ${label}`,
+        failing_items: blockingFailedRows.map(toItem),
+      };
+    }
+    if (blockingBlockedRows.length > 0) {
+      return {
+        met: false,
+        details: `${blockingBlockedRows.length} blocked test(s) in ${label}`,
+        failing_items: blockingBlockedRows.map(toItem),
+      };
+    }
+    if (notRunRows.length > 0) {
+      return {
+        met: false,
+        details: `${notRunRows.length} of ${rows.length} test(s) not run in ${label}`,
+        failing_items: notRunRows.map(toItem),
+      };
+    }
     // An in-progress session with no not_run/failed is effectively passing
     // but still in-progress — readiness should not turn green until the
     // session is completed (the acting tester is still expected to Mark

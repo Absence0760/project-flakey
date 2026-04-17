@@ -56,10 +56,17 @@
 		linked_manual_tests: LinkedManualTest[];
 	}
 
+	interface FailingItem {
+		label: string;
+		sublabel?: string;
+		href?: string;
+		test_id?: number;
+		status?: string;
+	}
 	interface Readiness {
 		runs: { linked: number; total: number; passed: number; failed: number; skipped: number };
 		manual_tests: { linked: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; accepted: number };
-		rules: Record<string, { met: boolean; details: string }>;
+		rules: Record<string, { met: boolean; details: string; failing_items?: FailingItem[] }>;
 		blocking_items: Array<{ id: number; label: string; auto_rule: string | null; auto_details: string | null }>;
 		ready: boolean;
 	}
@@ -322,11 +329,6 @@
 	);
 	const readinessSessionDetail = $derived(
 		readinessSession ? sessionDetails[readinessSession.id] ?? null : null
-	);
-	const blockingFailures = $derived(
-		(readinessSessionDetail?.results ?? []).filter(
-			r => (r.status === 'failed' || r.status === 'blocked') && !r.accepted_as_known_issue
-		)
 	);
 	const acceptedFailures = $derived(
 		(readinessSessionDetail?.results ?? []).filter(r => r.accepted_as_known_issue)
@@ -670,6 +672,17 @@
 	function isRefUrl(ref: string | null): boolean {
 		return !!ref && /:\/\//.test(ref);
 	}
+	// Extract a compact identifier out of a bug ref so we don't splatter
+	// full URLs across tables. Jira `/browse/ABC-1`, GitHub `/issues/123`,
+	// anything else falls back to the last path segment.
+	function shortBugRef(ref: string | null): string {
+		if (!ref) return '';
+		if (!isRefUrl(ref)) return ref;
+		const m = ref.match(/\/browse\/([A-Z][A-Z0-9_-]*-\d+)/i)
+			?? ref.match(/\/issues\/(\d+)/i)
+			?? ref.match(/\/([^/?#]+)(?:[?#]|$)/);
+		return m ? m[1] : ref;
+	}
 
 	// ── File bug (Jira) ────────────────────────────────────────────────
 	function openBugFileDialog(testId: number) {
@@ -923,13 +936,45 @@
 
 				<div class="rules">
 					{#each Object.entries(readiness.rules) as [key, rule]}
-						<div class="rule" class:met={rule.met}>
-							<span class="rule-icon">{rule.met ? '✓' : '✗'}</span>
-							<div>
-								<div class="rule-name">{key.replace(/_/g, ' ')}</div>
-								<div class="rule-detail">{rule.details}</div>
+						{@const items = rule.failing_items ?? []}
+						{#if items.length > 0}
+							<details class="rule" class:met={rule.met}>
+								<summary>
+									<span class="rule-icon">{rule.met ? '✓' : '✗'}</span>
+									<div class="rule-text">
+										<div class="rule-name">{key.replace(/_/g, ' ')}</div>
+										<div class="rule-detail">{rule.details}</div>
+									</div>
+								</summary>
+								<ul class="rule-failures">
+									{#each items as it}
+										<li>
+											{#if it.status}
+												<span class={`status-pill status-${it.status.replace('_','-')}`}>{it.status.replace('_',' ')}</span>
+											{/if}
+											{#if it.href}
+												<a href={it.href} class="failure-label">{it.label}</a>
+											{:else if it.test_id !== undefined}
+												<button type="button" class="failure-label" onclick={() => scrollToTestRow(it.test_id!)}>
+													{it.label}
+												</button>
+											{:else}
+												<span class="failure-label">{it.label}</span>
+											{/if}
+											{#if it.sublabel}<span class="dim small">{it.sublabel}</span>{/if}
+										</li>
+									{/each}
+								</ul>
+							</details>
+						{:else}
+							<div class="rule" class:met={rule.met}>
+								<span class="rule-icon">{rule.met ? '✓' : '✗'}</span>
+								<div class="rule-text">
+									<div class="rule-name">{key.replace(/_/g, ' ')}</div>
+									<div class="rule-detail">{rule.details}</div>
+								</div>
 							</div>
-						</div>
+						{/if}
 					{/each}
 				</div>
 
@@ -942,35 +987,6 @@
 							{/each}
 						</ul>
 					</div>
-				{/if}
-
-				{#if blockingFailures.length > 0}
-					<details class="readiness-failures" open>
-						<summary>
-							<span class="failure-count">{blockingFailures.length}</span>
-							test{blockingFailures.length === 1 ? '' : 's'} blocking this release
-							— click to jump to the active session
-						</summary>
-						<ul class="failure-links">
-							{#each blockingFailures as r}
-								<li>
-									<button
-										type="button"
-										class="failure-link"
-										onclick={() => scrollToTestRow(r.manual_test_id)}
-									>
-										<span class={`status-pill status-${r.status.replace('_','-')}`}>
-											{r.status}
-										</span>
-										<strong>{r.title}</strong>
-										<span class="dim">
-											{r.group_name ? `${r.group_name} · ` : ''}{r.priority}
-										</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</details>
 				{/if}
 
 				{#if acceptedFailures.length > 0}
@@ -991,11 +1007,11 @@
 										<strong>{r.title}</strong>
 										{#if r.known_issue_ref}
 											{#if isRefUrl(r.known_issue_ref)}
-												<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">
-													{r.known_issue_ref}
+												<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref" title={r.known_issue_ref}>
+													{shortBugRef(r.known_issue_ref)}
 												</a>
 											{:else}
-												<span class="known-ref">{r.known_issue_ref}</span>
+												<span class="known-ref" title={r.known_issue_ref}>{shortBugRef(r.known_issue_ref)}</span>
 											{/if}
 										{/if}
 									</button>
@@ -1188,11 +1204,11 @@
 														<span class="status-pill status-accepted">known issue</span>
 														{#if r.known_issue_ref}
 															{#if isRefUrl(r.known_issue_ref)}
-																<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">
-																	{r.known_issue_ref}
+																<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref" title={r.known_issue_ref}>
+																	{shortBugRef(r.known_issue_ref)}
 																</a>
 															{:else}
-																<span class="known-ref">{r.known_issue_ref}</span>
+																<span class="known-ref" title={r.known_issue_ref}>{shortBugRef(r.known_issue_ref)}</span>
 															{/if}
 														{/if}
 														<button
@@ -1417,20 +1433,24 @@
 													<tr class:accepted={r.accepted_as_known_issue}>
 														<td><strong>{r.title}</strong></td>
 														<td>{r.group_name ?? '—'}</td>
-														<td>
-															<span class={`status-pill status-${r.status.replace('_', '-')}`}>
-																{r.status.replace('_', ' ')}
-															</span>
-															{#if r.accepted_as_known_issue}
-																<span class="status-pill status-accepted">known</span>
-																{#if r.known_issue_ref}
-																	{#if isRefUrl(r.known_issue_ref)}
-																		<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref">{r.known_issue_ref}</a>
-																	{:else}
-																		<span class="known-ref">{r.known_issue_ref}</span>
+														<td class="status-cell">
+															<div class="status-stack">
+																<span class={`status-pill status-${r.status.replace('_', '-')}`}>
+																	{r.status.replace('_', ' ')}
+																</span>
+																{#if r.accepted_as_known_issue}
+																	<span class="status-pill status-accepted">known</span>
+																	{#if r.known_issue_ref}
+																		{#if isRefUrl(r.known_issue_ref)}
+																			<a href={r.known_issue_ref} target="_blank" rel="noopener" class="known-ref" title={r.known_issue_ref}>
+																				{shortBugRef(r.known_issue_ref)}
+																			</a>
+																		{:else}
+																			<span class="known-ref" title={r.known_issue_ref}>{shortBugRef(r.known_issue_ref)}</span>
+																		{/if}
 																	{/if}
 																{/if}
-															{/if}
+															</div>
 														</td>
 														<td class="notes-cell" title={r.notes ?? ''}>{truncate(r.notes, 120) || '—'}</td>
 														<td class="dim">
@@ -1974,10 +1994,68 @@
 		background: rgba(22, 163, 74, 0.08);
 		border-color: rgba(22, 163, 74, 0.35);
 	}
-	.rule-icon { font-weight: 700; color: #f87171; }
+	.rule-icon { font-weight: 700; color: #f87171; flex-shrink: 0; }
 	.rule.met .rule-icon { color: #4ade80; }
+	.rule-text { flex: 1; min-width: 0; }
 	.rule-name { font-size: 0.85rem; font-weight: 600; text-transform: capitalize; color: inherit; }
 	.rule-detail { font-size: 0.78rem; color: var(--text-muted); }
+
+	/* Expandable rule cards — same visual rhythm as the non-expandable
+	   variant; the <details>/<summary> carries the chevron. Override the
+	   parent .rule's `display: flex` so summary and ul stack vertically
+	   inside the <details> instead of laying out side-by-side. */
+	details.rule {
+		display: block;
+		padding: 0;
+	}
+	details.rule > summary {
+		list-style: none;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		cursor: pointer;
+	}
+	details.rule > summary::-webkit-details-marker { display: none; }
+	details.rule > summary::before {
+		content: "▶";
+		font-size: 0.65rem;
+		color: var(--text-muted);
+		margin-top: 0.25rem;
+		transition: transform 0.15s;
+		flex-shrink: 0;
+	}
+	details.rule[open] > summary::before { transform: rotate(90deg); }
+	.rule-failures {
+		list-style: none;
+		padding: 0 0.75rem 0.6rem 2.3rem;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+	.rule-failures li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.3rem 0.5rem;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		font-size: 0.82rem;
+	}
+	.rule-failures .failure-label {
+		color: var(--text);
+		text-decoration: none;
+		font-weight: 500;
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+	}
+	.rule-failures a.failure-label:hover,
+	.rule-failures button.failure-label:hover { text-decoration: underline; }
 	.blockers { margin-top: 0.75rem; font-size: 0.82rem; }
 	.blockers ul { margin: 0.3rem 0 0 1rem; padding: 0; }
 	.dim { color: var(--text-muted); }
@@ -2455,10 +2533,33 @@
 	.session-table.nested {
 		margin-top: 0.5rem;
 		border: 1px solid var(--border);
+		table-layout: fixed;
+		width: 100%;
+	}
+	.session-table.nested th:nth-child(1) { width: auto; min-width: 240px; } /* Title */
+	.session-table.nested th:nth-child(2) { width: 130px; }                   /* Group */
+	.session-table.nested th:nth-child(3) { width: 150px; }                   /* Status */
+	.session-table.nested th:nth-child(4) { width: 22%; }                     /* Notes */
+	.session-table.nested th:nth-child(5) { width: 150px; }                   /* Run by */
+	.session-table .status-cell { white-space: normal; }
+	.status-stack {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem;
+		max-width: 100%;
+	}
+	.status-stack .known-ref {
+		max-width: 130px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.notes-cell {
 		max-width: 320px;
-		white-space: pre-wrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--text-secondary);
 	}
 
