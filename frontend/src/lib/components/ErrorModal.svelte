@@ -42,6 +42,100 @@
     });
     return groups;
   });
+
+  // Group the raw command_log by Gherkin keywords when present. Each
+  // Given/When/Then/And/But/Before entry becomes a collapsible section
+  // header; preceding cypress primitives (get/click/assert/...) roll up
+  // into a synthetic "Setup" group. Non-Cucumber projects have no Gherkin
+  // keywords, so `hasCommandGherkinGroups` stays false and the flat list
+  // renders unchanged.
+  const GHERKIN_RE = /^(Given|When|Then|And|But)\s*$/;
+  interface CommandGroup {
+    headerIdx: number | null;
+    headerLabel: string;
+    headerKeyword: string;
+    childIdxs: number[];
+  }
+  let commandGroups = $derived.by<CommandGroup[]>(() => {
+    const log = test?.command_log ?? [];
+    const groups: CommandGroup[] = [];
+    let current: CommandGroup | null = null;
+    log.forEach((cmd, i) => {
+      const name = (cmd as { name?: string }).name ?? "";
+      const message = (cmd as { message?: string }).message ?? "";
+      if (GHERKIN_RE.test(name)) {
+        current = { headerIdx: i, headerLabel: message, headerKeyword: name.trim().toUpperCase(), childIdxs: [] };
+        groups.push(current);
+      } else if (name === "BeforeStep" || name === "AfterStep") {
+        // Noise — cucumber-preprocessor lifecycle markers. Swallow: the
+        // following Given/When/Then entry carries the real label.
+      } else {
+        if (!current) {
+          current = { headerIdx: null, headerLabel: "Setup", headerKeyword: "SETUP", childIdxs: [] };
+          groups.push(current);
+        }
+        current.childIdxs.push(i);
+      }
+    });
+    return groups;
+  });
+  let hasCommandGherkinGroups = $derived(commandGroups.some((g) => g.headerKeyword !== "SETUP"));
+
+  // Map a command-log Gherkin group to its matching snapshot-bundle step
+  // by text. command_log and snapshotSteps are parallel streams with
+  // different lengths, so a naive index match is wrong — we key on the
+  // human-readable step label instead.
+  // command_log messages come from Cypress's log.message and use markdown
+  // bolding (`**x**`), plus the keyword is in a separate field. Snapshot
+  // bundles record the plain text with the keyword prepended. Normalize
+  // both sides before comparing.
+  function normalizeGherkinText(s: string): string {
+    return s.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  function snapshotIdxForCommandGroup(gIdx: number): number | null {
+    const group = commandGroups[gIdx];
+    if (!group) return null;
+    if (group.headerKeyword === "SETUP") {
+      const first = snapshotSteps.findIndex((s) => s.commandName !== "gherkin");
+      return first >= 0 ? first : 0;
+    }
+    // Track which snapshot gherkin indices have already been matched to a
+    // command-log group, so repeated step text (e.g. two "And the user
+    // clicks X") advances to the next occurrence instead of snapping back
+    // to the first.
+    const consumed = new Set<number>();
+    for (let i = 0; i <= gIdx; i++) {
+      const g = commandGroups[i];
+      if (g.headerKeyword === "SETUP") continue;
+      const needle = normalizeGherkinText(g.headerLabel);
+      const found = snapshotSteps.findIndex((s, si) => {
+        if (s.commandName !== "gherkin" || consumed.has(si)) return false;
+        return normalizeGherkinText(s.commandMessage ?? "").includes(needle);
+      });
+      if (found >= 0) {
+        consumed.add(found);
+        if (i === gIdx) return found;
+      } else if (i === gIdx) {
+        return null;
+      }
+    }
+    return null;
+  }
+  // Map a child command (by position within its group) to the nearest
+  // snapshot-bundle step after that group's gherkin marker. Falls back to
+  // the marker itself if the offset overshoots.
+  function snapshotIdxForCommandChild(gIdx: number, childPos: number): number | null {
+    const headerIdx = snapshotIdxForCommandGroup(gIdx);
+    if (headerIdx === null) return null;
+    // Find the next gherkin marker (end of this group) to clamp the offset.
+    let endIdx = snapshotSteps.length;
+    for (let i = headerIdx + 1; i < snapshotSteps.length; i++) {
+      if (snapshotSteps[i].commandName === "gherkin") { endIdx = i; break; }
+    }
+    const target = headerIdx + 1 + childPos;
+    return target < endIdx ? target : Math.max(headerIdx, endIdx - 1);
+  }
+
   function toggleGroup(g: number) {
     const next = new Set(expandedGroups);
     if (next.has(g)) next.delete(g); else next.add(g);
@@ -447,7 +541,102 @@
                 </div>
 
               {:else if rightTab === "commands"}
-                {#if hasCommands}
+                {#if hasCommands && hasCommandGherkinGroups}
+                  <div class="commands-panel">
+                    <div class="commands-header">
+                      <span class="commands-title">Command Log</span>
+                      <span class="commands-count">{test.command_log?.length} steps</span>
+                    </div>
+                    <ol class="command-list" onmouseleave={() => hoverStep = null}>
+                      {#each commandGroups as group, g}
+                        {@const isOpen = expandedGroups.has(g)}
+                        {@const cmdLog = test?.command_log ?? []}
+                        {@const headerCmd = group.headerIdx !== null ? cmdLog[group.headerIdx] : null}
+                        {@const groupFailed = (headerCmd?.state === "failed") || group.childIdxs.some((i) => cmdLog[i]?.state === "failed")}
+                        {@const groupSnapIdx = snapshotIdxForCommandGroup(g)}
+                        {#if group.headerIdx !== null}
+                          <li
+                            class="cmd cmd-clickable cmd-gherkin"
+                            class:cmd-failed={groupFailed}
+                            class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
+                            class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
+                            onmouseenter={() => { if (hasSnapshot && groupSnapIdx !== null) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onclick={() => {
+                              toggleGroup(g);
+                              if (hasSnapshot && groupSnapIdx !== null) {
+                                lockedStep = groupSnapIdx;
+                                snapshotStep = groupSnapIdx;
+                                leftTab = "snapshot";
+                              }
+                            }}
+                          >
+                            <span class="cmd-num">{(group.headerIdx ?? 0) + 1}</span>
+                            <span class="cmd-body">
+                              <span class="cmd-chevron">{isOpen ? "▾" : "▸"}</span>
+                              <span class="cmd-name">{group.headerKeyword}</span>
+                              <span class="cmd-arg">{group.headerLabel}</span>
+                            </span>
+                            <span class="cmd-group-count">{group.childIdxs.length}</span>
+                          </li>
+                        {:else}
+                          <li
+                            class="cmd cmd-clickable cmd-setup"
+                            class:cmd-failed={groupFailed}
+                            class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
+                            class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
+                            onmouseenter={() => { if (hasSnapshot && groupSnapIdx !== null) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onclick={() => {
+                              toggleGroup(g);
+                              if (hasSnapshot && groupSnapIdx !== null) {
+                                lockedStep = groupSnapIdx;
+                                snapshotStep = groupSnapIdx;
+                                leftTab = "snapshot";
+                              }
+                            }}
+                          >
+                            <span class="cmd-num"></span>
+                            <span class="cmd-body">
+                              <span class="cmd-chevron">{isOpen ? "▾" : "▸"}</span>
+                              <span class="cmd-name">{group.headerKeyword}</span>
+                              <span class="cmd-arg">{group.headerLabel}</span>
+                            </span>
+                            <span class="cmd-group-count">{group.childIdxs.length}</span>
+                          </li>
+                        {/if}
+                        {#if isOpen}
+                          {#each group.childIdxs as i, childPos}
+                            {@const cmd = cmdLog[i]}
+                            {@const childSnapIdx = snapshotIdxForCommandChild(g, childPos)}
+                            {#if cmd}
+                              <li
+                                class="cmd cmd-child"
+                                class:cmd-failed={cmd.state === "failed"}
+                                class:cmd-active={hasSnapshot && childSnapIdx !== null && activeSnapshotStep === childSnapIdx}
+                                class:cmd-locked={hasSnapshot && childSnapIdx !== null && lockedStep === childSnapIdx}
+                                class:cmd-clickable={hasSnapshot && childSnapIdx !== null}
+                                onmouseenter={() => { if (hasSnapshot && childSnapIdx !== null) { hoverStep = childSnapIdx; leftTab = "snapshot"; } }}
+                                onclick={() => {
+                                  if (hasSnapshot && childSnapIdx !== null) {
+                                    lockedStep = lockedStep === childSnapIdx ? null : childSnapIdx;
+                                    snapshotStep = childSnapIdx;
+                                    leftTab = "snapshot";
+                                  }
+                                }}
+                              >
+                                <span class="cmd-num">{i + 1}</span>
+                                <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
+                                <span class="cmd-body">
+                                  <span class="cmd-name">{cmd.name}</span>
+                                  {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
+                                </span>
+                              </li>
+                            {/if}
+                          {/each}
+                        {/if}
+                      {/each}
+                    </ol>
+                  </div>
+                {:else if hasCommands}
                   <div class="commands-panel">
                     <div class="commands-header">
                       <span class="commands-title">Command Log</span>

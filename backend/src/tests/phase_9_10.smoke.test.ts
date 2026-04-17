@@ -808,3 +808,79 @@ test("test.started then test.passed transitions pending → passed in run totals
   assert.equal(final.failed, 0);
   assert.equal(final.skipped, 0, "pending bucket should drain when test finishes");
 });
+
+// ─── Spec upsert on /runs upload ──────────────────────────────────────
+// Cucumber-style reporters only emit spec.started/spec.finished (no per-test
+// events), so the live path creates a specs row with stats from the
+// spec.finished payload but zero tests rows. The reporter then POSTs /runs
+// at after:run with the full per-test list. Before the fix, that INSERT
+// collided with uniq_specs_run_file (migration 030) and the whole
+// transaction rolled back — summary showed N total but the list was empty.
+test("live spec row + later /runs upload merges instead of rolling back on unique conflict", async () => {
+  const suite = `smoke-upload-after-live-${Date.now()}`;
+  const start = await authPost("/live/start", { suite });
+  assert.equal(start.status, 201);
+  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+
+  const specPath = "cypress/e2e/cucumber.feature";
+
+  // Live path: simulate Cucumber reporter that only emits spec-level events.
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "spec.started", spec: specPath },
+    { type: "spec.finished", spec: specPath, stats: { total: 3, passed: 2, failed: 1, skipped: 0, duration_ms: 500 } },
+  ]);
+
+  // Wait for the live path to populate spec stats.
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      return (await d.json()) as { total: number; specs: Array<{ total: number; tests: unknown[] }> };
+    },
+    (r) => r.specs.length === 1 && r.specs[0].total === 3
+  );
+
+  // After:run — reporter posts the authoritative per-test list. This has the
+  // same (run_id, file_path) as the live-created spec, which used to crash
+  // on uniq_specs_run_file.
+  const uploadRes = await authPost("/runs", {
+    meta: {
+      suite_name: suite,
+      branch: "main",
+      commit_sha: "deadbeef",
+      ci_run_id,
+      started_at: "2026-04-17T00:00:00Z",
+      finished_at: "2026-04-17T00:00:01Z",
+      reporter: "cypress",
+    },
+    stats: { total: 3, passed: 2, failed: 1, skipped: 0, pending: 0, duration_ms: 500 },
+    specs: [
+      {
+        file_path: specPath,
+        title: "cucumber.feature",
+        stats: { total: 3, passed: 2, failed: 1, skipped: 0, duration_ms: 500 },
+        tests: [
+          { title: "scenario A", full_title: "cucumber > scenario A", status: "passed", duration_ms: 100, screenshot_paths: [] },
+          { title: "scenario B", full_title: "cucumber > scenario B", status: "passed", duration_ms: 150, screenshot_paths: [] },
+          { title: "scenario C", full_title: "cucumber > scenario C", status: "failed", duration_ms: 200, screenshot_paths: [], error: { message: "boom" } },
+        ],
+      },
+    ],
+  });
+  assert.equal(uploadRes.status, 200, `expected merge (200), got ${uploadRes.status}`);
+  const uploadBody = (await uploadRes.json()) as { id: number; merged: boolean };
+  assert.equal(uploadBody.id, liveRunId, "upload must merge into the live run");
+  assert.equal(uploadBody.merged, true);
+
+  // Run detail should now have 3 test rows visible — the symptom was 0 rows.
+  const detail = (await (await authGet(`/runs/${liveRunId}`)).json()) as {
+    total: number; failed: number;
+    specs: Array<{ total: number; tests: Array<{ full_title: string; status: string }> }>;
+  };
+  assert.equal(detail.specs.length, 1);
+  assert.equal(detail.specs[0].tests.length, 3, "test list must not be empty after upload merges over a live-created spec");
+  assert.equal(detail.specs[0].total, 3);
+  assert.equal(detail.total, 3);
+  assert.equal(detail.failed, 1);
+  const titles = detail.specs[0].tests.map((t) => t.full_title).sort();
+  assert.deepEqual(titles, ["cucumber > scenario A", "cucumber > scenario B", "cucumber > scenario C"]);
+});

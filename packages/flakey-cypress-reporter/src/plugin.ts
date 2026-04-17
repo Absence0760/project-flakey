@@ -19,8 +19,12 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync
 import { join, basename } from "path";
 import { tmpdir } from "os";
 
-const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter");
-const FLAKEY_CMD_DIR = join(tmpdir(), "flakey-commands");
+// Per-invocation subdirs scoped by the main Cypress process's PID so two
+// concurrent `cypress run` terminals on the same machine don't share a
+// buffer directory. The Mocha reporter child process resolves the matching
+// path via `process.ppid` — see reporter.ts.
+const FLAKEY_TMP_DIR = join(tmpdir(), "flakey-reporter", `run-${process.pid}`);
+const FLAKEY_CMD_DIR = join(tmpdir(), "flakey-commands", `run-${process.pid}`);
 
 interface NormalizedSpec {
   file_path: string;

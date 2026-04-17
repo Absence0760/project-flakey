@@ -35,3 +35,12 @@ The Mocha reporter runs in a separate Node process from `setupNodeEvents` and do
 3. `$TMPDIR/flakey-reporter/live-run-id` — legacy un-scoped path, retained for back-compat with older live-reporter builds.
 
 Sources must resolve to the same numeric id for per-test live events (`test.started` / `test.passed` / `test.failed` / `test.skipped`) to stream correctly. If you see tests running but no per-test events in the dashboard, check that the resolver is picking up the right file. The PID scoping also lets two concurrent `cypress run` invocations on the same machine coexist without overwriting each other's run ids.
+
+## Spec buffer directory (concurrent runs)
+
+The Mocha reporter writes per-spec result buffers to a temp directory that the plugin's `after:run` drains for the final `/runs` upload. To prevent concurrent `cypress run` invocations on the same machine from stomping each other's buffers (and causing the loser's upload to find an empty directory), the buffer dir is scoped by the main Cypress process's PID:
+
+- Plugin (`src/plugin.ts`, in the main Cypress process): `$TMPDIR/flakey-reporter/run-<process.pid>/` and `$TMPDIR/flakey-commands/run-<process.pid>/`.
+- Mocha reporter (`src/reporter.ts`, child process): `$TMPDIR/flakey-reporter/run-<process.ppid>/`.
+
+Both sides agree on the same main-Cypress PID. The `live-run-id-<pid>` hand-off file stays in the un-scoped `$TMPDIR/flakey-reporter/` base dir (it's already PID-scoped by filename).

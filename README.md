@@ -86,6 +86,8 @@ import "@flakeytesting/cypress-snapshots/support";
 
 Results, screenshots, and videos upload when the run finishes. DOM snapshots stream to the backend as each test completes when the live reporter (`@flakeytesting/live-reporter`) is also active, and fall back to the end-of-run batch upload otherwise. For Cucumber projects, also add `import "@flakeytesting/cypress-snapshots/cucumber"` to your support file to capture Gherkin step markers in each snapshot bundle.
 
+Concurrent `cypress run` invocations on the same machine are supported out of the box — the reporter walks each process's ancestor chain to find the nearest shared ancestor with the plugin, so the two process trees stay isolated without needing a custom `TMPDIR`.
+
 ### Playwright
 
 ```bash
