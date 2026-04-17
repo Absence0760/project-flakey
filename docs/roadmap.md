@@ -71,7 +71,7 @@
 
 ## Phase 6 — Advanced features
 
-- [x] DOM snapshot plugin for Cypress (`@flakey/cypress-snapshots`)
+- [x] DOM snapshot plugin for Cypress (`@flakeytesting/cypress-snapshots`)
 - [x] Test history per test (pass/fail timeline across runs)
 - [x] Compare runs side-by-side
 - [x] Additional reporter parsers (Jest, WebdriverIO)

@@ -84,7 +84,7 @@ import "@flakeytesting/cypress-reporter/support";
 import "@flakeytesting/cypress-snapshots/support";
 ```
 
-Results, screenshots, videos, and DOM snapshots are uploaded automatically when the run finishes.
+Results, screenshots, and videos upload when the run finishes. DOM snapshots stream to the backend as each test completes when the live reporter (`@flakeytesting/live-reporter`) is also active, and fall back to the end-of-run batch upload otherwise. For Cucumber projects, also add `import "@flakeytesting/cypress-snapshots/cucumber"` to your support file to capture Gherkin step markers in each snapshot bundle.
 
 ### Playwright
 

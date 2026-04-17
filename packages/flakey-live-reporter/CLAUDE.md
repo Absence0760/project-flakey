@@ -20,3 +20,12 @@ When adding a framework, follow the existing shape: emit normalized events throu
 ## Consumer wiring
 
 Loaded as an optional peer by `@flakeytesting/cypress-reporter`. Standalone users import the subpath matching their framework directly.
+
+## Side effects of `register()` (Mocha/Cypress)
+
+After a successful `POST /live/start`, the Mocha adapter in `src/mocha.ts` performs two cross-package integration steps:
+
+1. **Environment population** — sets `process.env.FLAKEY_API_URL` and `process.env.FLAKEY_API_KEY` from the constructor args, so sibling `setupNodeEvents` plugins (notably `@flakeytesting/cypress-snapshots`'s streaming upload path) can read credentials without re-configuration.
+2. **Cross-process run-id bridge** — writes the numeric run id to `$TMPDIR/flakey-reporter/live-run-id`. Cypress spawns the Mocha reporter in a separate Node process that does not inherit env mutations from `setupNodeEvents`; the reporter (`@flakeytesting/cypress-reporter`) reads the file as a fallback via `readLiveRunId()`. The file is `unlinkSync`ed in `after:run`.
+
+If you add a new framework adapter, replicate these two side effects (or the framework's equivalent) so streaming snapshots and per-test live events work for that framework too.

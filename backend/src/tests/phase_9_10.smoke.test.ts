@@ -648,3 +648,163 @@ test("GET /runs marks aborted runs with aborted=true", async () => {
   assert.equal(detailBody.aborted, true);
   assert.equal(detailBody.aborted_reason, "flag test");
 });
+
+// ─── Live snapshot endpoint: happy path + sanitization + foreign runId ───
+test("POST /live/:runId/snapshot stores blob, sanitizes filename, links test row, rejects foreign run", async () => {
+  // Create a live run
+  const start = await authPost("/live/start", { suite: "smoke-snapshot" });
+  assert.equal(start.status, 201);
+  const { id: liveRunId } = (await start.json()) as { id: number };
+
+  // Emit test.started for a specific full_title so the UPDATE has something to match
+  const spec = "cypress/e2e/login.cy.ts";
+  const fullTitle = "Login flow should redirect after logout";
+  const evt = await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.started", spec, test: fullTitle },
+  ]);
+  assert.equal(evt.status, 200);
+
+  // Wait for the pending row to land (backend processes events after response)
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => rows.some((r) => r.full_title === fullTitle)
+  );
+
+  // Missing required field → 400
+  {
+    const fd = new FormData();
+    fd.set("snapshot", new Blob(["x"], { type: "application/gzip" }), "bad.gz");
+    // no spec / testTitle
+    const r = await fetch(`${BASE}/live/${liveRunId}/snapshot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    assert.equal(r.status, 400);
+  }
+
+  // Happy path: upload gz blob, assert key + snapshot_path linkage
+  const gzBody = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const fd = new FormData();
+  fd.set("snapshot", new Blob([gzBody], { type: "application/gzip" }), "snapshot.json.gz");
+  fd.set("spec", spec);
+  fd.set("testTitle", fullTitle);
+  const ok = await fetch(`${BASE}/live/${liveRunId}/snapshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  assert.equal(ok.status, 200);
+  const { key } = (await ok.json()) as { key: string };
+  assert.ok(key.startsWith(`runs/${liveRunId}/snapshots/`), `key should be run-scoped, got: ${key}`);
+  assert.match(key, /login\.cy\.ts--Login-flow-should-redirect-after-logout\.json\.gz$/);
+
+  // snapshot_path should propagate to the tests row (UPDATE runs right after put)
+  const tests = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string; snapshot_path?: string | null }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => !!rows.find((r) => r.full_title === fullTitle)?.snapshot_path
+  );
+  const linked = tests.find((r) => r.full_title === fullTitle);
+  assert.equal(linked?.snapshot_path, key, "tests.snapshot_path should match the uploaded key");
+
+  // Filename sanitization: testTitle with path-traversal and angle brackets
+  {
+    const fd2 = new FormData();
+    fd2.set("snapshot", new Blob([gzBody], { type: "application/gzip" }), "evil.json.gz");
+    fd2.set("spec", spec);
+    fd2.set("testTitle", "../../evil <script>");
+    const r = await fetch(`${BASE}/live/${liveRunId}/snapshot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd2,
+    });
+    assert.equal(r.status, 200);
+    const { key: evilKey } = (await r.json()) as { key: string };
+    assert.ok(!evilKey.includes(".."), `key must not contain traversal: ${evilKey}`);
+    assert.ok(!evilKey.includes("<"), `key must not contain angle brackets: ${evilKey}`);
+  }
+
+  // Foreign runId: a run belonging to no one (e.g. 999999) must 404
+  {
+    const fd3 = new FormData();
+    fd3.set("snapshot", new Blob([gzBody], { type: "application/gzip" }), "a.json.gz");
+    fd3.set("spec", spec);
+    fd3.set("testTitle", fullTitle);
+    const r = await fetch(`${BASE}/live/999999/snapshot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd3,
+    });
+    assert.equal(r.status, 404);
+  }
+});
+
+// ─── Live test-row upsert: duplicate test.started is idempotent ────────
+test("two identical test.started events produce one tests row (idempotent upsert)", async () => {
+  const start = await authPost("/live/start", { suite: "smoke-upsert-idempotent" });
+  const { id: liveRunId } = (await start.json()) as { id: number };
+
+  const spec = "cypress/e2e/dup.cy.ts";
+  const fullTitle = "Dup suite > only one row please";
+
+  await authPost(`/live/${liveRunId}/events`, [{ type: "test.started", spec, test: fullTitle }]);
+  await authPost(`/live/${liveRunId}/events`, [{ type: "test.started", spec, test: fullTitle }]);
+
+  const rows = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (r) => r.filter((x) => x.full_title === fullTitle).length > 0
+  );
+  const matching = rows.filter((r) => r.full_title === fullTitle);
+  assert.equal(matching.length, 1, "duplicate test.started must not produce duplicate rows");
+});
+
+// ─── Live stats: pending → passed updates counters correctly ───────────
+test("test.started then test.passed transitions pending → passed in run totals", async () => {
+  const start = await authPost("/live/start", { suite: "smoke-pending-transition" });
+  const { id: liveRunId } = (await start.json()) as { id: number };
+
+  const spec = "cypress/e2e/trans.cy.ts";
+  const fullTitle = "Trans suite > it passes";
+
+  await authPost(`/live/${liveRunId}/events`, [{ type: "test.started", spec, test: fullTitle }]);
+
+  // After test.started, the test row has status='pending' which counts under skipped
+  const mid = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      return (await d.json()) as { passed: number; failed: number; skipped: number; total: number };
+    },
+    (r) => r.total >= 1
+  );
+  assert.equal(mid.passed, 0, "no passed yet");
+  assert.equal(mid.failed, 0);
+  assert.ok(mid.skipped >= 1, `pending should count as skipped mid-run, got ${mid.skipped}`);
+
+  // Now send test.passed — pending row should transition, passed should tick up
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.passed", spec, test: fullTitle, duration_ms: 123 },
+  ]);
+
+  const final = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      return (await d.json()) as { passed: number; failed: number; skipped: number; total: number };
+    },
+    (r) => r.passed === 1
+  );
+  assert.equal(final.passed, 1, "passed should increment after test.passed");
+  assert.equal(final.failed, 0);
+  assert.equal(final.skipped, 0, "pending bucket should drain when test finishes");
+});

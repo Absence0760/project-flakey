@@ -175,7 +175,7 @@ Each example is pre-configured to upload results to Better Testing. Here's how e
 ### Cypress config
 
 ```typescript
-import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
+import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
 
 export default defineConfig({
   reporter: "@flakeytesting/cypress-reporter",
@@ -186,8 +186,8 @@ export default defineConfig({
   },
   e2e: {
     baseUrl: "http://localhost:4444",
-    setupNodeEvents(on, config) {
-      flakeyReporter(on, config);
+    async setupNodeEvents(on, config) {
+      await setupFlakey(on, config);
       return config;
     },
   },
@@ -197,7 +197,12 @@ export default defineConfig({
 ```typescript
 // cypress/support/e2e.ts
 import "@flakeytesting/cypress-reporter/support";
+import "@flakeytesting/cypress-snapshots/support";
+// For Cucumber projects only — adds Gherkin step markers to the snapshot bundle:
+// import "@flakeytesting/cypress-snapshots/cucumber";
 ```
+
+`setupFlakey` is the canonical entry point. It registers the reporter plugin, the snapshot plugin (if `@flakeytesting/cypress-snapshots` is installed), and the live reporter (if `@flakeytesting/live-reporter` is installed). When the live reporter is active, DOM snapshots stream to the backend mid-run instead of only uploading at the end.
 
 ### Playwright config
 

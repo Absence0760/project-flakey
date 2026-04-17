@@ -25,3 +25,7 @@ Don't promote the optional peers to required; users should be able to use the re
 ## Depends on
 
 - `@flakeytesting/core` (workspace) — shared upload/format helpers.
+
+## Live run id resolution
+
+The Mocha reporter runs in a separate Node process from `setupNodeEvents` and does not inherit env mutations set during plugin registration. `readLiveRunId()` in `src/reporter.ts` therefore checks `process.env.FLAKEY_LIVE_RUN_ID` first, then falls back to reading `$TMPDIR/flakey-reporter/live-run-id` (written by `@flakeytesting/live-reporter`'s `register()`). Both paths must resolve to the same numeric id for per-test live events (`test.started` / `test.passed` / `test.failed` / `test.skipped`) to stream correctly. If you see tests running but no per-test events in the dashboard, check that both paths agree.

@@ -149,18 +149,18 @@ function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void 
  * Returns the spec id, or null on error.
  */
 async function findOrCreateSpec(orgId: number, runId: number, specPath: string): Promise<number | null> {
-  const existing = await tenantQuery(orgId,
-    "SELECT id FROM specs WHERE run_id = $1 AND file_path = $2 LIMIT 1",
-    [runId, specPath]
-  );
-  if (existing.rows.length > 0) return existing.rows[0].id as number;
-
-  const inserted = await tenantQuery(orgId,
+  // Atomic find-or-create backed by the unique index on (run_id, file_path)
+  // added in migration 030. RETURNING id on ON CONFLICT DO UPDATE gives us
+  // the existing row's id without a second SELECT, closing the race where
+  // two concurrent events would each create a separate spec.
+  const upserted = await tenantQuery(orgId,
     `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-     VALUES ($1, $2, $3, 0, 0, 0, 0, 0) RETURNING id`,
+     VALUES ($1, $2, $3, 0, 0, 0, 0, 0)
+     ON CONFLICT (run_id, file_path) DO UPDATE SET file_path = EXCLUDED.file_path
+     RETURNING id`,
     [runId, specPath, specPath.split("/").pop() ?? specPath]
   );
-  return inserted.rows[0]?.id as number ?? null;
+  return upserted.rows[0]?.id as number ?? null;
 }
 
 /**
@@ -225,17 +225,20 @@ async function upsertPendingTest(orgId: number, runId: number, event: LiveTestEv
   try {
     const specId = await findOrCreateSpec(orgId, runId, specPath);
     if (specId === null) return;
-    const existing = await tenantQuery(orgId,
-      `SELECT 1 FROM tests WHERE spec_id = $1 AND full_title = $2 LIMIT 1`,
+    // Atomic insert-or-skip backed by the partial unique index
+    // `idx_tests_pending_unique` (migration 030). Two concurrent test.started
+    // events with the same spec/title can both race past an app-level SELECT,
+    // so we rely on the DB to enforce uniqueness and silently drop the dup.
+    const inserted = await tenantQuery(orgId,
+      `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
+       VALUES ($1, $2, $2, 'pending', 0, NULL, '{}')
+       ON CONFLICT (spec_id, full_title) WHERE status = 'pending' DO NOTHING
+       RETURNING id`,
       [specId, event.test]
     );
-    if (existing.rowCount && existing.rowCount > 0) return;
-    await tenantQuery(orgId,
-      `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
-       VALUES ($1, $2, $3, 'pending', 0, NULL, '{}')`,
-      [specId, event.test, event.test]
-    );
-    await recomputeSpecAndRunStats(orgId, runId, specId);
+    if (inserted.rowCount && inserted.rowCount > 0) {
+      await recomputeSpecAndRunStats(orgId, runId, specId);
+    }
   } catch (err: any) {
     console.error("Failed to upsert pending test:", err.message);
   }
