@@ -1,9 +1,12 @@
 import { Router } from "express";
 import crypto from "crypto";
+import multer from "multer";
 import { tenantQuery } from "../db.js";
 import { liveEvents, type LiveTestEvent } from "../live-events.js";
+import { getStorage } from "../storage.js";
 
 const router = Router();
+const snapshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 50 * 1024 * 1024 } });
 
 /**
  * GET /live/active — list run IDs that are currently receiving live events.
@@ -259,6 +262,48 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
     console.error("Failed to insert live test result:", err.message);
   }
 }
+
+/**
+ * POST /live/:runId/snapshot — stream a single DOM snapshot bundle mid-run.
+ * Body (multipart): file field "snapshot" (.json.gz), text fields "spec" and "testTitle".
+ * Stores at runs/{runId}/snapshots/{spec}--{title}.json.gz — same key pattern the
+ * end-of-run batch uploader uses, so the existing title-match association still works.
+ */
+router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, res) => {
+  try {
+    const runId = Number(req.params.runId);
+    if (!runId) {
+      res.status(400).json({ error: "Invalid run ID" });
+      return;
+    }
+
+    const file = req.file;
+    const spec = typeof req.body?.spec === "string" ? req.body.spec : "";
+    const testTitle = typeof req.body?.testTitle === "string" ? req.body.testTitle : "";
+    if (!file || !spec || !testTitle) {
+      res.status(400).json({ error: "snapshot file, spec, and testTitle are required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    const owns = await tenantQuery(orgId, `SELECT 1 FROM runs WHERE id = $1`, [runId]);
+    if (owns.rowCount === 0) {
+      res.status(404).json({ error: "Run not found" });
+      return;
+    }
+
+    const safeTitle = testTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "-").slice(0, 100);
+    const safeSpec = spec.replace(/[^a-zA-Z0-9_\-./]/g, "").replace(/\//g, "__");
+    const fileName = `${safeSpec}--${safeTitle}.json.gz`;
+    const key = `runs/${runId}/snapshots/${fileName}`;
+
+    await getStorage().put(file.path, key);
+    res.status(200).json({ key });
+  } catch (err) {
+    console.error("POST /live/:runId/snapshot error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 /**
  * POST /live/:runId/abort — mark a live run as aborted (e.g. from a SIGINT/SIGTERM handler).

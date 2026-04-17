@@ -40,6 +40,10 @@ export function register(
 
   if (!url || !apiKey) return;
 
+  // Make credentials visible to sibling plugins (e.g. cypress-snapshots streaming).
+  process.env.FLAKEY_API_URL = url;
+  process.env.FLAKEY_API_KEY = apiKey;
+
   let client: LiveClient | null = null;
   let teardownShutdown: (() => void) | null = null;
   let runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
@@ -68,6 +72,8 @@ export function register(
           if (data.ci_run_id) {
             process.env.CI_RUN_ID = data.ci_run_id;
           }
+          // Expose the numeric run id so other plugins (e.g. cypress-snapshots) can stream artifacts mid-run.
+          process.env.FLAKEY_LIVE_RUN_ID = String(runId);
           console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
         }
       } catch (err) {
