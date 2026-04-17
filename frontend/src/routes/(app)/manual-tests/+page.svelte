@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { authFetch } from '$lib/auth';
+	import { authFetch, getAuth } from '$lib/auth';
 	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
 
 	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -23,6 +23,16 @@
 		source_file: string | null;
 		auto_last_status: 'passed' | 'failed' | 'skipped' | 'pending' | null;
 		auto_last_run_at: string | null;
+		group_id: number | null;
+		group_name: string | null;
+	}
+
+	interface Group {
+		id: number;
+		name: string;
+		description: string | null;
+		test_count: number;
+		created_at: string;
 	}
 
 	interface StepResult {
@@ -39,11 +49,15 @@
 	interface Summary { total: number; passed: number; failed: number; blocked: number; skipped: number; not_run: number; }
 
 	let tests = $state<ManualTest[]>([]);
+	let groups = $state<Group[]>([]);
 	let summary = $state<Summary | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let filterStatus = $state<'all' | 'not_run' | 'passed' | 'failed' | 'blocked' | 'skipped'>('all');
 	let filterSuite = $state<string>('all');
+	let filterGroup = $state<string>('all');
+
+	const isAdmin = $derived(getAuth().user?.orgRole !== 'viewer');
 
 	// Unique suites from the loaded tests, for the project filter
 	const suites = $derived.by(() => {
@@ -52,11 +66,19 @@
 		return Array.from(set).sort();
 	});
 
-	// Client-side counts for the filter tabs (respect the suite filter but
-	// not the status filter, so counts always reflect "how many would show
+	function matchesGroup(t: ManualTest): boolean {
+		if (filterGroup === 'all') return true;
+		if (filterGroup === 'none') return t.group_id == null;
+		return String(t.group_id) === filterGroup;
+	}
+
+	// Client-side counts for the filter tabs (respect the suite & group filter
+	// but not the status filter, so counts always reflect "how many would show
 	// if I clicked this tab")
 	const statusCounts = $derived.by(() => {
-		const scoped = filterSuite === 'all' ? tests : tests.filter(t => t.suite_name === filterSuite);
+		const scoped = tests.filter(t =>
+			(filterSuite === 'all' || t.suite_name === filterSuite) && matchesGroup(t)
+		);
 		return {
 			all: scoped.length,
 			not_run: scoped.filter(t => t.status === 'not_run').length,
@@ -71,6 +93,7 @@
 		return tests.filter(t => {
 			if (filterSuite !== 'all' && t.suite_name !== filterSuite) return false;
 			if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+			if (!matchesGroup(t)) return false;
 			return true;
 		});
 	});
@@ -93,6 +116,7 @@
 	let newSteps = $state<StepRow[]>([emptyStep()]);
 	let newAutomatedKey = $state('');
 	let newTagsText = $state('');
+	let newGroupId = $state<string>('');
 
 	function resetCreateForm() {
 		newTitle = '';
@@ -102,6 +126,7 @@
 		newSteps = [emptyStep()];
 		newAutomatedKey = '';
 		newTagsText = '';
+		newGroupId = '';
 	}
 
 	function openCreate() {
@@ -204,6 +229,11 @@
 	// rather than nuking the whole modal.
 	function handleEsc(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
+		if (showGroups) {
+			closeGroups();
+			e.preventDefault();
+			return;
+		}
 		if (showCreate) {
 			closeCreate();
 			e.preventDefault();
@@ -238,17 +268,24 @@
 		try {
 			// Load the full list; filtering happens client-side so the tab
 			// counts always reflect the live set of tests.
-			const [listRes, sumRes] = await Promise.all([
+			const [listRes, sumRes, grpRes] = await Promise.all([
 				authFetch(`${API_URL}/manual-tests`),
 				authFetch(`${API_URL}/manual-tests/summary`),
+				authFetch(`${API_URL}/manual-test-groups`),
 			]);
 			tests = await listRes.json();
 			summary = await sumRes.json();
+			groups = grpRes.ok ? await grpRes.json() : [];
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function reloadGroups() {
+		const res = await authFetch(`${API_URL}/manual-test-groups`);
+		if (res.ok) groups = await res.json();
 	}
 
 	async function createTest() {
@@ -280,6 +317,7 @@
 				steps,
 				automated_test_key: newAutomatedKey || null,
 				tags,
+				group_id: newGroupId ? Number(newGroupId) : null,
 			}),
 		});
 		if (res.ok) {
@@ -373,6 +411,74 @@
 		if (s === 'failed') return 'Automated run: failing';
 		return `Automated run: ${s}`;
 	}
+
+	// ── Manage Groups modal ──────────────────────────────────────────────
+	let showGroups = $state(false);
+	let groupName = $state('');
+	let groupDescription = $state('');
+	let groupError = $state<string | null>(null);
+	let editingGroupId = $state<number | null>(null);
+
+	function openGroups() {
+		groupName = '';
+		groupDescription = '';
+		groupError = null;
+		editingGroupId = null;
+		showGroups = true;
+	}
+
+	function closeGroups() {
+		showGroups = false;
+	}
+
+	function startEditGroup(g: Group) {
+		editingGroupId = g.id;
+		groupName = g.name;
+		groupDescription = g.description ?? '';
+		groupError = null;
+	}
+
+	function cancelEditGroup() {
+		editingGroupId = null;
+		groupName = '';
+		groupDescription = '';
+		groupError = null;
+	}
+
+	async function saveGroup() {
+		if (!groupName.trim()) return;
+		groupError = null;
+		const url = editingGroupId
+			? `${API_URL}/manual-test-groups/${editingGroupId}`
+			: `${API_URL}/manual-test-groups`;
+		const method = editingGroupId ? 'PATCH' : 'POST';
+		const res = await authFetch(url, {
+			method,
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: groupName.trim(),
+				description: groupDescription || null,
+			}),
+		});
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({}));
+			groupError = (body as { error?: string }).error ?? `Failed (${res.status})`;
+			return;
+		}
+		groupName = '';
+		groupDescription = '';
+		editingGroupId = null;
+		await Promise.all([reloadGroups(), load()]);
+	}
+
+	async function deleteGroup(id: number) {
+		if (!confirm('Delete this group? Tests in it will become ungrouped.')) return;
+		const res = await authFetch(`${API_URL}/manual-test-groups/${id}`, { method: 'DELETE' });
+		if (res.ok) {
+			await Promise.all([reloadGroups(), load()]);
+			if (editingGroupId === id) cancelEditGroup();
+		}
+	}
 </script>
 
 <svelte:window onkeydown={handleEsc} />
@@ -384,6 +490,9 @@
 			<p class="subtitle">Manage and execute manual regression tests alongside your automated suite.</p>
 		</div>
 		<div class="header-actions">
+			{#if isAdmin}
+				<button class="btn-ghost" onclick={openGroups}>⛿ Manage groups</button>
+			{/if}
 			<button class="btn-ghost" onclick={openImport} disabled={importing}>
 				{importing ? 'Importing…' : '⇪ Import .feature files'}
 			</button>
@@ -454,6 +563,15 @@
 							<label class="field field-wide">
 								<span class="field-label">Description</span>
 								<textarea bind:value={newDescription} rows="2" placeholder="Optional — what is this test verifying?"></textarea>
+							</label>
+							<label class="field">
+								<span class="field-label">Group</span>
+								<select bind:value={newGroupId}>
+									<option value="">— None —</option>
+									{#each groups as g}
+										<option value={String(g.id)}>{g.name}</option>
+									{/each}
+								</select>
 							</label>
 							<label class="field">
 								<span class="field-label">Tags</span>
@@ -578,6 +696,14 @@
 					<option value={s}>{s}</option>
 				{/each}
 			</select>
+			<label for="group-select">Group</label>
+			<select id="group-select" bind:value={filterGroup}>
+				<option value="all">All groups</option>
+				<option value="none">— Ungrouped —</option>
+				{#each groups as g}
+					<option value={String(g.id)}>{g.name} ({g.test_count})</option>
+				{/each}
+			</select>
 		</div>
 	</div>
 
@@ -595,6 +721,7 @@
 				<tr>
 					<th>Title</th>
 					<th>Suite</th>
+					<th>Group</th>
 					<th>Type</th>
 					<th>Priority</th>
 					<th>Status</th>
@@ -610,6 +737,7 @@
 							<a href="#" onclick={(e) => { e.preventDefault(); openTest(t.id); }}>{t.title}</a>
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
+						<td>{t.group_name ?? '—'}</td>
 						<td>
 							{#if t.source === 'cucumber'}
 								<span class="badge automated" title="Imported from {t.source_file}">
@@ -648,6 +776,83 @@
 				{/each}
 			</tbody>
 		</table>
+	{/if}
+
+	{#if showGroups}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-overlay" onclick={closeGroups}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal groups-modal" onclick={(e) => e.stopPropagation()}>
+				<header class="modal-header">
+					<h2>Manage groups</h2>
+					<button class="btn-ghost" onclick={closeGroups} aria-label="Close">✕</button>
+				</header>
+				<div class="modal-body">
+					<section class="form-section">
+						<h3 class="form-section-title">
+							{editingGroupId ? 'Edit group' : 'New group'}
+						</h3>
+						<div class="form-grid">
+							<label class="field field-wide">
+								<span class="field-label">Name <span class="req">*</span></span>
+								<input bind:value={groupName} placeholder="e.g. Checkout Flow" />
+							</label>
+							<label class="field field-wide">
+								<span class="field-label">Description</span>
+								<textarea bind:value={groupDescription} rows="2" placeholder="Optional"></textarea>
+							</label>
+						</div>
+						{#if groupError}
+							<p class="error inline">{groupError}</p>
+						{/if}
+						<div class="actions">
+							{#if editingGroupId}
+								<button class="btn-ghost" onclick={cancelEditGroup}>Cancel edit</button>
+							{/if}
+							<button class="btn-primary" onclick={saveGroup} disabled={!groupName.trim()}>
+								{editingGroupId ? 'Save group' : 'Create group'}
+							</button>
+						</div>
+					</section>
+
+					<section class="form-section">
+						<h3 class="form-section-title">Existing groups</h3>
+						{#if groups.length === 0}
+							<p class="empty">No groups yet.</p>
+						{:else}
+							<table class="tests">
+								<thead>
+									<tr>
+										<th>Name</th>
+										<th>Description</th>
+										<th>Tests</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each groups as g}
+										<tr>
+											<td><strong>{g.name}</strong></td>
+											<td>{g.description ?? '—'}</td>
+											<td>{g.test_count}</td>
+											<td class="row-actions">
+												<button class="btn-ghost btn-small" onclick={() => startEditGroup(g)}>Edit</button>
+												<button class="btn-ghost btn-small" onclick={() => deleteGroup(g.id)}>✕</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+					</section>
+				</div>
+				<footer class="modal-footer">
+					<button class="btn-ghost" onclick={closeGroups}>Close</button>
+				</footer>
+			</div>
+		</div>
 	{/if}
 
 	{#if selected}
@@ -1200,4 +1405,14 @@
 	.quick-result { margin-top: 1rem; }
 	.quick-result summary { cursor: pointer; font-size: 0.85rem; color: var(--text-muted); }
 	.quick-result summary:hover { color: var(--text); }
+	.modal.groups-modal {
+		width: min(720px, 95vw);
+		max-width: 720px;
+		height: auto;
+		max-height: 92vh;
+		padding: 0;
+		gap: 0;
+	}
+	.error.inline { padding: 0.35rem 0.5rem; color: #991b1b; font-size: 0.82rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; text-align: left; }
+	.row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; }
 </style>

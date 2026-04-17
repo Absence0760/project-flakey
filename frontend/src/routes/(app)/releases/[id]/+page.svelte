@@ -67,6 +67,58 @@
 	interface RunSummary { id: number; suite_name: string; branch: string; created_at: string; total: number; passed: number; failed: number }
 	interface ManualTestSummary { id: number; title: string; suite_name: string | null; priority: string; status: string }
 
+	interface GroupSummary {
+		id: number;
+		name: string;
+		description: string | null;
+		test_count: number;
+	}
+
+	interface TestSession {
+		id: number;
+		session_number: number;
+		label: string | null;
+		mode: 'full' | 'failures_only';
+		status: 'in_progress' | 'completed';
+		created_at: string;
+		completed_at: string | null;
+		created_by_email: string | null;
+		total: number;
+		passed: number;
+		failed: number;
+		blocked: number;
+		skipped: number;
+		not_run: number;
+	}
+
+	interface SessionResult {
+		id: number;
+		manual_test_id: number;
+		status: 'not_run' | 'passed' | 'failed' | 'blocked' | 'skipped';
+		notes: string | null;
+		step_results: unknown[];
+		run_at: string | null;
+		run_by_email: string | null;
+		title: string;
+		suite_name: string | null;
+		priority: string;
+		group_id: number | null;
+		group_name: string | null;
+	}
+
+	interface SessionDetail {
+		id: number;
+		release_id: number;
+		session_number: number;
+		label: string | null;
+		mode: 'full' | 'failures_only';
+		status: 'in_progress' | 'completed';
+		created_at: string;
+		completed_at: string | null;
+		created_by_email: string | null;
+		results: SessionResult[];
+	}
+
 	interface JiraVersion {
 		id: string;
 		name: string;
@@ -118,19 +170,47 @@
 	let manualTestPickerOpen = $state(false);
 	let manualTestSelection = $state<Set<number>>(new Set());
 
+	// Groups — for the "Add by Group" picker
+	let availableGroups = $state<GroupSummary[]>([]);
+	let groupPickerOpen = $state(false);
+	let groupLinkMessage = $state<string | null>(null);
+
+	// Sessions
+	let sessions = $state<TestSession[]>([]);
+	let activeSessionDetail = $state<SessionDetail | null>(null);
+	let sessionsLoading = $state(false);
+	let newSessionMode = $state<'full' | 'failures_only'>('full');
+	let newSessionLabel = $state('');
+	let showNewSessionForm = $state(false);
+	let sessionError = $state<string | null>(null);
+
+	// Per-row runner state
+	let runnerTestId = $state<number | null>(null);
+	let runnerStatus = $state<'passed' | 'failed' | 'blocked' | 'skipped'>('passed');
+	let runnerNotes = $state('');
+
+	const inProgressSession = $derived(sessions.find(s => s.status === 'in_progress') ?? null);
+
 	onMount(load);
 
 	async function load() {
 		loading = true;
 		error = null;
 		try {
-			const [rRes, readyRes] = await Promise.all([
+			const [rRes, readyRes, sRes] = await Promise.all([
 				authFetch(`${API_URL}/releases/${releaseId}`),
 				authFetch(`${API_URL}/releases/${releaseId}/readiness`),
+				authFetch(`${API_URL}/releases/${releaseId}/sessions`),
 			]);
 			if (!rRes.ok) throw new Error('Failed to load release');
 			release = await rRes.json();
 			readiness = readyRes.ok ? await readyRes.json() : null;
+			sessions = sRes.ok ? await sRes.json() : [];
+
+			// Auto-load the detail of the in-progress session (if any)
+			const inProg = sessions.find(s => s.status === 'in_progress');
+			if (inProg) await loadSessionDetail(inProg.id);
+			else activeSessionDetail = null;
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
@@ -139,6 +219,16 @@
 		// Load Jira state in the background; don't block the page on a
 		// slow/flaky Jira instance.
 		loadJira();
+	}
+
+	async function loadSessionDetail(sessionId: number) {
+		sessionsLoading = true;
+		try {
+			const res = await authFetch(`${API_URL}/releases/${releaseId}/sessions/${sessionId}`);
+			if (res.ok) activeSessionDetail = await res.json();
+		} finally {
+			sessionsLoading = false;
+		}
 	}
 
 	async function loadJira() {
@@ -239,6 +329,91 @@
 	async function unlinkManualTest(mtId: number) {
 		await authFetch(`${API_URL}/releases/${releaseId}/manual-tests/${mtId}`, { method: 'DELETE' });
 		await load();
+	}
+
+	// ── Add by group ─────────────────────────────────────────────────────
+	async function openGroupPicker() {
+		groupPickerOpen = true;
+		groupLinkMessage = null;
+		const res = await authFetch(`${API_URL}/manual-test-groups`);
+		if (res.ok) availableGroups = await res.json();
+	}
+
+	async function linkGroup(groupId: number) {
+		const res = await authFetch(
+			`${API_URL}/releases/${releaseId}/manual-test-groups/${groupId}`,
+			{ method: 'POST' }
+		);
+		if (res.ok) {
+			const body = await res.json() as { linked: number; total_in_group: number };
+			groupLinkMessage = `Linked ${body.linked} new test(s) (${body.total_in_group} total in group).`;
+			await load();
+		} else {
+			const body = await res.json().catch(() => ({}));
+			groupLinkMessage = (body as { error?: string }).error ?? 'Failed to link group';
+		}
+	}
+
+	// ── Test sessions ────────────────────────────────────────────────────
+	async function createSession() {
+		sessionError = null;
+		const res = await authFetch(`${API_URL}/releases/${releaseId}/sessions`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				mode: newSessionMode,
+				label: newSessionLabel.trim() || null,
+			}),
+		});
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({}));
+			sessionError = (body as { error?: string }).error ?? 'Failed to create session';
+			return;
+		}
+		newSessionLabel = '';
+		newSessionMode = 'full';
+		showNewSessionForm = false;
+		await load();
+	}
+
+	async function completeSession(sessionId: number) {
+		if (!confirm('Mark this session as complete? You will not be able to record more results.')) return;
+		await authFetch(`${API_URL}/releases/${releaseId}/sessions/${sessionId}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ status: 'completed' }),
+		});
+		await load();
+	}
+
+	function openRunner(testId: number) {
+		runnerTestId = testId;
+		runnerStatus = 'passed';
+		runnerNotes = '';
+	}
+
+	function closeRunner() {
+		runnerTestId = null;
+		runnerNotes = '';
+	}
+
+	async function saveRunnerResult() {
+		if (!activeSessionDetail || runnerTestId === null) return;
+		const res = await authFetch(
+			`${API_URL}/releases/${releaseId}/sessions/${activeSessionDetail.id}/results/${runnerTestId}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					status: runnerStatus,
+					notes: runnerNotes || null,
+				}),
+			}
+		);
+		if (res.ok) {
+			closeRunner();
+			await load();
+		}
 	}
 
 	async function addItem() {
@@ -493,8 +668,36 @@
 		<section>
 			<div class="section-header">
 				<h2>Linked manual tests</h2>
-				<button class="btn-ghost" onclick={openManualTestPicker}>+ Link manual tests</button>
+				<div class="header-actions">
+					<button class="btn-ghost" onclick={openGroupPicker}>+ Add by group</button>
+					<button class="btn-ghost" onclick={openManualTestPicker}>+ Link manual tests</button>
+				</div>
 			</div>
+			{#if groupLinkMessage}
+				<p class="import-toast">{groupLinkMessage}</p>
+			{/if}
+
+			{#if groupPickerOpen}
+				<div class="picker">
+					<div class="picker-header">
+						<strong>Pick a group to bulk-link</strong>
+						<button class="btn-ghost" onclick={() => (groupPickerOpen = false)}>Close</button>
+					</div>
+					<ul class="picker-list">
+						{#each availableGroups as g}
+							<li>
+								<button type="button" class="picker-row" onclick={() => linkGroup(g.id)}>
+									<strong>{g.name}</strong>
+									<span class="dim">{g.description ?? '—'}</span>
+									<span class="mini-stats">{g.test_count} tests</span>
+								</button>
+							</li>
+						{:else}
+							<li class="empty">No groups defined yet.</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 			{#if release.linked_manual_tests.length === 0}
 				<p class="empty">No manual tests linked. Readiness will use all high/critical priority manual tests.</p>
 			{:else}
@@ -545,6 +748,162 @@
 				</div>
 			{/if}
 		</section>
+
+		<section class="sessions-section">
+			<div class="section-header">
+				<h2>Test sessions</h2>
+				{#if !inProgressSession}
+					<button class="btn-ghost" onclick={() => (showNewSessionForm = !showNewSessionForm)}>
+						{showNewSessionForm ? 'Cancel' : '+ New session'}
+					</button>
+				{/if}
+			</div>
+
+			{#if showNewSessionForm && !inProgressSession}
+				<div class="new-session-form">
+					<label class="field">
+						<span class="field-label">Label (optional)</span>
+						<input bind:value={newSessionLabel} placeholder="e.g. Release candidate sanity pass" />
+					</label>
+					<label class="field">
+						<span class="field-label">Mode</span>
+						<select bind:value={newSessionMode}>
+							<option value="full">Full run — all linked tests</option>
+							<option value="failures_only">Rerun failures — failed/blocked from latest session</option>
+						</select>
+					</label>
+					{#if sessionError}<p class="error inline">{sessionError}</p>{/if}
+					<div class="actions">
+						<button class="btn-primary" onclick={createSession}>Start session</button>
+					</div>
+				</div>
+			{/if}
+
+			{#if sessions.length === 0}
+				<p class="empty">No test sessions yet. Link manual tests, then start a session to track execution.</p>
+			{:else}
+				<ul class="session-list">
+					{#each sessions as s}
+						<li class="session-card" class:in-progress={s.status === 'in_progress'}>
+							<div class="session-head">
+								<div>
+									<strong>Session #{s.session_number}</strong>
+									{#if s.label}<span class="session-label"> — {s.label}</span>{/if}
+									<span class="mode-badge mode-{s.mode}">
+										{s.mode === 'full' ? 'Full' : 'Rerun failures'}
+									</span>
+									<span class={`status-pill status-${s.status}`}>
+										{s.status === 'in_progress' ? 'In progress' : 'Completed'}
+									</span>
+								</div>
+								<span class="dim">{new Date(s.created_at).toLocaleString()}</span>
+							</div>
+							<div class="progress-bar">
+								{#if s.total > 0}
+									<div class="pb-passed" style="width: {(s.passed / s.total) * 100}%"></div>
+									<div class="pb-failed" style="width: {(s.failed / s.total) * 100}%"></div>
+									<div class="pb-blocked" style="width: {(s.blocked / s.total) * 100}%"></div>
+									<div class="pb-skipped" style="width: {(s.skipped / s.total) * 100}%"></div>
+								{/if}
+							</div>
+							<div class="session-counts">
+								<span><span class="pass">{s.passed}</span> passed</span>
+								<span><span class="fail">{s.failed}</span> failed</span>
+								<span>{s.blocked} blocked</span>
+								<span>{s.skipped} skipped</span>
+								<span>{s.not_run} not run</span>
+								<span class="dim">({s.total} total)</span>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if activeSessionDetail && inProgressSession}
+				<div class="active-session">
+					<div class="section-header">
+						<h3>Active session · #{activeSessionDetail.session_number}</h3>
+						<button class="btn-ghost" onclick={() => completeSession(activeSessionDetail!.id)}>
+							Mark session complete
+						</button>
+					</div>
+					{#if sessionsLoading}
+						<p class="empty">Loading…</p>
+					{:else if activeSessionDetail.results.length === 0}
+						<p class="empty">No tests in this session.</p>
+					{:else}
+						<table class="session-table">
+							<thead>
+								<tr>
+									<th>Title</th>
+									<th>Group</th>
+									<th>Priority</th>
+									<th>Status</th>
+									<th>Last run by</th>
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each activeSessionDetail.results as r}
+									<tr>
+										<td>{r.title}</td>
+										<td>{r.group_name ?? '—'}</td>
+										<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
+										<td>
+											<span class={`status-pill status-${r.status.replace('_', '-')}`}>
+												{r.status.replace('_', ' ')}
+											</span>
+										</td>
+										<td class="dim">
+											{#if r.run_at}
+												{r.run_by_email ?? '—'}
+												<br /><span class="dim small">{new Date(r.run_at).toLocaleString()}</span>
+											{:else}
+												—
+											{/if}
+										</td>
+										<td>
+											<button class="btn-ghost btn-small" onclick={() => openRunner(r.manual_test_id)}>
+												Record
+											</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				</div>
+			{/if}
+		</section>
+
+		{#if runnerTestId !== null}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal-overlay" onclick={closeRunner}>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="runner-modal" onclick={(e) => e.stopPropagation()}>
+					<h3>Record result</h3>
+					<label class="field">
+						<span class="field-label">Status</span>
+						<select bind:value={runnerStatus}>
+							<option value="passed">Passed</option>
+							<option value="failed">Failed</option>
+							<option value="blocked">Blocked</option>
+							<option value="skipped">Skipped</option>
+						</select>
+					</label>
+					<label class="field">
+						<span class="field-label">Notes</span>
+						<textarea bind:value={runnerNotes} rows="4" placeholder="Optional"></textarea>
+					</label>
+					<div class="actions">
+						<button class="btn-ghost" onclick={closeRunner}>Cancel</button>
+						<button class="btn-primary" onclick={saveRunnerResult}>Save</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 
 		<section>
 			<div class="section-header">
@@ -783,4 +1142,172 @@
 	.version-list { list-style: none; padding: 0; margin: 0.5rem 0 0; max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
 	.version-list li { border-bottom: 1px solid var(--border); }
 	.version-list li:last-child { border-bottom: none; }
+
+	/* ── Sessions ────────────────────────────────────────────────────── */
+	.header-actions { display: flex; gap: 0.4rem; }
+	.import-toast {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.4rem 0.65rem;
+		margin: 0 0 0.6rem;
+		font-size: 0.82rem;
+		color: var(--text);
+	}
+	.new-session-form {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.75rem;
+		margin-bottom: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.new-session-form .field { display: flex; flex-direction: column; gap: 0.25rem; }
+	.new-session-form .field-label { font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; }
+	.new-session-form input, .new-session-form select {
+		padding: 0.4rem 0.55rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--text);
+		font-size: 0.85rem;
+	}
+	.new-session-form .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+	.error.inline { padding: 0.35rem 0.5rem; color: #991b1b; font-size: 0.82rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; }
+
+	.session-list { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+	.session-card {
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.6rem 0.75rem;
+		background: var(--bg-secondary);
+	}
+	.session-card.in-progress { border-left: 3px solid #2563eb; background: #eff6ff; }
+	.session-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.4rem;
+		flex-wrap: wrap;
+		font-size: 0.85rem;
+	}
+	.session-label { color: var(--text-muted); }
+	.mode-badge {
+		font-size: 0.65rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+		text-transform: uppercase;
+		font-weight: 600;
+		margin-left: 0.4rem;
+	}
+	.mode-full { background: #dbeafe; color: #1e40af; }
+	.mode-failures_only { background: #fef3c7; color: #92400e; }
+	.status-pill {
+		font-size: 0.65rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+		text-transform: uppercase;
+		font-weight: 600;
+		margin-left: 0.4rem;
+	}
+	.status-pill.status-in_progress { background: #dbeafe; color: #1e40af; }
+	.status-pill.status-completed   { background: #dcfce7; color: #166534; }
+	.status-pill.status-passed  { background: #dcfce7; color: #166534; }
+	.status-pill.status-failed  { background: #fee2e2; color: #991b1b; }
+	.status-pill.status-blocked { background: #fef3c7; color: #92400e; }
+	.status-pill.status-skipped { background: #e5e7eb; color: #4b5563; }
+	.status-pill.status-not-run { background: #e5e7eb; color: #4b5563; }
+
+	.progress-bar {
+		display: flex;
+		height: 6px;
+		background: #e5e7eb;
+		border-radius: 3px;
+		overflow: hidden;
+		margin-bottom: 0.35rem;
+	}
+	.pb-passed { background: #16a34a; }
+	.pb-failed { background: #dc2626; }
+	.pb-blocked { background: #f59e0b; }
+	.pb-skipped { background: #9ca3af; }
+
+	.session-counts {
+		display: flex;
+		gap: 0.75rem;
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		flex-wrap: wrap;
+	}
+	.session-counts .pass { color: #16a34a; font-weight: 600; }
+	.session-counts .fail { color: #dc2626; font-weight: 600; }
+
+	.active-session { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+	.active-session h3 { margin: 0; font-size: 0.95rem; }
+	.session-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		overflow: hidden;
+		margin-top: 0.5rem;
+	}
+	.session-table th, .session-table td {
+		padding: 0.45rem 0.65rem;
+		text-align: left;
+		font-size: 0.82rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.session-table th {
+		background: var(--bg-secondary);
+		color: var(--text-muted);
+		font-weight: 600;
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.session-table tr:last-child td { border-bottom: none; }
+	.priority { font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
+	.priority-low { background: #e5e7eb; color: #4b5563; }
+	.priority-medium { background: #dbeafe; color: #1e40af; }
+	.priority-high { background: #fef3c7; color: #92400e; }
+	.priority-critical { background: #fee2e2; color: #991b1b; }
+	.dim.small { font-size: 0.7rem; }
+	.btn-small { font-size: 0.72rem; padding: 0.25rem 0.55rem; }
+
+	/* ── Runner modal ────────────────────────────────────────────────── */
+	.modal-overlay {
+		position: fixed; inset: 0;
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 300;
+	}
+	.runner-modal {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 1.25rem 1.5rem;
+		width: min(480px, 95vw);
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+	.runner-modal h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+	.runner-modal .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); }
+	.runner-modal .field-label { font-weight: 500; }
+	.runner-modal input, .runner-modal select, .runner-modal textarea {
+		padding: 0.45rem 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--text);
+		font-size: 0.88rem;
+		font-family: inherit;
+	}
+	.runner-modal .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
 </style>

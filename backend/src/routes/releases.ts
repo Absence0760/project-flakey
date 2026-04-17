@@ -79,8 +79,38 @@ async function evaluateManualRegressionExecuted(
   orgId: number,
   releaseId: number
 ): Promise<RuleResult> {
-  // Prefer explicitly linked manual tests; otherwise use org-wide high/critical
-  // priority manual tests as the regression suite.
+  // Prefer the latest completed session (richest signal, preserves history).
+  // Fall back to flat release_manual_tests statuses if no completed session
+  // exists yet — then to org-wide high/critical priority tests.
+  const latestSession = await tenantQuery(
+    orgId,
+    `SELECT id, session_number, label FROM release_test_sessions
+      WHERE release_id = $1 AND status = 'completed'
+      ORDER BY session_number DESC LIMIT 1`,
+    [releaseId]
+  );
+  if (latestSession.rows.length > 0) {
+    const session = latestSession.rows[0];
+    const results = await tenantQuery(
+      orgId,
+      "SELECT status FROM release_test_session_results WHERE session_id = $1",
+      [session.id]
+    );
+    const rows = results.rows;
+    if (rows.length === 0) {
+      return { met: false, details: `Session #${session.session_number} has no tests` };
+    }
+    const failed   = rows.filter((r) => r.status === "failed").length;
+    const blocked  = rows.filter((r) => r.status === "blocked").length;
+    const notRun   = rows.filter((r) => r.status === "not_run").length;
+    const executed = rows.length - notRun;
+    const label = `session #${session.session_number}`;
+    if (failed > 0)   return { met: false, details: `${failed} failing test(s) in ${label}` };
+    if (blocked > 0)  return { met: false, details: `${blocked} blocked test(s) in ${label}` };
+    if (notRun > 0)   return { met: false, details: `${notRun} of ${rows.length} test(s) not run in ${label}` };
+    return { met: true, details: `${executed}/${rows.length} tests executed cleanly in ${label}` };
+  }
+
   const linked = await tenantQuery(
     orgId,
     `SELECT mt.id, mt.status
@@ -811,6 +841,403 @@ router.delete("/:id/manual-tests/:mtId", async (req, res) => {
     res.json({ unlinked: true });
   } catch (err) {
     console.error("DELETE /releases/:id/manual-tests/:mtId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/manual-test-groups/:groupId — bulk-link every test in
+// a group to the release. Skips tests already linked via ON CONFLICT.
+router.post("/:id/manual-test-groups/:groupId", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const groupExists = await tenantQuery(
+      req.user!.orgId,
+      "SELECT 1 FROM manual_test_groups WHERE id = $1",
+      [req.params.groupId]
+    );
+    if (groupExists.rows.length === 0) {
+      res.status(404).json({ error: "Group not found" });
+      return;
+    }
+    const result = await tenantQuery(
+      req.user!.orgId,
+      `INSERT INTO release_manual_tests (release_id, manual_test_id, org_id, added_by)
+       SELECT $1, mt.id, $2, $3
+         FROM manual_tests mt
+        WHERE mt.group_id = $4
+       ON CONFLICT (release_id, manual_test_id) DO NOTHING
+       RETURNING manual_test_id`,
+      [req.params.id, req.user!.orgId, req.user!.id, req.params.groupId]
+    );
+    const countResult = await tenantQuery(
+      req.user!.orgId,
+      "SELECT COUNT(*)::int AS total FROM manual_tests WHERE group_id = $1",
+      [req.params.groupId]
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.link_manual_test_group",
+      "release",
+      req.params.id,
+      { group_id: req.params.groupId, linked: result.rowCount }
+    );
+    res.json({
+      linked: result.rowCount,
+      total_in_group: countResult.rows[0].total,
+    });
+  } catch (err) {
+    console.error("POST /releases/:id/manual-test-groups/:groupId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Release test sessions ───────────────────────────────────────────────
+
+const SESSION_MODES = ["full", "failures_only"];
+const SESSION_RESULT_STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
+
+// GET /releases/:id/sessions — all sessions with progress counts
+router.get("/:id/sessions", async (req, res) => {
+  try {
+    const result = await tenantQuery(
+      req.user!.orgId,
+      `SELECT s.id, s.session_number, s.label, s.mode, s.status,
+              s.created_at, s.completed_at,
+              u.email AS created_by_email,
+              COALESCE(c.total, 0)::int   AS total,
+              COALESCE(c.passed, 0)::int  AS passed,
+              COALESCE(c.failed, 0)::int  AS failed,
+              COALESCE(c.blocked, 0)::int AS blocked,
+              COALESCE(c.skipped, 0)::int AS skipped,
+              COALESCE(c.not_run, 0)::int AS not_run
+         FROM release_test_sessions s
+         LEFT JOIN users u ON u.id = s.created_by
+         LEFT JOIN (
+           SELECT session_id,
+                  COUNT(*)                                     AS total,
+                  COUNT(*) FILTER (WHERE status = 'passed')    AS passed,
+                  COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
+                  COUNT(*) FILTER (WHERE status = 'blocked')   AS blocked,
+                  COUNT(*) FILTER (WHERE status = 'skipped')   AS skipped,
+                  COUNT(*) FILTER (WHERE status = 'not_run')   AS not_run
+             FROM release_test_session_results
+            GROUP BY session_id
+         ) c ON c.session_id = s.id
+        WHERE s.release_id = $1
+        ORDER BY s.session_number DESC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /releases/:id/sessions error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions — create a new session
+// Body: { label?, mode: 'full' | 'failures_only' }
+router.post("/:id/sessions", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const releaseId = Number(req.params.id);
+    const label: string | null = req.body?.label ?? null;
+    const mode: string = SESSION_MODES.includes(req.body?.mode) ? req.body.mode : "full";
+
+    // Forbid parallel sessions: an in_progress one must be closed first.
+    const active = await tenantQuery(
+      req.user!.orgId,
+      "SELECT id FROM release_test_sessions WHERE release_id = $1 AND status = 'in_progress'",
+      [releaseId]
+    );
+    if (active.rows.length > 0) {
+      res.status(409).json({ error: "An in-progress session already exists for this release" });
+      return;
+    }
+
+    // Scope: all linked tests (full), or only failed/blocked from the most
+    // recent session (failures_only). On first-ever failures_only request
+    // with no prior session, fall back to linked tests.
+    let scopeTestIds: number[] = [];
+    if (mode === "failures_only") {
+      const prev = await tenantQuery(
+        req.user!.orgId,
+        `SELECT id FROM release_test_sessions
+          WHERE release_id = $1
+          ORDER BY session_number DESC LIMIT 1`,
+        [releaseId]
+      );
+      if (prev.rows.length > 0) {
+        const prevResults = await tenantQuery(
+          req.user!.orgId,
+          `SELECT manual_test_id FROM release_test_session_results
+            WHERE session_id = $1 AND status IN ('failed','blocked')`,
+          [prev.rows[0].id]
+        );
+        scopeTestIds = prevResults.rows.map((r) => Number(r.manual_test_id));
+      }
+    }
+    if (mode === "full" || scopeTestIds.length === 0) {
+      const linked = await tenantQuery(
+        req.user!.orgId,
+        "SELECT manual_test_id FROM release_manual_tests WHERE release_id = $1",
+        [releaseId]
+      );
+      scopeTestIds = linked.rows.map((r) => Number(r.manual_test_id));
+    }
+
+    if (scopeTestIds.length === 0) {
+      res.status(400).json({
+        error: "No tests in scope. Link manual tests to the release before starting a session.",
+      });
+      return;
+    }
+
+    const nextNumberResult = await tenantQuery(
+      req.user!.orgId,
+      `SELECT COALESCE(MAX(session_number), 0) + 1 AS next
+         FROM release_test_sessions WHERE release_id = $1`,
+      [releaseId]
+    );
+    const sessionNumber = Number(nextNumberResult.rows[0].next);
+
+    const session = await tenantQuery(
+      req.user!.orgId,
+      `INSERT INTO release_test_sessions
+         (org_id, release_id, session_number, label, mode, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, session_number, label, mode, status, created_at`,
+      [req.user!.orgId, releaseId, sessionNumber, label, mode, req.user!.id]
+    );
+    const sessionId = session.rows[0].id;
+
+    // Seed one not_run row per test in scope.
+    for (const testId of scopeTestIds) {
+      await tenantQuery(
+        req.user!.orgId,
+        `INSERT INTO release_test_session_results (org_id, session_id, manual_test_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (session_id, manual_test_id) DO NOTHING`,
+        [req.user!.orgId, sessionId, testId]
+      );
+    }
+
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_create",
+      "release",
+      req.params.id,
+      { session_id: sessionId, mode, seeded: scopeTestIds.length }
+    );
+    res.status(201).json({
+      ...session.rows[0],
+      seeded: scopeTestIds.length,
+    });
+  } catch (err) {
+    console.error("POST /releases/:id/sessions error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /releases/:id/sessions/:sessionId — session with all result rows
+router.get("/:id/sessions/:sessionId", async (req, res) => {
+  try {
+    const session = await tenantQuery(
+      req.user!.orgId,
+      `SELECT s.id, s.release_id, s.session_number, s.label, s.mode, s.status,
+              s.created_at, s.completed_at,
+              u.email AS created_by_email
+         FROM release_test_sessions s
+         LEFT JOIN users u ON u.id = s.created_by
+        WHERE s.id = $1 AND s.release_id = $2`,
+      [req.params.sessionId, req.params.id]
+    );
+    if (session.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const results = await tenantQuery(
+      req.user!.orgId,
+      `SELECT r.id, r.manual_test_id, r.status, r.notes, r.step_results,
+              r.run_at, u.email AS run_by_email,
+              mt.title, mt.suite_name, mt.priority,
+              mt.group_id, g.name AS group_name
+         FROM release_test_session_results r
+         JOIN manual_tests mt ON mt.id = r.manual_test_id
+         LEFT JOIN manual_test_groups g ON g.id = mt.group_id
+         LEFT JOIN users u ON u.id = r.run_by
+        WHERE r.session_id = $1
+        ORDER BY mt.priority DESC, mt.title`,
+      [req.params.sessionId]
+    );
+    res.json({ ...session.rows[0], results: results.rows });
+  } catch (err) {
+    console.error("GET /releases/:id/sessions/:sessionId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /releases/:id/sessions/:sessionId — update label or mark completed
+router.patch("/:id/sessions/:sessionId", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (req.body.label !== undefined) {
+      sets.push(`label = $${i++}`);
+      params.push(req.body.label);
+    }
+    if (req.body.status !== undefined) {
+      if (req.body.status !== "in_progress" && req.body.status !== "completed") {
+        res.status(400).json({ error: "Invalid status" });
+        return;
+      }
+      sets.push(`status = $${i++}`);
+      params.push(req.body.status);
+      if (req.body.status === "completed") {
+        sets.push("completed_at = NOW()");
+      } else {
+        sets.push("completed_at = NULL");
+      }
+    }
+    if (sets.length === 0) {
+      res.status(400).json({ error: "Nothing to update" });
+      return;
+    }
+    params.push(req.params.sessionId, req.params.id);
+    await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_sessions SET ${sets.join(", ")}
+        WHERE id = $${i++} AND release_id = $${i}`,
+      params
+    );
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_update",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId }
+    );
+    res.json({ updated: true });
+  } catch (err) {
+    console.error("PATCH /releases/:id/sessions/:sessionId error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /releases/:id/sessions/:sessionId/results/:testId — record a result
+// Body: { status, notes?, step_results? }
+// Auto-completes the session when every result row is in a terminal state.
+router.post("/:id/sessions/:sessionId/results/:testId", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const { status, notes, step_results } = req.body;
+    if (!SESSION_RESULT_STATUSES.includes(status) || status === "not_run") {
+      res.status(400).json({ error: "Invalid status" });
+      return;
+    }
+    let normalizedSteps: Array<{ status: string; comment: string }> = [];
+    if (step_results !== undefined) {
+      if (!Array.isArray(step_results)) {
+        res.status(400).json({ error: "step_results must be an array" });
+        return;
+      }
+      for (const r of step_results) {
+        if (!r || typeof r.status !== "string") {
+          res.status(400).json({ error: "Invalid step result" });
+          return;
+        }
+        normalizedSteps.push({
+          status: r.status,
+          comment: typeof r.comment === "string" ? r.comment : "",
+        });
+      }
+    }
+
+    const session = await tenantQuery(
+      req.user!.orgId,
+      `SELECT id, status FROM release_test_sessions
+        WHERE id = $1 AND release_id = $2`,
+      [req.params.sessionId, req.params.id]
+    );
+    if (session.rows.length === 0) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    if (session.rows[0].status === "completed") {
+      res.status(409).json({ error: "Session is already completed" });
+      return;
+    }
+
+    const updated = await tenantQuery(
+      req.user!.orgId,
+      `UPDATE release_test_session_results
+          SET status = $1,
+              notes = $2,
+              step_results = $3::jsonb,
+              run_by = $4,
+              run_at = NOW()
+        WHERE session_id = $5 AND manual_test_id = $6
+        RETURNING id`,
+      [
+        status,
+        notes ?? null,
+        JSON.stringify(normalizedSteps),
+        req.user!.id,
+        req.params.sessionId,
+        req.params.testId,
+      ]
+    );
+    if (updated.rows.length === 0) {
+      res.status(404).json({ error: "Test not in session scope" });
+      return;
+    }
+
+    // Auto-complete when every row is in a terminal (non-not_run) state.
+    const remaining = await tenantQuery(
+      req.user!.orgId,
+      `SELECT COUNT(*)::int AS c FROM release_test_session_results
+        WHERE session_id = $1 AND status = 'not_run'`,
+      [req.params.sessionId]
+    );
+    let sessionCompleted = false;
+    if (remaining.rows[0].c === 0) {
+      await tenantQuery(
+        req.user!.orgId,
+        `UPDATE release_test_sessions
+            SET status = 'completed', completed_at = NOW()
+          WHERE id = $1`,
+        [req.params.sessionId]
+      );
+      sessionCompleted = true;
+    }
+
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "release.session_result",
+      "release",
+      req.params.id,
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId, status }
+    );
+    res.json({ updated: true, session_completed: sessionCompleted });
+  } catch (err) {
+    console.error("POST /releases/:id/sessions/:sessionId/results/:testId error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

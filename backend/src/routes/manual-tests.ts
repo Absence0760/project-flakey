@@ -20,10 +20,22 @@ router.get("/", async (req, res) => {
   try {
     const suite = req.query.suite as string | undefined;
     const status = req.query.status as string | undefined;
+    const groupIdRaw = req.query.group_id as string | undefined;
     const where: string[] = [];
     const params: unknown[] = [];
-    if (suite) { params.push(suite); where.push(`suite_name = $${params.length}`); }
-    if (status) { params.push(status); where.push(`status = $${params.length}`); }
+    if (suite) { params.push(suite); where.push(`mt.suite_name = $${params.length}`); }
+    if (status) { params.push(status); where.push(`mt.status = $${params.length}`); }
+    if (groupIdRaw !== undefined) {
+      if (groupIdRaw === "none" || groupIdRaw === "null") {
+        where.push("mt.group_id IS NULL");
+      } else {
+        const gid = Number(groupIdRaw);
+        if (Number.isInteger(gid)) {
+          params.push(gid);
+          where.push(`mt.group_id = $${params.length}`);
+        }
+      }
+    }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
     const result = await tenantQuery(
@@ -40,12 +52,14 @@ router.get("/", async (req, res) => {
               mt.last_run_at, mt.last_run_notes, mt.last_step_results,
               mt.automated_test_key, mt.tags,
               mt.source, mt.source_ref, mt.source_file,
+              mt.group_id, g.name AS group_name,
               mt.created_at, mt.updated_at,
               u.email AS last_run_by_email,
               a.status     AS auto_last_status,
               a.created_at AS auto_last_run_at
        FROM manual_tests mt
        LEFT JOIN users u ON u.id = mt.last_run_by
+       LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
              AND a.file_path LIKE '%' || mt.source_file
@@ -96,10 +110,12 @@ router.get("/:id", async (req, res) => {
            ORDER BY s.file_path, t.title, r.created_at DESC
        )
        SELECT mt.*, u.email AS last_run_by_email,
+              g.name       AS group_name,
               a.status     AS auto_last_status,
               a.created_at AS auto_last_run_at
        FROM manual_tests mt
        LEFT JOIN users u ON u.id = mt.last_run_by
+       LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
              AND a.file_path LIKE '%' || mt.source_file
@@ -125,19 +141,22 @@ router.post("/", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const { suite_name, title, description, steps, expected_result, priority, automated_test_key, tags } = req.body;
+    const { suite_name, title, description, steps, expected_result, priority, automated_test_key, tags, group_id } = req.body;
     if (!title) {
       res.status(400).json({ error: "title required" });
       return;
     }
     const pri = PRIORITIES.includes(priority) ? priority : "medium";
+    const gid = group_id === null || group_id === undefined || group_id === ""
+      ? null
+      : Number.isInteger(Number(group_id)) ? Number(group_id) : null;
 
     const result = await tenantQuery(
       req.user!.orgId,
       `INSERT INTO manual_tests
         (org_id, suite_name, title, description, steps, expected_result, priority,
-         automated_test_key, tags, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         automated_test_key, tags, group_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         req.user!.orgId,
@@ -149,6 +168,7 @@ router.post("/", async (req, res) => {
         pri,
         automated_test_key ?? null,
         Array.isArray(tags) ? tags : [],
+        gid,
         req.user!.id,
       ]
     );
@@ -299,6 +319,12 @@ router.patch("/:id", async (req, res) => {
     if (body.priority !== undefined && PRIORITIES.includes(body.priority)) assign("priority", body.priority);
     if (body.automated_test_key !== undefined) assign("automated_test_key", body.automated_test_key);
     if (body.tags !== undefined) assign("tags", Array.isArray(body.tags) ? body.tags : []);
+    if (body.group_id !== undefined) {
+      const gid = body.group_id === null || body.group_id === ""
+        ? null
+        : Number.isInteger(Number(body.group_id)) ? Number(body.group_id) : null;
+      assign("group_id", gid);
+    }
 
     sets.push(`updated_at = NOW()`);
 
