@@ -203,6 +203,45 @@
 	let acceptTargetTestId = $state<number | null>(null);
 	let acceptKnownRef = $state('');
 
+	// Generic confirm / alert modal. Resolved when the user clicks one of
+	// the buttons, so callers can `await openConfirm(...)` just like the
+	// native confirm() they're replacing.
+	interface ConfirmState {
+		title: string;
+		message: string;
+		confirmLabel: string;
+		cancelLabel: string | null;  // null = alert-style (OK only)
+		tone: 'default' | 'danger';
+		resolve: (result: boolean) => void;
+	}
+	let confirmState = $state<ConfirmState | null>(null);
+
+	function openConfirm(opts: {
+		title: string;
+		message: string;
+		confirmLabel?: string;
+		cancelLabel?: string | null;
+		tone?: 'default' | 'danger';
+	}): Promise<boolean> {
+		return new Promise((resolve) => {
+			confirmState = {
+				title: opts.title,
+				message: opts.message,
+				confirmLabel: opts.confirmLabel ?? 'Confirm',
+				cancelLabel: opts.cancelLabel === null ? null : (opts.cancelLabel ?? 'Cancel'),
+				tone: opts.tone ?? 'default',
+				resolve,
+			};
+		});
+	}
+
+	function resolveConfirm(result: boolean) {
+		if (!confirmState) return;
+		const { resolve } = confirmState;
+		confirmState = null;
+		resolve(result);
+	}
+
 	const inProgressSession = $derived(sessions.find(s => s.status === 'in_progress') ?? null);
 	const activeSessionDetail = $derived(
 		inProgressSession ? sessionDetails[inProgressSession.id] ?? null : null
@@ -441,7 +480,12 @@
 	}
 
 	async function completeSession(sessionId: number) {
-		if (!confirm('Mark this session as complete? You will not be able to record more results.')) return;
+		const ok = await openConfirm({
+			title: 'Complete session?',
+			message: 'Mark this session as complete? You will not be able to record more results against it.',
+			confirmLabel: 'Complete session',
+		});
+		if (!ok) return;
 		await authFetch(`${API_URL}/releases/${releaseId}/sessions/${sessionId}`, {
 			method: 'PATCH',
 			headers: { 'Content-Type': 'application/json' },
@@ -524,7 +568,13 @@
 	}
 
 	async function revokeAcceptance(sessionId: number, testId: number) {
-		if (!confirm('Revoke known-issue acceptance? This test will block the release again.')) return;
+		const ok = await openConfirm({
+			title: 'Revoke acceptance?',
+			message: 'This test will start blocking the release again and will be included in the next failures-only rerun.',
+			confirmLabel: 'Revoke',
+			tone: 'danger',
+		});
+		if (!ok) return;
 		await authFetch(
 			`${API_URL}/releases/${releaseId}/sessions/${sessionId}/results/${testId}/accept`,
 			{ method: 'DELETE' }
@@ -558,7 +608,13 @@
 		const res = await authFetch(`${API_URL}/releases/${releaseId}/sign-off`, { method: 'POST' });
 		if (!res.ok) {
 			const data = await res.json();
-			alert(data.error ?? 'Sign-off failed');
+			await openConfirm({
+				title: 'Sign-off failed',
+				message: data.error ?? 'Sign-off failed',
+				confirmLabel: 'OK',
+				cancelLabel: null,
+				tone: 'danger',
+			});
 			return;
 		}
 		await load();
@@ -1290,6 +1346,36 @@
 			</div>
 		{/if}
 
+		{#if confirmState}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="modal-overlay"
+				onclick={() => resolveConfirm(false)}
+			>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="runner-modal confirm-modal" onclick={(e) => e.stopPropagation()}>
+					<h3>{confirmState.title}</h3>
+					<p>{confirmState.message}</p>
+					<div class="actions">
+						{#if confirmState.cancelLabel !== null}
+							<button class="btn-ghost" onclick={() => resolveConfirm(false)}>
+								{confirmState.cancelLabel}
+							</button>
+						{/if}
+						<button
+							class="btn-primary"
+							class:btn-danger={confirmState.tone === 'danger'}
+							onclick={() => resolveConfirm(true)}
+						>
+							{confirmState.confirmLabel}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		<section>
 			<div class="section-header">
 				<h2>Checklist</h2>
@@ -1855,4 +1941,18 @@
 		color: var(--text);
 		padding: 0.25rem 0;
 	}
+
+	/* ── Confirm / alert modal ─────────────────────────────────────── */
+	.runner-modal.confirm-modal { gap: 0.8rem; }
+	.runner-modal.confirm-modal p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		line-height: 1.45;
+	}
+	.btn-danger {
+		background: #dc2626;
+		color: #fff;
+	}
+	.btn-danger:hover { background: #b91c1c; }
 </style>

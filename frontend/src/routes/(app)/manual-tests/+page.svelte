@@ -229,6 +229,11 @@
 	// rather than nuking the whole modal.
 	function handleEsc(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
+		if (confirmState) {
+			resolveConfirm(false);
+			e.preventDefault();
+			return;
+		}
 		if (showGroups) {
 			closeGroups();
 			e.preventDefault();
@@ -351,7 +356,13 @@
 	}
 
 	async function deleteTest(id: number) {
-		if (!confirm('Delete this manual test?')) return;
+		const ok = await openConfirm({
+			title: 'Delete manual test?',
+			message: 'This permanently removes the test and all of its recorded run history. This cannot be undone.',
+			confirmLabel: 'Delete',
+			tone: 'danger',
+		});
+		if (!ok) return;
 		await authFetch(`${API_URL}/manual-tests/${id}`, { method: 'DELETE' });
 		if (selected?.id === id) selected = null;
 		await load();
@@ -410,6 +421,43 @@
 		if (s === 'passed') return 'Automated run: passing';
 		if (s === 'failed') return 'Automated run: failing';
 		return `Automated run: ${s}`;
+	}
+
+	// ── Generic confirm / alert modal ────────────────────────────────────
+	interface ConfirmState {
+		title: string;
+		message: string;
+		confirmLabel: string;
+		cancelLabel: string | null;
+		tone: 'default' | 'danger';
+		resolve: (result: boolean) => void;
+	}
+	let confirmState = $state<ConfirmState | null>(null);
+
+	function openConfirm(opts: {
+		title: string;
+		message: string;
+		confirmLabel?: string;
+		cancelLabel?: string | null;
+		tone?: 'default' | 'danger';
+	}): Promise<boolean> {
+		return new Promise((resolve) => {
+			confirmState = {
+				title: opts.title,
+				message: opts.message,
+				confirmLabel: opts.confirmLabel ?? 'Confirm',
+				cancelLabel: opts.cancelLabel === null ? null : (opts.cancelLabel ?? 'Cancel'),
+				tone: opts.tone ?? 'default',
+				resolve,
+			};
+		});
+	}
+
+	function resolveConfirm(result: boolean) {
+		if (!confirmState) return;
+		const { resolve } = confirmState;
+		confirmState = null;
+		resolve(result);
 	}
 
 	// ── Manage Groups modal ──────────────────────────────────────────────
@@ -472,7 +520,13 @@
 	}
 
 	async function deleteGroup(id: number) {
-		if (!confirm('Delete this group? Tests in it will become ungrouped.')) return;
+		const ok = await openConfirm({
+			title: 'Delete group?',
+			message: 'Tests in this group will become ungrouped. The tests themselves are not deleted.',
+			confirmLabel: 'Delete group',
+			tone: 'danger',
+		});
+		if (!ok) return;
 		const res = await authFetch(`${API_URL}/manual-test-groups/${id}`, { method: 'DELETE' });
 		if (res.ok) {
 			await Promise.all([reloadGroups(), load()]);
@@ -851,6 +905,35 @@
 				<footer class="modal-footer">
 					<button class="btn-ghost" onclick={closeGroups}>Close</button>
 				</footer>
+			</div>
+		</div>
+	{/if}
+
+	{#if confirmState}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-overlay" onclick={() => resolveConfirm(false)}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal confirm-modal" onclick={(e) => e.stopPropagation()}>
+				<header>
+					<h2>{confirmState.title}</h2>
+				</header>
+				<p class="confirm-message">{confirmState.message}</p>
+				<div class="actions">
+					{#if confirmState.cancelLabel !== null}
+						<button class="btn-ghost" onclick={() => resolveConfirm(false)}>
+							{confirmState.cancelLabel}
+						</button>
+					{/if}
+					<button
+						class="btn-primary"
+						class:btn-danger={confirmState.tone === 'danger'}
+						onclick={() => resolveConfirm(true)}
+					>
+						{confirmState.confirmLabel}
+					</button>
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -1415,4 +1498,9 @@
 	}
 	.error.inline { padding: 0.35rem 0.5rem; color: #991b1b; font-size: 0.82rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; text-align: left; }
 	.row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; }
+	.modal.confirm-modal { width: min(460px, 95vw); }
+	.modal.confirm-modal header h2 { font-size: 1.05rem; }
+	.confirm-message { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.45; margin: 0; }
+	.btn-danger { background: #dc2626; color: #fff; }
+	.btn-danger:hover { background: #b91c1c; }
 </style>
