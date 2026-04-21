@@ -10,7 +10,7 @@
  * to get Gherkin step markers in the snapshot bundle.
  */
 
-import { state, isEnabled, pushStep, serializeDOM, getAppDocument } from "./shared.js";
+import { state, isEnabled, pushStep, serializeDOM, getAppDocument, capHtml } from "./shared.js";
 
 const SKIP_COMMANDS = new Set([
   "wrap", "then", "should", "and", "its", "invoke",
@@ -39,7 +39,7 @@ afterEach(function () {
     const doc = getAppDocument();
     if (doc) {
       try {
-        const html = serializeDOM(doc);
+        const html = capHtml(serializeDOM(doc));
         const win = doc.defaultView;
         state.steps.push({
           index: state.commandIndex++,

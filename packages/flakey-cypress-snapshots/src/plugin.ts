@@ -38,6 +38,13 @@ interface FlakeySnapshotOptions {
   outputDir?: string;
   /** Enable or disable snapshot capture. Default: true */
   enabled?: boolean;
+  /**
+   * Per-step HTML size cap in bytes. If a single snapshot's serialized DOM
+   * exceeds this, it is replaced with a small placeholder. Protects against
+   * pathological DOMs (e.g. PDF viewers) exploding the aggregate bundle past
+   * V8's max string length when cy.task serializes it. Default: 2 MB.
+   */
+  maxHtmlBytes?: number;
 }
 
 export function flakeySnapshots(
@@ -47,10 +54,12 @@ export function flakeySnapshots(
 ): void {
   const outputDir = options?.outputDir ?? "cypress/snapshots";
   const enabled = options?.enabled ?? true;
+  const maxHtmlBytes = options?.maxHtmlBytes ?? 2 * 1024 * 1024;
 
   // Signal to the support file whether snapshots are enabled
   config.env = config.env || {};
   config.env.FLAKEY_SNAPSHOTS_ENABLED = enabled;
+  config.env.FLAKEY_SNAPSHOTS_MAX_HTML_BYTES = maxHtmlBytes;
 
   on("task", {
     async "flakey:saveSnapshot"(bundle: SnapshotBundle) {

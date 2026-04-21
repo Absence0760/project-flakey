@@ -22,6 +22,26 @@ export function isEnabled(): boolean {
   return Cypress.env("FLAKEY_SNAPSHOTS_ENABLED") === true;
 }
 
+// Default per-step HTML cap: 2 MB. A pathological DOM (PDF viewer, giant data
+// grid) can easily exceed V8's max string length (~500 MB) once accumulated
+// across 300 ring-buffer steps, which crashes cy.task's JSON.stringify. Cap
+// per-step so one oversized snapshot can't poison the whole bundle.
+const DEFAULT_MAX_HTML_BYTES = 2 * 1024 * 1024;
+
+export function getMaxHtmlBytes(): number {
+  const v = Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES");
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_HTML_BYTES;
+}
+
+export function capHtml(html: string): string {
+  const max = getMaxHtmlBytes();
+  if (html.length <= max) return html;
+  const kb = Math.round(html.length / 1024);
+  const maxKb = Math.round(max / 1024);
+  return `<!DOCTYPE html>\n<html><head><base href="about:blank"></head><body><pre data-flakey-skipped="true" style="font-family:system-ui;padding:1rem;color:#888">[flakey-snapshots] DOM skipped: serialized size ${kb}KB exceeded cap ${maxKb}KB</pre></body></html>`;
+}
+
 export function serializeDOM(doc: Document): string {
   const clone = doc.documentElement.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("script").forEach((s) => s.remove());
@@ -76,7 +96,7 @@ export function pushStep(name: string, message: string): void {
   const doc = getAppDocument();
   if (!doc) return;
   try {
-    const html = serializeDOM(doc);
+    const html = capHtml(serializeDOM(doc));
     const win = doc.defaultView;
     state.steps.push({
       index: state.commandIndex++,

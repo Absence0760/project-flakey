@@ -9,12 +9,13 @@ Cypress plugin that captures DOM snapshots at each command step and bundles them
 
 ## Plugin options
 
-`flakeySnapshots(on, config, options?)` accepts exactly two options (see `src/plugin.ts`):
+`flakeySnapshots(on, config, options?)` accepts three options (see `src/plugin.ts`):
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `outputDir` | `string` | `"cypress/snapshots"` | Where snapshot bundles are written. |
 | `enabled` | `boolean` | `true` | Set `false` to disable capture entirely (added in 0.5.0). Exposed to the support file via `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")`. |
+| `maxHtmlBytes` | `number` | `2 * 1024 * 1024` (2 MB) | Per-step HTML size cap. Oversized DOMs (e.g. PDF viewer iframes) are replaced with a placeholder to keep the aggregate bundle under V8's max string length when `cy.task` JSON-serializes it. Exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES")`. Added in 0.6.1. |
 
 The user-facing doc lives at `docs/plugin.md` (next to this file).
 
