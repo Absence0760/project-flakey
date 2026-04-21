@@ -101,10 +101,11 @@ Upload target: `POST /live/:runId/snapshot` as `multipart/form-data` with fields
 flakeySnapshots(on, config, {
   outputDir: "cypress/snapshots",   // default
   enabled: true,                     // default; set false to disable capture entirely
+  maxHtmlBytes: 2 * 1024 * 1024,     // default; per-step HTML cap in bytes
 });
 ```
 
-`enabled` is exposed to the browser context as `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")` so `support.ts` can short-circuit without doing any work.
+`enabled` is exposed to the browser context as `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")` so `support.ts` can short-circuit without doing any work. `maxHtmlBytes` is exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES")`; when a single step's serialized DOM exceeds this size, it is replaced with a small placeholder HTML document noting the skip. This prevents pathological DOMs (e.g. embedded PDF viewers) from accumulating across the 300-step ring buffer and blowing past V8's max string length (~500 MB) when `cy.task` JSON-serializes the bundle.
 
 ## Replay (frontend)
 
