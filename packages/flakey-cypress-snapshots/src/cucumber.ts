@@ -1,13 +1,29 @@
 /**
- * Optional Cucumber integration. Import in your support bundle AFTER
- * `@flakeytesting/cypress-snapshots/support`:
+ * Optional Cucumber integration. Imports a BeforeStep hook that injects a
+ * synthetic "gherkin" step into the snapshot bundle before each Gherkin
+ * step runs, so scenario structure is visible in the snapshot viewer.
  *
- *   import "@flakeytesting/cypress-snapshots/support";
+ * IMPORTANT: do NOT import this module from cypress/support/e2e.ts.
+ * `@badeball/cypress-cucumber-preprocessor`'s BeforeStep() registers into
+ * a per-feature registry that only exists while the preprocessor is
+ * processing a feature file. Called from the support file, it throws:
+ *   "Expected to find a global registry (this usually means you are
+ *    trying to define steps or hooks in support/e2e.js, which is not
+ *    supported)"
+ * which is swallowed by Cypress as "An uncaught error was detected
+ * outside of a test" with no further detail — aborting the entire spec
+ * before any tests run.
+ *
+ * Instead, import it from a file matched by the preprocessor's
+ * stepDefinitions glob (usually `cypress/e2e/**\/*.ts` — see
+ * `.cypress-cucumber-preprocessorrc.json`). A single-line file like this:
+ *
+ *   // cypress/e2e/_flakey-cucumber-hooks.ts
  *   import "@flakeytesting/cypress-snapshots/cucumber";
  *
- * Requires `@badeball/cypress-cucumber-preprocessor` (peer). Inserts a
- * synthetic "gherkin" step into the snapshot bundle before each Gherkin
- * step runs so the scenario structure is visible in the snapshot viewer.
+ * is sufficient.
+ *
+ * Requires `@badeball/cypress-cucumber-preprocessor` (optional peer).
  */
 
 import { BeforeStep } from "@badeball/cypress-cucumber-preprocessor";
