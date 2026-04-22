@@ -20,7 +20,7 @@
 
 import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
 import { join, basename } from "path";
-import { tmpdir } from "os";
+import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 
 // ---- Types ----
@@ -99,6 +99,18 @@ function readLiveRunId(): number {
       if (id) return id;
     } catch { /* try next */ }
   }
+  // Fallback for Cypress 15+ configurations where the Mocha reporter process
+  // shares no ancestor with setupNodeEvents AND gets a different tmpdir() /
+  // cwd than the plugin. live-reporter writes a singleton file to ~/.flakey-reporter/
+  // which is stable across all processes. Check there first, then tmpdir.
+  try {
+    const id = Number(readFileSync(join(homedir(), ".flakey-reporter", "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* try TMPDIR fallback */ }
+  try {
+    const id = Number(readFileSync(join(FLAKEY_BASE_DIR, "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* truly no live run */ }
   return 0;
 }
 

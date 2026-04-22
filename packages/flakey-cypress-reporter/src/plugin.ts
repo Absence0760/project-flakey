@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync, statSync } from "fs";
 import { join, basename } from "path";
-import { tmpdir } from "os";
+import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 
 // Buffer dirs scoped by the numeric live-run-id (written by live-reporter
@@ -55,6 +55,16 @@ function readLiveRunIdForPlugin(): number {
       if (id) return id;
     } catch { /* try next */ }
   }
+  // Singleton fallback — see reporter.ts for rationale. ~/.flakey-reporter/
+  // is stable across all processes even when TMPDIR / cwd diverge.
+  try {
+    const id = Number(readFileSync(join(homedir(), ".flakey-reporter", "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* try TMPDIR */ }
+  try {
+    const id = Number(readFileSync(join(FLAKEY_BASE_DIR, "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* no singleton file */ }
   return 0;
 }
 
@@ -112,19 +122,31 @@ interface FlakeyReporterOptions {
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
+  /**
+   * When true (default), flakeyReporter installs its own `on("after:run")`
+   * handler. When false (used by setupFlakey to chain live-reporter +
+   * flakeyReporter in one combined handler), returns the after:run work
+   * as a function the caller invokes. Needed because Cypress 15+ runs
+   * only the LAST-registered handler per event — if live-reporter and
+   * flakeyReporter both register, only one wins.
+   */
+  installAfterRun?: boolean;
 }
 
 export function flakeyReporter(
   on: any,
   config: any,
   options?: FlakeyReporterOptions
-): void {
+): ((results: any) => Promise<void>) | undefined {
   // Explicit options (third arg) take precedence over config.reporterOptions.
   // This is needed when the user wraps the Mocha reporter in something like
   // `cypress-multi-reporters`, which reshapes `config.reporterOptions` to
   // hold its own nested `*ReporterOptions` keys rather than the flat
   // {url, apiKey, suite} shape this plugin expects.
-  const opts = (options ?? config.reporterOptions) as Record<string, string> | undefined;
+  // Merge explicit arg over config.reporterOptions so setupFlakey can pass
+  // just `{ installAfterRun: false }` without clobbering the config-level
+  // url/apiKey/suite.
+  const opts = { ...(config.reporterOptions ?? {}), ...(options ?? {}) } as Record<string, string>;
   if (!opts?.url || !opts?.apiKey) {
     console.warn("  [flakey] Missing url or apiKey — pass them as the third arg to flakeyReporter(on, config, options) or set config.reporterOptions");
     return;
@@ -156,13 +178,13 @@ export function flakeyReporter(
     },
   });
 
-  // No-op before:run — cleanup happens in after:run on the right (live-run-id
-  // scoped) dirs. Stale dirs from crashed prior runs age out naturally and
-  // can't interfere because each run has a unique live-run-id subdir.
-  on("before:run", () => { /* intentionally empty */ });
+  // (Intentionally no `before:run` here. Cypress 15+ runs ONLY the
+  // last-registered handler per event; a no-op here would shadow
+  // live-reporter's /live/start call. Cleanup of stale buffer dirs
+  // happens in after:run instead.)
 
   // Collect all buffered specs and upload after the entire run
-  on("after:run", async (results: any) => {
+  const afterRunHandler = async (results: any) => {
     const { tmp: tmpDir, cmd: cmdDir } = getBufferDirs();
     if (!existsSync(tmpDir)) {
       console.warn("  [flakey] No spec results found — nothing to upload");
@@ -280,7 +302,13 @@ export function flakeyReporter(
     } catch (err: any) {
       console.error(`\n  [flakey] Failed to upload: ${err.message}`);
     }
-  });
+  };
+
+  if (options?.installAfterRun !== false) {
+    on("after:run", afterRunHandler);
+    return undefined;
+  }
+  return afterRunHandler;
 }
 
 interface SetupFlakeyOptions {
@@ -300,7 +328,27 @@ export async function setupFlakey(
   config: any,
   opts: SetupFlakeyOptions = {}
 ): Promise<void> {
-  flakeyReporter(on, config, opts.reporterOptions);
+  // Cypress 15+ invokes ONLY the last-registered handler per event (Cypress
+  // 13/14 chained all handlers in registration order). Both live-reporter
+  // and flakeyReporter have critical after:run work, so we defer both and
+  // chain them inside a single after:run handler we register at the end.
+  let liveAfterRun: ((results: unknown) => Promise<void>) | undefined;
+  if (opts.live !== false) {
+    try {
+      // @ts-ignore — optional peer dependency
+      const { register } = await import("@flakeytesting/live-reporter/mocha");
+      const fromReporterOpts = (config.reporterOptions ?? {}) as Record<string, string>;
+      const url = opts.reporterOptions?.url ?? fromReporterOpts.url;
+      const apiKey = opts.reporterOptions?.apiKey ?? fromReporterOpts.apiKey;
+      const suite = opts.reporterOptions?.suite ?? fromReporterOpts.suite;
+      // installAfterRun was added in @flakeytesting/live-reporter 0.6.0; older
+      // versions ignore it and install their own after:run (which collides on
+      // Cypress 15 but is harmless on earlier versions).
+      liveAfterRun = register(on, { url, apiKey, suite, installAfterRun: false }) ?? undefined;
+    } catch {
+      // @flakeytesting/live-reporter not installed — skip
+    }
+  }
 
   if (opts.snapshots !== false) {
     try {
@@ -312,17 +360,18 @@ export async function setupFlakey(
     }
   }
 
-  if (opts.live !== false) {
-    try {
-      // @ts-ignore — optional peer dependency
-      const { register } = await import("@flakeytesting/live-reporter/mocha");
-      const fromReporterOpts = (config.reporterOptions ?? {}) as Record<string, string>;
-      const url = opts.reporterOptions?.url ?? fromReporterOpts.url;
-      const apiKey = opts.reporterOptions?.apiKey ?? fromReporterOpts.apiKey;
-      const suite = opts.reporterOptions?.suite ?? fromReporterOpts.suite;
-      register(on, { url, apiKey, suite });
-    } catch {
-      // @flakeytesting/live-reporter not installed — skip
-    }
-  }
+  const uploadAfterRun = flakeyReporter(on, config, {
+    ...(opts.reporterOptions ?? {}),
+    installAfterRun: false,
+  } as FlakeyReporterOptions);
+
+  on("after:run", async (results: any) => {
+    // Live-reporter first: drains queued events, sends run.finished, releases
+    // signal handlers, cleans up per-pid / latest-run-id handoff files.
+    try { await liveAfterRun?.(results); } catch (err) { console.error("[flakey-live] after:run failed:", err); }
+    // Then the main upload: collects spec buffers and POSTs /runs with
+    // screenshots / videos / snapshots. Any throws here should not mask
+    // the live-reporter teardown above.
+    try { await uploadAfterRun?.(results); } catch (err) { console.error("[flakey] after:run failed:", err); }
+  });
 }
