@@ -108,6 +108,7 @@ interface FlakeyReporterOptions {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  release?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
@@ -139,6 +140,7 @@ export function flakeyReporter(
   // so capturing it at registration would always see the stale/empty value.
   const resolveCiRunId = () =>
     opts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "";
+  const release = opts.release ?? process.env.FLAKEY_RELEASE ?? "";
   const screenshotsDir = opts.screenshotsDir ?? "cypress/screenshots";
   const videosDir = opts.videosDir ?? "cypress/videos";
   const snapshotsDir = opts.snapshotsDir ?? "cypress/snapshots";
@@ -227,6 +229,7 @@ export function flakeyReporter(
         started_at: startedAt,
         finished_at: finishedAt,
         reporter: "cypress",
+        ...(release ? { release } : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,

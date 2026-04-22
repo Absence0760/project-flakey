@@ -32,13 +32,14 @@ interface ReporterOptions {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  release?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
 }
 
 interface NormalizedRun {
-  meta: { suite_name: string; branch: string; commit_sha: string; ci_run_id: string; started_at: string; finished_at: string; reporter: string };
+  meta: { suite_name: string; branch: string; commit_sha: string; ci_run_id: string; started_at: string; finished_at: string; reporter: string; release?: string };
   stats: { total: number; passed: number; failed: number; skipped: number; pending: number; duration_ms: number };
   specs: NormalizedSpec[];
 }

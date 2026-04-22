@@ -12,6 +12,7 @@ interface UploadOptions {
   branch: string;
   commitSha: string;
   ciRunId: string;
+  release: string;
   reporter: string;
   screenshotsDir: string;
   videosDir: string;
@@ -37,6 +38,7 @@ function parseArgs(): UploadOptions {
     branch: opts["branch"] ?? process.env.BRANCH ?? "",
     commitSha: opts["commit"] ?? process.env.COMMIT_SHA ?? "",
     ciRunId: opts["ci-run-id"] ?? process.env.CI_RUN_ID ?? "",
+    release: opts["release"] ?? process.env.FLAKEY_RELEASE ?? "",
     reporter: opts["reporter"] ?? "mochawesome",
     screenshotsDir: resolve(opts["screenshots-dir"] ?? "cypress/screenshots"),
     videosDir: resolve(opts["videos-dir"] ?? "cypress/videos"),
@@ -114,6 +116,7 @@ async function upload(opts: UploadOptions): Promise<void> {
       started_at: "",
       finished_at: "",
       reporter: opts.reporter,
+      ...(opts.release ? { release: opts.release } : {}),
     },
     raw,
   };

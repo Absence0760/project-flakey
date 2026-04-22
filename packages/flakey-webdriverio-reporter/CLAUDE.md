@@ -41,6 +41,7 @@ export const config = {
 | `branch` | string | env fallback | `BRANCH` → `GITHUB_REF_NAME` |
 | `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` |
 | `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` |
+| `release` | string | `FLAKEY_RELEASE` env | Release version — backend upserts release + links run |
 | `screenshotsDir` | string | `"screenshots"` | Relative to cwd |
 | `videosDir` | string | `"videos"` | Relative to cwd |
 

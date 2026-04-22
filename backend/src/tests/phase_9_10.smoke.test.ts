@@ -884,3 +884,101 @@ test("live spec row + later /runs upload merges instead of rolling back on uniqu
   const titles = detail.specs[0].tests.map((t) => t.full_title).sort();
   assert.deepEqual(titles, ["cucumber > scenario A", "cucumber > scenario B", "cucumber > scenario C"]);
 });
+
+test("upload with meta.release upserts release and links run", async () => {
+  const version = `v-upload-${Date.now()}`;
+
+  const res1 = await authPost("/runs", {
+    meta: {
+      suite_name: "release-link-smoke",
+      branch: "main",
+      commit_sha: "rel-sha-1",
+      ci_run_id: "rel-ci-1",
+      started_at: "2026-04-21T00:00:00Z",
+      finished_at: "2026-04-21T00:00:05Z",
+      reporter: "mochawesome",
+      release: version,
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 5 },
+    specs: [
+      {
+        file_path: "rel.js",
+        title: "rel",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 5 },
+        tests: [{ title: "t", full_title: "t", status: "passed", duration_ms: 5, screenshot_paths: [] }],
+      },
+    ],
+  });
+  assert.ok(res1.ok, `first upload failed: ${res1.status}`);
+  const firstRunId = ((await res1.json()) as { id: number }).id;
+
+  // Release must exist and contain the run.
+  const list = (await (await authGet("/releases")).json()) as { id: number; version: string }[];
+  const rel = list.find((r) => r.version === version);
+  assert.ok(rel, `release ${version} must appear in /releases`);
+  const detail = (await (await authGet(`/releases/${rel!.id}`)).json()) as { linked_runs?: { id: number }[] };
+  assert.ok(detail.linked_runs?.some((r) => r.id === firstRunId), "run must be linked via release_runs");
+
+  // Second upload with the SAME release name must not create a duplicate
+  // release row — it must reuse the existing release and link the new run.
+  const res2 = await authPost("/runs", {
+    meta: {
+      suite_name: "release-link-smoke-2",
+      branch: "main",
+      commit_sha: "rel-sha-2",
+      ci_run_id: "rel-ci-2",
+      started_at: "2026-04-21T00:01:00Z",
+      finished_at: "2026-04-21T00:01:05Z",
+      reporter: "mochawesome",
+      release: version,
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 5 },
+    specs: [
+      {
+        file_path: "rel2.js",
+        title: "rel2",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 5 },
+        tests: [{ title: "t2", full_title: "t2", status: "passed", duration_ms: 5, screenshot_paths: [] }],
+      },
+    ],
+  });
+  assert.ok(res2.ok);
+  const secondRunId = ((await res2.json()) as { id: number }).id;
+
+  const list2 = (await (await authGet("/releases")).json()) as { id: number; version: string }[];
+  const matching = list2.filter((r) => r.version === version);
+  assert.equal(matching.length, 1, "no duplicate release row should be created for the same version");
+
+  const detail2 = (await (await authGet(`/releases/${matching[0].id}`)).json()) as { linked_runs?: { id: number }[] };
+  const linkedIds = (detail2.linked_runs ?? []).map((r) => r.id).sort();
+  assert.ok(linkedIds.includes(firstRunId) && linkedIds.includes(secondRunId), "both runs must be linked");
+});
+
+test("upload without meta.release does not create a release row", async () => {
+  const beforeCount = ((await (await authGet("/releases")).json()) as unknown[]).length;
+
+  const res = await authPost("/runs", {
+    meta: {
+      suite_name: "no-release",
+      branch: "main",
+      commit_sha: "x",
+      ci_run_id: "x",
+      started_at: "2026-04-21T00:02:00Z",
+      finished_at: "2026-04-21T00:02:05Z",
+      reporter: "mochawesome",
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 5 },
+    specs: [
+      {
+        file_path: "norel.js",
+        title: "norel",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 5 },
+        tests: [{ title: "t", full_title: "t", status: "passed", duration_ms: 5, screenshot_paths: [] }],
+      },
+    ],
+  });
+  assert.ok(res.ok);
+
+  const afterCount = ((await (await authGet("/releases")).json()) as unknown[]).length;
+  assert.equal(afterCount, beforeCount, "release count unchanged for upload without release");
+});

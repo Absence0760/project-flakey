@@ -25,11 +25,11 @@ const specPatterns: Record<string, string> = {
   flaky: "cypress/e2e/flaky/**/*.cy.ts",
 };
 
-// NOTE: release metadata tagging — FlakeyReporterOptions does not yet expose
-// a `release` field, so FLAKEY_RELEASE is captured here as a comment pattern.
-// Once the reporter adds the field, uncomment the `release` line in
-// reporterOptions below.  Tracking: "reporter doesn't expose release yet".
-// const release = process.env.FLAKEY_RELEASE ?? "";
+// Release metadata tagging — when FLAKEY_RELEASE is set, the backend upserts
+// the release and links this run to it. The reporter also reads
+// process.env.FLAKEY_RELEASE as a fallback, so passing `release` explicitly
+// here is optional but self-documenting.
+const release = process.env.FLAKEY_RELEASE ?? "";
 
 export default defineConfig({
   reporter: "@flakeytesting/cypress-reporter",
@@ -37,7 +37,7 @@ export default defineConfig({
     url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
     apiKey: process.env.FLAKEY_API_KEY ?? "",
     suite: `cypress-example-${suite}`,
-    // release,  // uncomment when @flakeytesting/cypress-reporter adds release support
+    release,
   },
   e2e: {
     baseUrl: "http://localhost:4444",
