@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/cypress-reporter",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Cypress reporter for Flakey — uploads results, screenshots, videos, and DOM snapshots",
   "type": "module",
   "main": "dist/reporter.cjs",
@@ -41,6 +41,7 @@
     "@flakeytesting/core": "workspace:*"
   },
   "devDependencies": {
+    "@flakeytesting/live-reporter": "workspace:*",
     "@types/mocha": "^10.0.0",
     "@types/node": "^25.5.2",
     "typescript": "^5.5.4"
