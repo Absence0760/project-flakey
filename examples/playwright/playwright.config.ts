@@ -38,12 +38,14 @@ export default defineConfig({
     // to extract per-step DOM snapshots and command logs — that's why trace: "on" is set below.
     // The snapshots are written to playwright-snapshots/ at runtime and uploaded with each run.
     //
-    // Note: FLAKEY_RELEASE env var forwarding is not supported — ReporterOptions has no
-    // `release` field. To tag releases, set a custom suite name or use commit_sha/branch instead.
+    // When FLAKEY_RELEASE is set, the backend upserts the release by version
+    // and links this run into it. Reporter also reads process.env.FLAKEY_RELEASE
+    // directly as a fallback.
     ["@flakeytesting/playwright-reporter", {
       url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `playwright-example-${suite}`,
+      release: process.env.FLAKEY_RELEASE ?? "",
     }],
   ],
 });

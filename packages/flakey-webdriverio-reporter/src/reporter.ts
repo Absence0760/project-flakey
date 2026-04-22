@@ -136,6 +136,9 @@ export default class FlakeyWdioReporter extends WDIOReporter {
         started_at: this.startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "webdriverio",
+        ...(this.flakeyOpts.release || process.env.FLAKEY_RELEASE
+          ? { release: (this.flakeyOpts.release ?? process.env.FLAKEY_RELEASE)! }
+          : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,

@@ -191,6 +191,9 @@ export default class FlakeyPlaywrightReporter {
         started_at: this.startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "playwright",
+        ...(this.options.release || process.env.FLAKEY_RELEASE
+          ? { release: (this.options.release ?? process.env.FLAKEY_RELEASE)! }
+          : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,

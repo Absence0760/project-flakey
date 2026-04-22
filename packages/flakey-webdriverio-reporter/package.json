@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/webdriverio-reporter",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "WebdriverIO reporter for Flakey — uploads results, screenshots, and videos",
   "type": "module",
   "main": "dist/reporter.js",

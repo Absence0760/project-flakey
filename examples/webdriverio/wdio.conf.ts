@@ -52,9 +52,7 @@ export const config = {
       url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `webdriverio-example-${suite}`,
-      // FLAKEY_RELEASE is not yet a recognised field in ReporterOptions / NormalizedRun.meta.
-      // When support is added to @flakeytesting/core + @flakeytesting/webdriverio-reporter,
-      // wire it here as: release: process.env.FLAKEY_RELEASE ?? ""
+      release: process.env.FLAKEY_RELEASE ?? "",
     }],
   ],
   // Screenshot on failure

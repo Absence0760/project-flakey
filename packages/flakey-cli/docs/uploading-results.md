@@ -187,6 +187,7 @@ npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
 | `--branch` | `$BRANCH` env | Git branch |
 | `--commit` | `$COMMIT_SHA` env | Git commit SHA |
 | `--ci-run-id` | `$CI_RUN_ID` env | CI pipeline run ID |
+| `--release` | `$FLAKEY_RELEASE` env | Release version to link this run to (upserts the release by version) |
 | `--reporter` | `mochawesome` | Reporter format: `mochawesome`, `junit`, or `playwright` |
 | `--screenshots-dir` | `cypress/screenshots` | Directory to search for `.png` files (not needed for Playwright) |
 | `--videos-dir` | `cypress/videos` | Directory to search for `.mp4`/`.webm` files (not needed for Playwright) |
