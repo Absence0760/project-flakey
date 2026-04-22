@@ -140,6 +140,38 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Flaky",
+      "description": "Intentionally flaky requests used to exercise Better Testing's flaky-detection feature. Fails ~30% of the time.",
+      "item": [
+        {
+          "name": "GET /health (intentionally flaky)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Intentional ~30% failure to exercise flaky-test detection in Better Testing.",
+                  "pm.test('flaky: random failure (intentional demo)', function () {",
+                  "  if (Math.random() < 0.3) {",
+                  "    pm.expect.fail('intentional flaky failure — expected ~30% of the time');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
