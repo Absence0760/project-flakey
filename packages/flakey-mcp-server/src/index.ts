@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { z, type ZodRawShape } from "zod";
 
 const API_URL = (process.env.FLAKEY_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const API_KEY = process.env.FLAKEY_API_KEY ?? "";
+
+/**
+ * Mutations (tools that change server state) are gated behind an explicit
+ * env opt-in. The convention is "read-only by default"; this flag enforces it.
+ * Accepts "1", "true", "yes" (case-insensitive).
+ */
+const ALLOW_MUTATIONS = /^(1|true|yes)$/i.test(process.env.FLAKEY_MCP_ALLOW_MUTATIONS ?? "");
 
 async function api(path: string, opts?: RequestInit): Promise<unknown> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -28,9 +35,36 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+type ToolOpts = {
+  /**
+   * Whether this tool changes server-side state (writes to the DB, triggers
+   * external side effects, etc.). Mutation tools are only registered when
+   * FLAKEY_MCP_ALLOW_MUTATIONS is set.
+   */
+  mutates?: boolean;
+};
+
+function registerTool<A extends ZodRawShape>(
+  name: string,
+  description: string,
+  args: A,
+  handler: ToolCallback<A>,
+  opts: ToolOpts = {}
+): void {
+  if (opts.mutates && !ALLOW_MUTATIONS) {
+    console.error(
+      `[flakey-mcp] Skipping mutation tool "${name}" ` +
+        `(set FLAKEY_MCP_ALLOW_MUTATIONS=1 to enable).`
+    );
+    return;
+  }
+  const finalDescription = opts.mutates ? `[mutates server state] ${description}` : description;
+  server.tool<A>(name, finalDescription, args, handler);
+}
+
 // --- Tools ---
 
-server.tool(
+registerTool(
   "get_runs",
   "List recent test runs. Returns run ID, suite, branch, pass/fail counts, and duration.",
   {},
@@ -40,7 +74,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_run",
   "Get full details for a specific test run, including all specs and tests with errors.",
   { run_id: z.number().describe("The run ID to fetch") },
@@ -50,7 +84,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_flaky_tests",
   "List flaky tests — tests that alternate between passing and failing. Shows flaky rate, flip count, and timeline.",
   {
@@ -66,7 +100,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_errors",
   "List recurring test failures grouped by error message. Shows occurrence count, affected tests, and status.",
   {
@@ -82,7 +116,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_test_history",
   "Get the pass/fail history for a specific test across runs.",
   { test_id: z.number().describe("The test ID") },
@@ -92,7 +126,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "predict_tests",
   "Predict which tests to run based on changed files. Returns a ranked list of tests with relevance scores.",
   {
@@ -108,7 +142,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_quarantined_tests",
   "List tests that are quarantined (skipped in CI due to flakiness).",
   { suite: z.string().optional().describe("Filter by suite name") },
@@ -119,17 +153,18 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "analyze_error",
-  "Use AI to classify a test failure and suggest a fix. Requires AI to be configured on the server.",
+  "Use AI to classify a test failure and suggest a fix. Writes an analysis record to the backend. Requires AI to be configured on the server.",
   { fingerprint: z.string().describe("The error fingerprint (MD5 hash from the errors list)") },
   async ({ fingerprint }) => {
     const result = await api(`/analyze/error/${fingerprint}`, { method: "POST" });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  },
+  { mutates: true }
 );
 
-server.tool(
+registerTool(
   "get_slowest_tests",
   "List the slowest tests with P50/P95/P99 duration stats and trend analysis.",
   { suite: z.string().optional().describe("Filter by suite name") },
@@ -140,7 +175,7 @@ server.tool(
   }
 );
 
-server.tool(
+registerTool(
   "get_stats",
   "Get dashboard statistics: total runs, tests, pass rate, recent failures.",
   {

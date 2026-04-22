@@ -46,15 +46,42 @@ secrets manager.
 
 ### Rotation
 
-Rotation is not yet automated. The safest path today is:
+Rotation uses a dual-key window: the running backend can decrypt under
+either a primary or secondary key, so there is never a point where stored
+secrets are unreadable. A script then re-encrypts every row under the new
+primary, after which the old key can be dropped.
 
-1. Set the new key in the env as `FLAKEY_ENCRYPTION_KEY`
-2. Re-enter each secret from the Settings → Integrations page (this
-   triggers a write, which encrypts with the new key)
-3. Remove the old key once all secrets have been re-saved
+1. **Generate a new key** and deploy the backend with both keys set:
 
-The `v1:` prefix is there so a future migration can distinguish old and
-new ciphertexts and re-encrypt in place.
+   ```bash
+   FLAKEY_ENCRYPTION_KEY="<new>"        # primary — used for new writes
+   FLAKEY_ENCRYPTION_KEY_OLD="<old>"    # secondary — used only as a read fallback
+   ```
+
+   At this point both old and new ciphertexts are readable. New writes
+   use the primary key automatically.
+
+2. **Re-encrypt existing secrets** under the new primary:
+
+   ```bash
+   cd backend
+   FLAKEY_ENCRYPTION_KEY="<new>" \
+     FLAKEY_ENCRYPTION_KEY_OLD="<old>" \
+     npm run rotate-keys
+   ```
+
+   Preview changes first with `-- --dry-run`. The script walks every
+   org's encrypted columns (Jira token, PagerDuty key), decrypts under
+   whichever key works, and writes back a fresh ciphertext produced by
+   the new primary. It's idempotent — re-running against already-current
+   values is a no-op.
+
+3. **Drop the old key** from the env and redeploy. `FLAKEY_ENCRYPTION_KEY_OLD`
+   should be unset once rotation completes, so an attacker who later
+   obtains the old key alone cannot decrypt anything in the database.
+
+The `v1:` prefix is preserved across rotations; the on-disk format does
+not change, only the key that authenticates the GCM tag.
 
 ### Leaving it unset
 
