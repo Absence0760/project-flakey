@@ -1,0 +1,25 @@
+{
+  "name": "@flakeytesting/example-jest",
+  "private": true,
+  "type": "module",
+  "comments": {
+    "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/cli\": \"latest\""
+  },
+  "scripts": {
+    "test": "jest",
+    "test:smoke": "jest --testPathPattern='__tests__/smoke' --coverage --coverageDirectory=coverage/smoke",
+    "test:regression": "jest --testPathPattern='__tests__/regression' --coverage --coverageDirectory=coverage/regression",
+    "test:flaky": "jest --testPathPattern='__tests__/flaky'",
+    "coverage:upload": "node scripts/upload-coverage.js",
+    "upload": "node scripts/upload.js"
+  },
+  "devDependencies": {
+    "@flakeytesting/cli": "link:../../packages/flakey-cli",
+    "@types/jest": "^29.5.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "ts-jest": "^29.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "latest"
+  }
+}

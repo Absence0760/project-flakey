@@ -6,8 +6,9 @@
     "deps": "To use published npm packages, replace link: entry with: \"@flakeytesting/cli\": \"latest\""
   },
   "scripts": {
-    "test:smoke": "newman run collection.json -e environment.json --reporters cli,junit --reporter-junit-export reports/results.xml; node scripts/upload.js smoke",
-    "test:all": "pnpm test:smoke"
+    "test:smoke": "newman run collection.json -e environment.json --reporters cli,junit --reporter-junit-export reports/results.xml; node scripts/generate-coverage.js; node scripts/upload.js smoke",
+    "test:all": "pnpm test:smoke",
+    "coverage:upload": "node scripts/upload-coverage.js"
   },
   "devDependencies": {
     "@flakeytesting/cli": "link:../../packages/flakey-cli",

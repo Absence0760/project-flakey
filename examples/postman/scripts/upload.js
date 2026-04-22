@@ -3,6 +3,9 @@
 /**
  * Uploads Newman JUnit results to Flakey via the CLI.
  * Usage: node scripts/upload.js <suite-suffix>
+ *
+ * Optional env vars:
+ *   FLAKEY_RELEASE  — link this run to a named release (e.g. "v1.2.0")
  */
 
 import { spawnSync } from "child_process";
@@ -22,6 +25,7 @@ const suite = process.argv[2] ?? "default";
 const reportDir = "reports";
 const apiKey = process.env.FLAKEY_API_KEY ?? "";
 const apiUrl = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
+const release = process.env.FLAKEY_RELEASE ?? "";
 
 if (!apiKey) {
   console.error("  [flakey] No FLAKEY_API_KEY set. Create a .env file or export the variable.");
@@ -34,13 +38,16 @@ if (!existsSync(`${reportDir}/results.xml`)) {
 }
 
 // Upload via CLI
-const result = spawnSync("npx", [
+const cliArgs = [
   "tsx", "../../packages/flakey-cli/src/index.ts",
   "--report-dir", reportDir,
   "--suite", `postman-example-${suite}`,
   "--reporter", "junit",
   "--api-key", apiKey,
-], {
+];
+if (release) cliArgs.push("--release", release);
+
+const result = spawnSync("npx", cliArgs, {
   stdio: "inherit",
   env: { ...process.env, FLAKEY_API_URL: apiUrl },
 });
