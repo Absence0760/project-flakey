@@ -194,7 +194,7 @@ npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
 
 ---
 
-## Method 2: curl (JSON only, no artifacts)
+## Method 3: curl (JSON only, no artifacts)
 
 For quick uploads without screenshots/videos:
 
@@ -238,7 +238,7 @@ curl -X POST http://localhost:3000/runs \
 
 ---
 
-## Method 3: curl with multipart (with artifacts)
+## Method 4: curl with multipart (with artifacts)
 
 To include screenshots and videos via curl:
 
@@ -607,7 +607,7 @@ Point the CLI at an Istanbul `coverage-summary.json` (produced by `nyc`,
 `c8`, `jest --coverage`, or Cypress `@cypress/code-coverage`):
 
 ```bash
-npx flakey-cli coverage --run-id 42 --file coverage/coverage-summary.json
+npx flakey-upload coverage --run-id 42 --file coverage/coverage-summary.json
 ```
 
 The uploader reads the `total` object and stores the lines/branches/
@@ -622,7 +622,7 @@ Dump axe-core results to JSON from any Cypress, Playwright, or Selenium
 test and upload them against the run:
 
 ```bash
-npx flakey-cli a11y --run-id 42 --file axe-results.json --url /
+npx flakey-upload a11y --run-id 42 --file axe-results.json --url /
 ```
 
 Expected JSON shape is the native axe-core output:
@@ -646,7 +646,7 @@ penalty: `100 − (critical×15 + serious×8 + moderate×4 + minor×1)`.
 Point the CLI at a manifest file that lists each screenshot comparison:
 
 ```bash
-npx flakey-cli visual --run-id 42 --file visual-manifest.json
+npx flakey-upload visual --run-id 42 --file visual-manifest.json
 ```
 
 Manifest format (either a raw array or a `{diffs: [...]}` wrapper):
@@ -678,7 +678,7 @@ Track which routes your tests actually visit. The CLI accepts either a
 simple list of strings or an array of `{route_pattern}` objects:
 
 ```bash
-npx flakey-cli ui-coverage --suite my-e2e --file visits.json --run-id 42
+npx flakey-upload ui-coverage --suite my-e2e --file visits.json --run-id 42
 ```
 
 ```json

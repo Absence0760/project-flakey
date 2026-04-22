@@ -23,7 +23,7 @@ docker compose up -d
 ```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../packages/flakey-cli && npm install
+cd ../packages/flakey-cli && pnpm install
 ```
 
 ### 3. Seed sample data
@@ -37,7 +37,7 @@ Creates two users, two orgs, and 56 sample test runs (Mochawesome, Playwright, J
 ### 4. Start the app
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 - **Frontend:** http://localhost:7777
@@ -207,7 +207,7 @@ curl -X POST http://localhost:3000/runs \
   -d "{\"meta\":{\"suite_name\":\"my-project\",\"branch\":\"main\",\"commit_sha\":\"\",\"ci_run_id\":\"\",\"started_at\":\"\",\"finished_at\":\"\",\"reporter\":\"mochawesome\"},\"raw\":$(cat cypress/reports/mochawesome.json)}"
 ```
 
-Create an API key from the Profile page for permanent access (no expiry).
+Create an API key from the Settings page for permanent access (no expiry).
 
 ## Features
 

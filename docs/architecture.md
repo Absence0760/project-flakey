@@ -302,7 +302,7 @@ SvelteKit app with Svelte 5, organized in route groups:
   - **Releases** — release cards with checklist progress bars; release detail view with checklist toggle, add/remove items, and sign-off button (disabled until required items checked)
   - **Settings** — project configuration + link to `/settings/integrations`
   - **Settings / Integrations** — consolidated admin page for Jira, PagerDuty, coverage gating, and scheduled reports (with test-connection buttons)
-  - **Profile** — account info, API key management (create/list/delete)
+  - **Settings** — account info, API key management (create/list/delete)
 
 ## CI integration examples
 
