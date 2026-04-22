@@ -9,10 +9,18 @@ Express + Node + TypeScript API. Multi-tenant via Postgres Row-Level Security.
 - `npm test` — `node --test` over `src/tests/**/*.test.ts` via tsx
 - `npm run build` — `tsc` → `dist/`
 - `npm start` — run the built `dist/index.js`
+- `npm run rotate-keys` — re-encrypt all org secrets under the current primary key (see `docs/integrations.md` for the dual-key rotation procedure)
 
 ## Package manager
 
 Use **npm** here, not pnpm. The backend has its own lockfile and is intentionally outside the pnpm workspace.
+
+## Layout
+
+- `src/integrations/` — Jira, PagerDuty, scheduled reports, coverage-gate logic
+- `src/git-providers/` — GitHub/GitLab/Bitbucket PR-comment + commit-status adapters
+
+Everything else (`src/routes/`, `src/normalizers/`, `src/tests/`) is self-describing.
 
 ## Key constraints
 
@@ -20,15 +28,4 @@ Use **npm** here, not pnpm. The backend has its own lockfile and is intentionall
 - Migrations live in `migrations/`; apply via `./migrate.sh`.
 - `JWT_SECRET` is required in production (no default).
 - Secrets for integrations (Jira tokens, PagerDuty keys) are AES-256-GCM encrypted via `FLAKEY_ENCRYPTION_KEY`. If the key is unset, the code falls back to plaintext passthrough — only acceptable in local dev.
-
-## Layout
-
-- `src/routes/` — Express route handlers
-- `src/normalizers/` — per-reporter adapters (Mochawesome, JUnit, Playwright, Jest, WebdriverIO)
-- `src/integrations/` — Jira, PagerDuty, scheduled reports, webhooks
-- `src/git-providers/` — GitHub, GitLab, Bitbucket PR-comment + status adapters
-- `src/tests/` — integration tests (hit a real Postgres; see `docs/testing.md`)
-
-## Email
-
-`src/email.ts` handles SMTP for auth verification, password reset, and scheduled reports. Default `EMAIL_FROM` is `Better Testing <noreply@example.com>` — override via env for real SMTP.
+- `SMTP_*` + `EMAIL_FROM` control transactional mail (auth verification, password reset) and scheduled report delivery; all have safe defaults for local dev.

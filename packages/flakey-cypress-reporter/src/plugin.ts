@@ -312,7 +312,7 @@ export async function setupFlakey(
   if (opts.live !== false) {
     try {
       // @ts-ignore — optional peer dependency
-      const { register } = await import("@flakeytesting/live-reporter/dist/mocha.js");
+      const { register } = await import("@flakeytesting/live-reporter/mocha");
       const fromReporterOpts = (config.reporterOptions ?? {}) as Record<string, string>;
       const url = opts.reporterOptions?.url ?? fromReporterOpts.url;
       const apiKey = opts.reporterOptions?.apiKey ?? fromReporterOpts.apiKey;

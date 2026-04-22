@@ -31,6 +31,19 @@ export const config = {
 - `@wdio/reporter` (direct dep) — base class.
 - `@flakeytesting/core` (workspace) — shared upload/format helpers.
 
+## Options
+
+| Option | Type | Default | Notes |
+|--------|------|---------|-------|
+| `url` | string | — | Required. Backend base URL. |
+| `apiKey` | string | — | Required. |
+| `suite` | string | — | Required. Suite name shown in dashboard. |
+| `branch` | string | env fallback | `BRANCH` → `GITHUB_REF_NAME` |
+| `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` |
+| `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` |
+| `screenshotsDir` | string | `"screenshots"` | Relative to cwd |
+| `videosDir` | string | `"videos"` | Relative to cwd |
+
 ## Conventions
 
 - Extend the `@wdio/reporter` base class; don't hand-roll the reporter lifecycle.
