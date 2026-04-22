@@ -14,6 +14,15 @@ From `package.json` `exports`:
 - `./plugin` → `dist/plugin.js` — `setupNodeEvents` wiring (screenshots/videos/upload)
 - `./support` → `dist/support.js` — browser-side hooks
 
+Both `flakeyReporter` and `setupFlakey` are exported from `./plugin`.
+
+- `flakeyReporter(on, config, options?)` — registers upload hooks only.
+- `setupFlakey(on, config, opts?)` — composes `flakeyReporter` + optional `@flakeytesting/cypress-snapshots` + optional `@flakeytesting/live-reporter`. **Prefer this in consumer configs.**
+
+`SetupFlakeyOptions`: `{ snapshots?: boolean, live?: boolean, reporterOptions?: FlakeyReporterOptions }`
+
+The integration examples (`examples/cypress/cypress.config.ts`) use `setupFlakey`. Use `flakeyReporter` directly only when you want to opt out of snapshots and live streaming.
+
 ## Peer deps
 
 - `cypress >=12.0.0` (required)

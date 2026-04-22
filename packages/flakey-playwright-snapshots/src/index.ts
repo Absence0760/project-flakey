@@ -203,10 +203,17 @@ export function parseTrace(
       }
     }
 
-    if (closestFrame && resources.has(closestFrame.sha1)) {
-      const imageData = resources.get(closestFrame.sha1)!;
+    // Trace screencast frames reference resources by bare sha1 hash (no extension).
+    // Resources are stored under "<sha1>.jpeg" / "<sha1>.png" keys — try each.
+    const sha1 = closestFrame?.sha1 ?? "";
+    const resourceKey = resources.has(sha1 + ".jpeg") ? sha1 + ".jpeg"
+      : resources.has(sha1 + ".png") ? sha1 + ".png"
+      : resources.has(sha1) ? sha1
+      : null;
+    if (closestFrame && resourceKey) {
+      const imageData = resources.get(resourceKey)!;
       const base64 = imageData.toString("base64");
-      const mimeType = closestFrame.sha1.endsWith(".png") ? "image/png" : "image/jpeg";
+      const mimeType = resourceKey.endsWith(".png") ? "image/png" : "image/jpeg";
 
       steps.push({
         index: i,

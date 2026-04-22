@@ -104,23 +104,23 @@ Each example is a standalone project. Install and run:
 # Cypress
 cd examples/cypress
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
 
 # Playwright
 cd examples/playwright
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
 
 # Selenium
 cd examples/selenium
 pnpm install
-pnpm test
+pnpm test:smoke
 # Selenium uses the CLI to upload results after the run
 
 # WebdriverIO
 cd examples/webdriverio
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
 ```
 
 ### Verify results
@@ -238,14 +238,15 @@ export const config = {
 Selenium doesn't have a native Better Testing reporter. Use a standard reporter (JUnit XML or mochawesome) and upload via the CLI:
 
 ```bash
-# Run tests (generates JUnit XML)
-pnpm test
+# Run tests and upload automatically
+pnpm test:smoke
 
-# Upload to Better Testing
+# To upload manually (matches scripts/upload.js):
 npx tsx ../../packages/flakey-cli/src/index.ts \
-  --report-dir test-results \
-  --suite integration-selenium \
-  --reporter junit \
+  --report-dir reports \
+  --suite selenium-example-smoke \
+  --reporter mochawesome \
+  --screenshots-dir screenshots \
   --api-key $FLAKEY_API_KEY
 ```
 

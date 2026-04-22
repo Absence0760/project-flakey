@@ -2,8 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-
-  const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+  import { API_URL } from '$lib/config';
 
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let error = $state('');

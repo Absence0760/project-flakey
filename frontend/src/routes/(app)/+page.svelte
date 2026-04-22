@@ -3,8 +3,7 @@
   import { page } from "$app/stores";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { authFetch } from "$lib/auth";
-
-  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  import { API_URL } from "$lib/config";
 
   let allRuns = $state<Run[]>([]);
   let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });

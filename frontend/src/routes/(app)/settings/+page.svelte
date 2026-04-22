@@ -3,8 +3,7 @@
   import { getAuth } from "$lib/auth";
   import { authFetch } from "$lib/auth";
   import { toast, toastError } from "$lib/toast";
-
-  const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  import { API_URL as apiUrl } from "$lib/config";
   const auth = getAuth();
   const orgId = auth.user?.orgId;
 

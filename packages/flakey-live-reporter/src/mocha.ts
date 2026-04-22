@@ -130,13 +130,19 @@ export function register(
 
     if (!runId) return;
 
-    client = new LiveClient({ url, apiKey, runId });
-    client.send({ type: "run.started" });
-    // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
-    // so the LIVE badge clears instead of waiting for the stale timeout.
-    teardownShutdown = installShutdownHandler(client, {
-      reason: "Cypress process received a shutdown signal.",
-    });
+    // Guard against Cypress 15+ firing before:run twice. On the second call
+    // runId is already set (skipped the startPromise block above) but client
+    // was already constructed on the first call — skip to avoid orphaning
+    // queued events and leaking signal handlers.
+    if (!client) {
+      client = new LiveClient({ url, apiKey, runId });
+      client.send({ type: "run.started" });
+      // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
+      // so the LIVE badge clears instead of waiting for the stale timeout.
+      teardownShutdown = installShutdownHandler(client, {
+        reason: "Cypress process received a shutdown signal.",
+      });
+    }
   });
 
   on("before:spec", (spec: { relative: string }) => {

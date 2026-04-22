@@ -34,4 +34,4 @@ reporter: [
 
 ## Reporter metadata
 
-The reporter captures retry history, tags, annotations, source location, stdout/stderr, and error snippets (see the README's "Reporter Metadata" section). Preserve those fields when normalizing — the dashboard relies on them.
+The reporter captures: test title, full title path, pass/fail/skip status, duration, error message and stack, screenshot and video attachment paths, and (when traces are present) command logs extracted by `@flakeytesting/playwright-snapshots`. Fields such as retry count, tags, annotations, and stdout/stderr are not currently captured.
