@@ -15,7 +15,10 @@ Cypress plugin that captures DOM snapshots at each command step and bundles them
 |---|---|---|---|
 | `outputDir` | `string` | `"cypress/snapshots"` | Where snapshot bundles are written. |
 | `enabled` | `boolean` | `true` | Set `false` to disable capture entirely (added in 0.5.0). Exposed to the support file via `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")`. |
-| `maxHtmlBytes` | `number` | `2 * 1024 * 1024` (2 MB) | Per-step HTML size cap. Oversized DOMs (e.g. PDF viewer iframes) are replaced with a placeholder to keep the aggregate bundle under V8's max string length when `cy.task` JSON-serializes it. Exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES")`. Added in 0.6.1. |
+| `maxHtmlBytes` | `number` | `2 * 1024 * 1024` (2 MB) | Per-step HTML size cap. Oversized DOMs (e.g. PDF viewer iframes) are replaced with a placeholder, and a `console.warn` is emitted so users see when it trips. Exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES")`. Added in 0.6.1. |
+| `maxBundleBytes` | `number` | `64 * 1024 * 1024` (64 MB) | Aggregate cap across all steps in one test. Oldest steps are evicted FIFO when the running total exceeds this — a second line of defence against bundles that stay under the per-step cap but collectively exceed what `cy.task`'s `JSON.stringify` can serialize. Exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_BUNDLE_BYTES")`. Added in 0.6.2. |
+
+Cap accounting: `state.cappedCount` / `state.evictedCount` (in `shared.ts`) are reset by `resetState()` on `test:before:run`, incremented by `capHtml()` and `enforceBundleSize()`, and surfaced both via a `console.warn` summary at end-of-test and as `cappedSteps` / `evictedSteps` fields on the `SnapshotBundle`. The Node-side plugin prints the counts inline with the save line (e.g. `[3 placeholder'd, 7 evicted]`).
 
 The user-facing doc lives at `docs/plugin.md` (next to this file).
 

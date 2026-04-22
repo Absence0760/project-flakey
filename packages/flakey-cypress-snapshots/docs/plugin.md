@@ -99,13 +99,33 @@ Upload target: `POST /live/:runId/snapshot` as `multipart/form-data` with fields
 
 ```ts
 flakeySnapshots(on, config, {
-  outputDir: "cypress/snapshots",   // default
-  enabled: true,                     // default; set false to disable capture entirely
-  maxHtmlBytes: 2 * 1024 * 1024,     // default; per-step HTML cap in bytes
+  outputDir: "cypress/snapshots",      // default
+  enabled: true,                        // default; set false to disable capture entirely
+  maxHtmlBytes: 2 * 1024 * 1024,        // default; per-step HTML cap in bytes
+  maxBundleBytes: 64 * 1024 * 1024,     // default; aggregate cap across all steps in a test
 });
 ```
 
-`enabled` is exposed to the browser context as `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")` so `support.ts` can short-circuit without doing any work. `maxHtmlBytes` is exposed as `Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES")`; when a single step's serialized DOM exceeds this size, it is replaced with a small placeholder HTML document noting the skip. This prevents pathological DOMs (e.g. embedded PDF viewers) from accumulating across the 300-step ring buffer and blowing past V8's max string length (~500 MB) when `cy.task` JSON-serializes the bundle.
+`enabled` is exposed to the browser context as `Cypress.env("FLAKEY_SNAPSHOTS_ENABLED")` so `support.ts` can short-circuit without doing any work.
+
+### Size caps
+
+Two independent size budgets keep bundles within what `cy.task`'s JSON-serializer can handle (V8's max string length is ~500 MB):
+
+| Cap | Default | Env var | Effect when exceeded |
+|---|---|---|---|
+| `maxHtmlBytes` | 2 MB | `FLAKEY_SNAPSHOTS_MAX_HTML_BYTES` | The single oversized snapshot is replaced with a small placeholder document noting the skip. A `console.warn` is emitted. The test and surrounding steps are unaffected. |
+| `maxBundleBytes` | 64 MB | `FLAKEY_SNAPSHOTS_MAX_BUNDLE_BYTES` | Oldest steps are evicted FIFO from the ring buffer until the running total fits. A summary warning is emitted at end-of-test. |
+
+The per-step cap guards against single pathological DOMs (embedded PDF viewers, giant data grids). The aggregate cap guards against the slower-burn failure where every step stays under the per-step cap but they collectively exceed what `JSON.stringify` can produce.
+
+When either cap trips, the bundle carries `cappedSteps` / `evictedSteps` counters and the Node-side plugin logs them alongside the save line:
+
+```
+[flakey-snapshots] Saved 142 steps → e2e__login.cy.ts--successful-login.json.gz (84.3KB) [3 placeholder'd]
+```
+
+Raise the per-step cap for apps with heavy inlined CSS or large base64 images; raise the bundle cap for very long tests. Both accept any positive integer number of bytes.
 
 ## Replay (frontend)
 
