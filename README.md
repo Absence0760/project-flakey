@@ -362,7 +362,7 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 
 **CI/CD pipelines** (GitHub Actions):
 - `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
-- `publish.yml` — publishes `@flakeytesting/cli`, `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`, and `@flakeytesting/cypress-snapshots` to npm when their source changes
+- `publish.yml` — publishes all packages in `packages/` to npm when their source changes (`@flakeytesting/core`, `cli`, `cypress-reporter`, `cypress-snapshots`, `live-reporter`, `mcp-server`, `playwright-reporter`, `playwright-snapshots`, `webdriverio-reporter`)
 
 ## npm Packages
 
@@ -372,6 +372,8 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 | `@flakeytesting/cli` | CLI for uploading test results | `npm install @flakeytesting/cli` |
 | `@flakeytesting/cypress-reporter` | Cypress reporter + plugin + support | `npm install @flakeytesting/cypress-reporter` |
 | `@flakeytesting/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakeytesting/cypress-snapshots` |
+| `@flakeytesting/live-reporter` | Live test-event streaming during a run | `npm install @flakeytesting/live-reporter` |
+| `@flakeytesting/mcp-server` | MCP server for AI agent test queries | `npm install @flakeytesting/mcp-server` |
 | `@flakeytesting/playwright-reporter` | Playwright reporter | `npm install @flakeytesting/playwright-reporter` |
 | `@flakeytesting/playwright-snapshots` | Playwright trace parser for snapshots | `npm install @flakeytesting/playwright-snapshots` |
 | `@flakeytesting/webdriverio-reporter` | WebdriverIO reporter | `npm install @flakeytesting/webdriverio-reporter` |

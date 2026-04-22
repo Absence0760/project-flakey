@@ -32,7 +32,7 @@ async function api(path: string, opts?: RequestInit): Promise<unknown> {
 
 const server = new McpServer({
   name: "flakey",
-  version: "0.1.0",
+  version: "0.4.0",
 });
 
 type ToolOpts = {

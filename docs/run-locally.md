@@ -53,7 +53,7 @@ cd backend && npm run seed
 This creates:
 - Two users: `admin@example.com` / `admin` and `demo@example.com` / `demo123`
 - Two organizations: Acme Corp (admin's) and Demo Team (demo's)
-- 50 sample test runs spread across 18 months (assigned to Acme Corp)
+- 56 sample test runs spread across 18 months (50 main + 3 Playwright + 3 JUnit, assigned to Acme Corp)
 - Phase 9/10 sample data attached to Acme Corp:
   - Coverage, accessibility, and visual-diff reports on the 3 most recent runs
   - 10 known UI routes (7 visited, 3 untested) for the UI coverage view

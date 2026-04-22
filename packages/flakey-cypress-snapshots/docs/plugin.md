@@ -52,6 +52,8 @@ interface SnapshotBundle {
   viewportWidth: number;
   viewportHeight: number;
   steps: SnapshotStep[];
+  cappedSteps?: number;   // Steps replaced with a placeholder (per-step HTML cap). Added v0.6.2.
+  evictedSteps?: number;  // Steps dropped FIFO (aggregate cap). Added v0.6.2.
 }
 
 interface SnapshotStep {

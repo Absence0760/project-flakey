@@ -36,7 +36,7 @@ openssl rand -hex 32
 Set it before starting the backend:
 
 ```bash
-FLAKEY_ENCRYPTION_KEY="$(openssl rand -base64 32)" pnpm dev
+FLAKEY_ENCRYPTION_KEY="$(openssl rand -base64 32)" npm run dev
 ```
 
 In production (ECS / Kubernetes / etc.) pass it as a secret environment
