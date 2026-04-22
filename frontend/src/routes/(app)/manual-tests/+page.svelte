@@ -2,8 +2,7 @@
 	import { onMount } from 'svelte';
 	import { authFetch, getAuth } from '$lib/auth';
 	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
-
-	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+	import { API_URL } from '$lib/config';
 
 	interface ManualTest {
 		id: number;

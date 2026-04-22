@@ -2,8 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { authFetch } from '$lib/auth';
-
-	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+	import { API_URL } from '$lib/config';
 
 	interface ChecklistItem {
 		id: number;

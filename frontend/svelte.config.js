@@ -50,10 +50,5 @@ function warningFilter(warning) {
 		return false;
 	}
 
-	// Also ignore the specific warnings we're seeing
-	if (ignoredWarningCodes.includes(warning.code)) {
-		return false;
-	}
-
 	return true;
 }

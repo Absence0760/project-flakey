@@ -6,8 +6,7 @@
   import ErrorModal from "$lib/components/ErrorModal.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import RunExtras from "$lib/components/RunExtras.svelte";
-
-  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  import { API_URL } from "$lib/config";
 
   let run = $state<RunDetail | null>(null);
   let loading = $state(true);
