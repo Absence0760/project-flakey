@@ -22,11 +22,13 @@ interface PlaywrightTestCase {
   titlePath(): string[];
   location: { file: string; line: number; column: number };
   parent: { title: string; location?: { file: string } };
+  retries: number;
 }
 
 interface PlaywrightTestResult {
   status: "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
   duration: number;
+  retry: number;
   error?: { message?: string; stack?: string };
   attachments: { name: string; path?: string; contentType: string }[];
 }
@@ -51,6 +53,10 @@ export default class FlakeyPlaywrightReporter {
   }
 
   onTestEnd(test: PlaywrightTestCase, result: PlaywrightTestResult) {
+    // Skip non-final retry attempts to avoid inflating counts.
+    // result.retry is 0-based; test.retries is the configured max.
+    if (result.status === "failed" && result.retry < test.retries) return;
+
     const filePath = test.location.file;
     const specTitle = test.parent.title || filePath;
 
