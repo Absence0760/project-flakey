@@ -107,6 +107,19 @@ export function restoreAuth(): boolean {
   return false;
 }
 
+// Deduplicates concurrent refresh calls so only one /auth/refresh request
+// flies at a time. All concurrent callers await the same promise; the
+// promise is cleared in `finally` so the next 401 starts a fresh attempt.
+let refreshPromise: Promise<boolean> | null = null;
+
+function getOrStartRefresh(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = refreshAccessToken().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
 async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = state.refreshToken;
   if (!refreshToken) return false;
@@ -228,9 +241,11 @@ export async function authFetch(url: string, opts?: RequestInit): Promise<Respon
 
   let res = await fetch(url, { ...opts, headers, credentials: "include" });
 
-  // If 401, try refreshing the token once
+  // If 401, try refreshing the token once.
+  // getOrStartRefresh() deduplicates concurrent callers so only one
+  // /auth/refresh request flies even when multiple authFetch calls race.
   if (res.status === 401 && state.refreshToken) {
-    const refreshed = await refreshAccessToken();
+    const refreshed = await getOrStartRefresh();
     if (refreshed) {
       headers.set("Authorization", `Bearer ${state.token}`);
       res = await fetch(url, { ...opts, headers, credentials: "include" });
