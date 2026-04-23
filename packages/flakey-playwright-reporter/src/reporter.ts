@@ -76,7 +76,7 @@ export default class FlakeyPlaywrightReporter {
 
     const status: NormalizedTest["status"] =
       result.status === "passed" ? "passed" :
-      result.status === "failed" || result.status === "timedOut" ? "failed" :
+      result.status === "failed" || result.status === "timedOut" || result.status === "interrupted" ? "failed" :
       "skipped";
 
     // Print result to terminal as it happens
