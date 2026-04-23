@@ -185,7 +185,7 @@ export default class FlakeyPlaywrightReporter {
     const run: NormalizedRun = {
       meta: {
         suite_name: this.options.suite,
-        branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? "",
+        branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
         commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
         ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
         started_at: this.startedAt.toISOString(),
