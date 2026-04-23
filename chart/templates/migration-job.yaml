@@ -37,9 +37,16 @@ spec:
               echo "[migrate] Running migrations..."
               for f in /app/migrations/*.sql; do
                 echo "  Applying $(basename $f)..."
-                psql -v ON_ERROR_STOP=1 -q -f "$f" 2>&1 || echo "  Warning: $(basename $f) had errors (continuing)"
+                psql -v ON_ERROR_STOP=1 -q -f "$f"
               done
               echo "[migrate] Done."
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           env:
             - name: DB_MIGRATION_USER
               valueFrom:
