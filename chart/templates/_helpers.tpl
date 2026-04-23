@@ -1,3 +1,10 @@
+{{/* Validate required values at install/upgrade time */}}
+{{- define "flakey.validateValues" -}}
+{{- if and (not .Values.auth.existingSecret) (eq .Values.auth.jwtSecret "change-me-in-production") -}}
+{{- fail "auth.jwtSecret must be changed from the default. Set auth.jwtSecret or use auth.existingSecret." -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "flakey.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

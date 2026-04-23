@@ -76,7 +76,7 @@ export default class FlakeyPlaywrightReporter {
 
     const status: NormalizedTest["status"] =
       result.status === "passed" ? "passed" :
-      result.status === "failed" || result.status === "timedOut" ? "failed" :
+      result.status === "failed" || result.status === "timedOut" || result.status === "interrupted" ? "failed" :
       "skipped";
 
     // Print result to terminal as it happens
@@ -191,9 +191,9 @@ export default class FlakeyPlaywrightReporter {
     const run: NormalizedRun = {
       meta: {
         suite_name: this.options.suite,
-        branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-        commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-        ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+        branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+        commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+        ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
         started_at: this.startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "playwright",

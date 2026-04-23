@@ -45,6 +45,10 @@ if (IS_PROD && !process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+if (IS_PROD && process.env.ALLOW_REGISTRATION === "true") {
+  console.warn("WARNING: ALLOW_REGISTRATION=true — open self-registration is enabled.");
+}
+
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 

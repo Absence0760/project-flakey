@@ -10,9 +10,12 @@ variable "db_host" { type = string }
 variable "db_port" { type = number }
 variable "db_name" { type = string }
 variable "db_username" { type = string }
-variable "db_password" { type = string; sensitive = true }
 variable "db_password_arn" { type = string }
 variable "jwt_secret_arn" { type = string }
 variable "s3_bucket" { type = string }
 variable "allow_registration" { type = bool }
 variable "acm_certificate_arn" { type = string }
+variable "alert_email" {
+  description = "Email address to receive CloudWatch alarm notifications via SNS."
+  type        = string
+}

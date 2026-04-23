@@ -17,8 +17,8 @@ export async function runRetentionCleanup(): Promise<void> {
       // value to work with. Without it the cast blows up on an empty string.
       const runs = await tenantQuery(
         org.id,
-        "DELETE FROM runs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL RETURNING id",
-        [String(days)]
+        "DELETE FROM runs WHERE created_at < NOW() - ($1 * INTERVAL '1 day') RETURNING id",
+        [days]
       );
 
       for (const run of runs.rows) {

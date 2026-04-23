@@ -58,8 +58,8 @@ module "ecs" {
   db_username         = module.rds.db_username
   db_password_arn     = module.secrets.db_password_secret_arn
   jwt_secret_arn      = module.secrets.jwt_secret_arn
-  db_password         = module.secrets.db_password
   s3_bucket           = module.s3.bucket_name
   allow_registration  = var.allow_registration
   acm_certificate_arn = var.acm_certificate_arn
+  alert_email         = var.budget_alert_email
 }
