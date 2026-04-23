@@ -3,6 +3,7 @@ import crypto from "crypto";
 import pool from "../db.js";
 import { requireAuth, signToken } from "../auth.js";
 import { logAudit } from "../audit.js";
+import { encryptSecret } from "../crypto.js";
 
 const router = Router();
 
@@ -314,7 +315,7 @@ router.patch("/:id/settings", async (req, res) => {
     }
     if (req.body.git_token !== undefined) {
       sets.push(`git_token = $${i++}`);
-      params.push(req.body.git_token || null);
+      params.push(req.body.git_token ? encryptSecret(req.body.git_token) : null);
     }
     if (req.body.git_repo !== undefined) {
       sets.push(`git_repo = $${i++}`);
