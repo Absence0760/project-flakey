@@ -129,17 +129,21 @@ router.post("/:runId/events", async (req, res) => {
 
   // Process DB writes sequentially after the response to avoid race conditions
   // when multiple test events for the same spec arrive in a single batch.
-  for (const fullEvent of fullEvents) {
-    if (fullEvent.type === "spec.started") {
-      await upsertLiveSpec(orgId, runId, fullEvent);
-    } else if (fullEvent.type === "spec.finished") {
-      await updateLiveSpecStats(orgId, runId, fullEvent);
-    } else if (fullEvent.type === "test.started") {
-      await upsertPendingTest(orgId, runId, fullEvent);
-    } else if (fullEvent.type === "test.passed" || fullEvent.type === "test.failed" || fullEvent.type === "test.skipped") {
-      await insertLiveTestResult(orgId, runId, fullEvent);
+  // Wrapped in an async IIFE with a top-level .catch() so any unhandled error
+  // does not propagate to Node's global unhandled-rejection handler.
+  (async () => {
+    for (const fullEvent of fullEvents) {
+      if (fullEvent.type === "spec.started") {
+        await upsertLiveSpec(orgId, runId, fullEvent);
+      } else if (fullEvent.type === "spec.finished") {
+        await updateLiveSpecStats(orgId, runId, fullEvent);
+      } else if (fullEvent.type === "test.started") {
+        await upsertPendingTest(orgId, runId, fullEvent);
+      } else if (fullEvent.type === "test.passed" || fullEvent.type === "test.failed" || fullEvent.type === "test.skipped") {
+        await insertLiveTestResult(orgId, runId, fullEvent);
+      }
     }
-  }
+  })().catch(err => console.error("[live] post-response DB error:", err));
 });
 
 /** Persist a live event to the database (fire-and-forget). */
