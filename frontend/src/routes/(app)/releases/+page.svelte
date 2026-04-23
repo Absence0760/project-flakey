@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { authFetch } from '$lib/auth';
 	import { API_URL } from '$lib/config';
+	import { toast, toastError } from '$lib/toast';
 
 	interface ReleaseSummary {
 		id: number;
@@ -45,22 +46,36 @@
 	}
 
 	async function createRelease() {
-		if (!newVersion.trim()) return;
-		const res = await authFetch(`${API_URL}/releases`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				version: newVersion,
-				name: newName || null,
-				target_date: newTargetDate || null,
-				description: newDescription || null,
-			}),
-		});
+		if (!newVersion.trim()) {
+			toastError('Version is required');
+			return;
+		}
+		let res: Response;
+		try {
+			res = await authFetch(`${API_URL}/releases`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					version: newVersion,
+					name: newName || null,
+					target_date: newTargetDate || null,
+					description: newDescription || null,
+				}),
+			});
+		} catch {
+			toastError('Could not reach the server. Check your connection and try again.');
+			return;
+		}
 		if (res.ok) {
 			showCreate = false;
+			const createdVersion = newVersion;
 			newVersion = newName = newTargetDate = newDescription = '';
+			toast(`Release ${createdVersion} created`);
 			await load();
+			return;
 		}
+		const body = (await res.json().catch(() => null)) as { error?: string } | null;
+		toastError(body?.error ?? `Failed to create release (${res.status})`);
 	}
 </script>
 

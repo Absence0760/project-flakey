@@ -512,6 +512,10 @@ router.post("/", async (req, res) => {
     await logAudit(req.user!.orgId, req.user!.id, "release.create", "release", String(releaseId), { version });
     res.status(201).json(release.rows[0]);
   } catch (err) {
+    if ((err as { code?: string })?.code === "23505") {
+      res.status(409).json({ error: `A release with version "${req.body?.version}" already exists` });
+      return;
+    }
     console.error("POST /releases error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
