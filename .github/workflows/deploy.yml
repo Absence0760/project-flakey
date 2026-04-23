@@ -22,9 +22,10 @@ jobs:
       should_deploy: ${{ steps.check.outputs.should_deploy }}
     steps:
       - id: check
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          MANUAL: ${{ github.event_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          MANUAL="${{ github.event_name }}"
           if [[ "$TAG" == app@* ]] || [[ "$MANUAL" == "workflow_dispatch" ]]; then
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           fi
