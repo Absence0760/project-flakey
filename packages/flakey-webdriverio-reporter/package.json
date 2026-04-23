@@ -4,6 +4,7 @@
   "description": "WebdriverIO reporter for Flakey — uploads results, screenshots, and videos",
   "type": "module",
   "main": "dist/reporter.js",
+  "types": "dist/reporter.d.ts",
   "exports": {
     ".": "./dist/reporter.js",
     "./dist/*": "./dist/*"

@@ -4,6 +4,7 @@
   "description": "Shared utilities for Flakey test reporting packages",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
     "./dist/*": "./dist/*"

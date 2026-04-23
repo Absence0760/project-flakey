@@ -4,6 +4,7 @@
   "description": "Lightweight live test event reporter for Flakey — streams test progress in real-time",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
     "./playwright": "./dist/playwright.js",
