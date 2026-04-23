@@ -1,246 +1,289 @@
-# Reporter packages audit
+# Review: packages/flakey-{cypress,playwright,webdriverio}-reporter
 
-Files reviewed: 20 source files across 4 packages (src/, CLAUDE.md, package.json, docs/).
-No test files exist in any of the four packages.
-Focus: docs vs reality, test coverage, CLAUDE.md quality.
+## Scope
+- Files reviewed: 28 (src/*.ts, package.json, CLAUDE.md, tsconfig.json for all three reporter packages + flakey-core + flakey-live-reporter + flakey-cypress-snapshots — all cross-referenced)
+- Focus: bugs, misconfigurations, bad flows — consistency, upload correctness, lifecycle hooks, retry counting, CI env vars, artifact collection, dead code
+- Reviewer confidence: high — all source files read in full; WDIO runtime behavior confirmed against installed @wdio/runner@9.27.0 in examples/webdriverio
+
+Prior review at this path (dated yesterday) had 8 findings. All 8 are resolved in the current codebase (H1 double-before:run guard, M1 FLAKEY_SUITE docs, M2 setupFlakey docs, M3 deep import path, M4/M5 playwright CLAUDE.md, L4 WDIO options table). The findings below are entirely new.
 
 ---
 
-## flakey-live-reporter
+## Priority: high
 
-### High
+### H1. WDIO reporter: async `onRunnerEnd` is never awaited — upload is always dropped
 
-#### H1. Double `before:run` overwrites `client` and orphans queued events
-
-- **File**: `packages/flakey-live-reporter/src/mocha.ts:87-140`
+- **File(s)**: `packages/flakey-webdriverio-reporter/src/reporter.ts:114-163`
 - **Category**: bug
-- **Problem**: The `startPromise` guard protects only the `/live/start` fetch. When Cypress 15+ fires `before:run` twice and `runId` is already set after the first call, the second invocation skips the `startPromise` block, reaches `client = new LiveClient(...)` unconditionally, and overwrites the existing client instance. Any events already queued in the first client are orphaned (never flushed). `teardownShutdown` is also overwritten, leaking the first signal handler.
+- **Problem**: `@wdio/reporter`'s base class calls `onRunnerEnd` synchronously (no `await`) and exposes an `isSynchronised` getter — defaulting to `true` — that `@wdio/runner` polls before allowing process exit. `FlakeyWdioReporter` overrides `onRunnerEnd` as `async` but never overrides `isSynchronised`. The result: `waitForSync()` resolves immediately (because `isSynchronised` is always `true`), the runner emits `exit`, the Node process tears down, and the `fetch()` inside `onRunnerEnd` is killed before it fires. Every single WDIO upload is silently dropped.
 - **Evidence**:
   ```ts
-  // Second before:run call: !runId is false so startPromise block is skipped,
-  // but execution falls through to here regardless:
-  client = new LiveClient({ url, apiKey, runId }); // line 133
-  client.send({ type: "run.started" });             // duplicate event
-  teardownShutdown = installShutdownHandler(...);   // first handler leaked
+  // @wdio/runner/build/index.js:886-897 (confirmed at
+  // examples/webdriverio/node_modules/.pnpm/@wdio+runner@9.27.0_.../node_modules/@wdio/runner/build/index.js)
+  this._reporter.emit("runner:end", { … });   // calls onRunnerEnd synchronously — no await
+  try {
+    await this._reporter.waitForSync();         // polls isSynchronised — resolves immediately
+  } catch (err) { … }
+  this.emit("exit", failures === 0 ? 0 : 1);  // process exits; fetch() is orphaned
+
+  // packages/flakey-webdriverio-reporter/src/reporter.ts:114
+  async onRunnerEnd(runner: RunnerStats) {
+    // ...
+    const result = await this.client.postRunWithFiles(run, { screenshots, videos, snapshots: [] });
+    // ^^^ this await is never reached; process exits before onRunnerEnd resolves
+  }
   ```
 - **Proposed change**:
   ```diff
-  -    client = new LiveClient({ url, apiKey, runId });
-  -    client.send({ type: "run.started" });
-  -    teardownShutdown = installShutdownHandler(client, { ... });
-  +    if (!client) {
-  +      client = new LiveClient({ url, apiKey, runId });
-  +      client.send({ type: "run.started" });
-  +      teardownShutdown = installShutdownHandler(client, { ... });
-  +    }
+  export default class FlakeyWdioReporter extends WDIOReporter {
+  +  private _synced = true;
+  +
+  +  get isSynchronised() {
+  +    return this._synced;
+  +  }
+
+     async onRunnerEnd(runner: RunnerStats) {
+  +    this._synced = false;
+       const specs: NormalizedSpec[] = [];
+       // ... rest of existing body unchanged ...
+       try {
+         const result = await this.client.postRunWithFiles(run, { screenshots, videos, snapshots: [] });
+         console.log(`\n  [flakey] Uploaded run #${result.id} …`);
+       } catch (err: any) {
+         console.error(`\n  [flakey] Failed to upload: ${err.message}`);
+  +    } finally {
+  +      this._synced = true;
+       }
+     }
   ```
-- **Risk if applied**: None — the guard is additive. `client` starts as `null`, so the first `before:run` sets it; subsequent calls are no-ops.
-- **Verification**: Add a test that calls the `before:run` handler twice in quick succession with a pre-set `runId` and assert `LiveClient` is constructed exactly once and `run.started` is sent exactly once.
+- **Risk if applied**: `isSynchronised` starts `true` and only turns `false` at the start of `onRunnerEnd`. If `onRunnerEnd` throws unexpectedly before the `finally`, the reporter will stall `waitForSync` until WDIO's `reporterSyncTimeout` (default 5 s). That is acceptable and prevents silent data loss.
+- **Verification**: Run `npx wdio examples/webdriverio/wdio.conf.ts` with a valid backend URL and API key. Without the fix, no run record appears in the dashboard. With the fix, a run record appears.
 
 ---
 
-### Medium
+### H2. Playwright and Cypress reporters inflate test counts when retries are configured
 
-#### M1. `FLAKEY_SUITE` env var is undocumented
-
-- **File**: `packages/flakey-live-reporter/CLAUDE.md` (no env vars section)
-- **Category**: inconsistency
-- **Problem**: All three adapters fall back to `process.env.FLAKEY_SUITE` when `config.suite` is absent (`src/mocha.ts:70`, `src/playwright.ts:38`, `src/webdriverio.ts:38`). The CLAUDE.md mentions `FLAKEY_API_URL`, `FLAKEY_API_KEY`, `FLAKEY_LIVE_RUN_ID`, and `CI_RUN_ID` as outputs but omits `FLAKEY_SUITE` entirely as an input. A developer setting up CI environment variables will miss it.
-- **Proposed change**: Add an env vars table to `CLAUDE.md`:
-  ```markdown
-  ## Env vars (inputs)
-
-  | Var | Adapters | Notes |
-  |-----|----------|-------|
-  | `FLAKEY_API_URL` | all | Base URL; overridden by `config.url` |
-  | `FLAKEY_API_KEY` | all | Auth token; overridden by `config.apiKey` |
-  | `FLAKEY_SUITE` | all | Suite name fallback; overridden by `config.suite` |
-  | `FLAKEY_LIVE_RUN_ID` | all | Pre-set run id; skips `/live/start` call |
-  | `BRANCH` / `GITHUB_HEAD_REF` / `GITHUB_REF_NAME` | all | Branch fallback chain |
-  | `COMMIT_SHA` / `GITHUB_SHA` | all | Commit SHA fallback chain |
-  | `CI_RUN_ID` / `GITHUB_RUN_ID` | all | CI run id fallback; also written as output |
-  ```
-- **Risk if applied**: Documentation only.
-- **Verification**: Read the updated CLAUDE.md and confirm every `process.env.*` reference in the three adapter source files is represented.
-
----
-
-### Low
-
-#### L1. No tests — concurrency logic has no automated coverage
-
-- **File**: `packages/flakey-live-reporter/` (no test files)
-- **Category**: dead-code / coverage drift
-- **Problem**: The package has the most complex logic of the four (ancestor-walk PID resolution, `startPromise` guard, `installShutdownHandler`). None of it has tests. H1 above is a bug that tests would have caught.
-- **Proposed change**: Add unit tests for at minimum: (a) `getAncestorPids` returns correct chain (mock `execSync`), (b) `register()` called with double `before:run` creates one `LiveClient` and sends one `run.started`, (c) `installShutdownHandler` teardown prevents abort after normal completion.
-- **Risk if applied**: None.
-- **Verification**: `pnpm test` passes in the package.
-
----
-
-## flakey-cypress-reporter
-
-### Medium
-
-#### M2. `setupFlakey` is the consumer-facing entry point but is absent from CLAUDE.md
-
-- **File**: `packages/flakey-cypress-reporter/CLAUDE.md` (Entry points section)
-- **Category**: inconsistency
-- **Problem**: The CLAUDE.md entry points section lists only `flakeyReporter`. The example integration (`examples/cypress/cypress.config.ts`) and every wiring snippet in the repo uses `setupFlakey` — the higher-level helper that composes `flakeyReporter`, optional snapshots, and optional live-reporter. A developer reading CLAUDE.md to understand the public API will wire up only `flakeyReporter` and miss the optional integrations.
+- **File(s)**: `packages/flakey-playwright-reporter/src/reporter.ts:53-134`, `packages/flakey-cypress-reporter/src/reporter.ts:175-288`
+- **Category**: bug
+- **Problem**: Both reporters append a new `NormalizedTest` entry to `spec.tests` on every test-end event, including non-final retry attempts. Playwright's `onTestEnd` fires once per attempt; Mocha's `fail`/`pass` events fire once per attempt. A test configured with `retries: 2` that passes on the third attempt produces three entries in `spec.tests` (two `failed`, one `passed`) and inflates `spec.stats.total` by 3 and `spec.stats.failed` by 2. On the backend this test appears as three separate results rather than one flaky result. The `PlaywrightTestResult` interface in the reporter does not even declare the `retry: number` field that Playwright provides, so there is no mechanism to filter non-final attempts.
 - **Evidence**:
   ```ts
-  // examples/cypress/cypress.config.ts
-  import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
-  await setupFlakey(on, config);
+  // packages/flakey-playwright-reporter/src/reporter.ts:27-31
+  interface PlaywrightTestResult {
+    status: "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+    duration: number;
+    error?: { message?: string; stack?: string };
+    attachments: { name: string; path?: string; contentType: string }[];
+    // retry: number is missing — Playwright does provide this field
+  }
+
+  // onTestEnd (line 53): no guard, always appends:
+  entry.tests.push(normalizedTest);
+  entry.spec.stats.total++;
   ```
-  `setupFlakey` is exported from `dist/plugin.d.ts:40` but has no mention in CLAUDE.md.
-- **Proposed change**: Add to the Entry points section:
-  ```markdown
-  Both `flakeyReporter` and `setupFlakey` are exported from `./plugin`.
+- **Proposed change** (Playwright):
+  ```diff
+  interface PlaywrightTestCase {
+    title: string;
+    titlePath(): string[];
+    location: { file: string; line: number; column: number };
+    parent: { title: string; location?: { file: string } };
+  +  retries: number;
+  }
 
-  - `flakeyReporter(on, config, options?)` — registers upload hooks only.
-  - `setupFlakey(on, config, opts?)` — composes `flakeyReporter` + optional `@flakeytesting/cypress-snapshots` + optional `@flakeytesting/live-reporter`. Prefer this in consumer configs.
+  interface PlaywrightTestResult {
+    status: "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+    duration: number;
+  +  retry: number;
+    error?: { message?: string; stack?: string };
+    attachments: { name: string; path?: string; contentType: string }[];
+  }
 
-  `SetupFlakeyOptions`: `{ snapshots?: boolean, live?: boolean, reporterOptions?: FlakeyReporterOptions }`
+  // In onTestEnd, add before the specMap append block:
+  +  // Skip non-final retry attempts to avoid inflating counts.
+  +  // result.retry is 0-based; test.retries is the configured max.
+  +  if (result.status === "failed" && result.retry < test.retries) return;
   ```
-- **Risk if applied**: Documentation only.
-- **Verification**: The CLAUDE.md entry points section matches the exported names in `dist/plugin.d.ts`.
+  **Proposed change** (Cypress — Mocha reporter): Mocha exposes `test.currentRetry()` and `test.retries()`.
+  ```diff
+  // In addTest(), immediately after computing `duration`:
+  +  const currentRetry = typeof (test as any).currentRetry === "function"
+  +    ? (test as any).currentRetry() as number : 0;
+  +  const maxRetries = typeof (test as any).retries === "function"
+  +    ? (test as any).retries() as number : 0;
+  +  if (status === "failed" && currentRetry < maxRetries) return;
+  ```
+- **Risk if applied**: Intermediate retry data (the failed attempts before the final pass) will no longer appear as individual test records. The trade-off is correct aggregate counts vs per-attempt detail. If per-attempt detail is wanted in the future, add a `retryAttempts` array field to `NormalizedTest` and populate it there.
+- **Verification**: Configure a Playwright project with `retries: 2` and a deterministic test that fails twice then passes. Confirm the uploaded run record shows `stats.total: 1`, `stats.passed: 1`, `stats.failed: 0`.
 
-#### M3. `plugin.ts` imports live-reporter via deep path instead of exports-map path
+---
 
-- **File**: `packages/flakey-cypress-reporter/src/plugin.ts:315`
-- **Category**: inconsistency
-- **Problem**: `setupFlakey` dynamically imports `@flakeytesting/live-reporter/dist/mocha.js` — a path that bypasses the package's exports map and relies on the internal dist layout. The canonical path is `@flakeytesting/live-reporter/mocha` per `live-reporter/package.json` exports. If the live-reporter dist structure changes, this silently breaks without a compile error.
+## Priority: medium
+
+### M1. Playwright `interrupted` test status silently mapped to `skipped`
+
+- **File(s)**: `packages/flakey-playwright-reporter/src/reporter.ts:71-74`
+- **Category**: bug
+- **Problem**: Playwright sets `TestResult.status` to `"interrupted"` when a test is aborted mid-run (Ctrl-C, worker crash, global timeout). The reporter's status normalizer maps anything that is not `"passed"`, `"failed"`, or `"timedOut"` to `"skipped"`. An interrupted test that consumed real time and may have an error object lands in the dashboard as skipped, hiding CI failures.
 - **Evidence**:
   ```ts
-  const { register } = await import("@flakeytesting/live-reporter/dist/mocha.js");
+  // packages/flakey-playwright-reporter/src/reporter.ts:71-74
+  const status: NormalizedTest["status"] =
+    result.status === "passed" ? "passed" :
+    result.status === "failed" || result.status === "timedOut" ? "failed" :
+    "skipped";  // "interrupted" falls here — wrong
   ```
 - **Proposed change**:
   ```diff
-  -const { register } = await import("@flakeytesting/live-reporter/dist/mocha.js");
-  +const { register } = await import("@flakeytesting/live-reporter/mocha");
+  -    result.status === "failed" || result.status === "timedOut" ? "failed" :
+  +    result.status === "failed" || result.status === "timedOut" || result.status === "interrupted" ? "failed" :
+       "skipped";
   ```
-- **Risk if applied**: Functionally equivalent today (the `./dist/*` wildcard in live-reporter's exports map currently makes both paths resolve to the same file). Switch to the canonical path before any live-reporter refactor.
-- **Verification**: `pnpm build` succeeds in `flakey-cypress-reporter`; the dynamic import resolves at runtime with a live-reporter installed.
+- **Risk if applied**: Interrupted tests will increment `stats.failed`. This is correct semantics.
+- **Verification**: Kill a Playwright worker process mid-test (or use `globalTimeout`). Confirm the interrupted test appears as `failed` in the uploaded run record, not `skipped`.
 
 ---
 
-### Low
+### M2. Bitbucket Pipelines env vars missing from Playwright, WDIO, and live-reporter adapters
 
-#### L2. No tests
-
-- **File**: `packages/flakey-cypress-reporter/` (no test files)
-- **Category**: coverage drift
-- **Problem**: `readLiveRunId()` (ancestor walk), `getBufferDir()` (run-id scoped path), `saveToTmp()`, and the command-log merge in `after:run` have no tests. These are the paths most likely to regress during Cypress version bumps.
-- **Proposed change**: Add unit tests for `readLiveRunId` (mock `fs.readFileSync` and `execSync`), `getBufferDir` (assert path contains run-id), and the command-log key-matching logic.
-- **Risk if applied**: None.
-- **Verification**: `pnpm test` passes.
-
----
-
-## flakey-playwright-reporter
-
-### Medium
-
-#### M4. CLAUDE.md claims fields the reporter does not capture
-
-- **File**: `packages/flakey-playwright-reporter/CLAUDE.md:37`
+- **File(s)**: `packages/flakey-playwright-reporter/src/reporter.ts:188-190`, `packages/flakey-webdriverio-reporter/src/reporter.ts:133-135`, `packages/flakey-live-reporter/src/mocha.ts:113-116`, `packages/flakey-live-reporter/src/playwright.ts:57-59`, `packages/flakey-live-reporter/src/webdriverio.ts:55-57`
 - **Category**: inconsistency
-- **Problem**: The CLAUDE.md states the reporter "captures retry history, tags, annotations, source location, stdout/stderr, and error snippets." The source (`src/reporter.ts`) captures only: `title`, `full_title`, `status`, `duration_ms`, `error.message`, `error.stack`, `screenshot_paths`, `video_path`, and (via trace) `command_log`. The `NormalizedTest` schema (`packages/flakey-core/src/schema.ts`) has no fields for retry count, tags, annotations, stdout, or stderr. The claim is entirely aspirational.
+- **Problem**: The Cypress plugin reads `BITBUCKET_BRANCH`, `BITBUCKET_COMMIT`, and `BITBUCKET_BUILD_NUMBER` as env var fallbacks for `branch`, `commit_sha`, and `ci_run_id`. No other reporter or live-reporter adapter reads any Bitbucket var. On Bitbucket Pipelines, Playwright and WDIO users get empty `branch`, `commit_sha`, and `ci_run_id` on every run unless they manually configure the options — and the live run also has no branch metadata even for Cypress users.
 - **Evidence**:
   ```ts
-  // src/reporter.ts — complete NormalizedTest construction, onTestEnd():
-  const normalizedTest: NormalizedTest = {
-    title: test.title,
-    full_title: fullTitle,
-    status,
-    duration_ms: result.duration,
-    screenshot_paths: screenshots,
-    video_path: videos[0],
-  };
-  // No retry, tags, annotations, stdout, stderr.
-  ```
-- **Proposed change**: Replace the stale sentence with what is actually captured:
-  ```markdown
-  The reporter captures test title, full title path, pass/fail/skip status,
-  duration, error message + stack, screenshot and video attachment paths, and
-  (when traces are present) command logs extracted by `@flakeytesting/playwright-snapshots`.
-  ```
-- **Risk if applied**: Documentation only.
-- **Verification**: Every field in the corrected description is present in `NormalizedTest` in `flakey-core/src/schema.ts`.
+  // packages/flakey-cypress-reporter/src/plugin.ts:158-164 — has BITBUCKET_*:
+  const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
+  const commitSha = ... ?? process.env.BITBUCKET_COMMIT ?? "";
+  const resolveCiRunId = () => ... ?? process.env.BITBUCKET_BUILD_NUMBER ?? "";
 
-#### M5. CLAUDE.md references a README that does not exist
-
-- **File**: `packages/flakey-playwright-reporter/CLAUDE.md:37`
-- **Category**: inconsistency
-- **Problem**: "see the README's 'Reporter Metadata' section" — there is no `README.md` in this package.
-- **Proposed change**: Remove the parenthetical. After M4's fix, the sentence no longer needs a cross-reference.
-- **Risk if applied**: None.
-- **Verification**: No `README.md` exists; the sentence is gone.
+  // packages/flakey-playwright-reporter/src/reporter.ts:188-190 — no BITBUCKET_*:
+  branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? "",
+  commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
+  ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+  ```
+- **Proposed change**: Add the three Bitbucket vars at the end of the fallback chain in all five locations listed above:
+  ```diff
+  -  branch: ... ?? process.env.GITHUB_REF_NAME ?? "",
+  +  branch: ... ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+  -  commit_sha: ... ?? process.env.GITHUB_SHA ?? "",
+  +  commit_sha: ... ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+  -  ci_run_id: ... ?? process.env.GITHUB_RUN_ID ?? "",
+  +  ci_run_id: ... ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
+  ```
+  Apply identically to all five source locations. The `BITBUCKET_BUILD_NUMBER` var in the live-reporter adapters needs the same lazy-resolution treatment as the Cypress plugin uses for `ciRunId` — evaluate at call time, not at constructor time — but the other two (`BITBUCKET_BRANCH`, `BITBUCKET_COMMIT`) are safe to read at construction.
+- **Risk if applied**: None — the vars only activate on Bitbucket Pipelines where they are set.
+- **Verification**: Set `BITBUCKET_BRANCH=main BITBUCKET_COMMIT=abc123 BITBUCKET_BUILD_NUMBER=42` in the environment before running Playwright. Confirm `meta.branch`, `meta.commit_sha`, and `meta.ci_run_id` are populated in the uploaded run.
 
 ---
 
-### Low
+### M3. `ApiClient.postRunWithArtifacts` is dead code and creates a maintenance trap
 
-#### L3. No tests
-
-- **File**: `packages/flakey-playwright-reporter/` (no test files)
-- **Category**: coverage drift
-- **Problem**: `onTestEnd` status normalization (`timedOut` → `failed`, `interrupted` → `skipped`), trace parsing integration, and the snapshot-writing path in `onEnd` are untested.
-- **Proposed change**: Add unit tests for the status normalization map and a test for `onEnd` that stubs `parseTrace` and asserts the snapshot file is written with the expected path convention.
-- **Risk if applied**: None.
-- **Verification**: `pnpm test` passes.
-
----
-
-## flakey-webdriverio-reporter
-
-### Low
-
-#### L4. Default artifact directories differ from Cypress/Playwright and are undocumented
-
-- **File**: `packages/flakey-webdriverio-reporter/src/reporter.ts:144-145`
-- **Category**: inconsistency
-- **Problem**: The WebdriverIO reporter defaults to `"screenshots"` and `"videos"` (relative paths), while the Cypress reporter defaults to `"cypress/screenshots"` and `"cypress/videos"`. The CLAUDE.md has no options table. Consumers who expect to configure these via the standard `screenshotsDir`/`videosDir` keys will find them undocumented.
+- **File(s)**: `packages/flakey-core/src/api-client.ts:32-80`
+- **Category**: dead-code
+- **Problem**: `postRunWithArtifacts` is defined in `ApiClient` but called by no reporter, no CLI, and no test (confirmed by `grep -r postRunWithArtifacts packages/` returning only the definition). Both active reporters use `postRunWithFiles`. The method also duplicates the artifact-scan logic that each reporter already owns. If a future contributor reaches for this method, they will encounter a subtly different calling convention: it takes directory paths instead of pre-collected file lists, introducing divergence from the established pattern.
 - **Evidence**:
   ```ts
-  const screenshotsDir = this.flakeyOpts.screenshotsDir ?? "screenshots";
-  const videosDir      = this.flakeyOpts.videosDir      ?? "videos";
+  // packages/flakey-core/src/api-client.ts:32 — defined but never called:
+  async postRunWithArtifacts(
+    run: NormalizedRun,
+    opts: { screenshotsDir?: string; snapshotsDir?: string; videosDir?: string }
+  ): Promise<{ id: number }> { … }
   ```
-- **Proposed change**: Add an options table to CLAUDE.md:
-  ```markdown
-  ## Options
-
-  | Option | Type | Default | Notes |
-  |--------|------|---------|-------|
-  | `url` | string | — | Required. Backend base URL. |
-  | `apiKey` | string | — | Required. |
-  | `suite` | string | — | Required. Suite name shown in dashboard. |
-  | `branch` | string | env fallback | `BRANCH` → `GITHUB_REF_NAME` |
-  | `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` |
-  | `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` |
-  | `screenshotsDir` | string | `"screenshots"` | Relative to cwd |
-  | `videosDir` | string | `"videos"` | Relative to cwd |
+- **Proposed change**: Delete `postRunWithArtifacts` (lines 32–80) and the private `findFiles` function (lines 124–146) from `api-client.ts`. Neither is exported from `flakey-core/src/index.ts`.
+  ```diff
+  -  async postRunWithArtifacts(
+  -    run: NormalizedRun,
+  -    opts: { screenshotsDir?: string; snapshotsDir?: string; videosDir?: string }
+  -  ): Promise<{ id: number }> {
+  -    // ... entire 48-line body ...
+  -  }
+  -
+  -function findFiles(dir: string | undefined, exts: string[]): string[] {
+  -  // ... entire 23-line body ...
+  -}
   ```
-- **Risk if applied**: Documentation only.
-- **Verification**: Every key in `FlakeyWdioOptions` appears in the table.
-
-#### L5. No tests
-
-- **File**: `packages/flakey-webdriverio-reporter/` (no test files)
-- **Category**: coverage drift
-- **Problem**: Thin wrapper over `@wdio/reporter`; lower risk than live-reporter. Still, `onSuiteStart` spec-tracking and the artifact scan paths are untested.
-- **Proposed change**: At minimum, test the `addTest` dispatch across `onTestPass`/`onTestFail`/`onTestSkip` and the `specMap` accumulation.
-- **Risk if applied**: None.
-- **Verification**: `pnpm test` passes.
+- **Risk if applied**: None — the function is unreachable. The `findFiles` used by `plugin.ts` and `webdriverio/reporter.ts` are their own local copies; removing the one in `api-client.ts` does not affect them.
+- **Verification**: `grep -r postRunWithArtifacts packages/` returns no results after deletion. `pnpm build` succeeds in all three reporter packages and `flakey-core`.
 
 ---
 
-## Clean sections (do not re-audit)
+### M4. `dist/mocha.js.bak` is tracked in git and ships in the npm tarball
 
-- **All four `package.json` files**: `main`, `exports`, and `files` entries point at files that exist in `dist/`. Peer dep declarations match CLAUDE.md. Versions are consistent at `0.5.0`.
-- **`flakey-webdriverio-reporter` CLAUDE.md**: Consumer wiring snippet matches the actual constructor signature and `@wdio/reporter` extension pattern. Peer dep table is accurate.
-- **`flakey-cypress-reporter` CLAUDE.md**: The ancestor-walk / process-tree / concurrency-safety documentation is accurate and complete. Buffer dir scoping explanation matches the code exactly.
-- **`flakey-live-reporter` CLAUDE.md**: Side-effects of `register()` section accurately describes all three cross-package integration steps (env population, ancestor-walk write, startPromise guard). The `startPromise` description is correct for what it protects (only the HTTP call) — though H1 above is a separate gap the doc doesn't reveal.
-- **`flakey-cypress-reporter/docs/cypress-background.md`**: Background-only context doc; no claims to verify against code.
-- **`flakey-cypress-reporter/src/support.ts`**: Command log capture via `Cypress.on("log:added")` matches the `flakey:saveCommandLog` task in `plugin.ts`. Key construction (`specFile::testTitle`) is consistent on both sides.
+- **File(s)**: `packages/flakey-live-reporter/dist/mocha.js.bak`
+- **Category**: dead-code
+- **Problem**: A `.bak` file (202 lines, 10 KB) is committed to `dist/` of `flakey-live-reporter` (confirmed: `git ls-files` returns it). The `package.json` `"files": ["dist"]` includes the entire directory without exclusions, so it will be bundled into every npm publish of `@flakeytesting/live-reporter`. It is not imported or referenced by any code path.
+- **Evidence**:
+  ```
+  $ git ls-files packages/flakey-live-reporter/dist/mocha.js.bak
+  packages/flakey-live-reporter/dist/mocha.js.bak   # tracked in git
+  ```
+- **Proposed change**:
+  ```diff
+  # Remove from git:
+  git rm packages/flakey-live-reporter/dist/mocha.js.bak
+  ```
+  Create `packages/flakey-live-reporter/.npmignore` with `dist/*.bak` to prevent recurrence.
+- **Risk if applied**: None.
+- **Verification**: After the commit, `git ls-files packages/flakey-live-reporter/dist/` does not list `mocha.js.bak`. Running `npm pack --dry-run` from `packages/flakey-live-reporter/` does not include `mocha.js.bak` in the file list.
+
+---
+
+## Priority: low
+
+### L1. `reporter.ts` imports four `fs` symbols that are never used
+
+- **File(s)**: `packages/flakey-cypress-reporter/src/reporter.ts:21`
+- **Category**: dead-code
+- **Problem**: The source imports `readdirSync`, `statSync`, `existsSync`, and `rmSync` from `"fs"`. None of these are called in `reporter.ts`. TypeScript elides them from the build output (the installed `dist/reporter.js` and `dist/reporter.cjs` import only `writeFileSync`, `mkdirSync`, and `readFileSync`), but the source-level dead imports suggest directory-scanning or cleanup logic that was moved to `plugin.ts` during refactoring and was not cleaned up.
+- **Evidence**:
+  ```ts
+  // packages/flakey-cypress-reporter/src/reporter.ts:21
+  import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
+  //                                                ^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^ — never used
+  ```
+- **Proposed change**:
+  ```diff
+  -import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
+  +import { writeFileSync, mkdirSync, readFileSync } from "fs";
+  ```
+- **Risk if applied**: None. TypeScript strict mode would catch any accidental removal of a used symbol.
+- **Verification**: `pnpm build` in `flakey-cypress-reporter` succeeds without errors. `dist/reporter.cjs` header still shows only `const{writeFileSync,mkdirSync,readFileSync}=require("fs")`.
+
+---
+
+### L2. No upload timeout on any `fetch()` call across all reporters
+
+- **File(s)**: `packages/flakey-cypress-reporter/src/plugin.ts:271-292`, `packages/flakey-core/src/api-client.ts:15-29`, `packages/flakey-core/src/api-client.ts:68-79`, `packages/flakey-core/src/api-client.ts:109-120`
+- **Category**: bug
+- **Problem**: Every `fetch()` that uploads run data — the Cypress plugin's inline `afterRunHandler`, `ApiClient.postRun`, and `ApiClient.postRunWithFiles` — passes no `signal`. If the backend is unreachable or stalls mid-response, the reporter hangs indefinitely and stalls the CI pipeline.
+- **Evidence**:
+  ```ts
+  // packages/flakey-core/src/api-client.ts:15
+  const res = await fetch(`${this.url}/runs`, {
+    method: "POST",
+    headers: { … },
+    body: JSON.stringify(run),
+    // no signal, no timeout
+  });
+  ```
+- **Proposed change**: Add `AbortSignal.timeout()` to every upload `fetch()`. Use 30 s for JSON-only calls and 120 s for multipart form uploads (videos can be large).
+  ```diff
+  // ApiClient.postRun (api-client.ts:15):
+   const res = await fetch(`${this.url}/runs`, {
+     method: "POST",
+     headers: { … },
+     body: JSON.stringify(run),
+  +  signal: AbortSignal.timeout(30_000),
+   });
+
+  // ApiClient.postRunWithFiles (api-client.ts:109) and Cypress plugin (plugin.ts:285):
+   const res = await fetch(`${this.url}/runs/upload`, {
+     method: "POST",
+     headers: { Authorization: `Bearer ${this.apiKey}` },
+     body: formData,
+  +  signal: AbortSignal.timeout(120_000),
+   });
+  ```
+  `AbortSignal.timeout()` is available in Node ≥ 17.3 and all supported browsers. The workspace targets ES2020 / Node 18+.
+- **Risk if applied**: CI jobs that currently hang indefinitely on network failures will now fail with a `TimeoutError` after 30–120 s. This is the correct behavior.
+- **Verification**: Point `url` at an unresponsive address (`http://10.255.255.1`) and run a Playwright test. Confirm the reporter logs `[flakey] Failed to upload: …TimeoutError…` within the configured timeout rather than hanging until the CI job is killed.
