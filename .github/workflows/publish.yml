@@ -114,7 +114,9 @@ jobs:
 
   publish-cypress-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.cypress_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.cypress_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,7 +154,9 @@ jobs:
 
   publish-playwright-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.playwright_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.playwright_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -192,7 +196,9 @@ jobs:
 
   publish-webdriverio-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.webdriverio_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.webdriverio_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
