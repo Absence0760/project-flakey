@@ -110,6 +110,7 @@ jobs:
 
           aws s3 sync frontend/build s3://${{ secrets.FRONTEND_BUCKET }} \
             --cache-control "public, max-age=0, must-revalidate" \
+            --exclude "*" \
             --include "*.html" \
             --include "*.json"
 

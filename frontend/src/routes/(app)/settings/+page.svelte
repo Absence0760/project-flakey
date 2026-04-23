@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getAuth } from "$lib/auth";
+  import { getAuth, subscribe } from "$lib/auth";
   import { authFetch } from "$lib/auth";
   import { toast, toastError } from "$lib/toast";
   import { API_URL as apiUrl } from "$lib/config";
-  const auth = getAuth();
-  const orgId = auth.user?.orgId;
 
-  function headers() {
-    return { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` };
-  }
+  // Reactive auth state — re-reads after refresh or org switch so that
+  // orgId, isOwner, and isAdmin never go stale.
+  let authState = $state(getAuth());
+  subscribe(() => { authState = getAuth(); });
+  let orgId = $derived(authState.user?.orgId);
 
   // --- Connectivity tests ---
   interface TestResult { ok: boolean; [key: string]: unknown }
@@ -111,17 +111,17 @@
   async function invite() {
     inviteError = null; inviteResult = null;
     if (!inviteEmail) { inviteError = "Email is required"; return; }
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/invites`, { method: "POST", headers: headers(), body: JSON.stringify({ email: inviteEmail, role: inviteRole }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: inviteEmail, role: inviteRole }) });
     if (res.ok) { inviteResult = await res.json(); inviteEmail = ""; toast("Invite created"); }
     else { const b = await res.json().catch(() => ({})); inviteError = (b as any).error ?? "Failed"; toastError(inviteError!); }
   }
   async function changeRole(userId: number, role: string) {
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ role }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
     if (res.ok) { toast("Role updated"); loadMembers(); }
     else toastError("Failed to update role");
   }
   async function removeMember(userId: number) {
-    await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "DELETE" });
     loadMembers();
   }
 
@@ -142,25 +142,25 @@
   }
   async function renameSuite(oldName: string) {
     if (!renameValue || renameValue === oldName) { renamingId = null; return; }
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: headers(), body: JSON.stringify({ new_name: renameValue }) });
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_name: renameValue }) });
     renamingId = null;
     if (res.ok) { toast("Suite renamed"); loadSuites(); }
     else toastError("Failed to rename suite");
   }
   async function toggleArchive(name: string, archived: boolean) {
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: headers(), body: JSON.stringify({ archived: !archived }) });
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archived: !archived }) });
     if (res.ok) { toast(archived ? "Suite unarchived" : "Suite archived"); loadSuites(); }
     else toastError("Failed to update suite");
   }
   async function deleteSuite(name: string) {
     if (!confirm(`Delete suite "${name}" and all its runs? This cannot be undone.`)) return;
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE" });
     if (res.ok) { toast("Suite deleted"); loadSuites(); }
     else toastError("Failed to delete suite");
   }
   async function saveRerunTemplate(suiteName: string) {
     const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(suiteName)}/rerun-template`, {
-      method: "PATCH", headers: headers(), body: JSON.stringify({ template: templateValue }),
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template: templateValue }),
     });
     editingTemplateId = null;
     if (res.ok) { toast("Rerun template saved"); loadSuites(); }
@@ -192,24 +192,24 @@
   async function createWebhook() {
     if (!newWhUrl) return;
     saving = true;
-    const res = await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
+    const res = await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
     if (res.ok) { toast("Webhook created"); newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"]; newWhPlatform = "generic"; loadWebhooks(); }
     else toastError("Failed to create webhook");
     saving = false;
   }
   async function toggleWebhook(id: number, active: boolean) {
-    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ active: !active }) });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !active }) });
     if (res.ok) { toast(active ? "Webhook disabled" : "Webhook enabled"); loadWebhooks(); }
     else toastError("Failed to update webhook");
   }
   async function deleteWebhook(id: number) {
-    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE" });
     if (res.ok) { toast("Webhook deleted"); loadWebhooks(); }
     else toastError("Failed to delete webhook");
   }
   async function testWebhook(id: number) {
     whTestResult = null;
-    const res = await authFetch(`${apiUrl}/webhooks/${id}/test`, { method: "POST", headers: { Authorization: `Bearer ${auth.token}` } });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}/test`, { method: "POST" });
     const data = await res.json();
     whTestResult = { id, ok: data.ok };
     setTimeout(() => { if (whTestResult?.id === id) whTestResult = null; }, 3000);
@@ -245,12 +245,12 @@
     if (gitRepo && gitProvider !== "gitlab" && !/^[^/]+\/[^/]+$/.test(gitRepo)) { gitError = "Format: owner/repo"; return; }
     const body: Record<string, string | null> = { git_provider: gitProvider, git_repo: gitRepo || null, git_base_url: gitBaseUrl || null };
     if (gitToken) body.git_token = gitToken;
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (res.ok) { toast("Git integration saved"); gitSaved = true; gitToken = ""; hasGitToken = !!body.git_token || hasGitToken; setTimeout(() => gitSaved = false, 2000); }
     else toastError("Failed to save git integration");
   }
   async function removeGitProvider() {
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
     if (res.ok) { toast("Git integration removed"); gitProvider = ""; gitRepo = ""; gitToken = ""; gitBaseUrl = ""; hasGitToken = false; }
     else toastError("Failed to remove git integration");
   }
@@ -265,7 +265,7 @@
   }
   async function saveRetention() {
     const value = retentionDays === "" ? null : Number(retentionDays);
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ retention_days: value }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retention_days: value }) });
     if (res.ok) { toast("Retention settings saved"); retentionSaved = true; setTimeout(() => retentionSaved = false, 2000); }
     else toastError("Failed to save retention settings");
   }
@@ -283,8 +283,8 @@
   }
 
   // --- Helpers ---
-  let isOwner = $derived(auth.user?.orgRole === "owner");
-  let isAdmin = $derived(auth.user?.orgRole === "admin" || isOwner);
+  let isOwner = $derived(authState.user?.orgRole === "owner");
+  let isAdmin = $derived(authState.user?.orgRole === "admin" || isOwner);
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -453,7 +453,7 @@
             <span class="list-meta">{timeAgo(m.joined_at)}</span>
             {#if m.role === "owner"}
               <span class="pill owner">Owner</span>
-            {:else if isOwner && m.id !== auth.user?.id}
+            {:else if isOwner && m.id !== authState.user?.id}
               <select class="inline-select" value={m.role} onchange={(e) => changeRole(m.id, (e.target as HTMLSelectElement).value)}>
                 <option value="admin">Admin</option>
                 <option value="viewer">Viewer</option>

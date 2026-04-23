@@ -63,16 +63,16 @@ jobs:
           if [[ "$TAG" == playwright-reporter@* ]] || [[ "$MANUAL" == "playwright-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "playwright_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == playwright-snapshots@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == playwright-snapshots@* ]] || [[ "$MANUAL" == "playwright-snapshots" ]] || [[ "$ALL" == "true" ]]; then
             echo "playwright_snapshots=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == webdriverio-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == webdriverio-reporter@* ]] || [[ "$MANUAL" == "webdriverio-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "webdriverio_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == live-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == live-reporter@* ]] || [[ "$MANUAL" == "live-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "live_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == mcp-server@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == mcp-server@* ]] || [[ "$MANUAL" == "mcp-server" ]] || [[ "$ALL" == "true" ]]; then
             echo "mcp_server=true" >> "$GITHUB_OUTPUT"
           fi
 

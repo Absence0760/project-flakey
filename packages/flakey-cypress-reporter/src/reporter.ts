@@ -232,6 +232,13 @@ class FlakeyCypressReporter {
     const entry = this.specMap.get(filePath)!;
     const duration = test.duration ?? 0;
 
+    // Skip non-final retry attempts to avoid inflating counts.
+    const currentRetry = typeof (test as any).currentRetry === "function"
+      ? (test as any).currentRetry() as number : 0;
+    const maxRetries = typeof (test as any).retries === "function"
+      ? (test as any).retries() as number : 0;
+    if (status === "failed" && currentRetry < maxRetries) return;
+
     // Print result to terminal as it happens
     const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";
     const errMsg = (err?.message ?? test.err?.message ?? "").split("\n")[0];

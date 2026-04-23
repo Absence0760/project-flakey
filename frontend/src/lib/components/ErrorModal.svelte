@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, type TestDetail, type TestHistoryEntry } from "$lib/api";
+  import { authFetch } from "$lib/auth";
   import Lightbox from "./Lightbox.svelte";
   import SnapshotViewer from "./SnapshotViewer.svelte";
   import NotesPanel from "./NotesPanel.svelte";
@@ -225,7 +226,7 @@
 
   async function loadSnapshotSteps(path: string) {
     try {
-      const res = await fetch(`${UPLOADS_URL}/${path}`);
+      const res = await authFetch(`${UPLOADS_URL}/${path}`);
       if (!res.ok) return;
       const ds = new DecompressionStream("gzip");
       const decompressed = res.body!.pipeThrough(ds);

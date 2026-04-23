@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
-  import { getAuth } from "$lib/auth";
+  import { getAuth, authFetch } from "$lib/auth";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import RunExtras from "$lib/components/RunExtras.svelte";
@@ -103,15 +103,14 @@
     eventSource.onerror = () => {
       isLive = false;
       stopLivePoll();
+      eventSource?.close();
+      eventSource = null;
     };
   }
 
   async function loadLiveHistory(runId: number) {
     try {
-      const token = getAuth().token;
-      const res = await fetch(`${API_URL}/live/${runId}/history`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch(`${API_URL}/live/${runId}/history`);
       if (res.ok) {
         const events = await res.json() as LiveEvent[];
         if (events.length > 0) {
