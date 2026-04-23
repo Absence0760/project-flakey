@@ -99,6 +99,16 @@ router.post("/:runId/events", async (req, res) => {
   }
 
   const orgId = req.user!.orgId;
+
+  // Verify the run belongs to the caller's org before emitting any SSE events.
+  // Without this check an authenticated user from a different org could inject
+  // events into another org's live stream (cross-org SSE stream poisoning).
+  const owns = await tenantQuery(orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+  if (!owns.rowCount) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
+
   const events: LiveTestEvent[] = Array.isArray(req.body) ? req.body : [req.body];
 
   // Lazy-register runs that didn't go through /live/start (external runIds
@@ -361,7 +371,7 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
  * POST /live/:runId/abort — mark a live run as aborted (e.g. from a SIGINT/SIGTERM handler).
  * Reporters can call this on graceful shutdown so the UI updates immediately.
  */
-router.post("/:runId/abort", (req, res) => {
+router.post("/:runId/abort", async (req, res) => {
   const runId = Number(req.params.runId);
   if (!runId) {
     res.status(400).json({ error: "Invalid run ID" });
@@ -369,6 +379,16 @@ router.post("/:runId/abort", (req, res) => {
   }
 
   const orgId = req.user!.orgId;
+
+  // Verify the run belongs to the caller's org before emitting the aborted event.
+  // Without this check an authenticated user from a different org could abort
+  // another org's live run and poison their SSE stream.
+  const owns = await tenantQuery(orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+  if (!owns.rowCount) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
+
   const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
     ? req.body.reason.trim().slice(0, 500)
     : "Run aborted by reporter (process received shutdown signal).";
