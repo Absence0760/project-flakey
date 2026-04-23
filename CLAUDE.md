@@ -32,4 +32,4 @@ Each subdirectory has its own CLAUDE.md — read it before editing.
 
 ## Publish flow
 
-`publish.yml` publishes packages to npm on `main` when their source changes. Bump versions with an explicit commit.
+`publish.yml` publishes packages to npm when a GitHub release is published with a matching tag (`<package>@<version>`, e.g. `core@1.2.3`; use `all@<version>` for all packages). To publish: bump the version in the package's `package.json`, merge to `main`, then create a GitHub release with the matching tag.

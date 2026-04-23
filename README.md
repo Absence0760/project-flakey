@@ -361,8 +361,8 @@ terraform init && terraform apply
 See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (~$72/month).
 
 **CI/CD pipelines** (GitHub Actions):
-- `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
-- `publish.yml` — publishes all packages in `packages/` to npm when their source changes (`@flakeytesting/core`, `cli`, `cypress-reporter`, `cypress-snapshots`, `live-reporter`, `mcp-server`, `playwright-reporter`, `playwright-snapshots`, `webdriverio-reporter`)
+- `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on GitHub release publish (tag `app@*`) or manual dispatch
+- `publish.yml` — publishes packages to npm on a matching release tag (e.g. `core@1.2.3`, `all@1.0.0`) or manual dispatch; see workflow for full tag format (`@flakeytesting/core`, `cli`, `cypress-reporter`, `cypress-snapshots`, `live-reporter`, `mcp-server`, `playwright-reporter`, `playwright-snapshots`, `webdriverio-reporter`)
 
 ## npm Packages
 
