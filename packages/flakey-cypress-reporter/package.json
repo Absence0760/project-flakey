@@ -8,8 +8,7 @@
   "exports": {
     ".": "./dist/reporter.cjs",
     "./plugin": "./dist/plugin.js",
-    "./support": "./dist/support.js",
-    "./dist/*": "./dist/*"
+    "./support": "./dist/support.js"
   },
   "files": [
     "dist"

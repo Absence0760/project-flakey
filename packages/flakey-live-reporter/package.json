@@ -9,8 +9,7 @@
     ".": "./dist/index.js",
     "./playwright": "./dist/playwright.js",
     "./mocha": "./dist/mocha.js",
-    "./webdriverio": "./dist/webdriverio.js",
-    "./dist/*": "./dist/*"
+    "./webdriverio": "./dist/webdriverio.js"
   },
   "files": [
     "dist"

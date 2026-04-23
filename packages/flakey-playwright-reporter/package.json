@@ -6,8 +6,7 @@
   "main": "dist/reporter.js",
   "types": "dist/reporter.d.ts",
   "exports": {
-    ".": "./dist/reporter.js",
-    "./dist/*": "./dist/*"
+    ".": "./dist/reporter.js"
   },
   "files": [
     "dist"
