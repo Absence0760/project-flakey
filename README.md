@@ -21,9 +21,12 @@ docker compose up -d
 ### 2. Install dependencies
 
 ```bash
+pnpm install
+```
+
+```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../packages/flakey-cli && pnpm install
 ```
 
 ### 3. Seed sample data
