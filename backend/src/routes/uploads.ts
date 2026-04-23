@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { join } from "path";
+import { rmSync } from "fs";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
@@ -30,7 +31,13 @@ router.post("/", uploadFields, async (req, res) => {
       return;
     }
 
-    const body = JSON.parse(payloadStr);
+    let body: any;
+    try {
+      body = JSON.parse(payloadStr);
+    } catch {
+      res.status(400).json({ error: "Invalid JSON in payload field" });
+      return;
+    }
     let run: NormalizedRun;
 
     if (body.raw && body.meta?.reporter) {
@@ -54,6 +61,17 @@ router.post("/", uploadFields, async (req, res) => {
 
     const storage = getStorage();
 
+    // Collect all multer temp paths up-front so the finally block can clean
+    // them up regardless of whether the transaction succeeds or fails.
+    // storage.put() either moves (local) or uploads-then-deletes (S3) each
+    // file, so rmSync with force:true is a safe no-op for already-moved files.
+    const allTmpPaths = [
+      ...screenshotFiles.map((f) => f.path),
+      ...videoFiles.map((f) => f.path),
+      ...snapshotFiles.map((f) => f.path),
+    ];
+
+    try {
     await tenantTransaction(orgId, async (client) => {
       const result = await findOrCreateRun(client, orgId, run);
       runId = result.runId;
@@ -189,6 +207,11 @@ router.post("/", uploadFields, async (req, res) => {
     maybeTriggerPagerDutyForRun(req.user!.orgId, runId!, run);
 
     res.status(merged ? 200 : 201).json({ id: runId!, merged });
+    } finally {
+      for (const p of allTmpPaths) {
+        try { rmSync(p, { force: true }); } catch { /* ignore */ }
+      }
+    }
   } catch (err) {
     console.error("POST /runs/upload error:", err);
     res.status(500).json({ error: "Internal server error" });
