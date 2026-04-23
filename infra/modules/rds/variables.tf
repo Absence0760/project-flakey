@@ -5,3 +5,8 @@ variable "private_subnet_ids" { type = list(string) }
 variable "db_instance_class" { type = string }
 variable "db_password" { type = string; sensitive = true }
 variable "ecs_security_group_id" { type = string }
+variable "rds_multi_az" {
+  description = "Enable Multi-AZ RDS deployment. Recommended true for production."
+  type        = bool
+  default     = true
+}
