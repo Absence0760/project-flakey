@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
     "seed": "tsx src/seed.ts",
+    "rotate-keys": "tsx src/scripts/rotate-encryption-keys.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"

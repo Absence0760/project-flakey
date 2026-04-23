@@ -20,7 +20,7 @@
 
 import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
 import { join, basename } from "path";
-import { tmpdir } from "os";
+import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 
 // ---- Types ----
@@ -32,13 +32,14 @@ interface ReporterOptions {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  release?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
 }
 
 interface NormalizedRun {
-  meta: { suite_name: string; branch: string; commit_sha: string; ci_run_id: string; started_at: string; finished_at: string; reporter: string };
+  meta: { suite_name: string; branch: string; commit_sha: string; ci_run_id: string; started_at: string; finished_at: string; reporter: string; release?: string };
   stats: { total: number; passed: number; failed: number; skipped: number; pending: number; duration_ms: number };
   specs: NormalizedSpec[];
 }
@@ -98,6 +99,18 @@ function readLiveRunId(): number {
       if (id) return id;
     } catch { /* try next */ }
   }
+  // Fallback for Cypress 15+ configurations where the Mocha reporter process
+  // shares no ancestor with setupNodeEvents AND gets a different tmpdir() /
+  // cwd than the plugin. live-reporter writes a singleton file to ~/.flakey-reporter/
+  // which is stable across all processes. Check there first, then tmpdir.
+  try {
+    const id = Number(readFileSync(join(homedir(), ".flakey-reporter", "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* try TMPDIR fallback */ }
+  try {
+    const id = Number(readFileSync(join(FLAKEY_BASE_DIR, "latest-run-id"), "utf8").trim());
+    if (id) return id;
+  } catch { /* truly no live run */ }
   return 0;
 }
 
@@ -218,6 +231,13 @@ class FlakeyCypressReporter {
 
     const entry = this.specMap.get(filePath)!;
     const duration = test.duration ?? 0;
+
+    // Skip non-final retry attempts to avoid inflating counts.
+    const currentRetry = typeof (test as any).currentRetry === "function"
+      ? (test as any).currentRetry() as number : 0;
+    const maxRetries = typeof (test as any).retries === "function"
+      ? (test as any).retries() as number : 0;
+    if (status === "failed" && currentRetry < maxRetries) return;
 
     // Print result to terminal as it happens
     const icon = status === "passed" ? "✓" : status === "failed" ? "✗" : "-";

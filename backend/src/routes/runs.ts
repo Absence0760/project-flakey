@@ -90,9 +90,32 @@ router.post("/", async (req, res) => {
       if (merged) {
         await recalculateRunStats(client, runId);
       }
+
+      // Optional: attach run to a release. The reporter/CLI sends
+      // `meta.release` when FLAKEY_RELEASE is set. We upsert the release by
+      // (org_id, version) with draft defaults — this matches the CI-native
+      // workflow where release records are often created from tests, not
+      // manually. release_runs is idempotent via its composite PK.
+      const releaseVersion = typeof run.meta.release === "string" ? run.meta.release.trim() : "";
+      if (releaseVersion) {
+        const releaseRes = await client.query(
+          `INSERT INTO releases (org_id, version)
+           VALUES ($1, $2)
+           ON CONFLICT (org_id, version) DO UPDATE SET version = EXCLUDED.version
+           RETURNING id`,
+          [orgId, releaseVersion]
+        );
+        const releaseId = releaseRes.rows[0].id;
+        await client.query(
+          `INSERT INTO release_runs (release_id, run_id, org_id, added_by)
+           VALUES ($1, $2, $3, NULL)
+           ON CONFLICT (release_id, run_id) DO NOTHING`,
+          [releaseId, runId, orgId]
+        );
+      }
     });
 
-    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
+    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged, release: run.meta.release ?? null });
 
     // Only dispatch webhooks and PR comments after final merge
     // (they'll update in place if called multiple times for the same run)

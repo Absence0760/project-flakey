@@ -165,7 +165,7 @@ Supported reporters:
 ### 4. Authentication & Multi-tenancy
 
 **Auth flow:**
-- Users log in with email/password -> receive a JWT (7-day expiry)
+- Users log in with email/password -> receive a short-lived access token (1h) and a refresh token (7d)
 - JWT contains user ID, email, name, role, and `orgId` (active organization)
 - API keys (`fk_` prefix) for CLI/programmatic access, scoped to an organization
 - API keys are stored as bcrypt hashes with a prefix for efficient lookup
@@ -181,7 +181,7 @@ Supported reporters:
 **Org management:**
 - Users can create organizations and invite members by email
 - Invites are token-based with 7-day expiry
-- Roles: owner, admin, member
+- Roles: owner, admin, viewer
 - New users without an invite get a personal organization automatically
 
 ### 5. PostgreSQL schema
@@ -302,7 +302,7 @@ SvelteKit app with Svelte 5, organized in route groups:
   - **Releases** — release cards with checklist progress bars; release detail view with checklist toggle, add/remove items, and sign-off button (disabled until required items checked)
   - **Settings** — project configuration + link to `/settings/integrations`
   - **Settings / Integrations** — consolidated admin page for Jira, PagerDuty, coverage gating, and scheduled reports (with test-connection buttons)
-  - **Profile** — account info, API key management (create/list/delete)
+  - **Settings** — account info, API key management (create/list/delete)
 
 ## CI integration examples
 

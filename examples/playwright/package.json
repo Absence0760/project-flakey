@@ -8,9 +8,15 @@
     "test:smoke": "SUITE=smoke playwright test --config playwright.config.ts",
     "test:sanity": "SUITE=sanity playwright test --config playwright.config.ts",
     "test:regression": "SUITE=regression playwright test --config playwright.config.ts",
-    "test:all": "SUITE=smoke playwright test; SUITE=sanity playwright test; SUITE=regression playwright test"
+    "test:all": "SUITE=smoke playwright test; SUITE=sanity playwright test; SUITE=regression playwright test",
+    "test:a11y": "SUITE=a11y playwright test --config playwright.config.ts",
+    "test:visual": "SUITE=visual playwright test --config playwright.config.ts",
+    "test:visual:update": "SUITE=visual playwright test --config playwright.config.ts --update-snapshots",
+    "test:flaky": "SUITE=flaky playwright test --config playwright.config.ts",
+    "coverage:upload": "flakey-upload coverage --file coverage/coverage-summary.json"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.2",
     "@flakeytesting/playwright-reporter": "link:../../packages/flakey-playwright-reporter",
     "@playwright/test": "latest",
     "typescript": "latest"

@@ -16,6 +16,8 @@ Referenced via `workspace:*` from:
 - `@flakeytesting/playwright-reporter`
 - `@flakeytesting/webdriverio-reporter`
 
+The CLI and snapshot packages (`flakey-cli`, `flakey-cypress-snapshots`, `flakey-playwright-snapshots`, `flakey-live-reporter`) do not depend on this package.
+
 Changes here require rebuilding the consumers (or relying on TypeScript project references) before behavior propagates.
 
 ## Conventions

@@ -1,16 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getAuth } from "$lib/auth";
+  import { getAuth, subscribe } from "$lib/auth";
   import { authFetch } from "$lib/auth";
   import { toast, toastError } from "$lib/toast";
+  import { API_URL as apiUrl } from "$lib/config";
 
-  const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
-  const auth = getAuth();
-  const orgId = auth.user?.orgId;
-
-  function headers() {
-    return { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` };
-  }
+  // Reactive auth state — re-reads after refresh or org switch so that
+  // orgId, isOwner, and isAdmin never go stale.
+  let authState = $state(getAuth());
+  subscribe(() => { authState = getAuth(); });
+  let orgId = $derived(authState.user?.orgId);
 
   // --- Connectivity tests ---
   interface TestResult { ok: boolean; [key: string]: unknown }
@@ -112,17 +111,17 @@
   async function invite() {
     inviteError = null; inviteResult = null;
     if (!inviteEmail) { inviteError = "Email is required"; return; }
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/invites`, { method: "POST", headers: headers(), body: JSON.stringify({ email: inviteEmail, role: inviteRole }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: inviteEmail, role: inviteRole }) });
     if (res.ok) { inviteResult = await res.json(); inviteEmail = ""; toast("Invite created"); }
     else { const b = await res.json().catch(() => ({})); inviteError = (b as any).error ?? "Failed"; toastError(inviteError!); }
   }
   async function changeRole(userId: number, role: string) {
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ role }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
     if (res.ok) { toast("Role updated"); loadMembers(); }
     else toastError("Failed to update role");
   }
   async function removeMember(userId: number) {
-    await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    await authFetch(`${apiUrl}/orgs/${orgId}/members/${userId}`, { method: "DELETE" });
     loadMembers();
   }
 
@@ -143,25 +142,31 @@
   }
   async function renameSuite(oldName: string) {
     if (!renameValue || renameValue === oldName) { renamingId = null; return; }
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: headers(), body: JSON.stringify({ new_name: renameValue }) });
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(oldName)}/rename`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_name: renameValue }) });
     renamingId = null;
     if (res.ok) { toast("Suite renamed"); loadSuites(); }
     else toastError("Failed to rename suite");
   }
   async function toggleArchive(name: string, archived: boolean) {
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: headers(), body: JSON.stringify({ archived: !archived }) });
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}/archive`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archived: !archived }) });
     if (res.ok) { toast(archived ? "Suite unarchived" : "Suite archived"); loadSuites(); }
     else toastError("Failed to update suite");
   }
   async function deleteSuite(name: string) {
-    if (!confirm(`Delete suite "${name}" and all its runs? This cannot be undone.`)) return;
-    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    const ok = await openConfirm({
+      title: 'Delete suite?',
+      message: `Delete suite "${name}" and all its runs? This cannot be undone.`,
+      confirmLabel: 'Delete suite',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE" });
     if (res.ok) { toast("Suite deleted"); loadSuites(); }
     else toastError("Failed to delete suite");
   }
   async function saveRerunTemplate(suiteName: string) {
     const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(suiteName)}/rerun-template`, {
-      method: "PATCH", headers: headers(), body: JSON.stringify({ template: templateValue }),
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template: templateValue }),
     });
     editingTemplateId = null;
     if (res.ok) { toast("Rerun template saved"); loadSuites(); }
@@ -193,24 +198,24 @@
   async function createWebhook() {
     if (!newWhUrl) return;
     saving = true;
-    const res = await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: headers(), body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
+    const res = await authFetch(`${apiUrl}/webhooks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newWhName, url: newWhUrl, events: newWhEvents, platform: newWhPlatform }) });
     if (res.ok) { toast("Webhook created"); newWhName = ""; newWhUrl = ""; newWhEvents = ["run.failed"]; newWhPlatform = "generic"; loadWebhooks(); }
     else toastError("Failed to create webhook");
     saving = false;
   }
   async function toggleWebhook(id: number, active: boolean) {
-    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ active: !active }) });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !active }) });
     if (res.ok) { toast(active ? "Webhook disabled" : "Webhook enabled"); loadWebhooks(); }
     else toastError("Failed to update webhook");
   }
   async function deleteWebhook(id: number) {
-    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}`, { method: "DELETE" });
     if (res.ok) { toast("Webhook deleted"); loadWebhooks(); }
     else toastError("Failed to delete webhook");
   }
   async function testWebhook(id: number) {
     whTestResult = null;
-    const res = await authFetch(`${apiUrl}/webhooks/${id}/test`, { method: "POST", headers: { Authorization: `Bearer ${auth.token}` } });
+    const res = await authFetch(`${apiUrl}/webhooks/${id}/test`, { method: "POST" });
     const data = await res.json();
     whTestResult = { id, ok: data.ok };
     setTimeout(() => { if (whTestResult?.id === id) whTestResult = null; }, 3000);
@@ -246,12 +251,12 @@
     if (gitRepo && gitProvider !== "gitlab" && !/^[^/]+\/[^/]+$/.test(gitRepo)) { gitError = "Format: owner/repo"; return; }
     const body: Record<string, string | null> = { git_provider: gitProvider, git_repo: gitRepo || null, git_base_url: gitBaseUrl || null };
     if (gitToken) body.git_token = gitToken;
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (res.ok) { toast("Git integration saved"); gitSaved = true; gitToken = ""; hasGitToken = !!body.git_token || hasGitToken; setTimeout(() => gitSaved = false, 2000); }
     else toastError("Failed to save git integration");
   }
   async function removeGitProvider() {
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ git_provider: null, git_token: null, git_repo: null, git_base_url: null }) });
     if (res.ok) { toast("Git integration removed"); gitProvider = ""; gitRepo = ""; gitToken = ""; gitBaseUrl = ""; hasGitToken = false; }
     else toastError("Failed to remove git integration");
   }
@@ -266,7 +271,7 @@
   }
   async function saveRetention() {
     const value = retentionDays === "" ? null : Number(retentionDays);
-    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: headers(), body: JSON.stringify({ retention_days: value }) });
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retention_days: value }) });
     if (res.ok) { toast("Retention settings saved"); retentionSaved = true; setTimeout(() => retentionSaved = false, 2000); }
     else toastError("Failed to save retention settings");
   }
@@ -283,9 +288,43 @@
     auditLoading = false;
   }
 
+  // --- Confirm modal (replaces window.confirm) ---
+  interface ConfirmState {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone: 'default' | 'danger';
+    resolve: (result: boolean) => void;
+  }
+  let confirmState = $state<ConfirmState | null>(null);
+
+  function openConfirm(opts: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    tone?: 'default' | 'danger';
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      confirmState = {
+        title: opts.title,
+        message: opts.message,
+        confirmLabel: opts.confirmLabel ?? 'Confirm',
+        tone: opts.tone ?? 'default',
+        resolve,
+      };
+    });
+  }
+
+  function resolveConfirm(result: boolean) {
+    if (!confirmState) return;
+    const { resolve } = confirmState;
+    confirmState = null;
+    resolve(result);
+  }
+
   // --- Helpers ---
-  let isOwner = $derived(auth.user?.orgRole === "owner");
-  let isAdmin = $derived(auth.user?.orgRole === "admin" || isOwner);
+  let isOwner = $derived(authState.user?.orgRole === "owner");
+  let isAdmin = $derived(authState.user?.orgRole === "admin" || isOwner);
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -454,7 +493,7 @@
             <span class="list-meta">{timeAgo(m.joined_at)}</span>
             {#if m.role === "owner"}
               <span class="pill owner">Owner</span>
-            {:else if isOwner && m.id !== auth.user?.id}
+            {:else if isOwner && m.id !== authState.user?.id}
               <select class="inline-select" value={m.role} onchange={(e) => changeRole(m.id, (e.target as HTMLSelectElement).value)}>
                 <option value="admin">Admin</option>
                 <option value="viewer">Viewer</option>
@@ -504,10 +543,10 @@
             </div>
             {#if editingTemplateId === s.suite_name}
               <div class="rerun-template-edit">
-                <label class="template-label">Rerun command template</label>
+                <label class="template-label" for="rerun-template-input">Rerun command template</label>
                 <p class="template-hint">Placeholders: <code>{"{spec}"}</code> (file path), <code>{"{specs}"}</code> (all failed specs, comma-separated), <code>{"{title}"}</code> (test name), <code>{"{suite}"}</code> (suite name)</p>
                 <form class="template-form" onsubmit={(e) => { e.preventDefault(); saveRerunTemplate(s.suite_name); }}>
-                  <input type="text" class="template-input" bind:value={templateValue} placeholder="npx cypress run --spec '{"{spec}"}' --env &quot;env=test&quot;" />
+                  <input id="rerun-template-input" type="text" class="template-input" bind:value={templateValue} placeholder="npx cypress run --spec '{"{spec}"}' --env &quot;env=test&quot;" />
                   <button type="submit" class="btn-sm">Save</button>
                   <button type="button" class="btn-sm" onclick={() => editingTemplateId = null}>Cancel</button>
                 </form>
@@ -649,7 +688,7 @@
   <section class="card">
     <h3>API Endpoint</h3>
     <div class="field-row">
-      <label>URL</label>
+      <span class="field-label">URL</span>
       <code>{apiUrl}</code>
     </div>
   </section>
@@ -680,6 +719,27 @@
     </section>
   {/if}
 </div>
+
+{#if confirmState}
+  <div class="modal-overlay">
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Dismiss confirmation"
+      onclick={() => resolveConfirm(false)}
+    ></button>
+    <div class="modal-box" role="dialog" aria-modal="true" tabindex="-1">
+      <h2 class="modal-title">{confirmState.title}</h2>
+      <p class="modal-message">{confirmState.message}</p>
+      <div class="modal-actions">
+        <button class="btn-sm" onclick={() => resolveConfirm(false)}>Cancel</button>
+        <button class="btn-sm {confirmState.tone === 'danger' ? 'danger' : ''}" onclick={() => resolveConfirm(true)}>
+          {confirmState.confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
@@ -870,6 +930,24 @@
 
   /* API */
   .field-row { display: flex; gap: 1rem; font-size: 0.875rem; align-items: center; }
-  .field-row label { color: var(--text-secondary); min-width: 3rem; }
+  .field-row .field-label { color: var(--text-secondary); min-width: 3rem; }
   .field-row code { padding: 0.25rem 0.5rem; background: var(--bg-hover); border-radius: 4px; font-size: 0.8rem; }
+
+  /* Confirm modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+    border: none; padding: 0; cursor: pointer;
+  }
+  .modal-box {
+    position: relative;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1.5rem; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  }
+  .modal-title { margin: 0 0 0.5rem; font-size: 1rem; font-weight: 700; }
+  .modal-message { margin: 0 0 1.25rem; font-size: 0.875rem; color: var(--text-secondary); }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 </style>

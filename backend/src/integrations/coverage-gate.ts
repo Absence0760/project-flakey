@@ -1,4 +1,5 @@
 import pool from "../db.js";
+import { decryptSecret } from "../crypto.js";
 import { createGitHubProvider } from "../git-providers/github.js";
 import { createGitLabProvider } from "../git-providers/gitlab.js";
 import { createBitbucketProvider } from "../git-providers/bitbucket.js";
@@ -11,9 +12,18 @@ async function getConfig(orgId: number): Promise<GitProviderConfig | null> {
   );
   const row = result.rows[0];
   if (!row?.git_provider || !row?.git_token || !row?.git_repo) return null;
+  // Decrypt git_token; fall back to raw value for legacy unencrypted rows
+  // (in-place migration: the next write via PATCH /orgs/:id/settings will
+  // re-encrypt the token automatically).
+  let token: string;
+  try {
+    token = decryptSecret(row.git_token) ?? row.git_token;
+  } catch {
+    token = row.git_token;
+  }
   return {
     platform: row.git_provider,
-    token: row.git_token,
+    token,
     repo: row.git_repo,
     baseUrl: row.git_base_url ?? undefined,
   };

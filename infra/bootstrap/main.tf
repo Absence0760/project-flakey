@@ -9,6 +9,8 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
 variable "aws_region" {
   default = "ap-southeast-2"
 }
@@ -62,9 +64,12 @@ resource "aws_dynamodb_table" "locks" {
 # --- GitHub OIDC ---
 
 resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["1c58a3a8518e8759bf075b76b750d4f2df264fcd"]
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  ]
 }
 
 resource "aws_iam_role" "github_actions" {
@@ -96,8 +101,23 @@ resource "aws_iam_role_policy" "github_actions" {
     Version = "2012-10-17"
     Statement = [
       {
+        # GetAuthorizationToken genuinely requires Resource: "*" per ECR docs.
         Effect   = "Allow"
-        Action   = ["ecr:*"]
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        # Minimum ECR permissions for push/pull — no ecr:* wildcard.
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+        ]
         Resource = "*"
       },
       {
@@ -116,14 +136,16 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["ecr:GetAuthorizationToken"]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["iam:PassRole"]
-        Resource = "*"
+        # Scope PassRole to ECS task/execution roles only.
+        # The bootstrap module cannot directly reference the ECS module outputs
+        # (separate Terraform root), so we use a naming-convention ARN pattern.
+        # If the app_name or environment variable changes, update these ARNs.
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.app_name}-production-ecs-execution",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.app_name}-production-ecs-task",
+        ]
       }
     ]
   })

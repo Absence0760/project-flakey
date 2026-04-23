@@ -9,14 +9,19 @@
     "test:sanity": "SUITE=sanity cypress run",
     "test:regression": "SUITE=regression cypress run",
     "test:live": "SUITE=live cypress run",
+    "test:a11y": "SUITE=a11y cypress run",
+    "test:flaky": "SUITE=flaky cypress run",
     "test:all": "SUITE=smoke cypress run; SUITE=sanity cypress run; SUITE=regression cypress run",
+    "coverage:upload": "node scripts/collect-coverage.js && flakey-upload coverage --file coverage/coverage-summary.json",
     "open": "cypress open"
   },
   "devDependencies": {
     "@flakeytesting/cypress-reporter": "link:../../packages/flakey-cypress-reporter",
     "@flakeytesting/cypress-snapshots": "link:../../packages/flakey-cypress-snapshots",
     "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
+    "axe-core": "^4.11.3",
     "cypress": "latest",
+    "cypress-axe": "^1.7.0",
     "typescript": "latest"
   }
 }

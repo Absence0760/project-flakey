@@ -19,4 +19,6 @@ Published as `flakey-mcp` (see `bin` in `package.json`). Typically invoked via a
 ## Conventions
 
 - Auth against the backend uses the same API-key model as the CLI — read `FLAKEY_API_KEY` / `FLAKEY_API_URL` from env.
-- Tools should be read-only by default. Anything that mutates backend state (closing tickets, approving visual diffs) needs to be gated and clearly labeled.
+- Tools should be read-only by default. Anything that mutates backend state (closing tickets, approving visual diffs) must be registered with `{ mutates: true }` via the `registerTool` helper in `src/index.ts`.
+- The helper enforces the convention: mutation tools are only exposed when `FLAKEY_MCP_ALLOW_MUTATIONS` is truthy (`1` / `true` / `yes`). With the gate off, those tools are not registered at all — clients can't even see them. A stderr line is logged for each skipped tool at startup.
+- The description shown to clients for a mutation tool is prefixed `[mutates server state]` so the label is visible to the model even when the gate is on.

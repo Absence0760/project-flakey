@@ -28,7 +28,7 @@ If you **already have a running database** and pull new code with new migration 
 ./backend/migrate.sh
 ```
 
-The script runs all migration files in order. It's safe to re-run — migrations use `IF NOT EXISTS` and `IF NOT EXISTS` guards so already-applied migrations are skipped.
+The script runs all migration files in order. It's safe to re-run — migrations use `IF NOT EXISTS` guards so already-applied migrations are skipped.
 
 Override connection settings with environment variables:
 
@@ -55,7 +55,7 @@ npm run seed             # optional: re-seed sample data
 ## Writing new migrations
 
 1. Create a new file: `backend/migrations/NNN_description.sql`
-2. Use `IF NOT EXISTS` / `IF NOT EXISTS` guards so the migration is idempotent
+2. Use `IF NOT EXISTS` guards so the migration is idempotent
 3. If adding tables with Row-Level Security, include:
    - `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`
    - A tenant policy using `current_setting('app.current_org_id', true)::int`
@@ -114,3 +114,4 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `027_manual_test_groups_and_sessions.sql` | `manual_test_groups` (named collections of manual tests), `group_id` on `manual_tests`, plus `release_test_sessions` and `release_test_session_results` for Xray-style test plan / execution cycles |
 | `028_release_test_result_accepted.sql` | Adds `accepted_as_known_issue`, `known_issue_ref`, `accepted_by`, `accepted_at` to `release_test_session_results` so a failed/blocked result can be explicitly deferred against a bug and stop blocking the release |
 | `029_traceability_evidence_assignees.sql` | `manual_test_requirements` (link a manual test to Jira/GitHub/Linear stories for coverage rollups), plus `attachments` / `assigned_to` / `filed_bug_key` / `filed_bug_url` on `release_test_session_results` and `target_date` on `release_test_sessions` |
+| `030_tests_pending_unique.sql` | Unique index `uniq_specs_run_file` on `(run_id, file_path)` for specs; prevents duplicate spec rows when a live run and a reporter upload race to insert the same spec path |

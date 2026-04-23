@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { authFetch } from '$lib/auth';
-
-	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+	import { API_URL } from '$lib/config';
+	import { toast, toastError } from '$lib/toast';
 
 	interface ReleaseSummary {
 		id: number;
@@ -23,6 +23,7 @@
 	let releases = $state<ReleaseSummary[]>([]);
 	let loading = $state(true);
 	let showCreate = $state(false);
+	let error = $state<string | null>(null);
 
 	let newVersion = $state('');
 	let newName = $state('');
@@ -33,28 +34,48 @@
 
 	async function load() {
 		loading = true;
+		error = null;
 		const res = await authFetch(`${API_URL}/releases`);
+		if (!res.ok) {
+			error = `Failed to load releases (${res.status})`;
+			loading = false;
+			return;
+		}
 		releases = await res.json();
 		loading = false;
 	}
 
 	async function createRelease() {
-		if (!newVersion.trim()) return;
-		const res = await authFetch(`${API_URL}/releases`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				version: newVersion,
-				name: newName || null,
-				target_date: newTargetDate || null,
-				description: newDescription || null,
-			}),
-		});
+		if (!newVersion.trim()) {
+			toastError('Version is required');
+			return;
+		}
+		let res: Response;
+		try {
+			res = await authFetch(`${API_URL}/releases`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					version: newVersion,
+					name: newName || null,
+					target_date: newTargetDate || null,
+					description: newDescription || null,
+				}),
+			});
+		} catch {
+			toastError('Could not reach the server. Check your connection and try again.');
+			return;
+		}
 		if (res.ok) {
 			showCreate = false;
+			const createdVersion = newVersion;
 			newVersion = newName = newTargetDate = newDescription = '';
+			toast(`Release ${createdVersion} created`);
 			await load();
+			return;
 		}
+		const body = (await res.json().catch(() => null)) as { error?: string } | null;
+		toastError(body?.error ?? `Failed to create release (${res.status})`);
 	}
 </script>
 
@@ -79,6 +100,10 @@
 				<button class="btn-ghost" onclick={() => (showCreate = false)}>Cancel</button>
 			</div>
 		</section>
+	{/if}
+
+	{#if error}
+		<p class="load-error">{error}</p>
 	{/if}
 
 	{#if loading}
@@ -147,4 +172,5 @@
 	.signed { font-size: 0.75rem; color: #166534; }
 	.target { font-size: 0.75rem; color: var(--text-muted); }
 	.empty { padding: 2rem; text-align: center; color: var(--text-muted); }
+	.load-error { padding: 0.65rem; background: var(--error-bg, #fee2e2); border: 1px solid var(--error-border, #fca5a5); border-radius: 6px; color: var(--error-text, #991b1b); font-size: 0.85rem; margin-bottom: 1rem; }
 </style>

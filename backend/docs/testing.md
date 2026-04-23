@@ -23,7 +23,7 @@ docker compose up -d postgres
 
 ```bash
 cd backend
-pnpm test
+npm test
 ```
 
 The test runner:
@@ -48,12 +48,24 @@ Expected output:
 ✔ ui coverage summary + untested
 ✔ manual tests CRUD + result recording
 ✔ release checklist + sign-off enforcement
-ℹ tests 9
-ℹ pass 9
+✔ manual test groups / bulk-link
+✔ release sessions: create, record, fail, accept, auto-complete
+✔ manual test requirements: link, rollup, unlink
+✔ live run abort: POST /abort emits run.aborted and clears active set
+✔ live run abort: stale runs get auto-aborted after timeout
+✔ GET /runs marks aborted runs with aborted=true
+✔ POST /live/:runId/snapshot stores blob, sanitizes filename, links test row, rejects foreign run
+✔ two identical test.started events produce one tests row (idempotent upsert)
+✔ test.started then test.passed transitions pending → passed in run totals
+✔ live spec row + later /runs upload merges instead of rolling back on unique conflict
+ℹ tests 19
+ℹ pass 19
 ℹ fail 0
 ```
 
-Full runtime: ~1 second after the backend has booted.
+Full runtime: ~5–10 seconds (the stale-abort test waits 2.5 s for the timeout detector).
+
+Note: a separate `crypto.test.ts` adds 7 more tests; `npm test` runs all files matching `src/tests/**/*.test.ts`.
 
 ## What each test covers
 
@@ -68,6 +80,16 @@ Full runtime: ~1 second after the backend has booted.
 | `ui coverage summary + untested` | Known routes inventory + visits intersect correctly; 2/3 covered → `coverage_pct: 66.7`; untested endpoint returns the missing route |
 | `manual tests CRUD + result recording` | Create (status `not_run`), POST result (status becomes `passed`, notes saved), summary counts reflect the change |
 | `release checklist + sign-off enforcement` | Default checklist is created, sign-off refuses while required items are unchecked, after all required items are checked sign-off succeeds and status becomes `signed_off` |
+| `manual test groups / bulk-link` | Create group, assign test to group, bulk-link the group's tests into a release (idempotent re-link returns 0 new links) |
+| `release sessions: create, record, fail, accept, auto-complete` | Create session, record result, auto-complete when last test reaches terminal state, accept failure as known issue, revoke acceptance, start `failures_only` session |
+| `manual test requirements: link, rollup, unlink` | Attach Jira requirement, verify provider inference from URL, confirm requirement appears in test detail, unlink |
+| `live run abort: POST /abort` | `/live/start` → explicit abort removes run from active set, persists `run.aborted` event with the supplied reason |
+| `live run abort: stale timeout` | Run started but never receives events; auto-abort after `FLAKEY_LIVE_TIMEOUT_MS` (set to 1500 ms in tests); confirmed via active set and history |
+| `GET /runs marks aborted flag` | Aborted run surfaces `aborted: true` and `aborted_reason` in both list and detail responses |
+| `POST /live/:runId/snapshot` | Upload gz blob; assert key naming, `snapshot_path` linkage on the `tests` row, filename sanitization, and 404 on foreign `runId` |
+| `idempotent upsert (test.started)` | Two identical `test.started` events produce exactly one `tests` row (`030_tests_pending_unique` unique index) |
+| `pending → passed transition` | `test.started` creates a pending row counted under `skipped`; `test.passed` transitions the row and adjusts run totals correctly |
+| `upload-over-live-spec merge` | Live path creates a spec row via `spec.finished`; subsequent `/runs` POST merges into it (ON CONFLICT DO UPDATE) instead of rolling back |
 
 ## Environment variables
 
@@ -76,8 +98,8 @@ for local Postgres):
 
 | Variable | Default |
 |---|---|
-| `DB_USER` | `flakey` |
-| `DB_PASSWORD` | `flakey` |
+| `DB_USER` | `flakey_app` |
+| `DB_PASSWORD` | `flakey_app` |
 | `DB_NAME` | `flakey` |
 | `DB_HOST` | `localhost` |
 
@@ -88,7 +110,7 @@ It hard-codes `JWT_SECRET=smoke-test-secret` and
 
 Drop another `*.test.ts` file under `backend/src/tests/`. The glob in
 `package.json` (`src/tests/**/*.test.ts`) picks it up automatically on the
-next `pnpm test`.
+next `npm test`.
 
 The Phase 9/10 suite is intentionally scoped as a **single test file with
 shared setup** — one spawn of the backend for all nine tests — because
@@ -113,10 +135,10 @@ and all migrations applied before the step:
     cache: pnpm
 - run: docker compose up -d postgres
 - run: ./backend/migrate.sh
-- run: cd backend && pnpm install && pnpm test
+- run: cd backend && npm install && npm test
   env:
-    DB_USER: flakey
-    DB_PASSWORD: flakey
+    DB_USER: flakey_app
+    DB_PASSWORD: flakey_app
 ```
 
 The suite is deterministic and does not depend on external network

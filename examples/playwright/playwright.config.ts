@@ -17,6 +17,10 @@ const testDirs: Record<string, string> = {
   smoke: "tests/smoke",
   sanity: "tests/sanity",
   regression: "tests/regression",
+  // New suites — not included in test:all to keep CI fast by default
+  a11y: "tests/a11y",
+  visual: "tests/visual",
+  flaky: "tests/flaky",
 };
 
 export default defineConfig({
@@ -29,10 +33,19 @@ export default defineConfig({
   },
   reporter: [
     ["list"],
+    // @flakeytesting/playwright-reporter uploads results + artifacts to the Better Testing
+    // backend. It also parses Playwright trace (.zip) files via @flakeytesting/playwright-snapshots
+    // to extract per-step DOM snapshots and command logs — that's why trace: "on" is set below.
+    // The snapshots are written to playwright-snapshots/ at runtime and uploaded with each run.
+    //
+    // When FLAKEY_RELEASE is set, the backend upserts the release by version
+    // and links this run into it. Reporter also reads process.env.FLAKEY_RELEASE
+    // directly as a fallback.
     ["@flakeytesting/playwright-reporter", {
       url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `playwright-example-${suite}`,
+      release: process.env.FLAKEY_RELEASE ?? "",
     }],
   ],
 });

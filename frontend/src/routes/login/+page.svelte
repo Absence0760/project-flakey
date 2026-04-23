@@ -2,8 +2,7 @@
   import { login, register } from "$lib/auth";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
-
-  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  import { API_URL } from "$lib/config";
 
   let mode = $state<"login" | "register" | "forgot">("login");
   let email = $state("");

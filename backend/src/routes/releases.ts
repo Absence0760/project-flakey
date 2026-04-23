@@ -512,6 +512,10 @@ router.post("/", async (req, res) => {
     await logAudit(req.user!.orgId, req.user!.id, "release.create", "release", String(releaseId), { version });
     res.status(201).json(release.rows[0]);
   } catch (err) {
+    if ((err as { code?: string })?.code === "23505") {
+      res.status(409).json({ error: `A release with version "${req.body?.version}" already exists` });
+      return;
+    }
     console.error("POST /releases error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -1190,7 +1194,13 @@ router.post("/:id/sessions", async (req, res) => {
       ...session.rows[0],
       seeded: scopeTestIds.length,
     });
-  } catch (err) {
+  } catch (err: any) {
+    // Unique-violation from the partial index (migration 031) means a concurrent
+    // request beat us to creating the in_progress session. Treat as 409.
+    if (err?.code === "23505") {
+      res.status(409).json({ error: "An in-progress session already exists for this release" });
+      return;
+    }
     console.error("POST /releases/:id/sessions error:", err);
     res.status(500).json({ error: "Internal server error" });
   }

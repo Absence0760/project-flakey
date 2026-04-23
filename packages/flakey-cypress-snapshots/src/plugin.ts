@@ -31,6 +31,10 @@ interface SnapshotBundle {
   }[];
   viewportWidth: number;
   viewportHeight: number;
+  /** Number of step snapshots replaced with a placeholder (per-step cap). */
+  cappedSteps?: number;
+  /** Number of steps dropped FIFO to fit the aggregate bundle cap. */
+  evictedSteps?: number;
 }
 
 interface FlakeySnapshotOptions {
@@ -45,6 +49,13 @@ interface FlakeySnapshotOptions {
    * V8's max string length when cy.task serializes it. Default: 2 MB.
    */
   maxHtmlBytes?: number;
+  /**
+   * Aggregate-bundle cap in bytes across all steps in one test. Oldest steps
+   * are evicted FIFO once the running total exceeds this, which keeps the
+   * gzipped-then-JSON-stringified bundle well under V8's max string length
+   * even if every step is near `maxHtmlBytes`. Default: 64 MB.
+   */
+  maxBundleBytes?: number;
 }
 
 export function flakeySnapshots(
@@ -55,11 +66,13 @@ export function flakeySnapshots(
   const outputDir = options?.outputDir ?? "cypress/snapshots";
   const enabled = options?.enabled ?? true;
   const maxHtmlBytes = options?.maxHtmlBytes ?? 2 * 1024 * 1024;
+  const maxBundleBytes = options?.maxBundleBytes ?? 64 * 1024 * 1024;
 
   // Signal to the support file whether snapshots are enabled
   config.env = config.env || {};
   config.env.FLAKEY_SNAPSHOTS_ENABLED = enabled;
   config.env.FLAKEY_SNAPSHOTS_MAX_HTML_BYTES = maxHtmlBytes;
+  config.env.FLAKEY_SNAPSHOTS_MAX_BUNDLE_BYTES = maxBundleBytes;
 
   on("task", {
     async "flakey:saveSnapshot"(bundle: SnapshotBundle) {
@@ -86,17 +99,18 @@ export function flakeySnapshots(
         const compressed = gzipSync(Buffer.from(json));
         writeFileSync(filePath, compressed);
 
+        const capNote = formatCapNote(bundle);
         const streamed = await maybeStreamUpload(filePath, compressed, bundle);
         if (streamed) {
           try { unlinkSync(filePath); } catch { /* ignore */ }
           console.log(
-            `  [flakey-snapshots] Streamed ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)`
+            `  [flakey-snapshots] Streamed ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
           );
           return { saved: true, streamed: true, size: compressed.length };
         }
 
         console.log(
-          `  [flakey-snapshots] Saved ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)`
+          `  [flakey-snapshots] Saved ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
         );
 
         return { saved: true, path: filePath, size: compressed.length };
@@ -106,6 +120,16 @@ export function flakeySnapshots(
       }
     },
   });
+}
+
+function formatCapNote(bundle: SnapshotBundle): string {
+  const capped = bundle.cappedSteps ?? 0;
+  const evicted = bundle.evictedSteps ?? 0;
+  if (capped === 0 && evicted === 0) return "";
+  const parts: string[] = [];
+  if (capped > 0) parts.push(`${capped} placeholder'd`);
+  if (evicted > 0) parts.push(`${evicted} evicted`);
+  return ` [${parts.join(", ")}]`;
 }
 
 async function maybeStreamUpload(

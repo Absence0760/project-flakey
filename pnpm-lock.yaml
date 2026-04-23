@@ -41,13 +41,13 @@ importers:
       '@flakeytesting/cypress-snapshots':
         specifier: '>=0.1.0'
         version: 0.3.0(cypress@13.17.0)
-      '@flakeytesting/live-reporter':
-        specifier: '>=0.1.0'
-        version: 0.2.0
       cypress:
         specifier: '>=12.0.0'
         version: 13.17.0
     devDependencies:
+      '@flakeytesting/live-reporter':
+        specifier: workspace:*
+        version: link:../flakey-live-reporter
       '@types/mocha':
         specifier: ^10.0.0
         version: 10.0.10
@@ -499,9 +499,6 @@ packages:
     resolution: {integrity: sha512-IrYfzyuLqX1ohgsyBaq1e/bCpHX3QtAlWKZuhZeiTkOVKp59dd2UdFibrBHDsDqbGbniuyOAtTlVwUVfSDkNIA==}
     peerDependencies:
       cypress: '>=12.0.0'
-
-  '@flakeytesting/live-reporter@0.2.0':
-    resolution: {integrity: sha512-2wFPjAPvLBKgkHkuqrcntquq77ya7byM2LVt80vukjpT9NB02am37hH4XadH6/CV7K9fqQYyMkrJRwXaDZHrmQ==}
 
   '@hono/node-server@1.19.13':
     resolution: {integrity: sha512-TsQLe4i2gvoTtrHje625ngThGBySOgSK3Xo2XRYOdqGN1teR8+I7vchQC46uLJi8OF62YTYA3AhSpumtkhsaKQ==}
@@ -3137,8 +3134,6 @@ snapshots:
   '@flakeytesting/cypress-snapshots@0.3.0(cypress@13.17.0)':
     dependencies:
       cypress: 13.17.0
-
-  '@flakeytesting/live-reporter@0.2.0': {}
 
   '@hono/node-server@1.19.13(hono@4.12.12)':
     dependencies:

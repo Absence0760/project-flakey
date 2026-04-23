@@ -12,10 +12,19 @@ export const state: {
   steps: SnapshotStep[];
   commandIndex: number;
   testStartTime: number;
+  /** Number of per-step cap trips in the current test. */
+  cappedCount: number;
+  /** Number of steps evicted by the aggregate-bundle cap in the current test. */
+  evictedCount: number;
+  /** Running total of `html.length` across steps. Kept in sync by pushStep. */
+  bundleBytes: number;
 } = {
   steps: [],
   commandIndex: 0,
   testStartTime: 0,
+  cappedCount: 0,
+  evictedCount: 0,
+  bundleBytes: 0,
 };
 
 export function isEnabled(): boolean {
@@ -28,17 +37,35 @@ export function isEnabled(): boolean {
 // per-step so one oversized snapshot can't poison the whole bundle.
 const DEFAULT_MAX_HTML_BYTES = 2 * 1024 * 1024;
 
+// Default aggregate cap across all steps in one test: 64 MB. Second line of
+// defence against bundles that stay under the per-step cap but accumulate to
+// something cy.task cannot JSON-serialize. Oldest steps are evicted FIFO until
+// the running total fits.
+const DEFAULT_MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+
 export function getMaxHtmlBytes(): number {
   const v = Cypress.env("FLAKEY_SNAPSHOTS_MAX_HTML_BYTES");
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_HTML_BYTES;
 }
 
+export function getMaxBundleBytes(): number {
+  const v = Cypress.env("FLAKEY_SNAPSHOTS_MAX_BUNDLE_BYTES");
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_BUNDLE_BYTES;
+}
+
 export function capHtml(html: string): string {
   const max = getMaxHtmlBytes();
   if (html.length <= max) return html;
+  state.cappedCount++;
   const kb = Math.round(html.length / 1024);
   const maxKb = Math.round(max / 1024);
+  try {
+    console.warn(
+      `[flakey-snapshots] DOM exceeded per-step cap: ${kb}KB > ${maxKb}KB. Placeholder substituted.`
+    );
+  } catch {}
   return `<!DOCTYPE html>\n<html><head><base href="about:blank"></head><body><pre data-flakey-skipped="true" style="font-family:system-ui;padding:1rem;color:#888">[flakey-snapshots] DOM skipped: serialized size ${kb}KB exceeded cap ${maxKb}KB</pre></body></html>`;
 }
 
@@ -91,6 +118,43 @@ export function getAppDocument(): Document | null {
 
 const MAX_STEPS = 300;
 
+/** Reset per-test accounting. Call from `test:before:run`. */
+export function resetState(): void {
+  state.steps = [];
+  state.commandIndex = 0;
+  state.testStartTime = Date.now();
+  state.cappedCount = 0;
+  state.evictedCount = 0;
+  state.bundleBytes = 0;
+}
+
+/**
+ * Evict the oldest steps from the ring buffer until the running `bundleBytes`
+ * total fits under the aggregate cap. Safe to call after any step push,
+ * including the `afterEach` failure-state snapshot.
+ */
+export function enforceBundleSize(): void {
+  const cap = getMaxBundleBytes();
+  while (state.steps.length > 0 && state.bundleBytes > cap) {
+    const dropped = state.steps.shift();
+    if (dropped) {
+      state.bundleBytes -= dropped.html.length;
+      state.evictedCount++;
+    }
+  }
+}
+
+/** Append a step and keep ring-buffer + byte accounting in sync. */
+export function appendStep(step: SnapshotStep): void {
+  state.steps.push(step);
+  state.bundleBytes += step.html.length;
+  while (state.steps.length > MAX_STEPS) {
+    const dropped = state.steps.shift();
+    if (dropped) state.bundleBytes -= dropped.html.length;
+  }
+  enforceBundleSize();
+}
+
 export function pushStep(name: string, message: string): void {
   if (!isEnabled()) return;
   const doc = getAppDocument();
@@ -98,7 +162,7 @@ export function pushStep(name: string, message: string): void {
   try {
     const html = capHtml(serializeDOM(doc));
     const win = doc.defaultView;
-    state.steps.push({
+    appendStep({
       index: state.commandIndex++,
       commandName: name,
       commandMessage: message,
@@ -107,6 +171,5 @@ export function pushStep(name: string, message: string): void {
       scrollX: win?.scrollX ?? 0,
       scrollY: win?.scrollY ?? 0,
     });
-    while (state.steps.length > MAX_STEPS) state.steps.shift();
   } catch {}
 }

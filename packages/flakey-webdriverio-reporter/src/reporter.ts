@@ -27,6 +27,12 @@ interface FlakeyWdioOptions extends ReporterOptions {
 }
 
 export default class FlakeyWdioReporter extends WDIOReporter {
+  private _synced = true;
+
+  get isSynchronised() {
+    return this._synced;
+  }
+
   private client: ApiClient;
   private flakeyOpts: FlakeyWdioOptions;
   private startedAt = new Date();
@@ -112,6 +118,7 @@ export default class FlakeyWdioReporter extends WDIOReporter {
   }
 
   async onRunnerEnd(runner: RunnerStats) {
+    this._synced = false;
     const specs: NormalizedSpec[] = [];
     let total = 0, passed = 0, failed = 0, skipped = 0, duration = 0;
 
@@ -125,17 +132,23 @@ export default class FlakeyWdioReporter extends WDIOReporter {
       duration += spec.stats.duration_ms;
     }
 
-    if (total === 0) return;
+    if (total === 0) {
+      this._synced = true;
+      return;
+    }
 
     const run: NormalizedRun = {
       meta: {
         suite_name: this.flakeyOpts.suite,
-        branch: this.flakeyOpts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? "",
-        commit_sha: this.flakeyOpts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-        ci_run_id: this.flakeyOpts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+        branch: this.flakeyOpts.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+        commit_sha: this.flakeyOpts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+        ci_run_id: this.flakeyOpts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
         started_at: this.startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "webdriverio",
+        ...(this.flakeyOpts.release || process.env.FLAKEY_RELEASE
+          ? { release: (this.flakeyOpts.release ?? process.env.FLAKEY_RELEASE)! }
+          : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,
@@ -156,6 +169,8 @@ export default class FlakeyWdioReporter extends WDIOReporter {
       console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${this.flakeyOpts.url}`);
     } catch (err: any) {
       console.error(`\n  [flakey] Failed to upload: ${err.message}`);
+    } finally {
+      this._synced = true;
     }
   }
 }

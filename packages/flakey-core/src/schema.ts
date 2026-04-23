@@ -5,6 +5,12 @@ export interface ReporterOptions {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  /**
+   * Release version this run belongs to (e.g. "v1.2.3"). Falls back to
+   * `process.env.FLAKEY_RELEASE` in each reporter. When set, the backend
+   * will upsert the release by (org_id, version) and link the run into it.
+   */
+  release?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
@@ -19,6 +25,8 @@ export interface NormalizedRun {
     started_at: string;
     finished_at: string;
     reporter: string;
+    /** Release version — see ReporterOptions.release. Optional. */
+    release?: string;
   };
   stats: {
     total: number;

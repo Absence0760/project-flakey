@@ -33,16 +33,28 @@ function makeBadge(label: string, message: string, color: string): string {
 </svg>`;
 }
 
-// GET /badge/:suiteName
-router.get("/:suiteName", async (req, res) => {
+// GET /badge/:orgSlug/:suiteName
+// orgSlug scopes the query to a single org so suite names do not leak across orgs.
+router.get("/:orgSlug/:suiteName", async (req, res) => {
   try {
-    const { suiteName } = req.params;
+    const { orgSlug, suiteName } = req.params;
+
+    const org = await pool.query(
+      "SELECT id FROM organizations WHERE slug = $1",
+      [orgSlug]
+    );
+    if (!org.rows[0]) {
+      res.setHeader("Content-Type", "image/svg+xml");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.send(makeBadge("tests", "not found", "#9f9f9f"));
+      return;
+    }
 
     const result = await pool.query(
       `SELECT total, passed, failed, skipped FROM runs
-       WHERE suite_name = $1
+       WHERE suite_name = $1 AND org_id = $2
        ORDER BY created_at DESC LIMIT 1`,
-      [suiteName]
+      [suiteName, org.rows[0].id]
     );
 
     res.setHeader("Content-Type", "image/svg+xml");

@@ -39,10 +39,10 @@ jobs:
       mcp_server: ${{ steps.check.outputs.mcp_server }}
     steps:
       - id: check
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          MANUAL: ${{ github.event.inputs.package }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          MANUAL="${{ github.event.inputs.package }}"
-
           ALL="false"
           if [[ "$TAG" == all@* ]] || [[ "$MANUAL" == "all" ]]; then
             ALL="true"
@@ -63,16 +63,16 @@ jobs:
           if [[ "$TAG" == playwright-reporter@* ]] || [[ "$MANUAL" == "playwright-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "playwright_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == playwright-snapshots@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == playwright-snapshots@* ]] || [[ "$MANUAL" == "playwright-snapshots" ]] || [[ "$ALL" == "true" ]]; then
             echo "playwright_snapshots=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == webdriverio-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == webdriverio-reporter@* ]] || [[ "$MANUAL" == "webdriverio-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "webdriverio_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == live-reporter@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == live-reporter@* ]] || [[ "$MANUAL" == "live-reporter" ]] || [[ "$ALL" == "true" ]]; then
             echo "live_reporter=true" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$TAG" == mcp-server@* ]] || [[ "$ALL" == "true" ]]; then
+          if [[ "$TAG" == mcp-server@* ]] || [[ "$MANUAL" == "mcp-server" ]] || [[ "$ALL" == "true" ]]; then
             echo "mcp_server=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -114,7 +114,9 @@ jobs:
 
   publish-cypress-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.cypress_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.cypress_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,7 +154,9 @@ jobs:
 
   publish-playwright-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.playwright_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.playwright_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -192,7 +196,9 @@ jobs:
 
   publish-webdriverio-reporter:
     needs: [detect-package, publish-core]
-    if: always() && needs.detect-package.outputs.webdriverio_reporter == 'true'
+    if: >
+      needs.detect-package.outputs.webdriverio_reporter == 'true' &&
+      (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

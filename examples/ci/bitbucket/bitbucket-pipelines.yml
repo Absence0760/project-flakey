@@ -1,0 +1,90 @@
+# Better Testing — Bitbucket Pipelines template
+#
+# Copy this to your repository root as bitbucket-pipelines.yml and adjust:
+#   - The test command and directory
+#   - SUITE_NAME to match your project
+#
+# Required repository variables (Repository settings > Pipelines > Repository variables):
+#   FLAKEY_API_KEY      — Better Testing API key (Profile > API Keys)
+#   FLAKEY_API_URL      — Better Testing backend URL (e.g. https://bt.yourcompany.com)
+#
+# How PR integration works:
+#   After flakey-upload completes, the Better Testing backend:
+#     1. Looks up an open PR for the current commit SHA or source branch via
+#        GET /repositories/{workspace}/{repo}/commit/{sha}/pullrequests (Bitbucket API).
+#     2. Posts or updates a PR comment (POST/PUT /repositories/{w}/{r}/pullrequests/{id}/comments).
+#     3. Posts a build status (POST /repositories/{w}/{r}/commit/{sha}/statuses/build)
+#        with state=SUCCESSFUL/FAILED and a link to the run.
+#   Configure the Bitbucket integration in Better Testing Settings > Integrations > Bitbucket.
+#   Required OAuth consumer scopes: pullrequest:write, repository.
+
+image: node:20
+
+definitions:
+  caches:
+    pnpm: $HOME/.local/share/pnpm/store
+
+  steps:
+    - step: &install-and-test-cypress
+        name: Cypress smoke tests
+        caches:
+          - pnpm
+          - node
+        script:
+          - npm install -g pnpm
+          - cd examples/cypress
+          - pnpm install
+          - BRANCH=$BITBUCKET_BRANCH
+            COMMIT_SHA=$BITBUCKET_COMMIT
+            CI_RUN_ID=$BITBUCKET_BUILD_NUMBER
+            FLAKEY_API_URL=$FLAKEY_API_URL
+            FLAKEY_API_KEY=$FLAKEY_API_KEY
+            pnpm test:smoke
+        artifacts:
+          - examples/cypress/cypress/screenshots/**
+          - examples/cypress/cypress/videos/**
+
+    - step: &upload-jest
+        name: Upload Jest results to Better Testing
+        caches:
+          - pnpm
+          - node
+        script:
+          - npm install -g pnpm
+          - cd examples/jest
+          - pnpm install --ignore-workspace
+          - npx tsx ../../packages/flakey-cli/src/index.ts
+            --report-dir reports
+            --suite my-project-smoke
+            --reporter junit
+            --branch "$BITBUCKET_BRANCH"
+            --commit "$BITBUCKET_COMMIT"
+            --ci-run-id "$BITBUCKET_BUILD_NUMBER"
+            --api-key "$FLAKEY_API_KEY"
+
+pipelines:
+  default:
+    - step: *install-and-test-cypress
+
+  pull-requests:
+    '**':
+      - step:
+          <<: *install-and-test-cypress
+          name: Cypress smoke (PR)
+
+  branches:
+    main:
+      - step: *install-and-test-cypress
+
+# To add Jest upload as a second step after Jest tests:
+#
+#   - step:
+#       name: Jest tests
+#       script:
+#         - cd examples/jest
+#         - pnpm install --ignore-workspace
+#         - pnpm test:smoke
+#       artifacts:
+#         - examples/jest/reports/**
+#         - examples/jest/coverage/**
+#   - step: *upload-jest

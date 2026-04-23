@@ -15,16 +15,19 @@ import { sendEmail } from "./email.js";
 const SCHEDULED_REPORTS_LOCK_KEY = 0x666c616b79; // "flaky" (441_119_769_721, fits in JS Number safely)
 
 export async function runScheduledReports(): Promise<void> {
-  // Try to take a session-scoped advisory lock so only one backend replica at
-  // a time dispatches reports. If another replica is already running, exit
-  // quietly — it'll run again on the next tick.
+  // Use a transaction-scoped advisory lock so the lock is automatically released
+  // when the transaction ends — no explicit pg_advisory_unlock needed, eliminating
+  // the risk of a leaked lock if the unlock call itself fails.
   const lockClient = await pool.connect();
   try {
+    await lockClient.query("BEGIN");
     const got = await lockClient.query<{ locked: boolean }>(
-      "SELECT pg_try_advisory_lock($1) AS locked",
+      "SELECT pg_try_advisory_xact_lock($1) AS locked",
       [SCHEDULED_REPORTS_LOCK_KEY]
     );
     if (!got.rows[0]?.locked) {
+      await lockClient.query("ROLLBACK");
+      lockClient.release();
       return;
     }
 
@@ -67,14 +70,12 @@ export async function runScheduledReports(): Promise<void> {
         }
       }
     }
+
+    await lockClient.query("COMMIT");
+    lockClient.release();
   } catch (err) {
     console.error("runScheduledReports error:", err);
-  } finally {
-    try {
-      await lockClient.query("SELECT pg_advisory_unlock($1)", [SCHEDULED_REPORTS_LOCK_KEY]);
-    } catch {
-      /* best effort */
-    }
+    try { await lockClient.query("ROLLBACK"); } catch { /* ignore */ }
     lockClient.release();
   }
 }

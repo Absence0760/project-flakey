@@ -779,10 +779,12 @@ async function seed() {
       { title: "Verify bulk-delete of archived runs", suite: "regression", priority: "medium", status: "blocked" },
     ];
     for (const mt of manualTests) {
-      await client.query(
+      const lastRunAt = mt.status === "not_run" ? null : new Date(now - randomInt(1, 7) * DAY_MS);
+      const inserted = await client.query(
         `INSERT INTO manual_tests
           (org_id, suite_name, title, priority, status, steps, expected_result, created_by, last_run_at, last_run_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING id`,
         [
           orgId,
           mt.suite,
@@ -792,10 +794,17 @@ async function seed() {
           JSON.stringify([{ action: "Navigate to relevant page" }, { action: "Perform the action" }, { action: "Observe outcome" }]),
           "Outcome matches expectation",
           adminId,
-          mt.status === "not_run" ? null : new Date(now - randomInt(1, 7) * DAY_MS),
+          lastRunAt,
           mt.status === "not_run" ? null : adminId,
         ]
       );
+      if (lastRunAt) {
+        await client.query(
+          `INSERT INTO manual_test_runs (org_id, manual_test_id, status, run_by, run_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [orgId, inserted.rows[0].id, mt.status, adminId, lastRunAt]
+        );
+      }
     }
     console.log(`Seeded ${manualTests.length} manual tests.`);
 

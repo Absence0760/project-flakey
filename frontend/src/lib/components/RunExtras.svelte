@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { API_URL } from '$lib/config';
 	import { onMount } from 'svelte';
 
 	interface Props { runId: number; }
 	const { runId }: Props = $props();
-
-	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 	interface Coverage {
 		lines_pct: string | number | null;

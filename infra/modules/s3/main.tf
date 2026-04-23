@@ -39,53 +39,55 @@ resource "aws_s3_bucket" "frontend" {
   tags          = { Name = "${var.app_name}-${var.environment}-frontend" }
 }
 
-resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-  index_document { suffix = "index.html" }
-  error_document { key = "200.html" }  # SPA fallback
-}
-
+# Block all direct public access — content is served exclusively via CloudFront OAC.
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket                  = aws_s3_bucket.frontend.id
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
+# Origin Access Control (current AWS recommendation over OAI).
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "${var.app_name}-${var.environment}-oac"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+# Allow only CloudFront (scoped to this distribution) to read from the bucket.
 resource "aws_s3_bucket_policy" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
+  bucket     = aws_s3_bucket.frontend.id
   depends_on = [aws_s3_bucket_public_access_block.frontend]
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "PublicRead"
+      Sid       = "AllowCloudFrontOAC"
       Effect    = "Allow"
-      Principal = "*"
+      Principal = { Service = "cloudfront.amazonaws.com" }
       Action    = "s3:GetObject"
       Resource  = "${aws_s3_bucket.frontend.arn}/*"
+      Condition = {
+        StringEquals = {
+          "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
+        }
+      }
     }]
   })
 }
 
 # CloudFront for HTTPS + caching
-resource "aws_cloudfront_origin_access_identity" "frontend" {}
-
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
   origin {
-    domain_name = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    origin_id   = "s3-frontend"
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
+    # Use the regional S3 domain (not the website endpoint) for OAC.
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "s3-frontend"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
   default_cache_behavior {

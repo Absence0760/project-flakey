@@ -10,7 +10,16 @@
  * to get Gherkin step markers in the snapshot bundle.
  */
 
-import { state, isEnabled, pushStep, serializeDOM, getAppDocument, capHtml } from "./shared.js";
+import {
+  state,
+  isEnabled,
+  pushStep,
+  serializeDOM,
+  getAppDocument,
+  capHtml,
+  resetState,
+  appendStep,
+} from "./shared.js";
 
 const SKIP_COMMANDS = new Set([
   "wrap", "then", "should", "and", "its", "invoke",
@@ -19,9 +28,7 @@ const SKIP_COMMANDS = new Set([
 ]);
 
 Cypress.on("test:before:run", () => {
-  state.steps = [];
-  state.commandIndex = 0;
-  state.testStartTime = Date.now();
+  resetState();
 });
 
 Cypress.on("command:end", (command: any) => {
@@ -41,7 +48,7 @@ afterEach(function () {
       try {
         const html = capHtml(serializeDOM(doc));
         const win = doc.defaultView;
-        state.steps.push({
+        appendStep({
           index: state.commandIndex++,
           commandName: "failure",
           commandMessage: "Test failed — final DOM state",
@@ -56,6 +63,15 @@ afterEach(function () {
 
   if (state.steps.length === 0) return;
 
+  if (state.cappedCount > 0 || state.evictedCount > 0) {
+    try {
+      console.warn(
+        `[flakey-snapshots] ${state.cappedCount} step(s) placeholder'd, ` +
+          `${state.evictedCount} step(s) evicted to fit bundle cap.`
+      );
+    } catch {}
+  }
+
   const current = (Cypress as any).currentTest;
   const fullTitle = Array.isArray(current?.titlePath) && current.titlePath.length > 0
     ? current.titlePath.join(" ")
@@ -67,6 +83,8 @@ afterEach(function () {
     steps: [...state.steps],
     viewportWidth: Cypress.config("viewportWidth"),
     viewportHeight: Cypress.config("viewportHeight"),
+    cappedSteps: state.cappedCount,
+    evictedSteps: state.evictedCount,
   };
 
   cy.task("flakey:saveSnapshot", bundle, { log: false });

@@ -4,6 +4,30 @@ Working examples showing how to integrate Better Testing with different test fra
 
 Use these as a starting point for your own project, or run them locally to see Better Testing in action.
 
+## Features matrix
+
+Which product features each example exercises. `✓` = wired; `—` = not applicable to this example.
+
+| Feature | Cypress | Playwright | WebdriverIO | Selenium | Jest | Postman | ZAP | CI | MCP |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| DOM snapshots | ✓ | ✓ | — | — | — | — | — | — | — |
+| Accessibility (a11y) | ✓ | ✓ | ✓ | ✓ | — | — | — | — | — |
+| Visual regression | ✓ | ✓ | ✓ | ✓ | — | — | — | — | — |
+| Flaky detection | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — | ✓ |
+| Coverage upload | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — | — |
+| Release linking | — | — | — | — | — | — | — | — | — |
+| Jira / PagerDuty | — | — | — | — | — | — | — | — | — |
+| CI PR integration | — | — | — | — | — | — | — | ✓ | — |
+| MCP integration | — | — | — | — | — | — | — | — | ✓ |
+| Security scan | — | — | — | — | — | — | ✓ | — | — |
+| API tests | — | — | — | — | — | ✓ | — | — | — |
+
+Notes:
+- **DOM snapshots**: full DOM capture per test step, replayable in the dashboard.
+- **Flaky detection**: each example includes an intentional flaky test in a `flaky/` folder that you can run separately to seed flaky data.
+- **CI PR integration**: the CI templates show how the backend posts PR status/comments via GitHub/GitLab/Bitbucket APIs.
+- **MCP integration**: the MCP example shows how to query Better Testing from Claude Code, Claude Desktop, or Cursor.
+
 ## Structure
 
 ```
@@ -20,6 +44,9 @@ examples/
   cypress-cucumber/   ← Cypress with Cucumber syntax
   postman/            ← Postman (Newman) API tests with JUnit upload
   zap/                ← OWASP ZAP security scan with JUnit conversion
+  jest/               ← Jest unit tests with JUnit upload and coverage
+  ci/                 ← CI workflow templates (GitHub Actions, GitLab, Bitbucket)
+  mcp/                ← MCP server config for Claude Code, Claude Desktop, Cursor
 ```
 
 ### Live reporting demo
@@ -104,23 +131,36 @@ Each example is a standalone project. Install and run:
 # Cypress
 cd examples/cypress
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
 
 # Playwright
 cd examples/playwright
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
 
 # Selenium
 cd examples/selenium
 pnpm install
-pnpm test
+pnpm test:smoke
 # Selenium uses the CLI to upload results after the run
 
 # WebdriverIO
 cd examples/webdriverio
 pnpm install
-FLAKEY_API_KEY=fk_your_key pnpm test
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
+
+# Jest (unit tests — no browser, no sample app needed)
+cd examples/jest
+pnpm install --ignore-workspace
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
+# Upload results manually:
+node scripts/upload.js smoke
+
+# CI templates — copy-paste only, no execution needed
+# See examples/ci/README.md for instructions.
+
+# MCP server — documentation only
+# See examples/mcp/README.md for client config snippets.
 ```
 
 ### Verify results
@@ -169,6 +209,7 @@ Each example is pre-configured to upload results to Better Testing. Here's how e
 | Playwright | `@flakeytesting/playwright-reporter` | Direct (onEnd hook) |
 | WebdriverIO | `@flakeytesting/webdriverio-reporter` | Direct (onComplete hook) |
 | Selenium | mochawesome / JUnit | CLI upload after run |
+| Jest | `jest-junit` (JUnit XML) | CLI upload after run |
 | Postman (Newman) | JUnit XML | CLI upload after run |
 | OWASP ZAP | JSON → JUnit XML converter | CLI upload after run |
 
@@ -238,16 +279,37 @@ export const config = {
 Selenium doesn't have a native Better Testing reporter. Use a standard reporter (JUnit XML or mochawesome) and upload via the CLI:
 
 ```bash
-# Run tests (generates JUnit XML)
-pnpm test
+# Run tests and upload automatically
+pnpm test:smoke
 
-# Upload to Better Testing
+# To upload manually (matches scripts/upload.js):
 npx tsx ../../packages/flakey-cli/src/index.ts \
-  --report-dir test-results \
-  --suite integration-selenium \
-  --reporter junit \
+  --report-dir reports \
+  --suite selenium-example-smoke \
+  --reporter mochawesome \
+  --screenshots-dir screenshots \
   --api-key $FLAKEY_API_KEY
 ```
+
+### Jest
+
+Jest doesn't have a native Better Testing reporter. Use `jest-junit` to write JUnit XML and upload via the CLI:
+
+```bash
+cd examples/jest
+pnpm install --ignore-workspace
+
+# Run smoke tests (generates reports/junit.xml + coverage/smoke/coverage-summary.json)
+FLAKEY_API_KEY=fk_your_key pnpm test:smoke
+
+# Upload results
+node scripts/upload.js smoke
+
+# Upload coverage (replace 42 with the run ID printed by the upload step)
+RUN_ID=42 node scripts/upload-coverage.js --coverage-dir coverage/smoke
+```
+
+See `examples/jest/README.md` for the full upload path explanation.
 
 ### Postman (Newman)
 
@@ -276,6 +338,14 @@ TARGET_URL=http://localhost:3000 FLAKEY_API_KEY=fk_your_key pnpm test:api
 ```
 
 ZAP outputs its own JSON format. The `scripts/convert.js` script converts ZAP alerts to JUnit XML — each alert becomes a test case, with Low/Medium/High risk alerts reported as failures.
+
+### CI workflow templates
+
+See `examples/ci/` for copy-paste templates for GitHub Actions, GitLab CI, and Bitbucket Pipelines. Each template covers running a test suite, uploading results, and receiving PR status comments.
+
+### MCP server
+
+See `examples/mcp/README.md` for config snippets to add `@flakeytesting/mcp-server` to Claude Code, Claude Desktop, or Cursor.
 
 ## Adding an example for a new framework
 
