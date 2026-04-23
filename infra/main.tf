@@ -61,4 +61,5 @@ module "ecs" {
   s3_bucket           = module.s3.bucket_name
   allow_registration  = var.allow_registration
   acm_certificate_arn = var.acm_certificate_arn
+  alert_email         = var.budget_alert_email
 }

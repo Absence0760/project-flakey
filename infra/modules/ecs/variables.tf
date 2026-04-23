@@ -15,3 +15,7 @@ variable "jwt_secret_arn" { type = string }
 variable "s3_bucket" { type = string }
 variable "allow_registration" { type = bool }
 variable "acm_certificate_arn" { type = string }
+variable "alert_email" {
+  description = "Email address to receive CloudWatch alarm notifications via SNS."
+  type        = string
+}
