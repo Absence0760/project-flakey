@@ -153,7 +153,13 @@
     else toastError("Failed to update suite");
   }
   async function deleteSuite(name: string) {
-    if (!confirm(`Delete suite "${name}" and all its runs? This cannot be undone.`)) return;
+    const ok = await openConfirm({
+      title: 'Delete suite?',
+      message: `Delete suite "${name}" and all its runs? This cannot be undone.`,
+      confirmLabel: 'Delete suite',
+      tone: 'danger',
+    });
+    if (!ok) return;
     const res = await authFetch(`${apiUrl}/suites/${encodeURIComponent(name)}`, { method: "DELETE" });
     if (res.ok) { toast("Suite deleted"); loadSuites(); }
     else toastError("Failed to delete suite");
@@ -280,6 +286,40 @@
     const res = await authFetch(`${apiUrl}/audit?limit=30`);
     if (res.ok) auditLog = await res.json();
     auditLoading = false;
+  }
+
+  // --- Confirm modal (replaces window.confirm) ---
+  interface ConfirmState {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone: 'default' | 'danger';
+    resolve: (result: boolean) => void;
+  }
+  let confirmState = $state<ConfirmState | null>(null);
+
+  function openConfirm(opts: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    tone?: 'default' | 'danger';
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      confirmState = {
+        title: opts.title,
+        message: opts.message,
+        confirmLabel: opts.confirmLabel ?? 'Confirm',
+        tone: opts.tone ?? 'default',
+        resolve,
+      };
+    });
+  }
+
+  function resolveConfirm(result: boolean) {
+    if (!confirmState) return;
+    const { resolve } = confirmState;
+    confirmState = null;
+    resolve(result);
   }
 
   // --- Helpers ---
@@ -680,6 +720,22 @@
   {/if}
 </div>
 
+{#if confirmState}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-backdrop" onclick={() => resolveConfirm(false)}>
+    <div class="modal-box" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <h2 class="modal-title">{confirmState.title}</h2>
+      <p class="modal-message">{confirmState.message}</p>
+      <div class="modal-actions">
+        <button class="btn-sm" onclick={() => resolveConfirm(false)}>Cancel</button>
+        <button class="btn-sm {confirmState.tone === 'danger' ? 'danger' : ''}" onclick={() => resolveConfirm(true)}>
+          {confirmState.confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
 
@@ -871,4 +927,17 @@
   .field-row { display: flex; gap: 1rem; font-size: 0.875rem; align-items: center; }
   .field-row label { color: var(--text-secondary); min-width: 3rem; }
   .field-row code { padding: 0.25rem 0.5rem; background: var(--bg-hover); border-radius: 4px; font-size: 0.8rem; }
+
+  /* Confirm modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1.5rem; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  }
+  .modal-title { margin: 0 0 0.5rem; font-size: 1rem; font-weight: 700; }
+  .modal-message { margin: 0 0 1.25rem; font-size: 0.875rem; color: var(--text-secondary); }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 </style>
