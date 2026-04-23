@@ -17,7 +17,7 @@
 
   interface SnapshotStep { index: number; commandName: string; commandMessage: string; }
   let snapshotSteps = $state<SnapshotStep[]>([]);
-  let expandedGroups = $state<Set<number>>(new Set());
+  let collapsedGroups = $state<Set<number>>(new Set());
 
   interface SnapshotGroup {
     headerIdx: number | null;      // snapshotSteps index of the gherkin marker, or null for synthetic pre-first-gherkin "Setup"
@@ -137,9 +137,9 @@
   }
 
   function toggleGroup(g: number) {
-    const next = new Set(expandedGroups);
+    const next = new Set(collapsedGroups);
     if (next.has(g)) next.delete(g); else next.add(g);
-    expandedGroups = next;
+    collapsedGroups = next;
   }
 
   // Left panel state
@@ -171,6 +171,7 @@
     snapshotStep = 0;
     lockedStep = null;
     hoverStep = null;
+    collapsedGroups = new Set();
     if (!preserveHistory) {
       history = [];
       historyLoaded = false;
@@ -549,7 +550,7 @@
                     </div>
                     <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each commandGroups as group, g}
-                        {@const isOpen = expandedGroups.has(g)}
+                        {@const isOpen = !collapsedGroups.has(g)}
                         {@const cmdLog = test?.command_log ?? []}
                         {@const headerCmd = group.headerIdx !== null ? cmdLog[group.headerIdx] : null}
                         {@const groupFailed = (headerCmd?.state === "failed") || group.childIdxs.some((i) => cmdLog[i]?.state === "failed")}
@@ -671,7 +672,7 @@
                     </div>
                     <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each snapshotGroups as group, g}
-                        {@const isOpen = expandedGroups.has(g)}
+                        {@const isOpen = !collapsedGroups.has(g)}
                         {#if group.headerIdx !== null}
                           <li
                             class="cmd cmd-clickable cmd-gherkin"
