@@ -64,22 +64,28 @@ router.get("/", async (req, res) => {
       LIMIT 10
     `, params);
 
-    // Manual tests: lifetime status counts + activity in the date range.
-    // `total/passed/failed/...` reflect current status for every manual
-    // test (manual tests are long-lived test cases, not dated events), so
-    // those ignore the date filter. `recent_results` and `recent_failures`
-    // are date-scoped via last_run_at.
+    // Manual tests: two separate things reported under `manual`.
+    // 1. Catalog state (total/passed/failed/blocked/skipped/not_run) —
+    //    current status of every manual test case. Not dated.
+    // 2. Execution activity (total_runs/passed_runs/failed_runs) —
+    //    counted from manual_test_runs within the selected date range.
+    //    Each ad-hoc execution appends a row there, so repeat runs count.
+    // `recent_results` and `recent_failures` are date-scoped via last_run_at.
     let manualActivityFilter = "last_run_at IS NOT NULL";
+    let manualRunsFilter = "";
     const manualParams: string[] = [];
     if (from && to) {
       manualParams.push(from, to);
       manualActivityFilter = `last_run_at >= $1::date AND last_run_at < ($2::date + INTERVAL '1 day')`;
+      manualRunsFilter = `WHERE run_at >= $1::date AND run_at < ($2::date + INTERVAL '1 day')`;
     } else if (from) {
       manualParams.push(from);
       manualActivityFilter = `last_run_at >= $1::date`;
+      manualRunsFilter = `WHERE run_at >= $1::date`;
     } else if (to) {
       manualParams.push(to);
       manualActivityFilter = `last_run_at < ($1::date + INTERVAL '1 day')`;
+      manualRunsFilter = `WHERE run_at < ($1::date + INTERVAL '1 day')`;
     }
 
     const manualSummary = await tenantQuery(orgId, `
@@ -94,7 +100,19 @@ router.get("/", async (req, res) => {
     `);
     const m = manualSummary.rows[0];
     const manualExecuted = m.passed + m.failed + m.blocked + m.skipped;
-    const manualPassRate = manualExecuted > 0 ? Math.round((m.passed / manualExecuted) * 100) : 0;
+
+    const manualRunCounts = await tenantQuery(orgId, `
+      SELECT
+        COUNT(*)::int                                   AS total_runs,
+        COUNT(*) FILTER (WHERE status = 'passed')::int  AS passed_runs,
+        COUNT(*) FILTER (WHERE status = 'failed')::int  AS failed_runs
+      FROM manual_test_runs
+      ${manualRunsFilter}
+    `, manualParams);
+    const mr = manualRunCounts.rows[0];
+    const manualPassRate = mr.total_runs > 0
+      ? Math.round((mr.passed_runs / mr.total_runs) * 100)
+      : 0;
 
     const manualRecentResults = await tenantQuery(orgId, `
       SELECT mt.id, mt.title, mt.suite_name, mt.status, mt.last_run_at,
@@ -132,6 +150,9 @@ router.get("/", async (req, res) => {
         skipped: m.skipped,
         not_run: m.not_run,
         executed: manualExecuted,
+        total_runs: mr.total_runs,
+        passed_runs: mr.passed_runs,
+        failed_runs: mr.failed_runs,
         pass_rate: manualPassRate,
         recent_results: manualRecentResults.rows,
         recent_failures: manualRecentFailures.rows,

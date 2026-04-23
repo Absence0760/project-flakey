@@ -150,6 +150,8 @@
       value: f.failure_count,
     }));
   });
+
+  let totalRuns = $derived(stats ? stats.automated.total_runs + stats.manual.total_runs : 0);
 </script>
 
 <div class="page">
@@ -162,6 +164,12 @@
   {:else if error}
     <p class="status error">{error}</p>
   {:else if stats}
+    <div class="total-runs-card" title="Automated runs + manual tests executed">
+      <span class="total-runs-value">{totalRuns}</span>
+      <span class="total-runs-label">Total runs</span>
+      <span class="total-runs-sub">{stats.automated.total_runs} automated · {stats.manual.total_runs} manual</span>
+    </div>
+
     <div class="metrics-groups">
       <div class="metrics-group">
         <h3 class="metrics-group-title">Automated runs</h3>
@@ -189,19 +197,19 @@
         <h3 class="metrics-group-title">Manual tests</h3>
         <div class="metrics">
           <div class="metric">
-            <span class="metric-value">{stats.manual.total}</span>
-            <span class="metric-label">Tests</span>
+            <span class="metric-value">{stats.manual.total_runs}</span>
+            <span class="metric-label">Runs</span>
           </div>
           <div class="metric">
-            <span class="metric-value">{stats.manual.executed}</span>
-            <span class="metric-label">Executed</span>
+            <span class="metric-value">{stats.manual.total}</span>
+            <span class="metric-label">Tests</span>
           </div>
           <div class="metric">
             <span class="metric-value pass">{stats.manual.pass_rate}%</span>
             <span class="metric-label">Pass rate</span>
           </div>
           <div class="metric">
-            <span class="metric-value fail">{stats.manual.failed}</span>
+            <span class="metric-value fail">{stats.manual.failed_runs}</span>
             <span class="metric-label">Failures</span>
           </div>
         </div>
@@ -460,6 +468,37 @@
 
   .status { color: var(--text-secondary); }
   .status.error { color: var(--color-fail); }
+
+  .total-runs-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    background: var(--bg-secondary, transparent);
+  }
+
+  .total-runs-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .total-runs-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .total-runs-sub {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+  }
 
   .metrics-groups {
     display: grid;
