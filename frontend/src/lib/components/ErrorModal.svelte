@@ -127,13 +127,34 @@
   function snapshotIdxForCommandChild(gIdx: number, childPos: number): number | null {
     const headerIdx = snapshotIdxForCommandGroup(gIdx);
     if (headerIdx === null) return null;
-    // Find the next gherkin marker (end of this group) to clamp the offset.
+    // For Gherkin groups headerIdx points AT the gherkin marker — children
+    // start one step later. For SETUP headerIdx already points at the first
+    // child (no synthetic marker exists in snapshotSteps), so don't skip it.
+    const isSetup = commandGroups[gIdx]?.headerKeyword === "SETUP";
+    const base = isSetup ? headerIdx : headerIdx + 1;
     let endIdx = snapshotSteps.length;
-    for (let i = headerIdx + 1; i < snapshotSteps.length; i++) {
+    for (let i = base; i < snapshotSteps.length; i++) {
       if (snapshotSteps[i].commandName === "gherkin") { endIdx = i; break; }
     }
-    const target = headerIdx + 1 + childPos;
+    const target = base + childPos;
     return target < endIdx ? target : Math.max(headerIdx, endIdx - 1);
+  }
+
+  // Best-effort variants that never return null, so hover/click handlers
+  // always move the snapshot viewer to *some* sensible step even when the
+  // command→snapshot text match fails.
+  function bestSnapIdxForGroup(gIdx: number): number {
+    const idx = snapshotIdxForCommandGroup(gIdx);
+    if (idx !== null) return idx;
+    for (let i = gIdx - 1; i >= 0; i--) {
+      const prev = snapshotIdxForCommandGroup(i);
+      if (prev !== null) return prev;
+    }
+    return 0;
+  }
+  function bestSnapIdxForChild(gIdx: number, childPos: number): number {
+    const idx = snapshotIdxForCommandChild(gIdx, childPos);
+    return idx !== null ? idx : bestSnapIdxForGroup(gIdx);
   }
 
   function toggleGroup(g: number) {
@@ -555,18 +576,19 @@
                         {@const headerCmd = group.headerIdx !== null ? cmdLog[group.headerIdx] : null}
                         {@const groupFailed = (headerCmd?.state === "failed") || group.childIdxs.some((i) => cmdLog[i]?.state === "failed")}
                         {@const groupSnapIdx = snapshotIdxForCommandGroup(g)}
+                        {@const groupBestIdx = bestSnapIdxForGroup(g)}
                         {#if group.headerIdx !== null}
                           <li
                             class="cmd cmd-clickable cmd-gherkin"
                             class:cmd-failed={groupFailed}
                             class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
                             class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (hasSnapshot && groupSnapIdx !== null) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onmouseenter={() => { if (hasSnapshot) { hoverStep = groupBestIdx; leftTab = "snapshot"; } }}
                             onclick={() => {
                               toggleGroup(g);
-                              if (hasSnapshot && groupSnapIdx !== null) {
-                                lockedStep = groupSnapIdx;
-                                snapshotStep = groupSnapIdx;
+                              if (hasSnapshot) {
+                                lockedStep = groupBestIdx;
+                                snapshotStep = groupBestIdx;
                                 leftTab = "snapshot";
                               }
                             }}
@@ -585,12 +607,12 @@
                             class:cmd-failed={groupFailed}
                             class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
                             class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (hasSnapshot && groupSnapIdx !== null) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onmouseenter={() => { if (hasSnapshot) { hoverStep = groupBestIdx; leftTab = "snapshot"; } }}
                             onclick={() => {
                               toggleGroup(g);
-                              if (hasSnapshot && groupSnapIdx !== null) {
-                                lockedStep = groupSnapIdx;
-                                snapshotStep = groupSnapIdx;
+                              if (hasSnapshot) {
+                                lockedStep = groupBestIdx;
+                                snapshotStep = groupBestIdx;
                                 leftTab = "snapshot";
                               }
                             }}
@@ -608,18 +630,19 @@
                           {#each group.childIdxs as i, childPos}
                             {@const cmd = cmdLog[i]}
                             {@const childSnapIdx = snapshotIdxForCommandChild(g, childPos)}
+                            {@const childBestIdx = bestSnapIdxForChild(g, childPos)}
                             {#if cmd}
                               <li
                                 class="cmd cmd-child"
                                 class:cmd-failed={cmd.state === "failed"}
                                 class:cmd-active={hasSnapshot && childSnapIdx !== null && activeSnapshotStep === childSnapIdx}
                                 class:cmd-locked={hasSnapshot && childSnapIdx !== null && lockedStep === childSnapIdx}
-                                class:cmd-clickable={hasSnapshot && childSnapIdx !== null}
-                                onmouseenter={() => { if (hasSnapshot && childSnapIdx !== null) { hoverStep = childSnapIdx; leftTab = "snapshot"; } }}
+                                class:cmd-clickable={hasSnapshot}
+                                onmouseenter={() => { if (hasSnapshot) { hoverStep = childBestIdx; leftTab = "snapshot"; } }}
                                 onclick={() => {
-                                  if (hasSnapshot && childSnapIdx !== null) {
-                                    lockedStep = lockedStep === childSnapIdx ? null : childSnapIdx;
-                                    snapshotStep = childSnapIdx;
+                                  if (hasSnapshot) {
+                                    lockedStep = lockedStep === childBestIdx ? null : childBestIdx;
+                                    snapshotStep = childBestIdx;
                                     leftTab = "snapshot";
                                   }
                                 }}
