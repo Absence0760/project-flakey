@@ -80,11 +80,15 @@ function findFiles(dir: string, ext: string): string[] {
   function walk(d: string) {
     for (const entry of readdirSync(d)) {
       const full = join(d, entry);
-      const stat = statSync(full);
-      if (stat.isDirectory()) {
-        walk(full);
-      } else if (entry.endsWith(ext)) {
-        results.push(full);
+      try {
+        const stat = statSync(full);
+        if (stat.isDirectory()) {
+          walk(full);
+        } else if (entry.endsWith(ext)) {
+          results.push(full);
+        }
+      } catch {
+        // Skip inaccessible entries (broken symlinks, permission errors)
       }
     }
   }
@@ -369,29 +373,24 @@ async function uploadUiCoverage(args: string[]): Promise<void> {
   await postJSON("/ui-coverage/visits", { suite_name: suite, run_id: runId, visits }, apiKey);
 }
 
-const argv = process.argv.slice(2);
-const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
-const rest = sub ? argv.slice(1) : argv;
+(async () => {
+  const argv = process.argv.slice(2);
+  const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
+  const rest = sub ? argv.slice(1) : argv;
 
-switch (sub) {
-  case "coverage":
-    uploadCoverage(rest);
-    break;
-  case "a11y":
-    uploadA11y(rest);
-    break;
-  case "visual":
-    uploadVisual(rest);
-    break;
-  case "ui-coverage":
-    uploadUiCoverage(rest);
-    break;
-  case "upload":
-  case null:
-    upload(parseArgs());
-    break;
-  default:
-    console.error(`Unknown subcommand: ${sub}`);
-    console.error("Available: upload, coverage, a11y, visual, ui-coverage");
-    process.exit(1);
-}
+  switch (sub) {
+    case "coverage":   await uploadCoverage(rest);   break;
+    case "a11y":       await uploadA11y(rest);       break;
+    case "visual":     await uploadVisual(rest);     break;
+    case "ui-coverage": await uploadUiCoverage(rest); break;
+    case "upload":
+    case null:         await upload(parseArgs());    break;
+    default:
+      console.error(`Unknown subcommand: ${sub}`);
+      console.error("Available: upload, coverage, a11y, visual, ui-coverage");
+      process.exit(1);
+  }
+})().catch((err) => {
+  console.error(`flakey-upload: unexpected error — ${err?.message ?? err}`);
+  process.exit(1);
+});
