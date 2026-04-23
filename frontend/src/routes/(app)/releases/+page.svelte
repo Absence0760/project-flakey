@@ -22,6 +22,7 @@
 	let releases = $state<ReleaseSummary[]>([]);
 	let loading = $state(true);
 	let showCreate = $state(false);
+	let error = $state<string | null>(null);
 
 	let newVersion = $state('');
 	let newName = $state('');
@@ -32,7 +33,13 @@
 
 	async function load() {
 		loading = true;
+		error = null;
 		const res = await authFetch(`${API_URL}/releases`);
+		if (!res.ok) {
+			error = `Failed to load releases (${res.status})`;
+			loading = false;
+			return;
+		}
 		releases = await res.json();
 		loading = false;
 	}
@@ -78,6 +85,10 @@
 				<button class="btn-ghost" onclick={() => (showCreate = false)}>Cancel</button>
 			</div>
 		</section>
+	{/if}
+
+	{#if error}
+		<p class="load-error">{error}</p>
 	{/if}
 
 	{#if loading}
@@ -146,4 +157,5 @@
 	.signed { font-size: 0.75rem; color: #166534; }
 	.target { font-size: 0.75rem; color: var(--text-muted); }
 	.empty { padding: 2rem; text-align: center; color: var(--text-muted); }
+	.load-error { padding: 0.65rem; background: var(--error-bg, #fee2e2); border: 1px solid var(--error-border, #fca5a5); border-radius: 6px; color: var(--error-text, #991b1b); font-size: 0.85rem; margin-bottom: 1rem; }
 </style>
