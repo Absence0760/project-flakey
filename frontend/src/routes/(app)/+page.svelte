@@ -5,6 +5,10 @@
   import { authFetch } from "$lib/auth";
   import { API_URL } from "$lib/config";
 
+  function focusOnMount(node: HTMLElement) {
+    node.focus();
+  }
+
   let allRuns = $state<Run[]>([]);
   let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });
   let hasMore = $state(false);
@@ -330,7 +334,7 @@
       {/each}
       {#if showSaveInput}
         <form class="save-form" onsubmit={(e) => { e.preventDefault(); saveCurrentView(); }}>
-          <input type="text" bind:value={saveViewName} placeholder="View name..." autofocus />
+          <input type="text" bind:value={saveViewName} placeholder="View name..." use:focusOnMount />
           <button type="submit" class="save-btn">Save</button>
         </form>
       {/if}

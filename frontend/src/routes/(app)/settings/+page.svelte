@@ -543,10 +543,10 @@
             </div>
             {#if editingTemplateId === s.suite_name}
               <div class="rerun-template-edit">
-                <label class="template-label">Rerun command template</label>
+                <label class="template-label" for="rerun-template-input">Rerun command template</label>
                 <p class="template-hint">Placeholders: <code>{"{spec}"}</code> (file path), <code>{"{specs}"}</code> (all failed specs, comma-separated), <code>{"{title}"}</code> (test name), <code>{"{suite}"}</code> (suite name)</p>
                 <form class="template-form" onsubmit={(e) => { e.preventDefault(); saveRerunTemplate(s.suite_name); }}>
-                  <input type="text" class="template-input" bind:value={templateValue} placeholder="npx cypress run --spec '{"{spec}"}' --env &quot;env=test&quot;" />
+                  <input id="rerun-template-input" type="text" class="template-input" bind:value={templateValue} placeholder="npx cypress run --spec '{"{spec}"}' --env &quot;env=test&quot;" />
                   <button type="submit" class="btn-sm">Save</button>
                   <button type="button" class="btn-sm" onclick={() => editingTemplateId = null}>Cancel</button>
                 </form>
@@ -688,7 +688,7 @@
   <section class="card">
     <h3>API Endpoint</h3>
     <div class="field-row">
-      <label>URL</label>
+      <span class="field-label">URL</span>
       <code>{apiUrl}</code>
     </div>
   </section>
@@ -721,9 +721,14 @@
 </div>
 
 {#if confirmState}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={() => resolveConfirm(false)}>
-    <div class="modal-box" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+  <div class="modal-overlay">
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Dismiss confirmation"
+      onclick={() => resolveConfirm(false)}
+    ></button>
+    <div class="modal-box" role="dialog" aria-modal="true" tabindex="-1">
       <h2 class="modal-title">{confirmState.title}</h2>
       <p class="modal-message">{confirmState.message}</p>
       <div class="modal-actions">
@@ -925,15 +930,20 @@
 
   /* API */
   .field-row { display: flex; gap: 1rem; font-size: 0.875rem; align-items: center; }
-  .field-row label { color: var(--text-secondary); min-width: 3rem; }
+  .field-row .field-label { color: var(--text-secondary); min-width: 3rem; }
   .field-row code { padding: 0.25rem 0.5rem; background: var(--bg-hover); border-radius: 4px; font-size: 0.8rem; }
 
   /* Confirm modal */
-  .modal-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000;
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
     display: flex; align-items: center; justify-content: center;
   }
+  .modal-backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+    border: none; padding: 0; cursor: pointer;
+  }
   .modal-box {
+    position: relative;
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
     padding: 1.5rem; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
   }

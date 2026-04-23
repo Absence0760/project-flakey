@@ -4,6 +4,9 @@
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/auth';
 	import Toasts from '$lib/components/Toasts.svelte';
+	import type { Snippet } from 'svelte';
+
+	let { children }: { children?: Snippet } = $props();
 
 	const nav = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '◇' },
@@ -230,7 +233,7 @@
 			</div>
 		</aside>
 		<main>
-			<slot />
+			{@render children?.()}
 		</main>
 	</div>
 	<Toasts />

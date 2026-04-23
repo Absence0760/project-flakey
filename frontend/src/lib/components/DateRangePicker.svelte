@@ -157,7 +157,7 @@
   </button>
 
   {#if open}
-    <div class="backdrop" onclick={handleBackdropClick}></div>
+    <button type="button" class="backdrop" aria-label="Close date range picker" onclick={handleBackdropClick}></button>
     <div class="dropdown">
       <div class="presets">
         {#each presets as preset}
@@ -172,11 +172,11 @@
 
       <div class="calendar">
         <div class="cal-header">
-          <button class="cal-nav" onclick={prevMonth}>
+          <button class="cal-nav" aria-label="Previous month" onclick={prevMonth}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7.5 2.5L4 6l3.5 3.5"/></svg>
           </button>
           <span class="cal-title">{MONTHS[viewMonth]} {viewYear}</span>
-          <button class="cal-nav" onclick={nextMonth}>
+          <button class="cal-nav" aria-label="Next month" onclick={nextMonth}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>
           </button>
         </div>
@@ -271,6 +271,10 @@
     position: fixed;
     inset: 0;
     z-index: 49;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: default;
   }
 
   .dropdown {
