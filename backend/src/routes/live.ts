@@ -353,15 +353,17 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     await getStorage().put(file.path, key);
 
     // If a test row already exists for this run + title, link the snapshot.
-    // Match full_title OR trailing substring (older clients send leaf title only).
-    // If no row exists yet, the final /runs/upload fallback handles it.
+    // Match full_title exactly OR as a trailing substring (older clients send
+    // leaf title only). Escape LIKE special chars in the parameter so a title
+    // containing '%' or '_' doesn't match unintended rows.
+    const escapedTitle = testTitle.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
     await tenantQuery(orgId,
       `UPDATE tests SET snapshot_path = $3
        FROM specs
        WHERE specs.id = tests.spec_id
          AND specs.run_id = $1
-         AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $2)`,
-      [runId, testTitle, key]
+         AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $4 ESCAPE '\\')`,
+      [runId, testTitle, key, escapedTitle]
     );
 
     res.status(200).json({ key });
