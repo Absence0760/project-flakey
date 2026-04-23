@@ -61,14 +61,81 @@ router.get("/", async (req, res) => {
       WHERE t.status = 'failed' AND t.error_message IS NOT NULL
       ${dateFilterJoin}
       ORDER BY r.created_at DESC, t.id DESC
-      LIMIT 20
+      LIMIT 10
     `, params);
 
+    // Manual tests: lifetime status counts + activity in the date range.
+    // `total/passed/failed/...` reflect current status for every manual
+    // test (manual tests are long-lived test cases, not dated events), so
+    // those ignore the date filter. `recent_results` and `recent_failures`
+    // are date-scoped via last_run_at.
+    let manualActivityFilter = "last_run_at IS NOT NULL";
+    const manualParams: string[] = [];
+    if (from && to) {
+      manualParams.push(from, to);
+      manualActivityFilter = `last_run_at >= $1::date AND last_run_at < ($2::date + INTERVAL '1 day')`;
+    } else if (from) {
+      manualParams.push(from);
+      manualActivityFilter = `last_run_at >= $1::date`;
+    } else if (to) {
+      manualParams.push(to);
+      manualActivityFilter = `last_run_at < ($1::date + INTERVAL '1 day')`;
+    }
+
+    const manualSummary = await tenantQuery(orgId, `
+      SELECT
+        COUNT(*)::int                                            AS total,
+        COUNT(*) FILTER (WHERE status = 'passed')::int           AS passed,
+        COUNT(*) FILTER (WHERE status = 'failed')::int           AS failed,
+        COUNT(*) FILTER (WHERE status = 'blocked')::int          AS blocked,
+        COUNT(*) FILTER (WHERE status = 'skipped')::int          AS skipped,
+        COUNT(*) FILTER (WHERE status = 'not_run')::int          AS not_run
+      FROM manual_tests
+    `);
+    const m = manualSummary.rows[0];
+    const manualExecuted = m.passed + m.failed + m.blocked + m.skipped;
+    const manualPassRate = manualExecuted > 0 ? Math.round((m.passed / manualExecuted) * 100) : 0;
+
+    const manualRecentResults = await tenantQuery(orgId, `
+      SELECT mt.id, mt.title, mt.suite_name, mt.status, mt.last_run_at,
+             u.email AS last_run_by_email
+        FROM manual_tests mt
+        LEFT JOIN users u ON u.id = mt.last_run_by
+       WHERE ${manualActivityFilter}
+       ORDER BY mt.last_run_at DESC
+       LIMIT 10
+    `, manualParams);
+
+    const manualRecentFailures = await tenantQuery(orgId, `
+      SELECT id, title, suite_name, last_run_at, last_run_notes
+        FROM manual_tests
+       WHERE status = 'failed' AND ${manualActivityFilter}
+       ORDER BY last_run_at DESC
+       LIMIT 10
+    `, manualParams);
+
     res.json({
-      ...stats,
-      pass_rate: passRate,
-      recent_runs: recentRuns.rows,
-      recent_failures: recentFailures.rows,
+      automated: {
+        total_runs: stats.total_runs,
+        total_tests: stats.total_tests,
+        total_passed: stats.total_passed,
+        total_failed: stats.total_failed,
+        pass_rate: passRate,
+        recent_runs: recentRuns.rows,
+        recent_failures: recentFailures.rows,
+      },
+      manual: {
+        total: m.total,
+        passed: m.passed,
+        failed: m.failed,
+        blocked: m.blocked,
+        skipped: m.skipped,
+        not_run: m.not_run,
+        executed: manualExecuted,
+        pass_rate: manualPassRate,
+        recent_results: manualRecentResults.rows,
+        recent_failures: manualRecentFailures.rows,
+      },
     });
   } catch (err) {
     console.error("GET /stats error:", err);

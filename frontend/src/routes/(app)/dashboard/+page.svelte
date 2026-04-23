@@ -162,22 +162,49 @@
   {:else if error}
     <p class="status error">{error}</p>
   {:else if stats}
-    <div class="metrics">
-      <div class="metric">
-        <span class="metric-value">{stats.total_runs}</span>
-        <span class="metric-label">Total Runs</span>
+    <div class="metrics-groups">
+      <div class="metrics-group">
+        <h3 class="metrics-group-title">Automated runs</h3>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-value">{stats.automated.total_runs}</span>
+            <span class="metric-label">Runs</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">{stats.automated.total_tests}</span>
+            <span class="metric-label">Tests</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value pass">{stats.automated.pass_rate}%</span>
+            <span class="metric-label">Pass rate</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value fail">{stats.automated.total_failed}</span>
+            <span class="metric-label">Failures</span>
+          </div>
+        </div>
       </div>
-      <div class="metric">
-        <span class="metric-value">{stats.total_tests}</span>
-        <span class="metric-label">Total Tests</span>
-      </div>
-      <div class="metric">
-        <span class="metric-value pass">{stats.pass_rate}%</span>
-        <span class="metric-label">Pass Rate</span>
-      </div>
-      <div class="metric">
-        <span class="metric-value fail">{stats.total_failed}</span>
-        <span class="metric-label">Total Failures</span>
+
+      <div class="metrics-group">
+        <h3 class="metrics-group-title">Manual tests</h3>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-value">{stats.manual.total}</span>
+            <span class="metric-label">Tests</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">{stats.manual.executed}</span>
+            <span class="metric-label">Executed</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value pass">{stats.manual.pass_rate}%</span>
+            <span class="metric-label">Pass rate</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value fail">{stats.manual.failed}</span>
+            <span class="metric-label">Failures</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -335,12 +362,12 @@
 
     <div class="panels">
       <section class="panel">
-        <h2>Recent Runs</h2>
-        {#if stats.recent_runs.length === 0}
+        <h2>Recent automated runs</h2>
+        {#if stats.automated.recent_runs.length === 0}
           <p class="empty">No runs yet.</p>
         {:else}
           <ul class="run-list">
-            {#each stats.recent_runs as run}
+            {#each stats.automated.recent_runs as run}
               <li>
                 <a href="/runs/{run.id}">
                   <span class="run-id">#{run.id}</span>
@@ -360,17 +387,53 @@
       </section>
 
       <section class="panel">
-        <h2>Recent Failures</h2>
-        {#if stats.recent_failures.length === 0}
+        <h2>Recent manual results</h2>
+        {#if stats.manual.recent_results.length === 0}
+          <p class="empty">No manual test activity in this range.</p>
+        {:else}
+          <ul class="run-list">
+            {#each stats.manual.recent_results as r}
+              <li>
+                <a href="/manual-tests">
+                  <span class="run-suite">{r.title}</span>
+                  <span class="run-badge status-{r.status}">{r.status.replace('_', ' ')}</span>
+                  {#if r.last_run_at}
+                    <span class="run-time">{timeAgo(r.last_run_at)}</span>
+                  {/if}
+                </a>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+
+      <section class="panel">
+        <h2>Recent failures</h2>
+        {#if stats.automated.recent_failures.length === 0 && stats.manual.recent_failures.length === 0}
           <p class="empty">No failures. Nice!</p>
         {:else}
           <ul class="failure-list">
-            {#each stats.recent_failures as failure}
+            {#each stats.automated.recent_failures as failure}
               <li>
                 <a href="/runs/{failure.run_id}">
+                  <span class="failure-type auto">auto</span>
                   <span class="failure-test">{failure.test_title}</span>
                   <span class="failure-error">{failure.error_message}</span>
                   <span class="failure-spec">{failure.file_path}</span>
+                </a>
+              </li>
+            {/each}
+            {#each stats.manual.recent_failures as mf}
+              <li>
+                <a href="/manual-tests">
+                  <span class="failure-type manual">manual</span>
+                  <span class="failure-test">{mf.title}</span>
+                  {#if mf.last_run_notes}
+                    <span class="failure-error">{mf.last_run_notes}</span>
+                  {/if}
+                  {#if mf.suite_name}
+                    <span class="failure-spec">{mf.suite_name}</span>
+                  {/if}
                 </a>
               </li>
             {/each}
@@ -398,11 +461,30 @@
   .status { color: var(--text-secondary); }
   .status.error { color: var(--color-fail); }
 
+  .metrics-groups {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .metrics-groups { grid-template-columns: 1fr; }
+  }
+
+  .metrics-group-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
   .metrics {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
-    margin-bottom: 2rem;
+    gap: 0.75rem;
   }
 
   .metric {
@@ -580,8 +662,16 @@
 
   .panels {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 1rem;
+  }
+
+  @media (max-width: 1200px) {
+    .panels { grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (max-width: 700px) {
+    .panels { grid-template-columns: 1fr; }
   }
 
   .panel {
@@ -649,16 +739,62 @@
     color: var(--color-fail);
   }
 
-  .run-badge.aborted {
+  .run-badge {
     font-size: 0.62rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
+    margin-right: 0.4rem;
+    text-transform: uppercase;
+  }
+
+  .run-badge.aborted,
+  .run-badge.status-failed {
     background: color-mix(in srgb, var(--color-fail) 15%, transparent);
     color: var(--color-fail);
     border: 1px solid color-mix(in srgb, var(--color-fail) 35%, transparent);
+  }
+
+  .run-badge.status-passed {
+    background: color-mix(in srgb, var(--color-pass) 15%, transparent);
+    color: var(--color-pass);
+    border: 1px solid color-mix(in srgb, var(--color-pass) 35%, transparent);
+  }
+
+  .run-badge.status-blocked,
+  .run-badge.status-skipped {
+    background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+    color: var(--text-muted);
+    border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  }
+
+  .run-badge.status-not_run {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+
+  .failure-type {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    text-transform: uppercase;
     margin-right: 0.4rem;
+    vertical-align: middle;
+  }
+
+  .failure-type.auto {
+    background: color-mix(in srgb, var(--link) 15%, transparent);
+    color: var(--link);
+  }
+
+  .failure-type.manual {
+    background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+    color: var(--text-secondary);
   }
 
   .run-time {
