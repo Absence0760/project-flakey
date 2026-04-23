@@ -103,6 +103,8 @@
     eventSource.onerror = () => {
       isLive = false;
       stopLivePoll();
+      eventSource?.close();
+      eventSource = null;
     };
   }
 
