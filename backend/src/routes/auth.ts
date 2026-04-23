@@ -7,8 +7,8 @@ import { tenantQuery } from "../db.js";
 import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 
-// Fix 6: Controlled registration — only allow when ALLOW_REGISTRATION=true or via invite
-const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION !== "false";
+// Secure default: registration is disabled unless ALLOW_REGISTRATION=true is explicitly set.
+const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION === "true";
 const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === "true";
 
 const router = Router();

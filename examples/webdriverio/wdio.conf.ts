@@ -18,6 +18,11 @@ const specPatterns: Record<string, string[]> = {
   smoke: ["./tests/smoke/**/*.spec.ts"],
   sanity: ["./tests/sanity/**/*.spec.ts"],
   regression: ["./tests/regression/**/*.spec.ts"],
+  a11y: ["./tests/a11y/**/*.e2e.ts"],
+  visual: ["./tests/visual/**/*.e2e.ts"],
+  // Flaky tests are intentionally kept in their own SUITE so they are never
+  // accidentally included in smoke/sanity/regression runs.
+  flaky: ["./tests/flaky/**/*.e2e.ts"],
 };
 
 export const config = {
@@ -47,6 +52,7 @@ export const config = {
       url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `webdriverio-example-${suite}`,
+      release: process.env.FLAKEY_RELEASE ?? "",
     }],
   ],
   // Screenshot on failure

@@ -124,38 +124,38 @@
         <p class="error-msg">{error}</p>
       {:else}
         <div class="select-form">
-          <div class="select-col suite-col">
-            <label>Suite</label>
+          <label class="select-col suite-col">
+            <span class="select-label">Suite</span>
             <select bind:value={selectedSuite} onchange={() => { selectedA = ""; selectedB = ""; }}>
               <option value="">Select a suite...</option>
               {#each suites as suite}
                 <option value={suite}>{suite}</option>
               {/each}
             </select>
-          </div>
+          </label>
         </div>
 
         {#if selectedSuite}
           <div class="select-form">
-            <div class="select-col">
-              <label>Base run (A)</label>
+            <label class="select-col">
+              <span class="select-label">Base run (A)</span>
               <select bind:value={selectedA}>
                 <option value="">Select a run...</option>
                 {#each suiteRuns as run}
                   <option value={String(run.id)}>#{run.id} — {run.branch || "—"} · {run.passed}/{run.total} passed · {timeAgo(run.created_at)}</option>
                 {/each}
               </select>
-            </div>
+            </label>
             <div class="select-arrow">vs</div>
-            <div class="select-col">
-              <label>Compare run (B)</label>
+            <label class="select-col">
+              <span class="select-label">Compare run (B)</span>
               <select bind:value={selectedB}>
                 <option value="">Select a run...</option>
                 {#each suiteRuns.filter(r => String(r.id) !== selectedA) as run}
                   <option value={String(run.id)}>#{run.id} — {run.branch || "—"} · {run.passed}/{run.total} passed · {timeAgo(run.created_at)}</option>
                 {/each}
               </select>
-            </div>
+            </label>
           </div>
         {/if}
 
@@ -282,7 +282,7 @@
 
   .select-col { display: flex; flex-direction: column; gap: 0.35rem; flex: 1; min-width: 200px; }
   .suite-col { flex: none; min-width: 250px; }
-  .select-col label { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
+  .select-col .select-label { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
   .select-col select {
     padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.82rem;

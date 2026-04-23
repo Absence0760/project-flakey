@@ -15,6 +15,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
 jobs:
   check-tag:
     runs-on: ubuntu-latest
@@ -22,9 +26,10 @@ jobs:
       should_deploy: ${{ steps.check.outputs.should_deploy }}
     steps:
       - id: check
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          MANUAL: ${{ github.event_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          MANUAL="${{ github.event_name }}"
           if [[ "$TAG" == app@* ]] || [[ "$MANUAL" == "workflow_dispatch" ]]; then
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           fi
@@ -71,7 +76,7 @@ jobs:
             --region $AWS_REGION
 
   deploy-frontend:
-    needs: [check-tag]
+    needs: [check-tag, deploy-backend]
     if: needs.check-tag.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -109,6 +114,7 @@ jobs:
 
           aws s3 sync frontend/build s3://${{ secrets.FRONTEND_BUCKET }} \
             --cache-control "public, max-age=0, must-revalidate" \
+            --exclude "*" \
             --include "*.html" \
             --include "*.json"
 

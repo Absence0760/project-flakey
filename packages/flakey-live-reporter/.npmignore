@@ -1,0 +1,3 @@
+# Exclude backup files from the published tarball
+dist/*.bak
+*.bak

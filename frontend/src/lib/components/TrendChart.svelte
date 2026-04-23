@@ -112,6 +112,8 @@
     <svg
       width={containerWidth}
       {height}
+      role="img"
+      aria-label="Trend chart"
       onmousemove={handleMouseMove}
       onmouseleave={() => hoverIndex = null}
     >

@@ -21,9 +21,12 @@ docker compose up -d
 ### 2. Install dependencies
 
 ```bash
+pnpm install
+```
+
+```bash
 cd backend && npm install
 cd ../frontend && pnpm install
-cd ../packages/flakey-cli && npm install
 ```
 
 ### 3. Seed sample data
@@ -37,7 +40,7 @@ Creates two users, two orgs, and 56 sample test runs (Mochawesome, Playwright, J
 ### 4. Start the app
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 - **Frontend:** http://localhost:7777
@@ -207,7 +210,7 @@ curl -X POST http://localhost:3000/runs \
   -d "{\"meta\":{\"suite_name\":\"my-project\",\"branch\":\"main\",\"commit_sha\":\"\",\"ci_run_id\":\"\",\"started_at\":\"\",\"finished_at\":\"\",\"reporter\":\"mochawesome\"},\"raw\":$(cat cypress/reports/mochawesome.json)}"
 ```
 
-Create an API key from the Profile page for permanent access (no expiry).
+Create an API key from the Settings page for permanent access (no expiry).
 
 ## Features
 
@@ -361,8 +364,8 @@ terraform init && terraform apply
 See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (~$72/month).
 
 **CI/CD pipelines** (GitHub Actions):
-- `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on push to `main`
-- `publish.yml` — publishes `@flakeytesting/cli`, `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`, and `@flakeytesting/cypress-snapshots` to npm when their source changes
+- `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on GitHub release publish (tag `app@*`) or manual dispatch
+- `publish.yml` — publishes packages to npm on a matching release tag (e.g. `core@1.2.3`, `all@1.0.0`) or manual dispatch; see workflow for full tag format (`@flakeytesting/core`, `cli`, `cypress-reporter`, `cypress-snapshots`, `live-reporter`, `mcp-server`, `playwright-reporter`, `playwright-snapshots`, `webdriverio-reporter`)
 
 ## npm Packages
 
@@ -372,6 +375,8 @@ See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (
 | `@flakeytesting/cli` | CLI for uploading test results | `npm install @flakeytesting/cli` |
 | `@flakeytesting/cypress-reporter` | Cypress reporter + plugin + support | `npm install @flakeytesting/cypress-reporter` |
 | `@flakeytesting/cypress-snapshots` | Cypress DOM snapshot plugin | `npm install @flakeytesting/cypress-snapshots` |
+| `@flakeytesting/live-reporter` | Live test-event streaming during a run | `npm install @flakeytesting/live-reporter` |
+| `@flakeytesting/mcp-server` | MCP server for AI agent test queries | `npm install @flakeytesting/mcp-server` |
 | `@flakeytesting/playwright-reporter` | Playwright reporter | `npm install @flakeytesting/playwright-reporter` |
 | `@flakeytesting/playwright-snapshots` | Playwright trace parser for snapshots | `npm install @flakeytesting/playwright-snapshots` |
 | `@flakeytesting/webdriverio-reporter` | WebdriverIO reporter | `npm install @flakeytesting/webdriverio-reporter` |

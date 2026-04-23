@@ -3,8 +3,11 @@
   import { page } from "$app/stores";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { authFetch } from "$lib/auth";
+  import { API_URL } from "$lib/config";
 
-  const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  function focusOnMount(node: HTMLElement) {
+    node.focus();
+  }
 
   let allRuns = $state<Run[]>([]);
   let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });
@@ -331,7 +334,7 @@
       {/each}
       {#if showSaveInput}
         <form class="save-form" onsubmit={(e) => { e.preventDefault(); saveCurrentView(); }}>
-          <input type="text" bind:value={saveViewName} placeholder="View name..." autofocus />
+          <input type="text" bind:value={saveViewName} placeholder="View name..." use:focusOnMount />
           <button type="submit" class="save-btn">Save</button>
         </form>
       {/if}

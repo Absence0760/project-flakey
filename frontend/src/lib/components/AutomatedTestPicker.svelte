@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { API_URL } from '$lib/config';
 
 	interface Props {
 		value: string;
@@ -7,8 +8,6 @@
 	}
 
 	let { value = $bindable(''), placeholder = 'Search by title or file path…' }: Props = $props();
-
-	const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 	interface TestResult {
 		file_path: string;

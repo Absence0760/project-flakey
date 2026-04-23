@@ -1,6 +1,5 @@
 import { authFetch } from "./auth";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+import { API_URL } from "./config.js";
 
 export interface RunsSummary {
   total: number;
@@ -411,13 +410,30 @@ export async function fetchSlowestTests(suite?: string): Promise<SlowestTest[]> 
 }
 
 export interface DashboardStats {
-  total_runs: number;
-  total_tests: number;
-  total_passed: number;
-  total_failed: number;
-  pass_rate: number;
-  recent_runs: Run[];
-  recent_failures: { test_title: string; error_message: string; run_id: number; file_path: string }[];
+  automated: {
+    total_runs: number;
+    total_tests: number;
+    total_passed: number;
+    total_failed: number;
+    pass_rate: number;
+    recent_runs: Run[];
+    recent_failures: { test_title: string; error_message: string; run_id: number; file_path: string }[];
+  };
+  manual: {
+    total: number;
+    passed: number;
+    failed: number;
+    blocked: number;
+    skipped: number;
+    not_run: number;
+    executed: number;
+    total_runs: number;
+    passed_runs: number;
+    failed_runs: number;
+    pass_rate: number;
+    recent_results: { id: number; title: string; suite_name: string | null; status: string; last_run_at: string | null; last_run_by_email: string | null }[];
+    recent_failures: { id: number; title: string; suite_name: string | null; last_run_at: string | null; last_run_notes: string | null }[];
+  };
 }
 
 // --- Saved Views ---

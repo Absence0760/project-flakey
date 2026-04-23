@@ -7,6 +7,7 @@ export interface NormalizedRun {
     started_at: string;
     finished_at: string;
     reporter: string;
+    release?: string;
   };
   stats: {
     total: number;

@@ -26,6 +26,7 @@ export default defineConfig({
     baseUrl: "http://localhost:4444",
     supportFile: "cypress/support/e2e.ts",
     specPattern: "cypress/e2e/**/*.feature",
+    video: true,
     async setupNodeEvents(on, config) {
       await addCucumberPreprocessorPlugin(on, config);
 

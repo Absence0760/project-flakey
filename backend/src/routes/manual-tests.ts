@@ -457,6 +457,20 @@ router.post("/:id/result", async (req, res) => {
         req.params.id,
       ]
     );
+    await tenantQuery(
+      req.user!.orgId,
+      `INSERT INTO manual_test_runs
+         (org_id, manual_test_id, status, notes, step_results, run_by)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+      [
+        req.user!.orgId,
+        req.params.id,
+        finalStatus,
+        notes ?? null,
+        JSON.stringify(normalizedSteps),
+        req.user!.id,
+      ]
+    );
     await logAudit(
       req.user!.orgId,
       req.user!.id,

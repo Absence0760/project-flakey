@@ -1,8 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-
-  const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+  import { API_URL } from '$lib/config';
 
   let password = $state('');
   let confirmPassword = $state('');

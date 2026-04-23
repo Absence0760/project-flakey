@@ -6,14 +6,12 @@ Product is branded as **"Better Testing"** in the UI (rebrand from "Flakey"). np
 
 ## Layout
 
-- `backend/` — Express + Node + TypeScript API (Postgres with Row-Level Security)
-- `frontend/` — SvelteKit (Svelte 5) dashboard
-- `packages/` — publishable npm packages under `@flakeytesting/` scope
-- `examples/` — integration examples (Cypress, Playwright, Selenium, WebdriverIO, Postman, ZAP)
-- `docs/` — user-facing docs
-- `infra/` — Terraform (AWS ECS Fargate + RDS + S3/CloudFront)
+- `backend/` — Express/Node/TS; uses **npm** (not pnpm)
+- `frontend/` — SvelteKit (Svelte 5); uses pnpm workspace
+- `packages/` — `@flakeytesting/*` npm packages
+- `infra/` — Terraform: AWS ECS Fargate + RDS + S3/CloudFront
 
-Each of `backend/`, `frontend/`, and the main publishable packages has its own `CLAUDE.md` with package-local conventions — read the nearest one before editing.
+Each subdirectory has its own CLAUDE.md — read it before editing.
 
 ## Root commands
 
@@ -34,4 +32,4 @@ Each of `backend/`, `frontend/`, and the main publishable packages has its own `
 
 ## Publish flow
 
-`.github/workflows/publish.yml` publishes packages to npm when their sources change on `main`. Version bumps are committed explicitly (e.g. `chore(cypress-snapshots): bump version to 0.5.0`).
+`publish.yml` publishes packages to npm when a GitHub release is published with a matching tag (`<package>@<version>`, e.g. `core@1.2.3`; use `all@<version>` for all packages). To publish: bump the version in the package's `package.json`, merge to `main`, then create a GitHub release with the matching tag.

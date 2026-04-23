@@ -17,6 +17,20 @@ One subpath per supported framework:
 
 When adding a framework, follow the existing shape: emit normalized events through the shared transport in `dist/index.js`, don't re-implement the transport per adapter.
 
+## Env vars (inputs)
+
+All three adapters (mocha, playwright, webdriverio) read these from `process.env` as fallbacks when the matching `config.*` field is absent:
+
+| Var | Adapters | Notes |
+|-----|----------|-------|
+| `FLAKEY_API_URL` | all | Base URL; overridden by `config.url` |
+| `FLAKEY_API_KEY` | all | Auth token; overridden by `config.apiKey` |
+| `FLAKEY_SUITE` | all | Suite name fallback; overridden by `config.suite` |
+| `FLAKEY_LIVE_RUN_ID` | all | Pre-set run id; skips `/live/start` call when set |
+| `BRANCH` / `GITHUB_HEAD_REF` / `GITHUB_REF_NAME` | all | Branch fallback chain |
+| `COMMIT_SHA` / `GITHUB_SHA` | all | Commit SHA fallback chain |
+| `CI_RUN_ID` / `GITHUB_RUN_ID` | all | CI run id fallback; `mocha.ts` also writes this after `/live/start` |
+
 ## Consumer wiring
 
 Loaded as an optional peer by `@flakeytesting/cypress-reporter`. Standalone users import the subpath matching their framework directly.

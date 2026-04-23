@@ -1,0 +1,113 @@
+# Better Testing — GitHub Actions workflow template
+#
+# Copy this file to .github/workflows/test.yml in your own repo and adjust:
+#   - The test command (cypress, playwright, jest, etc.)
+#   - The suite name (used to group runs in the Better Testing dashboard)
+#   - The FLAKEY_API_URL if your backend is not on localhost
+#
+# Required GitHub secrets (Settings > Secrets and variables > Actions):
+#   FLAKEY_API_KEY      — Better Testing API key (Profile > API Keys)
+#   FLAKEY_API_URL      — Better Testing backend URL (e.g. https://bt.yourcompany.com)
+#   GITHUB_TOKEN        — Already provided by GitHub; used for PR status and comments.
+#                         The backend's GitHub integration uses its own stored token
+#                         (configured in Better Testing Settings > Integrations), not
+#                         this one. GITHUB_TOKEN here is only needed if you call the
+#                         GitHub API directly in this workflow.
+#
+# How PR integration works:
+#   After flakey-upload completes, the Better Testing backend:
+#     1. Looks up an open PR for the current commit SHA or branch name via
+#        GET /repos/{owner}/{repo}/commits/{sha}/pulls (GitHub API).
+#     2. Posts or updates a PR comment (via POST/PATCH /repos/{owner}/{repo}/issues/{pr}/comments)
+#        summarising pass rate, flaky tests, and a link to the full run.
+#     3. Posts a commit status (POST /repos/{owner}/{repo}/statuses/{sha}) with
+#        state=success/failure and a link to the run.
+#   This is all automatic once the GitHub integration is configured in
+#   Better Testing Settings > Integrations > GitHub.
+
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+env:
+  FLAKEY_API_URL: ${{ secrets.FLAKEY_API_URL }}
+  FLAKEY_API_KEY: ${{ secrets.FLAKEY_API_KEY }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # ── Option A: Cypress (uses @flakeytesting/cypress-reporter directly) ──────
+      - name: Run Cypress smoke suite
+        run: pnpm test:smoke
+        working-directory: examples/cypress
+        env:
+          # The Cypress reporter reads these from env
+          FLAKEY_API_URL: ${{ env.FLAKEY_API_URL }}
+          FLAKEY_API_KEY: ${{ env.FLAKEY_API_KEY }}
+          # Pass CI metadata so the run is linked to this workflow
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+
+      # ── Option B: Playwright (uses @flakeytesting/playwright-reporter directly) ─
+      # - name: Run Playwright smoke suite
+      #   run: pnpm test:smoke
+      #   working-directory: examples/playwright
+      #   env:
+      #     FLAKEY_API_URL: ${{ env.FLAKEY_API_URL }}
+      #     FLAKEY_API_KEY: ${{ env.FLAKEY_API_KEY }}
+      #     BRANCH: ${{ github.head_ref || github.ref_name }}
+      #     COMMIT_SHA: ${{ github.sha }}
+      #     CI_RUN_ID: ${{ github.run_id }}
+
+      # ── Option C: Jest (uses flakey-upload CLI after the run) ───────────────────
+      # - name: Run Jest smoke suite
+      #   run: pnpm test:smoke
+      #   working-directory: examples/jest
+      #
+      # - name: Upload Jest results to Better Testing
+      #   working-directory: examples/jest
+      #   run: |
+      #     npx tsx ../../packages/flakey-cli/src/index.ts \
+      #       --report-dir reports \
+      #       --suite jest-example-smoke \
+      #       --reporter junit \
+      #       --branch "${{ github.head_ref || github.ref_name }}" \
+      #       --commit "${{ github.sha }}" \
+      #       --ci-run-id "${{ github.run_id }}" \
+      #       --api-key "${{ env.FLAKEY_API_KEY }}"
+
+      # ── Coverage upload (optional) ───────────────────────────────────────────────
+      # Run after the test step; RUN_ID is printed by flakey-upload and can be
+      # captured with output variables if needed. Typically you wire this in your
+      # own test runner script.
+      #
+      # - name: Upload coverage
+      #   working-directory: examples/jest
+      #   run: |
+      #     RUN_ID=<id from previous step> \
+      #     npx tsx ../../packages/flakey-cli/src/index.ts \
+      #       coverage \
+      #       --run-id $RUN_ID \
+      #       --file coverage/smoke/coverage-summary.json \
+      #       --api-key "${{ env.FLAKEY_API_KEY }}"

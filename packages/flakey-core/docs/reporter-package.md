@@ -77,9 +77,8 @@ export default defineConfig({
   reporter: '@flakeytesting/cypress-reporter',
   reporterOptions: {
     url: 'https://your-flakey-instance.com',
-    token: process.env.FLAKEY_TOKEN,
+    apiKey: process.env.FLAKEY_API_KEY,
     suite: 'regression-suite',
-    project: 'encor-tests',
   },
   e2e: {
     // ...
@@ -162,9 +161,8 @@ export default defineConfig({
   reporter: [
     ['@flakeytesting/playwright-reporter', {
       url: 'https://your-flakey-instance.com',
-      token: process.env.FLAKEY_TOKEN,
+      apiKey: process.env.FLAKEY_API_KEY,
       suite: 'playwright-suite',
-      project: 'encor-tests',
     }]
   ],
 })
@@ -249,11 +247,11 @@ import { NormalizedRun } from './schema'
 
 export class ApiClient {
   private url: string
-  private token: string
+  private apiKey: string
 
-  constructor(options: { url: string; token: string }) {
+  constructor(options: { url: string; apiKey: string }) {
     this.url = options.url
-    this.token = options.token
+    this.apiKey = options.apiKey
   }
 
   async postRun(run: NormalizedRun): Promise<void> {
@@ -261,7 +259,7 @@ export class ApiClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`,
+        'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(run),
     })

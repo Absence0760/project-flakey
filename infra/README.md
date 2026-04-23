@@ -1,4 +1,4 @@
-# Flakey — AWS Infrastructure
+# Better Testing — AWS Infrastructure
 
 Terraform configuration for deploying Flakey to AWS. Designed to be as touchless as possible — secrets are auto-generated, migrations run automatically on deploy, and monitoring is built in.
 
@@ -174,6 +174,7 @@ Subscribe to the SNS topic `flakey-production-alerts` for email/Slack notificati
 | `s3` | Artifacts bucket + frontend static hosting + CloudFront CDN |
 | `rds` | PostgreSQL 16 instance, security group, subnet group |
 | `ecs` | Fargate cluster, task def, service, ALB, auto-scaling, CloudWatch alarms |
+| `budget` | Monthly AWS budget with 80%/100%/forecasted email alerts |
 
 ## Adding a custom domain
 

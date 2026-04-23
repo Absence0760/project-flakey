@@ -4,6 +4,7 @@
   "description": "Extracts command logs and DOM snapshots from Playwright trace files for Flakey",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },

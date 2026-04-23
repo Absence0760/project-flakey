@@ -9,7 +9,12 @@
     "test:smoke": "SUITE=smoke wdio run wdio.conf.ts",
     "test:sanity": "SUITE=sanity wdio run wdio.conf.ts",
     "test:regression": "SUITE=regression wdio run wdio.conf.ts",
-    "test:all": "SUITE=smoke wdio run wdio.conf.ts; SUITE=sanity wdio run wdio.conf.ts; SUITE=regression wdio run wdio.conf.ts"
+    "test:all": "SUITE=smoke wdio run wdio.conf.ts; SUITE=sanity wdio run wdio.conf.ts; SUITE=regression wdio run wdio.conf.ts",
+    "test:a11y": "SUITE=a11y wdio run wdio.conf.ts",
+    "test:visual": "SUITE=visual wdio run wdio.conf.ts",
+    "test:visual:update": "UPDATE_VISUAL_BASELINES=true SUITE=visual wdio run wdio.conf.ts",
+    "test:flaky": "SUITE=flaky wdio run wdio.conf.ts",
+    "coverage:upload": "npx tsx ../../packages/flakey-cli/src/index.ts coverage --file coverage/coverage-summary.json --api-key $FLAKEY_API_KEY"
   },
   "devDependencies": {
     "@flakeytesting/webdriverio-reporter": "link:../../packages/flakey-webdriverio-reporter",
@@ -18,6 +23,10 @@
     "@wdio/mocha-framework": "latest",
     "@wdio/spec-reporter": "latest",
     "typescript": "latest",
-    "ts-node": "latest"
+    "ts-node": "latest",
+    "pngjs": "^7.0.0",
+    "pixelmatch": "^5.3.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/pixelmatch": "^5.2.6"
   }
 }

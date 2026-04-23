@@ -20,11 +20,17 @@
 
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
+import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 import { LiveClient, installShutdownHandler } from "./index.js";
 
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
+// Home-dir fallback for the singleton handoff file. tmpdir() isn't reliable
+// across Cypress 15's process tree (different subprocesses resolve different
+// TMPDIR env vars); homedir() is. cwd() would also work but process.cwd()
+// in the Mocha reporter subprocess is NOT guaranteed to match the cypress
+// invocation dir in Cypress 15.
+const FLAKEY_HOME_DIR = join(homedir(), ".flakey-reporter");
 
 // Walk the current process's ancestor chain (self → parent → parent's parent
 // → …). The Mocha reporter (running in a different process tree branch than
@@ -59,12 +65,20 @@ interface MochaLiveConfig {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  /**
+   * When true (default), register() installs its own `on("after:run", ...)`
+   * handler. When false (used by setupFlakey to work around Cypress 15's
+   * "only last after:run handler runs" behavior), register() skips that
+   * registration and returns a teardown function the caller invokes inside
+   * a combined after:run handler.
+   */
+  installAfterRun?: boolean;
 }
 
 export function register(
   on: (event: string, handler: (...args: any[]) => void) => void,
   config: MochaLiveConfig = {}
-) {
+): ((results: unknown) => Promise<void>) | undefined {
   const url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
   const apiKey = config.apiKey ?? process.env.FLAKEY_API_KEY ?? "";
   const suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
@@ -97,9 +111,9 @@ export function register(
               },
               body: JSON.stringify({
                 suite,
-                branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-                commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-                ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+                branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+                commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+                ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
               }),
             });
             if (res.ok) {
@@ -117,6 +131,23 @@ export function register(
                 for (const pid of getAncestorPids(process.pid)) {
                   writeFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
                 }
+                // Singleton fallback — some Cypress versions (observed in 15.14)
+                // put the Mocha reporter in a process tree that shares NO
+                // ancestor with setupNodeEvents. The ancestor walk returns no
+                // matches and the reporter can't locate the buffer dir.
+                // TMPDIR isn't reliable either (Cypress 15 child processes can
+                // inherit a DIFFERENT os.tmpdir() than the plugin), so write
+                // a `.flakey-live-run-id` file in cwd — which IS stable across
+                // the Cypress process tree. Both plugin and Mocha reporter
+                // resolve cwd to the invocation dir.
+                writeFileSync(join(FLAKEY_BASE_DIR, "latest-run-id"), String(runId));
+                // Home-dir singleton — works even when TMPDIR and cwd diverge
+                // across Cypress's process tree. This is the fallback the
+                // Mocha reporter relies on in Cypress 15+.
+                try {
+                  mkdirSync(FLAKEY_HOME_DIR, { recursive: true });
+                  writeFileSync(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
+                } catch { /* ignore — the tmpdir path may still work */ }
               } catch { /* ignore */ }
               console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
             }
@@ -130,13 +161,19 @@ export function register(
 
     if (!runId) return;
 
-    client = new LiveClient({ url, apiKey, runId });
-    client.send({ type: "run.started" });
-    // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
-    // so the LIVE badge clears instead of waiting for the stale timeout.
-    teardownShutdown = installShutdownHandler(client, {
-      reason: "Cypress process received a shutdown signal.",
-    });
+    // Guard against Cypress 15+ firing before:run twice. On the second call
+    // runId is already set (skipped the startPromise block above) but client
+    // was already constructed on the first call — skip to avoid orphaning
+    // queued events and leaking signal handlers.
+    if (!client) {
+      client = new LiveClient({ url, apiKey, runId });
+      client.send({ type: "run.started" });
+      // Ctrl-C / SIGTERM before after:run fires → tell the backend immediately
+      // so the LIVE badge clears instead of waiting for the stale timeout.
+      teardownShutdown = installShutdownHandler(client, {
+        reason: "Cypress process received a shutdown signal.",
+      });
+    }
   });
 
   on("before:spec", (spec: { relative: string }) => {
@@ -159,7 +196,7 @@ export function register(
     });
   });
 
-  on("after:run", async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
+  const afterRunHandler = async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
     client?.send({ type: "run.finished" });
     await client?.flush();
     // Normal exit path — release the signal handlers so an unrelated SIGTERM
@@ -169,6 +206,8 @@ export function register(
     for (const pid of getAncestorPids(process.pid)) {
       try { unlinkSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`)); } catch { /* ignore */ }
     }
+    try { unlinkSync(join(FLAKEY_BASE_DIR, "latest-run-id")); } catch { /* ignore */ }
+    try { unlinkSync(join(FLAKEY_HOME_DIR, "latest-run-id")); } catch { /* ignore */ }
     if (runId) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;
@@ -176,5 +215,15 @@ export function register(
       const status = failed > 0 ? `${failed} failed, ${passed} passed` : `${total} passed`;
       console.log(`[flakey-live] Run #${runId} complete — ${status}`);
     }
-  });
+  };
+
+  if (config.installAfterRun !== false) {
+    on("after:run", afterRunHandler);
+    return undefined;
+  }
+  // Caller (setupFlakey) will invoke the handler inside a combined
+  // after:run registration — Cypress 15 only runs the LAST-registered
+  // handler per event, so we can't have live-reporter and flakeyReporter
+  // each install their own.
+  return afterRunHandler as (results: unknown) => Promise<void>;
 }

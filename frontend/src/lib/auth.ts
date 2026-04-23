@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+import { API_URL } from "./config.js";
 
 export interface User {
   id: number;
@@ -46,37 +46,78 @@ export function isLoggedIn(): boolean {
   return state.token !== null;
 }
 
+// localStorage key names — prefixed "bt_" (Better Testing) rather than "flakey_".
+// Migration note: on first load, restoreAuth() checks both the old "flakey_*"
+// keys and the new "bt_*" keys so that existing logged-in users are not
+// silently logged out on deploy. Once the new keys are written the old ones
+// are deleted so the migration is one-shot.
+const KEY_TOKEN = "bt_token";
+const KEY_USER = "bt_user";
+const KEY_REFRESH = "bt_refresh";
+
 export function setAuth(user: User, token: string, refreshToken?: string) {
   state = { user, token, refreshToken: refreshToken ?? state.refreshToken };
-  localStorage.setItem("flakey_token", token);
-  localStorage.setItem("flakey_user", JSON.stringify(user));
-  if (refreshToken) localStorage.setItem("flakey_refresh", refreshToken);
+  localStorage.setItem(KEY_TOKEN, token);
+  localStorage.setItem(KEY_USER, JSON.stringify(user));
+  if (refreshToken) localStorage.setItem(KEY_REFRESH, refreshToken);
   notify();
 }
 
 export function clearAuth() {
   state = { user: null, token: null, refreshToken: null };
-  localStorage.removeItem("flakey_token");
-  localStorage.removeItem("flakey_user");
-  localStorage.removeItem("flakey_refresh");
+  localStorage.removeItem(KEY_TOKEN);
+  localStorage.removeItem(KEY_USER);
+  localStorage.removeItem(KEY_REFRESH);
   // Also clear server-side httpOnly cookies
   fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
   notify();
 }
 
 export function restoreAuth(): boolean {
-  const token = localStorage.getItem("flakey_token");
-  const userJson = localStorage.getItem("flakey_user");
-  const refreshToken = localStorage.getItem("flakey_refresh");
+  // Try new keys first; fall back to legacy "flakey_*" keys for a one-time
+  // migration so existing sessions survive the rename.
+  let token = localStorage.getItem(KEY_TOKEN);
+  let userJson = localStorage.getItem(KEY_USER);
+  let refreshToken: string | null = localStorage.getItem(KEY_REFRESH);
+
+  const migratedFromLegacy = !token && !!localStorage.getItem("flakey_token");
+  if (migratedFromLegacy) {
+    token = localStorage.getItem("flakey_token");
+    userJson = localStorage.getItem("flakey_user");
+    refreshToken = localStorage.getItem("flakey_refresh");
+  }
+
   if (token && userJson) {
     try {
       state = { token, user: JSON.parse(userJson), refreshToken };
+      if (migratedFromLegacy) {
+        // Write under new keys and remove old ones (one-shot migration).
+        localStorage.setItem(KEY_TOKEN, token);
+        localStorage.setItem(KEY_USER, userJson);
+        if (refreshToken) localStorage.setItem(KEY_REFRESH, refreshToken);
+        localStorage.removeItem("flakey_token");
+        localStorage.removeItem("flakey_user");
+        localStorage.removeItem("flakey_refresh");
+      }
       return true;
     } catch {
       clearAuth();
     }
   }
   return false;
+}
+
+// Deduplicates concurrent refresh calls so only one /auth/refresh request
+// flies at a time. All concurrent callers await the same promise; the
+// promise is cleared in `finally` so the next 401 starts a fresh attempt.
+let refreshPromise: Promise<boolean> | null = null;
+
+function getOrStartRefresh(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = refreshAccessToken().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
 }
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -200,9 +241,11 @@ export async function authFetch(url: string, opts?: RequestInit): Promise<Respon
 
   let res = await fetch(url, { ...opts, headers, credentials: "include" });
 
-  // If 401, try refreshing the token once
+  // If 401, try refreshing the token once.
+  // getOrStartRefresh() deduplicates concurrent callers so only one
+  // /auth/refresh request flies even when multiple authFetch calls race.
   if (res.status === 401 && state.refreshToken) {
-    const refreshed = await refreshAccessToken();
+    const refreshed = await getOrStartRefresh();
     if (refreshed) {
       headers.set("Authorization", `Bearer ${state.token}`);
       res = await fetch(url, { ...opts, headers, credentials: "include" });

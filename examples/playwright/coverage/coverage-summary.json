@@ -1,0 +1,54 @@
+{
+  "total": {
+    "lines": {
+      "total": 312,
+      "covered": 248,
+      "skipped": 0,
+      "pct": 79.49
+    },
+    "statements": {
+      "total": 341,
+      "covered": 270,
+      "skipped": 0,
+      "pct": 79.18
+    },
+    "functions": {
+      "total": 58,
+      "covered": 44,
+      "skipped": 0,
+      "pct": 75.86
+    },
+    "branches": {
+      "total": 94,
+      "covered": 71,
+      "skipped": 0,
+      "pct": 75.53
+    }
+  },
+  "shared/app/index.html": {
+    "lines": {
+      "total": 312,
+      "covered": 248,
+      "skipped": 0,
+      "pct": 79.49
+    },
+    "statements": {
+      "total": 341,
+      "covered": 270,
+      "skipped": 0,
+      "pct": 79.18
+    },
+    "functions": {
+      "total": 58,
+      "covered": 44,
+      "skipped": 0,
+      "pct": 75.86
+    },
+    "branches": {
+      "total": 94,
+      "covered": 71,
+      "skipped": 0,
+      "pct": 75.53
+    }
+  }
+}

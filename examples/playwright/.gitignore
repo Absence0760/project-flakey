@@ -1,0 +1,5 @@
+# Re-include the static coverage fixture committed as an example.
+# The root .gitignore excludes coverage/ broadly; we un-exclude just the
+# Istanbul summary file so it can be committed as a demo fixture.
+!coverage/
+!coverage/coverage-summary.json

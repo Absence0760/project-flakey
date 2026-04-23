@@ -5,7 +5,10 @@
     "deps": "To use published npm packages, replace link: entries with: \"@flakeytesting/cypress-reporter\": \"latest\", \"@flakeytesting/cypress-snapshots\": \"latest\""
   },
   "scripts": {
-    "test": "cypress run",
+    "test": "cypress run --spec 'cypress/e2e/*.feature,cypress/e2e/requirements/**/*.feature'",
+    "test:smoke": "cypress run --spec 'cypress/e2e/*.feature'",
+    "test:a11y": "cypress run --spec 'cypress/e2e/a11y/**/*.feature'",
+    "test:flaky": "cypress run --spec 'cypress/e2e/flaky/**/*.feature'",
     "open": "cypress open"
   },
   "devDependencies": {
@@ -14,7 +17,9 @@
     "@flakeytesting/cypress-reporter": "link:../../packages/flakey-cypress-reporter",
     "@flakeytesting/cypress-snapshots": "link:../../packages/flakey-cypress-snapshots",
     "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
+    "axe-core": "^4.11.3",
     "cypress": "latest",
+    "cypress-axe": "^1.7.0",
     "esbuild": "latest",
     "typescript": "latest"
   }
