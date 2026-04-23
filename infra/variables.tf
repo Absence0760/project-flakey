@@ -38,3 +38,8 @@ variable "budget_alert_email" {
   description = "Email address for budget alerts"
   type        = string
 }
+
+variable "acm_certificate_arn" {
+  description = "ARN of the ACM certificate for the ALB HTTPS listener. Must be in the same region as the ALB."
+  type        = string
+}

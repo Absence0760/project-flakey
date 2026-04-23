@@ -39,10 +39,10 @@ jobs:
       mcp_server: ${{ steps.check.outputs.mcp_server }}
     steps:
       - id: check
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          MANUAL: ${{ github.event.inputs.package }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          MANUAL="${{ github.event.inputs.package }}"
-
           ALL="false"
           if [[ "$TAG" == all@* ]] || [[ "$MANUAL" == "all" ]]; then
             ALL="true"

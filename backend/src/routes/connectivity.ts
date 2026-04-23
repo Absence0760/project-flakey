@@ -1,5 +1,6 @@
 import { Router } from "express";
 import pool from "../db.js";
+import { decryptSecret } from "../crypto.js";
 
 const router = Router();
 
@@ -56,9 +57,18 @@ router.post("/git", async (req, res) => {
       return;
     }
 
+    // Decrypt git_token; fall back to raw value for legacy unencrypted rows
+    // (in-place migration: the next write via PATCH /orgs/:id/settings will
+    // re-encrypt the token automatically).
+    let decryptedToken: string;
+    try {
+      decryptedToken = decryptSecret(row.git_token) ?? row.git_token;
+    } catch {
+      decryptedToken = row.git_token;
+    }
     const { platform, token, repo, baseUrl } = {
       platform: row.git_provider,
-      token: row.git_token,
+      token: decryptedToken,
       repo: row.git_repo,
       baseUrl: row.git_base_url,
     };

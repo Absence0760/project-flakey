@@ -3,6 +3,7 @@ import crypto from "crypto";
 import pool from "../db.js";
 import { requireAuth, signToken } from "../auth.js";
 import { logAudit } from "../audit.js";
+import { encryptSecret } from "../crypto.js";
 
 const router = Router();
 
@@ -268,6 +269,10 @@ router.patch("/:id/members/:userId", async (req, res) => {
 // GET /orgs/:id/settings
 router.get("/:id/settings", async (req, res) => {
   try {
+    if (Number(req.params.id) !== req.user!.orgId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     const result = await pool.query(
       "SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token FROM organizations WHERE id = $1",
       [req.params.id]
@@ -286,6 +291,10 @@ router.get("/:id/settings", async (req, res) => {
 // PATCH /orgs/:id/settings
 router.patch("/:id/settings", async (req, res) => {
   try {
+    if (Number(req.params.id) !== req.user!.orgId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     if (req.user!.orgRole === "viewer") {
       res.status(403).json({ error: "Admin role required" });
       return;
@@ -306,7 +315,7 @@ router.patch("/:id/settings", async (req, res) => {
     }
     if (req.body.git_token !== undefined) {
       sets.push(`git_token = $${i++}`);
-      params.push(req.body.git_token || null);
+      params.push(req.body.git_token ? encryptSecret(req.body.git_token) : null);
     }
     if (req.body.git_repo !== undefined) {
       sets.push(`git_repo = $${i++}`);
