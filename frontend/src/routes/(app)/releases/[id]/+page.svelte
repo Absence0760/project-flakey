@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { authFetch } from '$lib/auth';
+	import { authFetch, getAuth } from '$lib/auth';
 	import { API_URL } from '$lib/config';
 
 	interface ChecklistItem {
@@ -237,10 +237,9 @@
 	let members = $state<OrgMember[]>([]);
 	async function loadMembers() {
 		if (members.length > 0) return;
-		const auth = await authFetch(`${API_URL}/auth/me`);
-		if (!auth.ok) return;
-		const me = await auth.json() as { orgId: number };
-		const res = await authFetch(`${API_URL}/orgs/${me.orgId}/members`);
+		const orgId = getAuth().user?.orgId;
+		if (!orgId) return;
+		const res = await authFetch(`${API_URL}/orgs/${orgId}/members`);
 		if (res.ok) members = await res.json();
 	}
 
