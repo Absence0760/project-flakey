@@ -53,9 +53,9 @@ export default class WebdriverIOLiveReporter {
           },
           body: JSON.stringify({
             suite: this.suite,
-            branch: this.config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-            commitSha: this.config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-            ciRunId: this.config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+            branch: this.config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+            commitSha: this.config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+            ciRunId: this.config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
           }),
         });
         if (res.ok) {

@@ -140,9 +140,9 @@ export default class FlakeyWdioReporter extends WDIOReporter {
     const run: NormalizedRun = {
       meta: {
         suite_name: this.flakeyOpts.suite,
-        branch: this.flakeyOpts.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? "",
-        commit_sha: this.flakeyOpts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? "",
-        ci_run_id: this.flakeyOpts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "",
+        branch: this.flakeyOpts.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+        commit_sha: this.flakeyOpts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+        ci_run_id: this.flakeyOpts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
         started_at: this.startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "webdriverio",
