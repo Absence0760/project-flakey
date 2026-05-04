@@ -1378,7 +1378,7 @@
   /* Error bar */
   .test-error-bar {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5rem;
     width: 100%;
     padding: 0.5rem 0.85rem 0.5rem 2.8rem;
@@ -1388,6 +1388,10 @@
     cursor: pointer;
     text-align: left;
     transition: background 0.15s;
+  }
+
+  .test-error-bar > svg {
+    margin-top: 0.2rem;
   }
 
   .test-error-bar:hover {
@@ -1405,9 +1409,8 @@
     font-size: 0.78rem;
     font-family: monospace;
     color: var(--error-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    word-break: break-word;
     min-width: 0;
   }
 
