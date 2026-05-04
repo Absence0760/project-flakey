@@ -359,6 +359,39 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Run-upload input validation ─────────────────────────────────────────
+
+test("POST /runs rejects payloads missing meta/stats/specs with 400", async () => {
+  const res = await asAuth(orgA.token).post("/runs", {});
+  assert.equal(res.status, 400, "empty body must be rejected with 400, not 500 or silent run creation");
+});
+
+test("POST /runs rejects partial payloads (meta only)", async () => {
+  const res = await asAuth(orgA.token).post("/runs", {
+    meta: { suite_name: "x", branch: "main", commit_sha: "", ci_run_id: "", started_at: "", finished_at: "", reporter: "mochawesome" },
+  });
+  assert.equal(res.status, 400);
+});
+
+test("POST /runs accepts well-formed minimal payload (no specs)", async () => {
+  const res = await asAuth(orgA.token).post("/runs", {
+    meta: {
+      suite_name: `validation-${Date.now()}`,
+      branch: "main",
+      commit_sha: "",
+      ci_run_id: `validation-ci-${Date.now()}`,
+      started_at: "2026-04-10T00:00:00Z",
+      finished_at: "2026-04-10T00:00:01Z",
+      reporter: "mochawesome",
+    },
+    stats: { total: 0, passed: 0, failed: 0, skipped: 0, pending: 0, duration_ms: 1 },
+    specs: [],
+  });
+  // Empty specs list is legitimate (run setup that exits before any test) —
+  // should land a run, just with no spec rows.
+  assert.equal(res.status, 201);
+});
+
 // ── Live active-run enumeration ─────────────────────────────────────────
 
 test("GET /live/active does not enumerate other orgs' active run ids", async () => {
