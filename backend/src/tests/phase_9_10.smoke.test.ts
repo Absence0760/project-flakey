@@ -87,8 +87,11 @@ before(async () => {
     env: {
       ...process.env,
       PORT: String(PORT),
-      DB_USER: process.env.DB_USER ?? "flakey",
-      DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey",
+      // Run as the non-superuser app role so RLS policies apply (matches
+      // production).  Connecting as 'flakey' would silently bypass every
+      // tenant-isolation check in this file.
+      DB_USER: process.env.DB_USER ?? "flakey_app",
+      DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "smoke-test-secret",
       ALLOW_REGISTRATION: "true",
