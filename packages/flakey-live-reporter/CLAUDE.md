@@ -30,6 +30,11 @@ All three adapters (mocha, playwright, webdriverio) read these from `process.env
 | `BRANCH` / `GITHUB_HEAD_REF` / `GITHUB_REF_NAME` | all | Branch fallback chain |
 | `COMMIT_SHA` / `GITHUB_SHA` | all | Commit SHA fallback chain |
 | `CI_RUN_ID` / `GITHUB_RUN_ID` | all | CI run id fallback; `mocha.ts` also writes this after `/live/start` |
+| `FLAKEY_ENV` / `TEST_ENV` | mocha | Target environment label (e.g. "qa", "stage"); forwarded to `/live/start` as `environment` so the placeholder run records it up front |
+
+## Heartbeat
+
+`LiveClient` ticks an `unref`'d 30s interval that calls `flush({ allowEmpty: true })` — even with an empty queue the request POSTs `[]` so the backend's `/live/:runId/events` handler updates `lastEventAt` via `LiveEventBus.touch()`. This stops the stale-run detector (default 10-minute timeout) from auto-aborting a still-running suite during long quiet stretches (a slow Cucumber scenario, large `cy.wait`, etc.). Configurable via the `heartbeatIntervalMs` option (set to `0` to disable). Adapters (mocha/playwright/wdio) call `client.stop()` alongside `flush()` at end-of-run so heartbeats don't tick past `run.finished`.
 
 ## Consumer wiring
 

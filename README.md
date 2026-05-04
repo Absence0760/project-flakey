@@ -87,7 +87,9 @@ import "@flakeytesting/cypress-reporter/support";
 import "@flakeytesting/cypress-snapshots/support";
 ```
 
-Results, screenshots, and videos upload when the run finishes. DOM snapshots stream to the backend as each test completes when the live reporter (`@flakeytesting/live-reporter`) is also active, and fall back to the end-of-run batch upload otherwise. For Cucumber projects, also add `import "@flakeytesting/cypress-snapshots/cucumber"` to your support file to capture Gherkin step markers in each snapshot bundle.
+Screenshots stream to the backend the moment Cypress finishes writing each one (via `after:screenshot`), so a failing test's image shows up on the run detail page within hundreds of milliseconds — no need to wait for the run to finish. Videos still upload at end-of-run, and any screenshots that didn't stream (e.g. because the live reporter wasn't active) get shipped by the end-of-run batch as a fallback. DOM snapshots stream the same way (via `POST /live/:runId/snapshot`) when the live reporter (`@flakeytesting/live-reporter`) is active. For Cucumber projects, also add `import "@flakeytesting/cypress-snapshots/cucumber"` to your support file to capture Gherkin step markers in each snapshot bundle.
+
+To label which environment a run executed against (so the dashboard can show it as a chip and offer it as a filter), set `FLAKEY_ENV=qa` (or `TEST_ENV=qa`) in the test command, or use Cypress's own `--env environment=qa` / `--env name=qa` — the reporter resolves any of those automatically.
 
 Concurrent `cypress run` invocations on the same machine are supported out of the box — the reporter walks each process's ancestor chain to find the nearest shared ancestor with the plugin, so the two process trees stay isolated without needing a custom `TMPDIR`.
 

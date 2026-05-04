@@ -43,6 +43,18 @@ Test run starts
         |       |     • updates tests.snapshot_path by full_title match
         |       |     • plugin unlinks local file on 2xx; retained on failure
         |       |
+        |       ├── POST /live/:runId/screenshot (cypress-reporter, after:screenshot)
+        |       |     • stores to runs/{id}/screenshots/… in S3 / local disk
+        |       |     • appends to tests.screenshot_paths by full_title match
+        |       |     • streamed paths are preserved across the end-of-run
+        |       |       merge (uploads.ts + runs.ts both snapshot existing
+        |       |       screenshot_paths before the test delete+reinsert)
+        |       |
+        |       ├── periodic empty-body POST /live/:runId/events (heartbeat)
+        |       |     • LiveEventBus.touch() resets lastEventAt without emitting
+        |       |     • prevents stale-run auto-abort during long quiet
+        |       |       scenarios (slow Cucumber test, large cy.wait, etc.)
+        |       |
         |       └── POST /live/:runId/abort (on SIGINT/SIGTERM)
         |
 Test run completes
@@ -95,10 +107,11 @@ Scheduler (internal, advisory-lock coordinated):
 **Authenticated endpoints (JWT or API key):**
 
 *Runs, tests, errors, stats:*
-- `POST /runs` — receive report payload
+- `POST /runs` — receive report payload (JSON only path; merges into a live placeholder by `ci_run_id` + `suite_name` + `org_id` when one exists)
 - `POST /runs/upload` — multipart upload with screenshots/videos
-- `GET /runs` — list runs (filtered by org via RLS)
+- `GET /runs` — list runs (filtered by org via RLS); each row carries `environment` so the dashboard can group by it
 - `GET /runs/:id` — single run with full spec/test tree
+- `GET /runs/environments` — distinct environment values present on the org's runs (powers the runs-grid filter dropdown)
 - `GET /errors` — failures grouped by error message, filterable by suite/run
 - `GET /stats` — dashboard aggregate stats with date range filtering
 - `GET /stats/trends` — time-series data (pass rate, failures, duration, top failures)
@@ -199,7 +212,11 @@ org_invites (id, org_id, email, role, token, invited_by, accepted_at, expires_at
 -- Test data (org-scoped via RLS)
 runs (id, suite_name, branch, commit_sha, ci_run_id, reporter,
       started_at, finished_at, total, passed, failed, skipped, pending,
-      duration_ms, org_id, created_at)
+      duration_ms, org_id, environment, created_at)
+-- environment is the target the suite ran against (e.g. "qa", "stage").
+-- Reporters surface it via meta.environment on uploads / on the
+-- /live/start payload; the dashboard renders it as a header chip and
+-- offers a filter dropdown on the runs grid.
 
 specs (id, run_id, file_path, title, total, passed, failed, skipped, duration_ms)
 

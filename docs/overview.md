@@ -21,8 +21,8 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 ### Reporting
 - **7 reporters**: Mochawesome (Cypress/Mocha), JUnit XML (Jest, pytest, Go, Java, .NET), Playwright JSON, Jest JSON, WebdriverIO JSON
 - **Direct reporter plugins**: `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`
-- **Live reporter**: `@flakeytesting/live-reporter` streams test progress in real-time during execution; test rows are upserted to the database on `test.started` (status `pending`) and updated on `test.passed/failed/skipped`, so results appear on the run detail page before the run finishes
-- **Artifact management**: screenshots, videos, DOM snapshots — stored locally or on S3. DOM snapshots stream to the backend mid-run when the live reporter is active (per-test `POST /live/:runId/snapshot`), with the end-of-run batch upload as a retry fallback
+- **Live reporter**: `@flakeytesting/live-reporter` streams test progress in real-time during execution; test rows are upserted to the database on `test.started` (status `pending`) and updated on `test.passed/failed/skipped`, so results appear on the run detail page before the run finishes. A 30s heartbeat (empty-body POST `/live/:runId/events`) keeps long quiet scenarios from tripping stale-run auto-abort
+- **Artifact management**: screenshots, videos, DOM snapshots — stored locally or on S3. DOM snapshots stream mid-run via `POST /live/:runId/snapshot`. Cypress screenshots stream per-test via `POST /live/:runId/screenshot` (hooked off `after:screenshot`) so failures show their image as soon as the test fails; the end-of-run batch upload skips already-streamed files and remains the fallback for non-live runs
 - **Gherkin step markers**: the optional `@flakeytesting/cypress-snapshots/cucumber` submodule hooks `@badeball/cypress-cucumber-preprocessor` to inject `Given/When/Then` markers into the snapshot bundle, so the viewer groups Cypress commands under their scenario step
 - **CLI uploader**: finds report files, discovers screenshots/videos, uploads via multipart
 - **Parallel run merging**: multiple CI workers with the same `ci_run_id` merge into a single run
@@ -37,7 +37,7 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **Dark/light mode**: toggle between light, dark, and system theme preference
 
 ### Runs List
-- **Multi-filter**: suite, branch, status (passed/failed/new failures), date range (1h/today/24h/7d/30d), and text search
+- **Multi-filter**: suite, branch, environment (qa/stage/prod/…), status (passed/failed/new failures), date range (1h/today/24h/7d/30d), and text search
 - **Spec file preview**: each run card shows the spec files that were run for easy identification
 - **New failures badge**: amber badge highlights runs with regressions (tests that passed before but now fail)
 - **Pinned runs**: pin runs for quick access during debugging sessions (persisted in localStorage)

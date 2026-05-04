@@ -31,6 +31,16 @@ The integration examples (`examples/cypress/cypress.config.ts`) use `setupFlakey
 
 Don't promote the optional peers to required; users should be able to use the reporter without snapshots or live events.
 
+## Per-test screenshot streaming
+
+The plugin registers `on("after:screenshot", ...)`: each PNG is POSTed to `/live/:runId/screenshot` the moment Cypress writes it, with the spec path and full test title attached so the backend can link it directly to `tests.screenshot_paths` (no fragile filename matching). Streamed local paths are tracked in a per-run-of-cypress `Set<string>` and excluded from the `after:run` batch upload's `findFiles` result so the same PNG isn't shipped twice. If streaming fails (no live run id, network error), the file is left in place and the batch path picks it up unchanged.
+
+The end-of-run merge (both `/runs` and `/runs/upload`) preserves the streamed `screenshot_paths` and `snapshot_path` across the test delete+reinsert by snapshotting them before the `DELETE` and unioning them with whatever the upload payload supplies.
+
+## Environment label
+
+`reporterOptions.environment` (third-arg or via `setupFlakey`) takes precedence; otherwise the reporter resolves it lazily at upload time, walking `process.env.FLAKEY_ENV` → `process.env.TEST_ENV` → `config.env.environment` → `config.env.name`. The last two cover Cypress's own `cypress run --env environment=qa` / `--env name=qa` conventions. Whichever resolves first lands on the run as `meta.environment`. Resolution is lazy because `setupNodeEvents` merges `--env` after the plugin registers — capturing at registration would always see the empty value.
+
 ## Depends on
 
 - `@flakeytesting/core` (workspace) — shared upload/format helpers.
