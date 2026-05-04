@@ -359,6 +359,207 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Suite-level isolation ────────────────────────────────────────────────
+
+test("PATCH /suites/:name/rename only affects the caller's org", async () => {
+  // Both orgs upload a run under the same suite name.  Without RLS, a
+  // rename done by org A could rename org B's suite too — a classic
+  // multi-tenancy bug.
+  const sharedSuite = `shared-${Date.now()}`;
+  const aRun = await uploadRunForOrg(orgA.token, sharedSuite);
+  const bRun = await uploadRunForOrg(orgB.token, sharedSuite);
+  assert.ok(aRun !== bRun, "uploaded run ids should differ");
+
+  // Org A renames the suite.
+  const rename = await fetch(`${BASE}/suites/${encodeURIComponent(sharedSuite)}/rename`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${orgA.token}` },
+    body: JSON.stringify({ new_name: `${sharedSuite}-renamed-by-a` }),
+  });
+  assert.equal(rename.status, 200);
+
+  // Org B's suite should still be the original name (RLS confined the
+  // UPDATE to org A's rows).
+  const bSuites = await asAuth(orgB.token).get("/suites");
+  const list = (await bSuites.json()) as Array<{ suite_name: string }>;
+  assert.ok(list.some((s) => s.suite_name === sharedSuite),
+    "org B's suite was renamed by org A — RLS leak in PATCH /suites/:name/rename");
+  assert.ok(!list.some((s) => s.suite_name === `${sharedSuite}-renamed-by-a`),
+    "org A's renamed suite name leaked into org B's listing");
+});
+
+test("DELETE /suites/:name as org A does not touch org B's runs", async () => {
+  const sharedSuite = `delete-shared-${Date.now()}`;
+  const aRun = await uploadRunForOrg(orgA.token, sharedSuite);
+  const bRun = await uploadRunForOrg(orgB.token, sharedSuite);
+
+  const del = await fetch(`${BASE}/suites/${encodeURIComponent(sharedSuite)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${orgA.token}` },
+  });
+  assert.equal(del.status, 200);
+
+  // Org B's run with the same suite name still exists.
+  const bRunRes = await asAuth(orgB.token).get(`/runs/${bRun}`);
+  assert.equal(bRunRes.status, 200, "RLS leak: DELETE /suites cascaded into org B's runs");
+
+  // Org A's run is gone.
+  const aRunRes = await asAuth(orgA.token).get(`/runs/${aRun}`);
+  assert.equal(aRunRes.status, 404, "org A's run was supposed to be deleted by suite delete");
+});
+
+// ── Run-merge concurrency (same ci_run_id from two workers) ──────────────
+
+test("two run uploads with the same ci_run_id merge into a single run row", async () => {
+  // The whole point of this product over Cypress Cloud is parallel-worker
+  // merge.  Two workers POST runs with identical ci_run_id + suite — they
+  // should land on the SAME run row, not two.
+  const sharedCi = `merge-test-${Date.now()}`;
+  const sharedSuite = `merge-suite-${Date.now()}`;
+
+  const upload = (specFile: string) =>
+    (() => {
+      const fd = new FormData();
+      fd.append(
+        "payload",
+        JSON.stringify({
+          meta: {
+            suite_name: sharedSuite,
+            branch: "main",
+            commit_sha: "merge-sha",
+            ci_run_id: sharedCi,
+            started_at: "2026-04-10T00:00:00Z",
+            finished_at: "2026-04-10T00:00:10Z",
+            reporter: "mochawesome",
+          },
+          stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 1000 },
+          specs: [
+            {
+              file_path: specFile,
+              title: specFile,
+              stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 1000 },
+              tests: [{ title: "t", full_title: `${specFile}>t`, status: "passed", duration_ms: 1000, screenshot_paths: [] }],
+            },
+          ],
+        })
+      );
+      return fetch(`${BASE}/runs/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${orgA.token}` },
+        body: fd,
+      });
+    })();
+
+  // Sequential to avoid Postgres SERIALIZATION_FAILURE on concurrent
+  // inserts to the same (ci_run_id, suite, org) — the two requests
+  // should still merge.
+  const r1 = await upload("worker1.js");
+  assert.ok(r1.ok);
+  const id1 = ((await r1.json()) as { id: number }).id;
+
+  const r2 = await upload("worker2.js");
+  assert.ok(r2.ok);
+  const id2 = ((await r2.json()) as { id: number }).id;
+
+  assert.equal(id1, id2, `two uploads with the same ci_run_id should merge — got ${id1} and ${id2}`);
+
+  // The merged run should have BOTH specs.
+  const detail = await asAuth(orgA.token).get(`/runs/${id1}`);
+  const data = (await detail.json()) as { specs: Array<{ file_path: string }> };
+  const files = data.specs.map((s) => s.file_path).sort();
+  assert.deepEqual(
+    files,
+    ["worker1.js", "worker2.js"],
+    "merged run should contain specs from both workers"
+  );
+});
+
+// ── Integration settings + per-org records: encrypted secret isolation ──
+
+test("Jira settings are isolated across orgs (no plaintext, no cross-read)", async () => {
+  // Set a token for org A.
+  const setA = await asAuth(orgA.token).post("/jira/settings", {
+    base_url: "https://a.atlassian.net",
+    email: "a@example.com",
+    api_token: "TOKEN-A-EXFIL-CANARY",
+    project_key: "QA",
+  });
+  // Note: settings update uses PATCH not POST in current code; the
+  // wrapper above uses POST.  Use fetch directly with PATCH instead.
+  if (setA.status !== 200) {
+    const patch = await fetch(`${BASE}/jira/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${orgA.token}` },
+      body: JSON.stringify({ base_url: "https://a.atlassian.net", email: "a@example.com", api_token: "TOKEN-A-EXFIL-CANARY", project_key: "QA" }),
+    });
+    assert.equal(patch.status, 200);
+  }
+
+  // Org B reads its own settings — must not see A's token, even encrypted.
+  const getB = await asAuth(orgB.token).get("/jira/settings");
+  assert.equal(getB.status, 200);
+  const dataB = await getB.text();
+  assert.ok(!dataB.includes("TOKEN-A-EXFIL-CANARY"), "RLS leak: org B saw org A's Jira token in plaintext");
+  assert.ok(!dataB.includes("a.atlassian.net"), "RLS leak: org B saw org A's base_url");
+  // B should see has_api_token=false (its own settings have no token).
+  const parsedB = JSON.parse(dataB) as { has_api_token: boolean };
+  assert.equal(parsedB.has_api_token, false, "org B's Jira settings polluted by org A's");
+});
+
+test("manual tests are isolated across orgs", async () => {
+  // A creates a manual test.
+  const create = await asAuth(orgA.token).post("/manual-tests", {
+    suite_name: "tenant-a-suite",
+    title: "Org A's secret manual test",
+    steps: ["1. exfil canary"],
+  });
+  assert.equal(create.status, 201);
+  const created = (await create.json()) as { id: number };
+
+  // B lists — must not include A's test.
+  const list = await asAuth(orgB.token).get("/manual-tests");
+  const tests = (await list.json()) as Array<{ id: number; title: string }>;
+  assert.ok(!tests.some((t) => t.id === created.id), "RLS leak: org B sees org A's manual tests");
+  assert.ok(!tests.some((t) => t.title.includes("Org A's secret")), "manual test title leaked");
+
+  // B GETs by id directly — must 404.
+  const direct = await asAuth(orgB.token).get(`/manual-tests/${created.id}`);
+  assert.equal(direct.status, 404, "RLS leak: org B fetched org A's manual test by id");
+});
+
+test("releases are isolated across orgs", async () => {
+  // A creates a release.
+  const create = await asAuth(orgA.token).post("/releases", {
+    version: `v-orgA-${Date.now()}`,
+    name: "Org A canary release",
+  });
+  assert.equal(create.status, 201);
+  const created = (await create.json()) as { id: number };
+
+  // B lists — must not include A's release.
+  const list = await asAuth(orgB.token).get("/releases");
+  const rels = (await list.json()) as Array<{ id: number; name: string | null }>;
+  assert.ok(!rels.some((r) => r.id === created.id), "RLS leak: org B sees org A's releases");
+
+  // B GET by id directly — must 404.
+  const direct = await asAuth(orgB.token).get(`/releases/${created.id}`);
+  assert.equal(direct.status, 404, "RLS leak: org B fetched org A's release by id");
+});
+
+test("saved views are isolated across orgs", async () => {
+  // A saves a filter preset.
+  const create = await asAuth(orgA.token).post("/views", {
+    name: "Org A's view",
+    filters: { suite: "tenant-a-suite", branch: "main" },
+  });
+  assert.equal(create.status, 201);
+  const created = (await create.json()) as { id: number };
+
+  const list = await asAuth(orgB.token).get("/views");
+  const views = (await list.json()) as Array<{ id: number; name: string }>;
+  assert.ok(!views.some((v) => v.id === created.id), "RLS leak: org B sees org A's saved views");
+});
+
 test("POST /security clamps non-positive instances to 1", async () => {
   const res = await asAuth(orgA.token).post("/security", {
     run_id: orgA.runId,
