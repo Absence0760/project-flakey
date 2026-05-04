@@ -171,9 +171,12 @@
 
   function formatDuration(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    const mins = Math.floor(ms / 60000);
-    const secs = ((ms % 60000) / 1000).toFixed(0);
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    const totalSecs = Math.floor(ms / 1000);
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
     return `${mins}m ${secs}s`;
   }
 
