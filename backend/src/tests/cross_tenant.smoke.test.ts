@@ -413,15 +413,35 @@ test("GET /uploads/runs/:id/... 404s for cross-org access", async () => {
   if (!upload.ok) return;
   const { key } = (await upload.json()) as { key: string };
 
-  // Org B authenticates but doesn't own org A's run.
-  const res = await fetch(`${BASE}/uploads/${key}`, {
+  // Org B authenticates with Bearer header but doesn't own the run.
+  const headerRes = await fetch(`${BASE}/uploads/${key}`, {
     headers: { Authorization: `Bearer ${orgB.token}` },
   });
   assert.notEqual(
-    res.status,
+    headerRes.status,
     200,
-    "GET /uploads/* must verify the run id in the path belongs to the caller's org"
+    "GET /uploads/* must verify the run id in the path belongs to the caller's org (Authorization header)"
   );
+
+  // The same check must also apply on the ?token= query-param path
+  // (added so <img>/<video> tags can authenticate).  Otherwise the
+  // escape hatch becomes the new way to bypass the ownership check.
+  const queryRes = await fetch(`${BASE}/uploads/${key}?token=${orgB.token}`);
+  assert.notEqual(
+    queryRes.status,
+    200,
+    "GET /uploads/*?token=<other-org-token> must also be ownership-checked"
+  );
+
+  // Confirm org A (the legitimate owner) CAN fetch via ?token= — this
+  // is the path frontend <img> tags rely on.
+  const ownRes = await fetch(`${BASE}/uploads/${key}?token=${orgA.token}`);
+  assert.equal(
+    ownRes.status,
+    200,
+    "?token=<owner-token> must allow the legitimate owner to fetch (otherwise <img> tags break)"
+  );
+  ownRes.body?.cancel().catch(() => {});
 });
 
 // ── Run-upload input validation ─────────────────────────────────────────
