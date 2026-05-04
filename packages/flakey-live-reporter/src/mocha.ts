@@ -199,6 +199,7 @@ export function register(
   const afterRunHandler = async (results: { totalFailed?: number; totalPassed?: number; totalTests?: number } | undefined) => {
     client?.send({ type: "run.finished" });
     await client?.flush();
+    client?.stop();
     // Normal exit path — release the signal handlers so an unrelated SIGTERM
     // later in the process lifecycle doesn't spuriously abort a finished run.
     teardownShutdown?.();

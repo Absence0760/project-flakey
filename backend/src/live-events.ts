@@ -33,6 +33,17 @@ class LiveEventBus {
     return this.runMeta.has(runId);
   }
 
+  /**
+   * Bump lastEventAt without emitting anything. Used by the events POST
+   * handler so an empty-body heartbeat from a still-running reporter keeps
+   * the run from tripping stale-run detection during long quiet periods
+   * (single slow Cucumber scenario, big cy.wait(), etc.).
+   */
+  touch(runId: number): void {
+    const meta = this.runMeta.get(runId);
+    if (meta) meta.lastEventAt = Date.now();
+  }
+
   /** Get or create an emitter for a run. Auto-cleans up after 30 minutes of inactivity. */
   getEmitter(runId: number): EventEmitter {
     let emitter = this.emitters.get(runId);

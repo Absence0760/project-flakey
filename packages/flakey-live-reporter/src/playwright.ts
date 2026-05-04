@@ -111,6 +111,7 @@ export default class PlaywrightLiveReporter {
   async onEnd(result: { status: string }) {
     this.client?.send({ type: "run.finished", status: result.status });
     await this.client?.flush();
+    this.client?.stop();
     this.teardownShutdown?.();
     this.teardownShutdown = null;
     if (this.runId) {

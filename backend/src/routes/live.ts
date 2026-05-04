@@ -117,6 +117,12 @@ router.post("/:runId/events", async (req, res) => {
   // so stale detection still catches them.
   if (!liveEvents.hasRun(runId)) liveEvents.registerRun(runId, orgId);
 
+  // Treat every events POST — including empty-body heartbeats — as proof
+  // the reporter is still alive. Without this, a long-running scenario that
+  // produces no test events for >10 min trips the stale-run check and the
+  // run is incorrectly flagged as aborted.
+  liveEvents.touch(runId);
+
   const fullEvents: LiveTestEvent[] = [];
   for (const event of events) {
     const fullEvent = { ...event, runId, timestamp: event.timestamp ?? Date.now() };

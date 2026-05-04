@@ -117,6 +117,7 @@ export default class WebdriverIOLiveReporter {
   async onRunnerEnd() {
     this.client?.send({ type: "run.finished" });
     await this.client?.flush();
+    this.client?.stop();
     this.teardownShutdown?.();
     this.teardownShutdown = null;
     if (this.runId) {

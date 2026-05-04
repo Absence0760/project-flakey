@@ -17,6 +17,13 @@ export interface LiveReporterOptions {
   url: string;
   apiKey: string;
   runId: number;
+  /**
+   * Interval at which the client pings the backend with an empty-body POST
+   * to keep stale-run detection happy during long quiet periods (single slow
+   * Cucumber scenario, large cy.wait, etc.). Defaults to 30s. Set to 0 to
+   * disable.
+   */
+  heartbeatIntervalMs?: number;
 }
 
 export class LiveClient {
@@ -25,11 +32,26 @@ export class LiveClient {
   private runId: number;
   private queue: LiveEvent[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: LiveReporterOptions) {
     this.url = options.url.replace(/\/$/, "");
     this.apiKey = options.apiKey;
     this.runId = options.runId;
+
+    const heartbeatMs = options.heartbeatIntervalMs ?? 30_000;
+    if (heartbeatMs > 0) {
+      this.heartbeatTimer = setInterval(() => {
+        // POST an empty array — the backend treats every events request as
+        // activity, so this resets the stale-run timer without emitting
+        // anything to listeners.
+        this.flush({ allowEmpty: true }).catch(() => {});
+      }, heartbeatMs);
+      // Don't keep the process alive just for heartbeats.
+      if (typeof (this.heartbeatTimer as { unref?: () => void }).unref === "function") {
+        (this.heartbeatTimer as { unref: () => void }).unref();
+      }
+    }
   }
 
   /** Queue an event for sending. Events are batched and flushed every 500ms. */
@@ -40,14 +62,17 @@ export class LiveClient {
     }
   }
 
-  /** Flush all queued events immediately. */
-  async flush(): Promise<void> {
+  /**
+   * Flush all queued events immediately. Pass `{ allowEmpty: true }` to send
+   * an empty-body heartbeat when the queue is empty.
+   */
+  async flush(opts: { allowEmpty?: boolean } = {}): Promise<void> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
 
-    if (this.queue.length === 0) return;
+    if (this.queue.length === 0 && !opts.allowEmpty) return;
 
     const events = this.queue.splice(0);
     try {
@@ -61,6 +86,14 @@ export class LiveClient {
       });
     } catch {
       // Silently drop — live events are best-effort
+    }
+  }
+
+  /** Stop the heartbeat timer. Idempotent. */
+  stop(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
   }
 
