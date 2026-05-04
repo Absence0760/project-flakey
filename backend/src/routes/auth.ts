@@ -355,7 +355,13 @@ router.post("/resend-verification", async (req, res) => {
       [token, expiry, result.rows[0].id]
     );
 
-    await sendVerificationEmail(email, token);
+    // Fire-and-forget: SMTP failures (e.g. broken mail server) must NOT
+    // turn into a 500 response, because that would leak whether the
+    // email exists vs not (the unknown-email path short-circuits with
+    // 200 above).  Log the error and respond ok regardless.
+    sendVerificationEmail(email, token).catch((err) => {
+      console.error("Failed to send verification email:", err);
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error("POST /auth/resend-verification error:", err);
@@ -388,7 +394,13 @@ router.post("/forgot-password", async (req, res) => {
       [token, expiry, result.rows[0].id]
     );
 
-    await sendPasswordResetEmail(email, token);
+    // Fire-and-forget: same enumeration-resistance reasoning as
+    // resend-verification.  An SMTP outage must not cause forgot-
+    // password to return 500 for known emails while continuing to
+    // return 200 for unknown ones.
+    sendPasswordResetEmail(email, token).catch((err) => {
+      console.error("Failed to send password reset email:", err);
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error("POST /auth/forgot-password error:", err);

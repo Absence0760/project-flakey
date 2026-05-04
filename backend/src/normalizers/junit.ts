@@ -198,8 +198,22 @@ export function parseJUnit(
   raw: string | JUnitReport,
   meta: NormalizedRun["meta"]
 ): NormalizedRun {
-  // raw can be an XML string or already-parsed object
-  const parsed: JUnitReport = typeof raw === "string" ? xmlParser.parse(raw) : raw;
+  // raw can be an XML string or already-parsed object.  fast-xml-parser
+  // throws on truly garbage input (unclosed tags, mid-string artifacts);
+  // turn that into an empty-suite run rather than letting a 500 bubble
+  // up from the upload route.  The caller already validated the
+  // request shape; downstream we'd rather record an empty run than
+  // 500 a CI pipeline.
+  let parsed: JUnitReport;
+  if (typeof raw === "string") {
+    try {
+      parsed = xmlParser.parse(raw);
+    } catch {
+      parsed = {} as JUnitReport;
+    }
+  } else {
+    parsed = (raw ?? {}) as JUnitReport;
+  }
 
   // Gather all test suites from either <testsuites><testsuite>... or top-level <testsuite>
   let suites: JUnitTestSuite[] = [];

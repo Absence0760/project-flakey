@@ -143,8 +143,13 @@ export function parseJest(
   raw: unknown,
   meta: NormalizedRun["meta"]
 ): NormalizedRun {
-  const report = raw as JestReport;
-  const specs = report.testResults.map(parseSuite);
+  // Defend against partial/empty payloads — jest's `--json` reporter
+  // may produce a report with no testResults if the run errored out
+  // before any spec executed (config error, missing dependency, etc.).
+  // The previous version crashed with TypeError on `.map`, surfacing as
+  // an opaque 500 to the uploader.
+  const report = (raw ?? {}) as Partial<JestReport>;
+  const specs = (Array.isArray(report.testResults) ? report.testResults : []).map(parseSuite);
 
   const total = specs.reduce((s, sp) => s + sp.stats.total, 0);
   const passed = specs.reduce((s, sp) => s + sp.stats.passed, 0);
@@ -152,13 +157,17 @@ export function parseJest(
   const skipped = specs.reduce((s, sp) => s + sp.stats.skipped, 0);
   const durationMs = specs.reduce((s, sp) => s + sp.stats.duration_ms, 0);
 
-  const startedAt = meta.started_at || new Date(report.startTime).toISOString();
+  // report.startTime is jest-specific milliseconds-since-epoch; falls back
+  // to "now" when the report didn't include a startTime (defensive — same
+  // class of partial-payload issue as the testResults handling above).
+  const reportStart = typeof report.startTime === "number" ? report.startTime : Date.now();
+  const startedAt = meta.started_at || new Date(reportStart).toISOString();
 
   return {
     meta: {
       ...meta,
       started_at: startedAt,
-      finished_at: meta.finished_at || new Date(report.startTime + durationMs).toISOString(),
+      finished_at: meta.finished_at || new Date(reportStart + durationMs).toISOString(),
       reporter: "jest",
     },
     stats: {
