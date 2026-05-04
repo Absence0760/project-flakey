@@ -239,6 +239,22 @@ test("coverage upload + retrieval", async () => {
   assert.equal(parseFloat(data.lines_pct), 82.5);
 });
 
+test("coverage upload with release upserts release and links run", async () => {
+  // Re-upload coverage for the same run (ON CONFLICT updates) but with a release tag.
+  const res = await authPost("/coverage", {
+    run_id: runId,
+    lines_pct: 82.5,
+    release: "cov-rel-1.0.0",
+  });
+  assert.equal(res.status, 201);
+
+  // The release should be queryable for this run via the releases listing.
+  const releases = await authGet(`/releases`);
+  assert.equal(releases.status, 200);
+  const list = (await releases.json()) as Array<{ version: string }>;
+  assert.ok(list.some((r) => r.version === "cov-rel-1.0.0"), "release was not upserted by coverage upload");
+});
+
 test("a11y upload scoring", async () => {
   const res = await authPost("/a11y", {
     run_id: runId,
@@ -279,6 +295,50 @@ test("visual diffs create + review", async () => {
   const list = await authGet(`/visual/runs/${runId}`);
   const diffs = (await list.json()) as Array<{ id: number; status: string }>;
   assert.equal(diffs.find((d) => d.id === headerId)!.status, "approved");
+});
+
+test("security scan upload + retrieval", async () => {
+  const res = await authPost("/security", {
+    run_id: runId,
+    scanner: "zap",
+    target: "https://api.example.com/openapi.json",
+    findings: [
+      { rule_id: "10202", name: "Missing X-Frame-Options", severity: "Medium", cwe: "1021" },
+      { rule_id: "10038", name: "CSP Header Not Set", severity: "high", description: "..." },
+      { name: "Informational alert", severity: "informational" },
+    ],
+    raw_report: { meta: "ZAP raw payload here" },
+  });
+  assert.equal(res.status, 201);
+  const data = (await res.json()) as { high_count: number; medium_count: number; info_count: number; findings: number };
+  assert.equal(data.high_count, 1);
+  assert.equal(data.medium_count, 1);
+  assert.equal(data.info_count, 1, "informational normalized to info bucket");
+  assert.equal(data.findings, 3);
+
+  const list = await authGet(`/security/runs/${runId}`);
+  assert.equal(list.status, 200);
+  const scans = (await list.json()) as Array<{ scanner: string; findings: Array<{ severity: string; name: string }> }>;
+  assert.equal(scans.length, 1);
+  assert.equal(scans[0].scanner, "zap");
+  // Findings are sorted high → medium → low → info
+  assert.equal(scans[0].findings[0].severity, "high");
+  assert.equal(scans[0].findings.length, 3);
+});
+
+test("security scan re-upload replaces findings (idempotent)", async () => {
+  // Re-upload for the same run+scanner; old findings rows should be removed
+  // and replaced with the new set, not duplicated.
+  const res = await authPost("/security", {
+    run_id: runId,
+    scanner: "zap",
+    findings: [{ name: "Single new finding", severity: "low" }],
+  });
+  assert.equal(res.status, 201);
+  const list = await authGet(`/security/runs/${runId}`);
+  const scans = (await list.json()) as Array<{ scanner: string; findings: unknown[] }>;
+  const zapScan = scans.find((s) => s.scanner === "zap")!;
+  assert.equal(zapScan.findings.length, 1, "re-upload should replace, not append");
 });
 
 test("ui coverage summary + untested", async () => {

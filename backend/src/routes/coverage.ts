@@ -7,7 +7,7 @@ const router = Router();
 // POST /coverage — upload a coverage summary (tied to a run_id)
 router.post("/", async (req, res) => {
   try {
-    const { run_id, lines_pct, branches_pct, functions_pct, statements_pct, lines_covered, lines_total, files } = req.body;
+    const { run_id, lines_pct, branches_pct, functions_pct, statements_pct, lines_covered, lines_total, files, release } = req.body;
     if (!run_id) {
       res.status(400).json({ error: "run_id required" });
       return;
@@ -18,6 +18,30 @@ router.post("/", async (req, res) => {
     if (check.rows.length === 0) {
       res.status(404).json({ error: "Run not found" });
       return;
+    }
+
+    // Optional: link the run to a release. Mirrors POST /runs's release
+    // handling so a coverage-only upload (e.g. instrumented build that
+    // re-uploads coverage after the run was already submitted) can still
+    // tag the run with FLAKEY_RELEASE.
+    const releaseVersion = typeof release === "string" ? release.trim() : "";
+    if (releaseVersion) {
+      const releaseRes = await tenantQuery(
+        req.user!.orgId,
+        `INSERT INTO releases (org_id, version)
+         VALUES ($1, $2)
+         ON CONFLICT (org_id, version) DO UPDATE SET version = EXCLUDED.version
+         RETURNING id`,
+        [req.user!.orgId, releaseVersion]
+      );
+      const releaseId = releaseRes.rows[0].id;
+      await tenantQuery(
+        req.user!.orgId,
+        `INSERT INTO release_runs (release_id, run_id, org_id, added_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (release_id, run_id) DO NOTHING`,
+        [releaseId, run_id, req.user!.orgId, req.user!.id]
+      );
     }
 
     const result = await tenantQuery(
@@ -79,7 +103,7 @@ router.post("/", async (req, res) => {
       console.error("Coverage PR gating error:", err);
     }
 
-    await logAudit(req.user!.orgId, req.user!.id, "coverage.upload", "run", String(run_id), { lines_pct });
+    await logAudit(req.user!.orgId, req.user!.id, "coverage.upload", "run", String(run_id), { lines_pct, release: releaseVersion || null });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("POST /coverage error:", err);

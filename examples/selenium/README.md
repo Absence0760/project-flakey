@@ -49,6 +49,8 @@ Requires `--run-id` to attach coverage to the correct test run in the dashboard.
 In production, replace with `nyc report --reporter=json-summary` output.
 
 ### Release metadata
-`FLAKEY_RELEASE` is forwarded through `process.env` in `scripts/upload-coverage.js`.
-The backend coverage endpoint does not yet accept a `release` field — it will be picked
-up automatically when support is added.
+`FLAKEY_RELEASE` is forwarded as `--release` to `flakey-cli coverage` in
+`scripts/upload-coverage.js`.  The backend coverage endpoint upserts the release
+on first sight and links the run into it via `release_runs` — so a coverage-only
+upload (re-uploaded later for an instrumented build) can still tag the run with
+a release version.

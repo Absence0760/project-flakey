@@ -5,8 +5,8 @@
  *
  * Usage: node scripts/upload-coverage.js --run-id <id>
  *
- * FLAKEY_RELEASE is forwarded through process.env — picked up automatically
- * when the backend coverage endpoint adds support for release tagging.
+ * FLAKEY_RELEASE is forwarded to the CLI as --release; the backend upserts
+ * the release and links the run via release_runs.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -46,13 +46,17 @@ if (!existsSync(coverageFile)) {
 
 console.log(`  [flakey] Uploading coverage from ${coverageFile} for run #${runId}`);
 
-const result = spawnSync("npx", [
+const cliArgs = [
   "tsx", "../../packages/flakey-cli/src/index.ts",
   "coverage",
   "--run-id", runId,
   "--file", coverageFile,
   "--api-key", apiKey,
-], {
+];
+const release = process.env.FLAKEY_RELEASE ?? "";
+if (release) cliArgs.push("--release", release);
+
+const result = spawnSync("npx", cliArgs, {
   stdio: "inherit",
   env: { ...process.env, FLAKEY_API_URL: apiUrl },
 });

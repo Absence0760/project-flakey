@@ -59,10 +59,24 @@ In real usage, replace this file with the output of your instrumented test run (
 `nyc report --reporter=json-summary`).
 
 ### Release metadata
-`FLAKEY_RELEASE` env var support is not yet part of `ReporterOptions` in
-`@flakeytesting/core`. When it is added, wire it via:
+The reporter accepts a `release` option (or reads `FLAKEY_RELEASE` from the
+environment) and forwards it on the run upload.  The backend upserts the release
+on first sight and links every run with the same tag to it.  Wire it in
+`wdio.conf.ts` either implicitly via the env var:
+
+```bash
+FLAKEY_RELEASE=v1.2.3 pnpm test:smoke
+```
+
+or explicitly via reporter options:
+
 ```ts
-[FlakeyReporter, { ..., release: process.env.FLAKEY_RELEASE ?? "" }]
+reporters: [
+  [FlakeyReporter, {
+    url, apiKey, suite,
+    release: process.env.FLAKEY_RELEASE ?? "",
+  }],
+];
 ```
 
 ## Running all feature suites

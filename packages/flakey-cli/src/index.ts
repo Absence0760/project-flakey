@@ -310,12 +310,17 @@ async function uploadCoverage(args: string[]): Promise<void> {
   const runId = Number(opts["run-id"]);
   const file = opts["file"];
   const apiKey = opts["api-key"] ?? API_KEY;
+  const release = opts["release"] ?? process.env.FLAKEY_RELEASE ?? "";
   if (!runId || !file) {
-    console.error("Usage: flakey-cli coverage --run-id <id> --file <coverage-summary.json>");
+    console.error("Usage: flakey-cli coverage --run-id <id> --file <coverage-summary.json> [--release <version>]");
     process.exit(1);
   }
   const raw = JSON.parse(readFileSync(resolve(file), "utf-8"));
-  const payload = { run_id: runId, ...normalizeIstanbulSummary(raw) };
+  const payload: Record<string, unknown> = {
+    run_id: runId,
+    ...normalizeIstanbulSummary(raw),
+  };
+  if (release) payload.release = release;
   await postJSON("/coverage", payload, apiKey);
 }
 

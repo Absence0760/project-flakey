@@ -28,8 +28,10 @@ The command does three things in sequence:
 2. `node scripts/convert.js` — converts the ZAP JSON report to JUnit XML at
    `results/zap-results.xml` (each alert becomes a test case; risk ≥ 1 is a
    failure)
-3. `node scripts/upload.js` — uploads `results/zap-results.xml` to Better
-   Testing via `@flakeytesting/cli`
+3. `node scripts/upload.js` — uploads `results/zap-results.xml` as a JUnit
+   run via `@flakeytesting/cli`, then forwards the raw `zap-report.json` to
+   `POST /security` so the dashboard renders normalized findings (severity
+   rollup, per-rule deduplication, raw payload retained for forensics)
 
 ### Linking to a release
 
@@ -42,15 +44,10 @@ FLAKEY_RELEASE=v1.2.0 TARGET_URL=https://api.example.com/openapi.json pnpm test:
 | Feature | How |
 |---|---|
 | Security scan ingestion | ZAP JSON → JUnit XML (via `scripts/convert.js`) → uploaded to `/runs` as a standard JUnit test run. Each ZAP alert appears as a test case in the dashboard |
-| Findings retention | The backend stores the full JUnit payload; historical runs are queryable via the dashboard |
+| Native findings endpoint | `scripts/upload.js` then POSTs the raw `zap-report.json` to `/security`, which normalizes alerts into severity buckets (high / medium / low / info) and stores the raw payload for forensics |
+| Findings retention | The backend stores both the JUnit payload (per-alert pass/fail) and the raw ZAP report on `security_scans.raw_report` |
 | Release linking | Set `FLAKEY_RELEASE=<tag>` to associate the scan with a release; stored on the run record |
 | Flaky/intermittent alert tracking | Re-running the scan periodically lets Better Testing surface alerts that appear and disappear across runs |
-
-> **Upload path note:** ZAP findings are uploaded as a JUnit test run (not
-> as a dedicated security-findings endpoint).  A native security findings
-> endpoint (`POST /security`) does not yet exist in the backend; when it is
-> added, `scripts/upload.js` should be updated to use it and the raw
-> `zap-report.json` should be forwarded alongside the JUnit summary.
 
 ## rules.tsv
 

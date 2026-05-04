@@ -130,7 +130,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `DELETE /orgs/:id/members/:userId` — remove member
 
 *Quality metrics (Phase 10):*
-- `POST /coverage` — upload Istanbul-style coverage summary for a run
+- `POST /coverage` — upload Istanbul-style coverage summary for a run; optional `release` field upserts the release and links the run via `release_runs`
 - `GET /coverage/runs/:runId` — retrieve coverage for a run
 - `GET /coverage/trend` — coverage trend across recent runs
 - `GET/PATCH /coverage/settings` — PR coverage-gating threshold and enable flag
@@ -141,6 +141,9 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /visual/runs/:runId` — visual diffs for a run
 - `GET /visual/pending` — cross-run queue of pending/changed/new diffs
 - `PATCH /visual/:id` — approve/reject/update a visual diff's status
+- `POST /security` — upload normalized security findings + the raw scanner payload (ZAP, Trivy, …); upserts one row per `(run_id, scanner)` and replaces previous findings on re-upload
+- `GET /security/runs/:runId` — scans + findings for a run, severity-sorted
+- `GET /security/trend` — recent scans across the org for trend rendering
 - `POST /ui-coverage/visits` — record visited routes from a test run
 - `GET /ui-coverage` — list visited routes
 - `GET /ui-coverage/untested` — known routes without any visits
@@ -236,6 +239,14 @@ a11y_reports (id, org_id, run_id, url, score, violations_count, violations,
 
 visual_diffs (id, org_id, run_id, test_id, name, baseline_path, current_path,
               diff_path, diff_pct, status, reviewed_by, reviewed_at, created_at)
+
+security_scans (id, org_id, run_id, scanner, target,
+                high_count, medium_count, low_count, info_count,
+                raw_report, created_at)
+-- One row per (run_id, scanner). raw_report holds the original scanner JSON.
+security_findings (id, scan_id, org_id, run_id, rule_id, name, severity,
+                   description, solution, url, cwe, instances, metadata, created_at)
+-- severity ∈ {'high','medium','low','info'}. Replaced atomically on re-upload.
 
 ui_coverage      (id, org_id, suite_name, route_pattern, visit_count,
                   first_seen, last_seen, last_run_id)
