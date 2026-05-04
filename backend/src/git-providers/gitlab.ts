@@ -5,14 +5,24 @@ export function createGitLabProvider(config: GitProviderConfig): GitProvider {
   const baseUrl = (config.baseUrl ?? "https://gitlab.com").replace(/\/+$/, "");
   const projectId = encodeURIComponent(config.repo);
 
+  // 10s timeout — see github.ts for rationale.
   async function api(path: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${baseUrl}/api/v4${path}`, {
       ...options,
+      signal: options.signal ?? AbortSignal.timeout(10_000),
       headers: {
         "PRIVATE-TOKEN": config.token,
         ...options.headers,
       },
     });
+  }
+
+  async function apiOrThrow(path: string, options: RequestInit): Promise<void> {
+    const res = await api(path, options);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GitLab ${options.method ?? "GET"} ${path} → ${res.status}: ${body.slice(0, 200)}`);
+    }
   }
 
   return {
@@ -40,7 +50,7 @@ export function createGitLabProvider(config: GitProviderConfig): GitProvider {
     },
 
     async createComment(mrIid, body) {
-      await api(`/projects/${projectId}/merge_requests/${mrIid}/notes`, {
+      await apiOrThrow(`/projects/${projectId}/merge_requests/${mrIid}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
@@ -48,7 +58,7 @@ export function createGitLabProvider(config: GitProviderConfig): GitProvider {
     },
 
     async updateComment(mrIid, noteId, body) {
-      await api(`/projects/${projectId}/merge_requests/${mrIid}/notes/${noteId}`, {
+      await apiOrThrow(`/projects/${projectId}/merge_requests/${mrIid}/notes/${noteId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
@@ -62,7 +72,7 @@ export function createGitLabProvider(config: GitProviderConfig): GitProvider {
         failure: "failed",
         pending: "pending",
       };
-      await api(`/projects/${projectId}/statuses/${params.commitSha}`, {
+      await apiOrThrow(`/projects/${projectId}/statuses/${params.commitSha}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -5,9 +5,15 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
   const [owner, repo] = config.repo.split("/");
   const baseUrl = config.baseUrl ?? "https://api.github.com";
 
+  // 10s timeout on every GitHub API call. fetch() has no default timeout,
+  // so without this a hung GitHub.com would stall the post-upload PR
+  // comment / commit-status flow indefinitely (caller's try/catch never
+  // fires, the upload request itself returns OK but background work piles
+  // up forever).
   async function api(path: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${baseUrl}${path}`, {
       ...options,
+      signal: options.signal ?? AbortSignal.timeout(10_000),
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${config.token}`,
@@ -15,6 +21,18 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
         ...options.headers,
       },
     });
+  }
+
+  // For mutating calls (POST/PATCH), we must surface non-2xx as thrown
+  // errors. fetch() doesn't throw on 4xx/5xx, so an invalid token (401)
+  // or bad payload (422) would silently no-op without this — leaving
+  // operators thinking the integration works.
+  async function apiOrThrow(path: string, options: RequestInit): Promise<void> {
+    const res = await api(path, options);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GitHub ${options.method ?? "GET"} ${path} → ${res.status}: ${body.slice(0, 200)}`);
+    }
   }
 
   return {
@@ -42,7 +60,7 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
     },
 
     async createComment(prId, body) {
-      await api(`/repos/${owner}/${repo}/issues/${prId}/comments`, {
+      await apiOrThrow(`/repos/${owner}/${repo}/issues/${prId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
@@ -50,7 +68,7 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
     },
 
     async updateComment(_prId, commentId, body) {
-      await api(`/repos/${owner}/${repo}/issues/comments/${commentId}`, {
+      await apiOrThrow(`/repos/${owner}/${repo}/issues/comments/${commentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
@@ -58,7 +76,7 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
     },
 
     async postCommitStatus(params: CommitStatusParams) {
-      await api(`/repos/${owner}/${repo}/statuses/${params.commitSha}`, {
+      await apiOrThrow(`/repos/${owner}/${repo}/statuses/${params.commitSha}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -5,14 +5,24 @@ export function createBitbucketProvider(config: GitProviderConfig): GitProvider 
   const baseUrl = (config.baseUrl ?? "https://api.bitbucket.org/2.0").replace(/\/+$/, "");
   const repoPath = config.repo; // workspace/repo-slug
 
+  // 10s timeout — see github.ts for rationale.
   async function api(path: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${baseUrl}${path}`, {
       ...options,
+      signal: options.signal ?? AbortSignal.timeout(10_000),
       headers: {
         Authorization: `Bearer ${config.token}`,
         ...options.headers,
       },
     });
+  }
+
+  async function apiOrThrow(path: string, options: RequestInit): Promise<void> {
+    const res = await api(path, options);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Bitbucket ${options.method ?? "GET"} ${path} → ${res.status}: ${body.slice(0, 200)}`);
+    }
   }
 
   return {
@@ -41,7 +51,7 @@ export function createBitbucketProvider(config: GitProviderConfig): GitProvider 
     },
 
     async createComment(prId, body) {
-      await api(`/repositories/${repoPath}/pullrequests/${prId}/comments`, {
+      await apiOrThrow(`/repositories/${repoPath}/pullrequests/${prId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: { raw: body } }),
@@ -49,7 +59,7 @@ export function createBitbucketProvider(config: GitProviderConfig): GitProvider 
     },
 
     async updateComment(prId, commentId, body) {
-      await api(`/repositories/${repoPath}/pullrequests/${prId}/comments/${commentId}`, {
+      await apiOrThrow(`/repositories/${repoPath}/pullrequests/${prId}/comments/${commentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: { raw: body } }),
@@ -63,7 +73,7 @@ export function createBitbucketProvider(config: GitProviderConfig): GitProvider 
         failure: "FAILED",
         pending: "INPROGRESS",
       };
-      await api(`/repositories/${repoPath}/commit/${params.commitSha}/statuses/build`, {
+      await apiOrThrow(`/repositories/${repoPath}/commit/${params.commitSha}/statuses/build`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
