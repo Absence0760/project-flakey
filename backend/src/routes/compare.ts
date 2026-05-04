@@ -3,6 +3,60 @@ import { tenantQuery } from "../db.js";
 
 const router = Router();
 
+export type CompareCategory =
+  | "added"
+  | "removed"
+  | "regression"
+  | "fixed"
+  | "still_failing"
+  | "newly_skipped"
+  | "newly_failing_from_skipped"
+  | "changed"
+  | "unchanged";
+
+/**
+ * Classify the diff between two test results (or a missing one).
+ *
+ * Bug history: prior versions fell through to "unchanged" for every
+ * transition involving "failed" except the four hard-coded combos
+ * (passed↔failed, failed↔failed). That meant `failed → skipped` and
+ * `skipped → failed` (and the same with pending) were silently
+ * categorised as no-change, hiding real regressions and resolutions
+ * from anyone using /compare to review a PR.
+ *
+ * The fixed shape:
+ *   - regression                   passed   → failed
+ *   - fixed                        failed   → passed
+ *   - still_failing                failed   → failed
+ *   - newly_failing_from_skipped   skipped/pending → failed
+ *   - newly_skipped                failed   → skipped/pending
+ *   - changed                      any other status mismatch
+ *   - unchanged                    same status both sides
+ */
+export function categorizeChange(
+  aStatus: string | null,
+  bStatus: string | null,
+): CompareCategory {
+  if (aStatus === null) return "added";
+  if (bStatus === null) return "removed";
+  if (aStatus === "passed" && bStatus === "failed") return "regression";
+  if (aStatus === "failed" && bStatus === "passed") return "fixed";
+  if (aStatus === "failed" && bStatus === "failed") return "still_failing";
+  // skipped/pending → failed is a *new* failure surfacing — treat
+  // separately from a clean "regression" since the prior run didn't
+  // report green either, but still flag it loudly.
+  if ((aStatus === "skipped" || aStatus === "pending") && bStatus === "failed") {
+    return "newly_failing_from_skipped";
+  }
+  // failed → skipped/pending: the test stopped running. Could be a
+  // skip-the-failure attempt or an env break — either way, surface it.
+  if (aStatus === "failed" && (bStatus === "skipped" || bStatus === "pending")) {
+    return "newly_skipped";
+  }
+  if (aStatus !== bStatus) return "changed";
+  return "unchanged";
+}
+
 // GET /compare?a=42&b=43
 router.get("/", async (req, res) => {
   try {
@@ -71,22 +125,7 @@ router.get("/", async (req, res) => {
       const b = mapB.get(key) ?? null;
       const [file_path, title] = key.split("::");
 
-      let category: string;
-      if (!a) {
-        category = "added";
-      } else if (!b) {
-        category = "removed";
-      } else if (a.status === "passed" && b.status === "failed") {
-        category = "regression";
-      } else if (a.status === "failed" && b.status === "passed") {
-        category = "fixed";
-      } else if (a.status === "failed" && b.status === "failed") {
-        category = "still_failing";
-      } else if (a.status !== "failed" && b.status !== "failed" && a.status !== b.status) {
-        category = "changed";
-      } else {
-        category = "unchanged";
-      }
+      const category = categorizeChange(a?.status ?? null, b?.status ?? null);
 
       let durationDelta: number | null = null;
       if (a && b && a.duration_ms > 0) {
@@ -104,8 +143,20 @@ router.get("/", async (req, res) => {
       });
     }
 
-    // Sort: regressions first, then fixed, still_failing, added, removed, changed, unchanged
-    const order: Record<string, number> = { regression: 0, fixed: 1, still_failing: 2, added: 3, removed: 4, changed: 5, unchanged: 6 };
+    // Sort by severity: hard regressions first, then "soft" regressions
+    // (newly failing from skipped/pending), fixes, still-failing, then
+    // status changes, then noise.
+    const order: Record<string, number> = {
+      regression: 0,
+      newly_failing_from_skipped: 1,
+      fixed: 2,
+      still_failing: 3,
+      added: 4,
+      removed: 5,
+      newly_skipped: 6,
+      changed: 7,
+      unchanged: 8,
+    };
     comparisons.sort((x, y) => (order[x.category] ?? 9) - (order[y.category] ?? 9));
 
     // Summary counts

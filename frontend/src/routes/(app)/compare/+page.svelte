@@ -85,15 +85,27 @@
 
   const CATEGORY_LABELS: Record<string, string> = {
     regression: "Regressions",
+    newly_failing_from_skipped: "Newly Failing (was skipped)",
     fixed: "Fixed",
     still_failing: "Still Failing",
     added: "Added",
     removed: "Removed",
+    newly_skipped: "Now Skipped (was failing)",
     changed: "Changed",
     unchanged: "Unchanged",
   };
 
-  const CATEGORY_ORDER = ["regression", "fixed", "still_failing", "added", "removed", "changed", "unchanged"];
+  const CATEGORY_ORDER = [
+    "regression",
+    "newly_failing_from_skipped",
+    "fixed",
+    "still_failing",
+    "added",
+    "removed",
+    "newly_skipped",
+    "changed",
+    "unchanged",
+  ];
 
   let filteredComparisons = $derived.by(() => {
     if (!result) return [];
@@ -361,8 +373,10 @@
   .pill-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 400; }
 
   .summary-pill.regression { color: var(--color-fail); }
+  .summary-pill.newly_failing_from_skipped { color: var(--color-fail); }
   .summary-pill.fixed { color: var(--color-pass); }
   .summary-pill.still_failing { color: var(--color-fail); }
+  .summary-pill.newly_skipped { color: var(--text-muted); }
   .summary-pill.added { color: var(--link); }
 
   /* File sections */
