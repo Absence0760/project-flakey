@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import pool from "../db.js";
-import { requireAuth, signToken } from "../auth.js";
+import { requireAuth, signToken, normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { encryptSecret } from "../crypto.js";
 
@@ -89,7 +89,8 @@ router.get("/:id/members", async (req, res) => {
 router.post("/:id/invites", async (req, res) => {
   try {
     const orgId = Number(req.params.id);
-    const { email, role } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const { role } = req.body ?? {};
 
     if (!email) {
       res.status(400).json({ error: "Email is required" });

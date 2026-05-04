@@ -4,7 +4,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
-import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth } from "../auth.js";
+import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 
 // Secure default: registration is disabled unless ALLOW_REGISTRATION=true is explicitly set.
@@ -24,9 +24,11 @@ async function resolveOrg(userId: number, email: string): Promise<{ orgId: numbe
     return { orgId: membership.rows[0].org_id, orgRole: membership.rows[0].role };
   }
 
-  // Check for pending invites
+  // Check for pending invites. Match case-insensitively because admins
+  // may have typed "Alice@Example.com" while the user registered as
+  // "alice@example.com" — same person, mismatched casing.
   const invite = await pool.query(
-    "SELECT id, org_id, role FROM org_invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1",
+    "SELECT id, org_id, role FROM org_invites WHERE LOWER(email) = LOWER($1) AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1",
     [email]
   );
 
@@ -57,7 +59,8 @@ async function resolveOrg(userId: number, email: string): Promise<{ orgId: numbe
 // POST /auth/login
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const { password } = req.body ?? {};
 
     if (!email || !password) {
       res.status(400).json({ error: "Email and password are required" });
@@ -65,7 +68,7 @@ router.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, email, name, role, password_hash, email_verified FROM users WHERE email = $1",
+      "SELECT id, email, name, role, password_hash, email_verified FROM users WHERE LOWER(email) = $1",
       [email]
     );
 
@@ -96,20 +99,8 @@ router.post("/login", async (req, res) => {
 // POST /auth/register
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, name, invite_token } = req.body;
-
-    // Fix 6: Check if open registration is allowed, or if they have an invite
-    if (!ALLOW_OPEN_REGISTRATION && !invite_token) {
-      // Check if there's a pending invite for this email
-      const pendingInvite = await pool.query(
-        "SELECT id FROM org_invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1",
-        [email]
-      );
-      if (pendingInvite.rows.length === 0) {
-        res.status(403).json({ error: "Registration is by invite only. Contact your admin." });
-        return;
-      }
-    }
+    const email = normalizeEmail(req.body?.email);
+    const { password, name, invite_token } = req.body ?? {};
 
     if (!email || !password) {
       res.status(400).json({ error: "Email and password are required" });
@@ -121,7 +112,20 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    // Fix 6: Check if open registration is allowed, or if they have an invite
+    if (!ALLOW_OPEN_REGISTRATION && !invite_token) {
+      // Check if there's a pending invite for this email
+      const pendingInvite = await pool.query(
+        "SELECT id FROM org_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1",
+        [email]
+      );
+      if (pendingInvite.rows.length === 0) {
+        res.status(403).json({ error: "Registration is by invite only. Contact your admin." });
+        return;
+      }
+    }
+
+    const existing = await pool.query("SELECT id FROM users WHERE LOWER(email) = $1", [email]);
     if (existing.rows.length > 0) {
       res.status(409).json({ error: "Email already registered" });
       return;
@@ -330,14 +334,14 @@ router.post("/verify-email", async (req, res) => {
 // POST /auth/resend-verification — resend verification email
 router.post("/resend-verification", async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body?.email);
     if (!email) {
       res.status(400).json({ error: "Email is required" });
       return;
     }
 
     const result = await pool.query(
-      "SELECT id, email_verified FROM users WHERE email = $1",
+      "SELECT id, email_verified FROM users WHERE LOWER(email) = $1",
       [email]
     );
 
@@ -372,13 +376,13 @@ router.post("/resend-verification", async (req, res) => {
 // POST /auth/forgot-password — send password reset email
 router.post("/forgot-password", async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body?.email);
     if (!email) {
       res.status(400).json({ error: "Email is required" });
       return;
     }
 
-    const result = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    const result = await pool.query("SELECT id FROM users WHERE LOWER(email) = $1", [email]);
 
     // Always return success to prevent email enumeration
     if (result.rows.length === 0) {

@@ -10,6 +10,27 @@ const JWT_SECRET = process.env.JWT_SECRET ?? "flakey-dev-secret-change-me";
 const ACCESS_EXPIRY = "1h";
 const REFRESH_EXPIRY = "7d";
 
+/**
+ * Canonicalize an email address before any DB lookup or insert.
+ *
+ * Per RFC 5321 the local-part is technically case-sensitive, but no
+ * mainstream provider treats it that way. Storing — and matching —
+ * verbatim has bitten us in three separate ways:
+ *   1. Login: user registered alice@x.com, types Alice@X.com, gets 401.
+ *   2. Duplicate accounts: alice@x.com and Alice@X.com slip past the
+ *      UNIQUE constraint as separate rows with separate password hashes.
+ *   3. Invite + forgot-password: lookups miss when casing differs from
+ *      what the admin or user originally typed.
+ *
+ * Use normalizeEmail() at every entry point (register/login/invite/
+ * forgot-password/resend-verification). Returns "" for null/undefined
+ * so callers can chain into existing empty-check guards.
+ */
+export function normalizeEmail(email: string | null | undefined): string {
+  if (typeof email !== "string") return "";
+  return email.trim().toLowerCase();
+}
+
 export interface AuthUser {
   id: number;
   email: string;

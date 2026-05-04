@@ -467,3 +467,45 @@ test("POST /auth/register rejects duplicate email", async () => {
   assert.notEqual(res.status, 201, "duplicate email should not produce a 201");
   assert.ok(res.status >= 400 && res.status < 500, `expected 4xx for duplicate email, got ${res.status}`);
 });
+
+// ── Email-casing regression suite ───────────────────────────────────────
+
+test("POST /auth/register treats Alice@X.com and alice@x.com as the same account", async () => {
+  // Pre-fix: these two went past the UNIQUE constraint as separate rows
+  // with different password hashes — operator nightmare and a data-leak
+  // risk if the wrong row got tied to an org membership.
+  const lower = `casereg+${Date.now()}@test.local`;
+  const upper = lower.toUpperCase();
+
+  const first = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: lower, password: "password123", name: "First", org_name: `Lower-${Date.now()}` }),
+  });
+  assert.ok(first.ok, `first registration should succeed (got ${first.status})`);
+
+  const second = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: upper, password: "password456", name: "Second", org_name: `Upper-${Date.now()}` }),
+  });
+  assert.equal(second.status, 409, "second registration with same effective email must 409");
+});
+
+test("POST /auth/login accepts mixed-case email and trimmed whitespace", async () => {
+  // Two regressions in one test (rate-limit budget is tight on this
+  // shared smoke server):
+  //   - case-insensitive lookup: register lowercase, login uppercase → 200
+  //   - trim: leading/trailing whitespace from mobile autofill → 200
+  // Pre-fix: WHERE email = $1 was strict, so both produced 401 even
+  // though the password was correct.
+  const decorated = `  ${userEmail.toUpperCase()}\t`;
+  const login = await fetch(`${BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: decorated, password: userPassword }),
+  });
+  assert.equal(login.status, 200,
+    `login with uppercase + whitespace should succeed (got ${login.status})`);
+});
+
