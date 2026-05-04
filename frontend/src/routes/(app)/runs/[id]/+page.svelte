@@ -545,6 +545,12 @@
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="12" r="1.5"/><path d="M5 5.5v5M11 5.5c0 3-6 3-6 5"/></svg>
               {run.branch || "—"}
             </span>
+            {#if run.environment}
+              <a class="meta-item env-chip" href="/?env={encodeURIComponent(run.environment)}" title="Environment — click to filter the runs grid">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8a6 6 0 0112 0M2 8a6 6 0 0012 0M2 8h12M8 2c1.5 1.7 2.3 3.8 2.3 6S9.5 12.3 8 14M8 2C6.5 3.7 5.7 5.8 5.7 8S6.5 12.3 8 14"/></svg>
+                {run.environment}
+              </a>
+            {/if}
             {#if run.commit_sha}
               <span class="meta-item mono" title="Commit">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v4M8 11v4M1 8h4M11 8h4"/></svg>
@@ -931,6 +937,19 @@
 
   .meta-item.mono {
     font-family: monospace;
+  }
+
+  .meta-item.env-chip {
+    background: var(--bg-hover, rgba(128, 128, 128, 0.12));
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    text-decoration: none;
+    color: var(--text-secondary);
+    transition: background 0.15s, color 0.15s;
+  }
+  .meta-item.env-chip:hover {
+    background: color-mix(in srgb, var(--link, #4c8bf5) 18%, transparent);
+    color: var(--text-primary);
   }
 
   .meta-item svg {

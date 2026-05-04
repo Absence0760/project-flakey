@@ -19,6 +19,7 @@
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
+  let selectedEnv = $state("all");
   let selectedStatus = $state("all");
   let selectedDate = $state("7d");
   let searchQuery = $state("");
@@ -31,6 +32,7 @@
     };
     set("suite", selectedSuite, "all");
     set("branch", selectedBranch, "all");
+    set("env", selectedEnv, "all");
     set("status", selectedStatus, "all");
     set("date", selectedDate, "7d");
     set("q", searchQuery, "");
@@ -41,6 +43,7 @@
     const p = $page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     selectedBranch = p.get("branch") ?? "all";
+    selectedEnv = p.get("env") ?? "all";
     selectedStatus = p.get("status") ?? "all";
     selectedDate = p.get("date") ?? "7d";
     searchQuery = p.get("q") ?? "";
@@ -49,7 +52,7 @@
   let mounted = $state(false);
   $effect(() => {
     // Access all filter values to create dependency
-    selectedSuite; selectedBranch; selectedStatus; selectedDate; searchQuery;
+    selectedSuite; selectedBranch; selectedEnv; selectedStatus; selectedDate; searchQuery;
     if (mounted) syncFiltersToUrl();
   });
 
@@ -104,8 +107,11 @@
 
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
   let branches = $derived([...new Set(allRuns.map((r) => r.branch).filter(Boolean))].sort());
+  let environments = $derived(
+    [...new Set(allRuns.map((r) => r.environment).filter((e): e is string => Boolean(e)))].sort()
+  );
 
-  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || selectedStatus !== "all" || selectedDate !== "7d" || searchQuery !== "");
+  let hasActiveFilters = $derived(selectedSuite !== "all" || selectedBranch !== "all" || selectedEnv !== "all" || selectedStatus !== "all" || selectedDate !== "7d" || searchQuery !== "");
 
   function dateThreshold(key: string): number {
     const now = Date.now();
@@ -123,6 +129,7 @@
     allRuns.filter((r) => {
       if (selectedSuite !== "all" && r.suite_name !== selectedSuite) return false;
       if (selectedBranch !== "all" && r.branch !== selectedBranch) return false;
+      if (selectedEnv !== "all" && (r.environment ?? "") !== selectedEnv) return false;
       if (selectedStatus === "passed" && r.failed > 0) return false;
       if (selectedStatus === "failed" && r.failed === 0) return false;
       if (selectedStatus === "new_failures" && (r.new_failures ?? 0) === 0) return false;
@@ -132,6 +139,7 @@
         return r.suite_name.toLowerCase().includes(q)
           || r.branch?.toLowerCase().includes(q)
           || r.commit_sha?.toLowerCase().includes(q)
+          || r.environment?.toLowerCase().includes(q)
           || String(r.id).includes(q);
       }
       return true;
@@ -148,6 +156,7 @@
   function applyView(view: SavedView) {
     selectedSuite = view.filters.suite ?? "all";
     selectedBranch = view.filters.branch ?? "all";
+    selectedEnv = view.filters.env ?? "all";
     selectedStatus = view.filters.status ?? "all";
     selectedDate = view.filters.date ?? "7d";
     searchQuery = view.filters.search ?? "";
@@ -158,6 +167,7 @@
     const filters: Record<string, string> = {};
     if (selectedSuite !== "all") filters.suite = selectedSuite;
     if (selectedBranch !== "all") filters.branch = selectedBranch;
+    if (selectedEnv !== "all") filters.env = selectedEnv;
     if (selectedStatus !== "all") filters.status = selectedStatus;
     if (selectedDate !== "7d") filters.date = selectedDate;
     if (searchQuery) filters.search = searchQuery;
@@ -186,6 +196,7 @@
   function clearFilters() {
     selectedSuite = "all";
     selectedBranch = "all";
+    selectedEnv = "all";
     selectedStatus = "all";
     selectedDate = "7d";
     searchQuery = "";
@@ -300,6 +311,14 @@
           <option value="all">All branches</option>
           {#each branches as branch}
             <option value={branch}>{branch}</option>
+          {/each}
+        </select>
+      {/if}
+      {#if environments.length > 0}
+        <select bind:value={selectedEnv}>
+          <option value="all">All environments</option>
+          {#each environments as env}
+            <option value={env}>{env}</option>
           {/each}
         </select>
       {/if}
@@ -465,6 +484,9 @@
               <div class="card-meta">
                 {#if run.branch}
                   <span class="meta-chip branch">{run.branch}</span>
+                {/if}
+                {#if run.environment}
+                  <span class="meta-chip env" title="Environment">{run.environment}</span>
                 {/if}
                 {#if run.commit_sha}
                   <span class="meta-chip mono">{run.commit_sha.slice(0, 7)}</span>
@@ -740,6 +762,13 @@
     background: var(--bg-secondary); color: var(--text-secondary);
   }
   .meta-chip.branch { font-weight: 500; }
+  .meta-chip.env {
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: color-mix(in srgb, var(--link, #4c8bf5) 14%, var(--bg-secondary));
+    color: var(--text-primary);
+  }
   .meta-chip.mono { font-family: monospace; }
   .meta-time { margin-left: auto; }
 

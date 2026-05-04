@@ -46,6 +46,14 @@ export interface Run {
   spec_files: string[] | null;
   new_failures: number;
   aborted?: boolean;
+  environment?: string;
+}
+
+export async function fetchEnvironments(): Promise<string[]> {
+  const res = await authFetch(`${API_URL}/runs/environments`);
+  if (!res.ok) throw new Error(`Failed to fetch environments: ${res.status}`);
+  const data = await res.json() as { environments: string[] };
+  return data.environments ?? [];
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;
