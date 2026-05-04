@@ -52,6 +52,11 @@
   let eventSource: EventSource | null = null;
   let livePollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Ticks every second so the duration field updates in real-time during a
+  // live run instead of only refreshing when run data is repolled.
+  let now = $state(Date.now());
+  let nowTimer: ReturnType<typeof setInterval> | null = null;
+
   function startLivePoll(runId: number) {
     if (livePollTimer) return;
     livePollTimer = setInterval(() => {
@@ -131,6 +136,8 @@
   onMount(async () => {
     const id = Number($page.params.id);
 
+    nowTimer = setInterval(() => { now = Date.now(); }, 1000);
+
     // Feature 5: read URL filter param
     const urlStatus = $page.url.searchParams.get("status");
     if (urlStatus && ["all", "passed", "failed", "skipped"].includes(urlStatus)) {
@@ -167,6 +174,7 @@
   onDestroy(() => {
     eventSource?.close();
     stopLivePoll();
+    if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
   });
 
   function formatDuration(ms: number): string {
@@ -313,7 +321,7 @@
     ];
     if (run.branch) lines.push(`Branch: ${run.branch}`);
     if (run.commit_sha) lines.push(`Commit: \`${run.commit_sha.slice(0, 7)}\``);
-    lines.push(`Duration: ${formatDuration(run.duration_ms)}`);
+    lines.push(`Duration: ${formatDuration(displayDuration)}`);
     lines.push(`Results: ${run.passed} passed, ${run.failed} failed, ${run.skipped} skipped / ${run.total} total (${passRate(run)}%)`);
 
     const statusIcon = (s: string) => s === "passed" ? "✅" : s === "failed" ? "❌" : "⏭️";
@@ -400,6 +408,23 @@
       failed: all.filter((t) => t.status === "failed").length,
       skipped: all.filter((t) => t.status === "skipped" || t.status === "pending").length,
     };
+  });
+
+  // Wall-clock duration to match what the test runner prints in the terminal.
+  // run.duration_ms is the sum of per-test durations server-side, which can
+  // diverge from real elapsed time (parallelism, setup overhead, etc.). For
+  // live runs we tick from started_at; for completed runs we use the
+  // finished_at − started_at delta when both are present.
+  let displayDuration = $derived.by(() => {
+    if (!run) return 0;
+    const startMs = new Date(run.started_at).getTime();
+    if (!Number.isFinite(startMs)) return run?.duration_ms ?? 0;
+    if (isLive) return Math.max(0, now - startMs);
+    if (run.finished_at) {
+      const finishMs = new Date(run.finished_at).getTime();
+      if (Number.isFinite(finishMs) && finishMs >= startMs) return finishMs - startMs;
+    }
+    return run.duration_ms;
   });
 </script>
 
@@ -502,7 +527,7 @@
             </span>
             <span class="meta-item" title="Duration">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2h4M8 2v3M3.5 6l1-1M12.5 6l-1-1"/><circle cx="8" cy="9.5" r="4.5"/></svg>
-              {formatDuration(run.duration_ms)}
+              {formatDuration(displayDuration)}
             </span>
           </div>
         </div>
