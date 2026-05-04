@@ -24,18 +24,20 @@ sweep (2026-05-04):
 | M5 | Unused `db_password` in ECS module | **Applied** — only `db_password_arn` is now passed |
 | M6 | Helm migration job swallows SQL errors | **Applied** — bare `psql -v ON_ERROR_STOP=1 -q -f` |
 | M7 | Helm migration container resource limits | **Applied** — requests/limits set |
-| M8 | Helm default plaintext credentials | **Open — needs decision** — adding a `validateValues` guard breaks `helm install . ` without `--set`, which is the intended behavior but breaks any existing CI/docs that did so |
+| M8 | Helm default plaintext credentials | **Applied** — `flakey.validateValues` helper checks `auth.jwtSecret` and is invoked from `deployment.yaml`; `helm install` without `--set auth.jwtSecret=…` (or `auth.existingSecret`) now fails fast.  Bundled-postgres DB defaults stay as placeholders since they only apply to the demo path |
 | M9 | GHA template setup-node before pnpm | **Applied** — `Install pnpm` step now runs first |
 | M10 | SNS alerts topic without subscription | **Applied** — `aws_sns_topic_subscription.alerts_email` + `alert_email` variable wired from root |
 | L1 | RDS SG `0.0.0.0/0` egress | **Applied (this commit)** — egress block removed; implicit deny-all stands in |
 | L2 | Artifacts bucket no versioning | **Applied (this commit)** — versioning enabled, noncurrent expiry 30d |
 | L3 | `.terraform.lock.hcl` in `.gitignore` | **Applied (this commit)** — removed from gitignore; user should `terraform init` and commit the lock file |
-| L4 | Helm `tag: latest` + `IfNotPresent` | **Open — needs decision** — fixing breaks `helm install` without `--set image.tag=…` |
+| L4 | Helm `tag: latest` + `IfNotPresent` | **Applied (this commit)** — flipped default `pullPolicy: Always` so `helm upgrade` actually re-pulls the image.  Less aggressive than requiring an explicit tag (which would break `helm install` without `--set`); users pinning a specific tag can override `pullPolicy: IfNotPresent` to restore cached-layer behavior |
 | L5 | Postman script "Flakey" brand drift | **Applied (this commit)** |
 
-The remaining open items (H5, M8, L4) all require either user action
-(revocation) or a deliberate breaking change to consumer-facing wiring
-(values.yaml defaults).  Original sections retained below for traceability.
+Only **H5** remains open — it is local-machine state (gitignored `.env`
+files containing live API keys) that I cannot rotate for you.  Revoke
+the keys in the dashboard and replace the file contents with
+placeholders to clear it.  Original sections retained below for
+traceability.
 
 ---
 

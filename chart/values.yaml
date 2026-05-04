@@ -1,8 +1,13 @@
 # -- Backend image
 image:
   repository: ghcr.io/your-org/flakey-backend
+  # When tag is "latest" (or any mutable tag), `pullPolicy: IfNotPresent` lets
+  # nodes serve a stale cached layer after `helm upgrade`.  We default to
+  # `Always` here so an upgrade actually pulls the new image; pin a specific
+  # tag (e.g. `tag: v1.2.3`) and override `pullPolicy: IfNotPresent` if you
+  # want the cached-layer behavior back.
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # -- Number of backend replicas
 replicaCount: 1
