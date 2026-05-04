@@ -7,6 +7,7 @@ import { getStorage } from "../storage.js";
 
 const router = Router();
 const snapshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 50 * 1024 * 1024 } });
+const screenshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 25 * 1024 * 1024 } });
 
 /**
  * GET /live/active — list run IDs that are currently receiving live events.
@@ -396,6 +397,66 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     res.status(200).json({ key });
   } catch (err) {
     console.error("POST /live/:runId/snapshot error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /live/:runId/screenshot — stream a single screenshot mid-run.
+ * Body (multipart): file field "screenshot" (.png), text fields "spec" and "testTitle".
+ * Stores at runs/{runId}/screenshots/{filename} and appends the relative path to
+ * the matching test's screenshot_paths array. The path is preserved across the
+ * end-of-run upload's tests delete+reinsert (see routes/uploads.ts), so the
+ * association survives the final batch upload.
+ */
+router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (req, res) => {
+  try {
+    const runId = Number(req.params.runId);
+    if (!runId) {
+      res.status(400).json({ error: "Invalid run ID" });
+      return;
+    }
+
+    const file = req.file;
+    const spec = typeof req.body?.spec === "string" ? req.body.spec : "";
+    const testTitle = typeof req.body?.testTitle === "string" ? req.body.testTitle : "";
+    if (!file || !spec || !testTitle) {
+      res.status(400).json({ error: "screenshot file, spec, and testTitle are required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    const owns = await tenantQuery(orgId, `SELECT 1 FROM runs WHERE id = $1`, [runId]);
+    if (owns.rowCount === 0) {
+      res.status(404).json({ error: "Run not found" });
+      return;
+    }
+
+    const originalName = typeof file.originalname === "string" && file.originalname
+      ? file.originalname
+      : `${Date.now()}.png`;
+    const safeName = originalName.replace(/[^a-zA-Z0-9_\-. ]/g, "_").slice(0, 200);
+    const key = `runs/${runId}/screenshots/${safeName}`;
+
+    await getStorage().put(file.path, key);
+
+    // Match the test row by full_title (exact or trailing substring — older
+    // clients may send the leaf title only). LIKE special chars in the title
+    // are escaped so a '%' or '_' in the test name doesn't widen the match.
+    const escapedTitle = testTitle.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    await tenantQuery(orgId,
+      `UPDATE tests SET screenshot_paths = array_append(COALESCE(screenshot_paths, ARRAY[]::text[]), $3)
+       FROM specs
+       WHERE specs.id = tests.spec_id
+         AND specs.run_id = $1
+         AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $4 ESCAPE '\\')
+         AND NOT ($3 = ANY(COALESCE(tests.screenshot_paths, ARRAY[]::text[])))`,
+      [runId, testTitle, key, escapedTitle]
+    );
+
+    res.status(200).json({ key });
+  } catch (err) {
+    console.error("POST /live/:runId/screenshot error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
