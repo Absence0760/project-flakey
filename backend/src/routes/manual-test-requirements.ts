@@ -17,7 +17,7 @@ const PROVIDERS = ["jira", "github", "linear", "other"];
 
 // Heuristically guess the provider from a pasted URL so users don't have
 // to choose it. Falls back to 'other'.
-function inferProvider(refUrl: string | undefined): string {
+export function inferProvider(refUrl: string | undefined): string {
   if (!refUrl) return "other";
   const url = refUrl.toLowerCase();
   if (url.includes("atlassian.net") || url.includes("/jira/")) return "jira";

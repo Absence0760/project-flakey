@@ -17,7 +17,7 @@ const VALID_PLATFORMS = ["generic", "slack", "teams", "discord"];
  * intentionally do NOT blocklist private IP ranges because self-hosted
  * deployments often legitimately point webhooks at private addresses.
  */
-function validateWebhookUrl(url: unknown): { ok: true } | { ok: false; error: string } {
+export function validateWebhookUrl(url: unknown): { ok: true } | { ok: false; error: string } {
   if (typeof url !== "string" || !url.trim()) {
     return { ok: false, error: "URL is required" };
   }

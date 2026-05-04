@@ -20,7 +20,7 @@ interface IncomingFinding {
 
 const VALID_SEVERITIES: ReadonlySet<Severity> = new Set(["high", "medium", "low", "info"]);
 
-function normalizeSeverity(input: unknown): Severity {
+export function normalizeSeverity(input: unknown): Severity {
   if (typeof input !== "string") return "info";
   const lower = input.toLowerCase();
   if (VALID_SEVERITIES.has(lower as Severity)) return lower as Severity;

@@ -3,11 +3,11 @@ import pool, { tenantQuery } from "../db.js";
 
 const router = Router();
 
-function escapeXml(str: string): string {
+export function escapeXml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function makeBadge(label: string, message: string, color: string): string {
+export function makeBadge(label: string, message: string, color: string): string {
   const labelWidth = label.length * 6.5 + 12;
   const messageWidth = message.length * 6.5 + 12;
   const totalWidth = labelWidth + messageWidth;

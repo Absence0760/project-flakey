@@ -11,7 +11,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeSimilarity } from "../ai.js";
+import { computeSimilarity, parseJSON } from "../ai.js";
 
 // ── Identity / empty ─────────────────────────────────────────────────────
 
@@ -125,4 +125,53 @@ test("computeSimilarity: is symmetric — sim(a,b) === sim(b,a)", () => {
     const ba = computeSimilarity(b, a);
     assert.equal(ab, ba, `asymmetric: sim(${a}, ${b})=${ab}, sim(${b}, ${a})=${ba}`);
   }
+});
+
+// ── parseJSON ────────────────────────────────────────────────────────────
+// AI responses that "should" be raw JSON in practice arrive wrapped in
+// markdown fences, sometimes with surrounding prose despite explicit
+// "no markdown fences" instructions in the prompt.  parseJSON is the
+// last line of defence; bugs here silently fall back to the default
+// object and the user sees boring "Unable to determine" placeholder
+// text instead of the real classification.
+
+const FALLBACK = { rootCause: "fallback", severity: "low" };
+
+test("parseJSON: parses raw JSON without markdown fences", () => {
+  const out = parseJSON<typeof FALLBACK>('{"rootCause":"timing","severity":"high"}', FALLBACK);
+  assert.equal(out.rootCause, "timing");
+  assert.equal(out.severity, "high");
+});
+
+test("parseJSON: strips ```json fence prefix and trailing ```", () => {
+  const text = '```json\n{"rootCause":"x","severity":"low"}\n```';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "x");
+});
+
+test("parseJSON: strips bare ``` fence (no language tag)", () => {
+  const text = '```\n{"rootCause":"x","severity":"low"}\n```';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "x");
+});
+
+test("parseJSON: malformed JSON returns the fallback verbatim", () => {
+  // Important contract: callers rely on getting back the *exact*
+  // fallback object so downstream rendering doesn't blow up.
+  const out = parseJSON<typeof FALLBACK>("{not valid json", FALLBACK);
+  assert.deepEqual(out, FALLBACK);
+});
+
+test("parseJSON: empty string returns fallback", () => {
+  assert.deepEqual(parseJSON<typeof FALLBACK>("", FALLBACK), FALLBACK);
+});
+
+test("parseJSON: whitespace-only returns fallback (no spurious match)", () => {
+  assert.deepEqual(parseJSON<typeof FALLBACK>("   \n   ", FALLBACK), FALLBACK);
+});
+
+test("parseJSON: handles JSON with surrounding whitespace inside the fences", () => {
+  const text = '```json\n\n  {"rootCause":"y","severity":"medium"}  \n\n```';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "y");
 });

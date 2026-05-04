@@ -13,7 +13,7 @@ const STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
 // Stable identity for a Cucumber scenario: <feature file>::<scenario name>.
 // Re-importing the same file upserts in place as long as the scenario name
 // isn't renamed. Rename ⇒ new manual test (we treat it as a different case).
-function cucumberRef(file: string, scenarioName: string): string {
+export function cucumberRef(file: string, scenarioName: string): string {
   return `${file}::${scenarioName}`;
 }
 
@@ -398,7 +398,7 @@ const STEP_STATUSES = ["passed", "failed", "blocked", "skipped"];
 // Aggregate per-step statuses into a single overall status. Failure wins
 // over anything else, then blocked, then skipped, then passed. An empty list
 // falls back to not_run so we don't record ghost executions.
-function deriveOverallStatus(stepResults: Array<{ status: string }>): string {
+export function deriveOverallStatus(stepResults: Array<{ status: string }>): string {
   if (!stepResults.length) return "not_run";
   if (stepResults.some((s) => s.status === "failed")) return "failed";
   if (stepResults.some((s) => s.status === "blocked")) return "blocked";

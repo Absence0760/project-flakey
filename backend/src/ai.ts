@@ -92,7 +92,7 @@ async function chat(prompt: string): Promise<string> {
 /**
  * Parse a JSON response from the AI, stripping any markdown fences.
  */
-function parseJSON<T>(text: string, fallback: T): T {
+export function parseJSON<T>(text: string, fallback: T): T {
   // Strip markdown code fences if present
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   try {

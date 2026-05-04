@@ -236,7 +236,7 @@ router.post("/", uploadFields, async (req, res) => {
   }
 });
 
-function fixFilename(name: string): string {
+export function fixFilename(name: string): string {
   // Multer decodes the multipart filename header as Latin-1, but browsers
   // send UTF-8.  Re-interpret the Latin-1 bytes as UTF-8 to recover the
   // original characters (e.g. checkmarks, accented letters).
@@ -249,7 +249,7 @@ function fixFilename(name: string): string {
   }
 }
 
-function normalizeForMatch(str: string): string {
+export function normalizeForMatch(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
