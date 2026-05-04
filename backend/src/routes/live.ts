@@ -193,12 +193,39 @@ async function upsertLiveSpec(orgId: number, runId: number, event: LiveTestEvent
 
 /**
  * Update a spec's aggregate stats when a spec.finished event arrives.
- * Uses the stats payload sent by the reporter so the numbers are authoritative
- * even when individual test events were not sent (e.g. Cucumber reporters).
+ *
+ * When per-test rows exist for the spec we treat the tests table as the
+ * source of truth — this is the case for reporters that stream test.passed
+ * / test.failed / test.skipped events (Cypress, Playwright, WDIO). The
+ * reporter's `event.stats` payload can undercount: e.g. the Cypress mocha
+ * reporter emits `it.skip()` / `xit` tests as `test.skipped` events but
+ * Cypress's own `results.stats.skipped` only counts tests skipped due to a
+ * sibling failure, leaving `pending` tests out of the spec.finished payload.
+ *
+ * For reporters that only send spec-level summaries (Cucumber, etc.) we
+ * fall back to writing the payload as-is so the dashboard still gets
+ * meaningful numbers.
  */
 async function updateLiveSpecStats(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
   if (!event.spec || !event.stats) return;
   try {
+    const specRow = await tenantQuery(orgId,
+      `SELECT id FROM specs WHERE run_id = $1 AND file_path = $2`,
+      [runId, event.spec]
+    );
+    const specId = specRow.rows[0]?.id as number | undefined;
+
+    if (specId !== undefined) {
+      const testCount = await tenantQuery(orgId,
+        `SELECT COUNT(*)::int AS n FROM tests WHERE spec_id = $1`,
+        [specId]
+      );
+      if ((testCount.rows[0]?.n ?? 0) > 0) {
+        await recomputeSpecAndRunStats(orgId, runId, specId);
+        return;
+      }
+    }
+
     await tenantQuery(orgId,
       `UPDATE specs SET
         total   = $3,
