@@ -22,7 +22,7 @@ router.get("/active", (_req, res) => {
  */
 router.post("/start", async (req, res) => {
   try {
-    const { suite, branch, commitSha, ciRunId } = req.body;
+    const { suite, branch, commitSha, ciRunId, environment } = req.body;
     if (!suite) {
       res.status(400).json({ error: "suite is required" });
       return;
@@ -31,12 +31,13 @@ router.post("/start", async (req, res) => {
     const orgId = req.user!.orgId;
     // Generate a ci_run_id so the main reporter's upload merges into this run
     const effectiveCiRunId = ciRunId || `live-${crypto.randomBytes(8).toString("hex")}`;
+    const env = typeof environment === "string" ? environment.trim() : "";
 
     const result = await tenantQuery(orgId,
-      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
-       VALUES ($1, $2, $3, $4, 'live', NOW(), NOW(), 0, 0, 0, 0, 0, 0, $5)
+      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
+       VALUES ($1, $2, $3, $4, 'live', NOW(), NOW(), 0, 0, 0, 0, 0, 0, $5, $6)
        RETURNING id`,
-      [suite, branch ?? "", commitSha ?? "", effectiveCiRunId, orgId]
+      [suite, branch ?? "", commitSha ?? "", effectiveCiRunId, orgId, env]
     );
 
     const runId = result.rows[0].id;

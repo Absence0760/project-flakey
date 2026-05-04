@@ -14,28 +14,39 @@ export async function findOrCreateRun(
 ): Promise<{ runId: number; merged: boolean }> {
   const { meta, stats } = run;
 
-  // Check for existing run to merge into
+  const environment = (meta.environment ?? "").trim();
+
+  // Check for existing run to merge into. If the upload carries an
+  // environment but the existing row was created without one (e.g. via
+  // /live/start before the reporter resolved it), backfill it on merge.
   if (meta.ci_run_id) {
     const existing = await client.query(
-      `SELECT id FROM runs WHERE ci_run_id = $1 AND suite_name = $2 AND org_id = $3`,
+      `SELECT id, environment FROM runs WHERE ci_run_id = $1 AND suite_name = $2 AND org_id = $3`,
       [meta.ci_run_id, meta.suite_name, orgId]
     );
 
     if (existing.rows.length > 0) {
-      return { runId: existing.rows[0].id, merged: true };
+      const existingId = existing.rows[0].id as number;
+      if (environment && !existing.rows[0].environment) {
+        await client.query(
+          `UPDATE runs SET environment = $2 WHERE id = $1`,
+          [existingId, environment]
+        );
+      }
+      return { runId: existingId, merged: true };
     }
   }
 
   // Create new run
   const result = await client.query(
-    `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      RETURNING id`,
     [
       meta.suite_name, meta.branch, meta.commit_sha, meta.ci_run_id,
       meta.reporter, meta.started_at, meta.finished_at,
       stats.total, stats.passed, stats.failed, stats.skipped, stats.pending, stats.duration_ms,
-      orgId,
+      orgId, environment,
     ]
   );
 

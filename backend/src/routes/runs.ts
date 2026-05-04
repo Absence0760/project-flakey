@@ -179,6 +179,23 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /runs/environments — distinct environments populated on this org's
+// runs. Powers the env filter dropdown on the runs grid.
+router.get("/environments", async (req, res) => {
+  try {
+    const result = await tenantQuery(
+      req.user!.orgId,
+      `SELECT DISTINCT environment FROM runs
+       WHERE environment <> ''
+       ORDER BY environment ASC`
+    );
+    res.json({ environments: result.rows.map((r: { environment: string }) => r.environment) });
+  } catch (err) {
+    console.error("GET /runs/environments error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // GET /runs/check — check failure count for a CI run (auto-cancellation)
 // Query: ?ci_run_id=X&suite=name&threshold=3
 // Returns: { should_cancel, failed, threshold, run_id }

@@ -8,6 +8,7 @@ export interface NormalizedRun {
     finished_at: string;
     reporter: string;
     release?: string;
+    environment?: string;
   };
   stats: {
     total: number;
