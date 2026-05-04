@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool from "../db.js";
+import pool, { tenantQuery } from "../db.js";
 
 const router = Router();
 
@@ -50,7 +50,13 @@ router.get("/:orgSlug/:suiteName", async (req, res) => {
       return;
     }
 
-    const result = await pool.query(
+    // Run the runs query through tenantQuery so RLS sees the looked-up
+    // org id.  Without this, the RLS policy on `runs` evaluates
+    // `org_id = ''::integer` and errors, causing every badge to render
+    // "error" even for valid suite names.  The explicit AND filter is
+    // kept as defense-in-depth alongside RLS.
+    const result = await tenantQuery(
+      org.rows[0].id,
       `SELECT total, passed, failed, skipped FROM runs
        WHERE suite_name = $1 AND org_id = $2
        ORDER BY created_at DESC LIMIT 1`,

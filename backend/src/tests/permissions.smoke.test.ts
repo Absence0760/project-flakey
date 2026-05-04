@@ -257,6 +257,65 @@ test("GET /jira/settings never returns the api_token field (only a flag)", async
   assert.ok(!raw.includes("SECRET"), "raw Jira token leaked in GET /jira/settings response");
 });
 
+// ── Webhook URL validation (SSRF / scheme defense) ─────────────────────
+
+test("POST /webhooks rejects file:// URLs", async () => {
+  const res = await fetch(`${BASE}/webhooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ url: "file:///etc/passwd", platform: "generic" }),
+  });
+  assert.equal(res.status, 400, "file:// URLs must be rejected at create time");
+});
+
+test("POST /webhooks rejects javascript: URLs", async () => {
+  const res = await fetch(`${BASE}/webhooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ url: "javascript:alert(1)", platform: "generic" }),
+  });
+  assert.equal(res.status, 400, "javascript: scheme must be rejected");
+});
+
+test("POST /webhooks rejects malformed URLs", async () => {
+  const res = await fetch(`${BASE}/webhooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ url: "not a url at all", platform: "generic" }),
+  });
+  assert.equal(res.status, 400, "non-URL strings must be rejected");
+});
+
+test("POST /webhooks accepts http and https", async () => {
+  for (const url of ["http://hooks.example/test", "https://hooks.example/test"]) {
+    const res = await fetch(`${BASE}/webhooks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+      body: JSON.stringify({ url, platform: "generic" }),
+    });
+    assert.equal(res.status, 201, `expected ${url} to be accepted, got ${res.status}`);
+  }
+});
+
+test("PATCH /webhooks/:id rejects invalid scheme even if existing record is fine", async () => {
+  // Create a valid webhook first.
+  const create = await fetch(`${BASE}/webhooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ url: "https://hooks.example/initial", platform: "generic" }),
+  });
+  assert.equal(create.status, 201);
+  const { id } = (await create.json()) as { id: number };
+
+  // Try to PATCH it to a file:// URL.
+  const patch = await fetch(`${BASE}/webhooks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ url: "file:///etc/passwd" }),
+  });
+  assert.equal(patch.status, 400, "PATCH with bad scheme must be rejected (defense-in-depth)");
+});
+
 test("GET /pagerduty/settings never returns the integration_key field", async () => {
   const set = await fetch(`${BASE}/pagerduty/settings`, {
     method: "PATCH",

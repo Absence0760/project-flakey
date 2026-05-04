@@ -8,6 +8,31 @@ const router = Router();
 const VALID_EVENTS = ["run.failed", "run.passed", "run.completed", "new.failures", "flaky.detected"];
 const VALID_PLATFORMS = ["generic", "slack", "teams", "discord"];
 
+/**
+ * Reject webhook targets we never want to dispatch to — file://, javascript:,
+ * data:, and similar.  The dispatcher in src/webhooks.ts hands the URL to
+ * Node's fetch(), which will refuse `file://` but happily fire any
+ * http/https URL — including localhost services and cloud-metadata IPs.
+ * This is a defense-in-depth check at the create/update boundary.  We
+ * intentionally do NOT blocklist private IP ranges because self-hosted
+ * deployments often legitimately point webhooks at private addresses.
+ */
+function validateWebhookUrl(url: unknown): { ok: true } | { ok: false; error: string } {
+  if (typeof url !== "string" || !url.trim()) {
+    return { ok: false, error: "URL is required" };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, error: "URL is not a valid absolute URL" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, error: `Unsupported URL scheme '${parsed.protocol}'; webhooks must use http or https` };
+  }
+  return { ok: true };
+}
+
 // GET /webhooks
 router.get("/", async (req, res) => {
   try {
@@ -33,8 +58,9 @@ router.post("/", async (req, res) => {
       return;
     }
     const { name, url, events, platform } = req.body;
-    if (!url) {
-      res.status(400).json({ error: "URL is required" });
+    const urlCheck = validateWebhookUrl(url);
+    if (!urlCheck.ok) {
+      res.status(400).json({ error: urlCheck.error });
       return;
     }
     const validEvents = (events ?? []).filter((e: string) => VALID_EVENTS.includes(e));
@@ -64,7 +90,15 @@ router.patch("/:id", async (req, res) => {
     let i = 1;
 
     if (name !== undefined) { sets.push(`name = $${i++}`); params.push(name); }
-    if (url !== undefined) { sets.push(`url = $${i++}`); params.push(url); }
+    if (url !== undefined) {
+      const urlCheck = validateWebhookUrl(url);
+      if (!urlCheck.ok) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
+      sets.push(`url = $${i++}`);
+      params.push(url);
+    }
     if (events !== undefined) { sets.push(`events = $${i++}`); params.push(events.filter((e: string) => VALID_EVENTS.includes(e))); }
     if (active !== undefined) { sets.push(`active = $${i++}`); params.push(active); }
     if (platform !== undefined && VALID_PLATFORMS.includes(platform)) { sets.push(`platform = $${i++}`); params.push(platform); }

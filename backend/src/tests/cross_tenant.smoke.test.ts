@@ -359,6 +359,56 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Compare endpoint: both run ids must belong to caller's org ──────────
+
+test("GET /compare with one cross-org run id returns 404", async () => {
+  // The compare route fetches both runs via tenantQuery, so under RLS
+  // the cross-org id should resolve to zero rows and trigger 404.  A
+  // regression that joined runs without RLS scoping (or used pool.query)
+  // would leak a diff between an attacker's run and a victim's run.
+  const res = await asAuth(orgB.token).get(`/compare?a=${orgA.runId}&b=${orgB.runId}`);
+  assert.equal(res.status, 404, "compare must 404 when one run id is from another org");
+});
+
+test("GET /compare with two same-org runs returns a diff", async () => {
+  // Org A uploads a second run so we have two same-org ids to compare.
+  const second = await uploadRunForOrg(orgA.token, "compare-second-suite");
+  const res = await asAuth(orgA.token).get(`/compare?a=${orgA.runId}&b=${second}`);
+  assert.equal(res.status, 200);
+  const data = (await res.json()) as { run_a: { id: number }; run_b: { id: number }; comparisons: unknown[] };
+  assert.equal(data.run_a.id, orgA.runId);
+  assert.equal(data.run_b.id, second);
+});
+
+// ── Quarantine cross-tenant ──────────────────────────────────────────────
+
+test("POST /quarantine + GET /quarantine/check are scoped per-org", async () => {
+  // Org A quarantines a test in a uniquely-named suite.
+  const quarantineSuite = `quarantine-${Date.now()}`;
+  const add = await asAuth(orgA.token).post("/quarantine", {
+    fullTitle: "secret > flaky test",
+    filePath: "secret.spec.ts",
+    suiteName: quarantineSuite,
+    reason: "intermittent timeout",
+  });
+  assert.equal(add.status, 201);
+
+  // Org A sees it.
+  const ownCheck = await asAuth(orgA.token).get(`/quarantine/check?suite=${quarantineSuite}`);
+  const ownData = (await ownCheck.json()) as { quarantined: Array<{ full_title: string }> };
+  assert.equal(ownData.quarantined.length, 1);
+
+  // Org B querying the same suite name gets zero results.
+  const crossCheck = await asAuth(orgB.token).get(`/quarantine/check?suite=${quarantineSuite}`);
+  const crossData = (await crossCheck.json()) as { quarantined: Array<{ full_title: string }> };
+  assert.equal(crossData.quarantined.length, 0, "RLS leak: org B sees org A's quarantined tests");
+
+  const list = await asAuth(orgB.token).get("/quarantine");
+  const allB = (await list.json()) as Array<{ suite_name: string }>;
+  assert.ok(!allB.some((q) => q.suite_name === quarantineSuite),
+    "RLS leak: org A's quarantined entry surfaced in org B's full list");
+});
+
 // ── Suite-level isolation ────────────────────────────────────────────────
 
 test("PATCH /suites/:name/rename only affects the caller's org", async () => {
