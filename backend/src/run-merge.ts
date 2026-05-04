@@ -45,6 +45,11 @@ export async function findOrCreateRun(
 /**
  * After merging specs into an existing run, recalculate the run's aggregate stats
  * from its specs and tests.
+ *
+ * `pending` is derived from the tests table (specs only carries a combined
+ * skipped+pending count). Initial-create populates runs.pending from the
+ * normalized stats, so dropping it to a hardcoded 0 here would silently lose
+ * the count whenever a run gets merged.
  */
 export async function recalculateRunStats(client: pg.PoolClient, runId: number): Promise<void> {
   await client.query(
@@ -62,7 +67,11 @@ export async function recalculateRunStats(client: pg.PoolClient, runId: number):
          COALESCE(SUM(s.passed), 0)::int AS passed,
          COALESCE(SUM(s.failed), 0)::int AS failed,
          COALESCE(SUM(s.skipped), 0)::int AS skipped,
-         0 AS pending,
+         COALESCE((
+           SELECT COUNT(*)::int FROM tests t
+           JOIN specs sp ON sp.id = t.spec_id
+           WHERE sp.run_id = $1 AND t.status = 'pending'
+         ), 0) AS pending,
          COALESCE(SUM(s.duration_ms), 0)::bigint AS duration_ms
        FROM specs s
        WHERE s.run_id = $1
