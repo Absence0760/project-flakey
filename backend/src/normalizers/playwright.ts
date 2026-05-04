@@ -112,6 +112,16 @@ function extractVideo(result: PlaywrightResult): string | undefined {
   return video?.path;
 }
 
+// Coerce duration to a non-negative finite integer. Undefined / NaN /
+// negative values from a partial or buggy report would otherwise poison
+// every aggregate via reduce(+) and (worse) trip
+// `new Date(start + NaN).toISOString()` → RangeError when computing the
+// run's finished_at, which crashes the upload endpoint.
+function safeDuration(d: unknown): number {
+  const n = typeof d === "number" ? d : Number(d);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function collectFromSuite(
   suite: PlaywrightSuite,
   parentPath: string[],
@@ -175,7 +185,7 @@ function collectFromSuite(
         title: spec.title,
         full_title: fullTitle,
         status: mapStatus(lastResult),
-        duration_ms: lastResult.duration,
+        duration_ms: safeDuration(lastResult.duration),
         error: extractError(lastResult),
         screenshot_paths: extractScreenshots(lastResult),
         video_path: extractVideo(lastResult),
@@ -239,15 +249,25 @@ export function parsePlaywright(
   const passed = specs.reduce((s, sp) => s + sp.stats.passed, 0);
   const failed = specs.reduce((s, sp) => s + sp.stats.failed, 0);
   const skipped = specs.reduce((s, sp) => s + sp.stats.skipped, 0);
-  const durationMs = raw.stats?.duration ?? specs.reduce((s, sp) => s + sp.stats.duration_ms, 0);
+  const durationMs = safeDuration(raw.stats?.duration ?? specs.reduce((s, sp) => s + sp.stats.duration_ms, 0));
 
-  const startedAt = meta.started_at || raw.stats?.startTime || new Date().toISOString();
+  // startedAt and finishedAt must be representable ISO strings, not
+  // "Invalid Date". `new Date("garbage").toISOString()` throws RangeError,
+  // which would 500 the entire upload endpoint.
+  const startedRaw = meta.started_at || raw.stats?.startTime || new Date().toISOString();
+  const startedDate = new Date(startedRaw);
+  const startedAt = Number.isFinite(startedDate.getTime())
+    ? startedDate.toISOString()
+    : new Date().toISOString();
+
+  const finishedAt = meta.finished_at
+    || new Date(new Date(startedAt).getTime() + durationMs).toISOString();
 
   return {
     meta: {
       ...meta,
       started_at: startedAt,
-      finished_at: meta.finished_at || new Date(new Date(startedAt).getTime() + durationMs).toISOString(),
+      finished_at: finishedAt,
       reporter: "playwright",
     },
     stats: {

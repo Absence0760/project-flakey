@@ -49,6 +49,16 @@ function getStatus(test: MochawesomeTest): NormalizedTest["status"] {
   return "skipped";
 }
 
+// Coerce a duration to a non-negative finite integer. Mochawesome itself
+// never emits NaN, but custom Cypress reporters that wrap mochawesome
+// occasionally do — and a single NaN poisons every aggregate via
+// reduce(+), turning run.duration_ms into NaN which breaks Postgres int
+// inserts and silently zeros out trend dashboards.
+function safeDuration(d: unknown): number {
+  const n = typeof d === "number" ? d : Number(d);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function collectTests(suite: MochawesomeSuite, parentTitle: string = ""): NormalizedTest[] {
   const tests: NormalizedTest[] = [];
   const suiteTitle = parentTitle
@@ -60,7 +70,7 @@ function collectTests(suite: MochawesomeSuite, parentTitle: string = ""): Normal
       title: test.title ?? "",
       full_title: test.fullTitle ?? `${suiteTitle} > ${test.title ?? ""}`,
       status: getStatus(test),
-      duration_ms: test.duration ?? 0,
+      duration_ms: safeDuration(test.duration),
       error: test.err?.message
         ? { message: test.err.message, stack: test.err.estack }
         : undefined,
@@ -93,7 +103,7 @@ export function parseMochawesome(
         title: test.title ?? "",
         full_title: test.fullTitle ?? (test.title ?? ""),
         status: getStatus(test),
-        duration_ms: test.duration ?? 0,
+        duration_ms: safeDuration(test.duration),
         error: test.err?.message
           ? { message: test.err.message, stack: test.err.estack }
           : undefined,

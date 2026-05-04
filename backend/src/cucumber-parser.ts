@@ -176,9 +176,13 @@ export function parseFeature(source: string): ParsedFeature {
       flushOutline();
       inExamples = false;
       if (section === "feature") feature.description = descriptionLines.join("\n").trim();
+      // Scenario tags do NOT include feature.tags. Tag inheritance is a
+      // presentation concern — consumers that want feature-level filtering
+      // should merge feature.tags + scenario.tags themselves. Mixing them
+      // here loses the distinction and double-counts in tag filters.
       outlineTemplate = {
         name: trimmed.replace(/^Scenario (Outline|Template):/i, "").trim(),
-        tags: [...feature.tags, ...pendingTags],
+        tags: [...pendingTags],
         steps: [],
         lineNumber: lineNo,
       };
@@ -196,7 +200,7 @@ export function parseFeature(source: string): ParsedFeature {
       if (section === "feature") feature.description = descriptionLines.join("\n").trim();
       current = {
         name: trimmed.replace(/^(Scenario|Example):/i, "").trim(),
-        tags: [...feature.tags, ...pendingTags],
+        tags: [...pendingTags],
         steps: [],
         lineNumber: lineNo,
       };

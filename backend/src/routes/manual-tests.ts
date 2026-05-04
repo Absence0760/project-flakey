@@ -257,7 +257,11 @@ router.post("/import-features", async (req, res) => {
         for (const scenario of feature.scenarios) {
           scanned++;
           const steps = scenarioToManualSteps(feature, scenario);
-          const tags = scenario.tags.map((t) => t.replace(/^@/, ""));
+          // Merge feature-level tags into scenario tags for filter parity:
+          // a feature tagged @critical applies to every scenario inside it.
+          // De-dupe in case the same tag appears at both levels.
+          const merged = Array.from(new Set([...feature.tags, ...scenario.tags]));
+          const tags = merged.map((t) => t.replace(/^@/, ""));
           const ref = cucumberRef(f.path, scenario.name);
 
           const result = await tenantQuery(
