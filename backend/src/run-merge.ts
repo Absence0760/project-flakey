@@ -16,28 +16,43 @@ export async function findOrCreateRun(
 
   const environment = (meta.environment ?? "").trim();
 
-  // Check for existing run to merge into. If the upload carries an
-  // environment but the existing row was created without one (e.g. via
-  // /live/start before the reporter resolved it), backfill it on merge.
+  // For ci_run_id-tagged uploads we use INSERT ... ON CONFLICT against
+  // the partial unique index uniq_runs_ci_run (migration 035).  This
+  // is the only race-safe way to merge concurrent CI workers onto the
+  // same run row — the previous `SELECT then INSERT` pattern allowed
+  // two simultaneous calls to each see "no existing row" and each
+  // INSERT, producing distinct runs and breaking the merge guarantee.
+  //
+  // The xmax = 0 trick distinguishes inserted from updated:
+  //   xmax = 0 → row was just inserted (we're the first writer)
+  //   xmax ≠ 0 → row already existed (we hit ON CONFLICT, returned existing id)
   if (meta.ci_run_id) {
-    const existing = await client.query(
-      `SELECT id, environment FROM runs WHERE ci_run_id = $1 AND suite_name = $2 AND org_id = $3`,
-      [meta.ci_run_id, meta.suite_name, orgId]
+    const upserted = await client.query(
+      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (org_id, suite_name, ci_run_id) WHERE ci_run_id <> ''
+       DO UPDATE SET
+         -- No-op set so RETURNING fires on conflict.  Don't overwrite
+         -- aggregate stats here; recalculateRunStats does that after
+         -- specs are merged in.  DO backfill environment if the
+         -- existing row has none and the upload carries one.
+         environment = CASE
+           WHEN runs.environment = '' AND EXCLUDED.environment <> '' THEN EXCLUDED.environment
+           ELSE runs.environment
+         END
+       RETURNING id, (xmax = 0) AS inserted`,
+      [
+        meta.suite_name, meta.branch, meta.commit_sha, meta.ci_run_id,
+        meta.reporter, meta.started_at, meta.finished_at,
+        stats.total, stats.passed, stats.failed, stats.skipped, stats.pending, stats.duration_ms,
+        orgId, environment,
+      ]
     );
-
-    if (existing.rows.length > 0) {
-      const existingId = existing.rows[0].id as number;
-      if (environment && !existing.rows[0].environment) {
-        await client.query(
-          `UPDATE runs SET environment = $2 WHERE id = $1`,
-          [existingId, environment]
-        );
-      }
-      return { runId: existingId, merged: true };
-    }
+    const row = upserted.rows[0];
+    return { runId: row.id, merged: !row.inserted };
   }
 
-  // Create new run
+  // No ci_run_id: just create a new row (no merging possible).
   const result = await client.query(
     `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)

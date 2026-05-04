@@ -647,6 +647,62 @@ test("DELETE /suites/:name as org A does not touch org B's runs", async () => {
 
 // ── Run-merge concurrency (same ci_run_id from two workers) ──────────────
 
+test("five concurrent run uploads with the same ci_run_id merge into a single row (race test)", async () => {
+  // findOrCreateRun does SELECT ... THEN INSERT — without a unique
+  // constraint or upsert, multiple workers POSTing simultaneously
+  // can each see "no existing row" and each INSERT, producing
+  // multiple run rows for the same ci_run_id.
+  const sharedCi = `concurrent-merge-${Date.now()}`;
+  const sharedSuite = `concurrent-suite-${Date.now()}`;
+
+  const upload = (specFile: string) => {
+    const fd = new FormData();
+    fd.append(
+      "payload",
+      JSON.stringify({
+        meta: {
+          suite_name: sharedSuite,
+          branch: "main",
+          commit_sha: "concurrent-sha",
+          ci_run_id: sharedCi,
+          started_at: "2026-04-10T00:00:00Z",
+          finished_at: "2026-04-10T00:00:10Z",
+          reporter: "mochawesome",
+        },
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 1000 },
+        specs: [
+          {
+            file_path: specFile,
+            title: specFile,
+            stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 1000 },
+            tests: [{ title: "t", full_title: `${specFile}>t`, status: "passed", duration_ms: 1000, screenshot_paths: [] }],
+          },
+        ],
+      })
+    );
+    return fetch(`${BASE}/runs/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${orgA.token}` },
+      body: fd,
+    });
+  };
+
+  // Fire all five at once.
+  const results = await Promise.all([
+    upload("p1.js"), upload("p2.js"), upload("p3.js"), upload("p4.js"), upload("p5.js"),
+  ]);
+  const ids: number[] = [];
+  for (const r of results) {
+    assert.ok(r.ok, `upload should succeed under concurrency; got ${r.status}`);
+    ids.push(((await r.json()) as { id: number }).id);
+  }
+  const unique = new Set(ids);
+  assert.equal(
+    unique.size, 1,
+    `concurrent uploads with the same ci_run_id produced ${unique.size} distinct runs (${[...unique].join(",")}); should be 1.  Add a unique constraint on (org_id, suite_name, ci_run_id) and ON CONFLICT DO UPDATE in findOrCreateRun.`
+  );
+});
+
 test("two run uploads with the same ci_run_id merge into a single run row", async () => {
   // The whole point of this product over Cypress Cloud is parallel-worker
   // merge.  Two workers POST runs with identical ci_run_id + suite — they
