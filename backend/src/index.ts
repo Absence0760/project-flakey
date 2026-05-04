@@ -106,8 +106,20 @@ async function requireRunOwnership(req: express.Request, res: express.Response, 
   }
 }
 
+// `<img>` tags can't attach an Authorization header, so artifact URLs in
+// the frontend embed `?token=<jwt-or-api-key>` (mirrors the SSE /live
+// route's pattern).  Promote the query token to a Bearer header so
+// requireAuth can validate it.
+const promoteUploadToken: express.RequestHandler = (req, _res, next) => {
+  const t = req.query.token;
+  if (typeof t === "string" && t && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${t}`;
+  }
+  next();
+};
+
 if (STORAGE_MODE === "s3") {
-  app.get("/uploads/*", requireAuth, requireRunOwnership, async (req, res) => {
+  app.get("/uploads/*", promoteUploadToken, requireAuth, requireRunOwnership, async (req, res) => {
     try {
       const key = req.path.replace(/^\/uploads\//, "");
       const url = await getStorage().getUrl(key);
@@ -119,6 +131,7 @@ if (STORAGE_MODE === "s3") {
 } else {
   app.use(
     "/uploads",
+    promoteUploadToken,
     requireAuth,
     requireRunOwnership,
     express.static("uploads", {

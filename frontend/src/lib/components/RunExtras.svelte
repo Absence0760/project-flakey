@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
 	import { API_URL } from '$lib/config';
+	import { artifactSrc } from '$lib/api';
 	import { onMount } from 'svelte';
 
 	interface Props { runId: number; }
@@ -93,9 +94,9 @@
 		return 'bad';
 	}
 	function resolveUrl(p: string | null): string {
-		if (!p) return '';
-		if (p.startsWith('http')) return p;
-		return `${API_URL}/uploads/${p}`;
+		// Use the shared helper so the auth token is appended for the
+		// auth+ownership check on /uploads/*.
+		return artifactSrc(p);
 	}
 </script>
 

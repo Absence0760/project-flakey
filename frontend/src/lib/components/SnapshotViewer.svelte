@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { authFetch } from "$lib/auth";
   import { UPLOADS_URL } from "$lib/api";
 
   type Props = {
@@ -79,7 +80,9 @@
 
     try {
       const url = `${UPLOADS_URL}/${path}`;
-      const res = await fetch(url);
+      // authFetch attaches the Bearer token; required by the new
+      // auth+ownership check on /uploads/*.
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(`Failed to fetch snapshot: ${res.status}`);
 
       const ds = new DecompressionStream("gzip");

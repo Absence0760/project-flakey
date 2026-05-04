@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchTest, fetchTestHistory, UPLOADS_URL, type TestDetail, type TestHistoryEntry } from "$lib/api";
+  import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { authFetch } from "$lib/auth";
   import Lightbox from "./Lightbox.svelte";
   import SnapshotViewer from "./SnapshotViewer.svelte";
@@ -301,7 +301,9 @@
 
   let screenshotUrls = $derived(
     (test?.screenshot_paths ?? []).map((p) =>
-      `${UPLOADS_URL}/${p.split("/").map(encodeURIComponent).join("/")}`
+      // artifactSrc encodes the path and appends ?token= so the new
+      // auth+ownership check on /uploads/* lets <img> render.
+      artifactSrc(p.split("/").map(encodeURIComponent).join("/"))
     )
   );
 
@@ -464,7 +466,7 @@
 
               {:else if leftTab === "video" && hasVideo}
                 <div class="video-viewer">
-                  <video controls src="{UPLOADS_URL}/{test.video_path}">
+                  <video controls src={artifactSrc(test.video_path)}>
                     <track kind="captions" />
                   </video>
                 </div>

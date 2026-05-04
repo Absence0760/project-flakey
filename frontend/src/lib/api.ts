@@ -1,4 +1,4 @@
-import { authFetch } from "./auth";
+import { authFetch, getToken } from "./auth";
 import { API_URL } from "./config.js";
 
 export interface RunsSummary {
@@ -57,6 +57,28 @@ export async function fetchEnvironments(): Promise<string[]> {
 }
 
 export const UPLOADS_URL = `${API_URL}/uploads`;
+
+/**
+ * Build an artifact URL with the auth token baked into the query string.
+ *
+ * The /uploads/* route on the backend now requires authentication and
+ * verifies the run id in the path belongs to the caller's org.  HTML
+ * `<img>` and `<video>` elements can't attach an Authorization header,
+ * so the backend also accepts `?token=<jwt-or-api-key>` (same pattern
+ * the live SSE endpoint uses).
+ *
+ * Pass storage paths (e.g. "runs/42/screenshots/foo.png") — they're
+ * already URL-encoded by the upload pipeline.  When the user is not
+ * logged in, returns the URL without a token (the request will 401,
+ * which the consumer can render as a broken image gracefully).
+ */
+export function artifactSrc(path: string | null | undefined): string {
+  if (!path) return "";
+  if (path.startsWith("http")) return path; // S3 presigned URL passthrough
+  const token = getToken();
+  const base = `${UPLOADS_URL}/${path}`;
+  return token ? `${base}${base.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : base;
+}
 
 export interface TestResult {
   id: number;
