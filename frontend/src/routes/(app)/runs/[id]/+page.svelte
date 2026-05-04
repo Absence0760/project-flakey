@@ -536,7 +536,7 @@
         </div>
         <div class="stat-divider"></div>
         <div class="stat-item">
-          <span class="stat-num skip">{run.skipped}</span>
+          <span class="stat-num skip">{filterCounts.skipped}</span>
           <span class="stat-label">Skipped</span>
         </div>
         <div class="stat-divider"></div>
