@@ -359,6 +359,43 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Live SSE stream ownership ────────────────────────────────────────────
+
+test("GET /live/:runId/stream cannot subscribe to another org's run", async () => {
+  // Without an org check on the SSE endpoint, anyone with a valid token
+  // can connect to any run id and receive its live test events (test
+  // titles, error messages, screenshots-via-events) — a cross-tenant
+  // data leak through the live channel.
+  //
+  // Use AbortController to close the connection immediately after we
+  // know the status code, otherwise the SSE response holds the
+  // connection open indefinitely.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 500);
+  try {
+    const res = await fetch(`${BASE}/live/${orgA.runId}/stream`, {
+      headers: { Authorization: `Bearer ${orgB.token}` },
+      signal: ac.signal,
+    });
+    assert.equal(
+      res.status,
+      404,
+      `cross-org SSE subscription must 404; got ${res.status}.  Without this check, org B can subscribe to org A's live stream just by knowing the run id.`
+    );
+    res.body?.cancel().catch(() => {});
+  } catch (err: unknown) {
+    // AbortError is ok IF we got status code first; otherwise it means
+    // the server never closed the response, which is also a failure
+    // (SSE connection remained open after auth check).
+    if ((err as { name?: string })?.name !== "AbortError") throw err;
+    throw new Error(
+      "fetch was aborted before the server responded — the SSE endpoint accepts the cross-org request and holds it open"
+    );
+  } finally {
+    clearTimeout(t);
+  }
+});
+
 // ── Compare endpoint: both run ids must belong to caller's org ──────────
 
 test("GET /compare with one cross-org run id returns 404", async () => {

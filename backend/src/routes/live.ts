@@ -501,10 +501,21 @@ router.post("/:runId/abort", async (req, res) => {
  * GET /live/:runId/stream — SSE endpoint for live test events.
  * Browsers/frontends connect here to receive real-time updates.
  */
-router.get("/:runId/stream", (req, res) => {
+router.get("/:runId/stream", async (req, res) => {
   const runId = Number(req.params.runId);
   if (!runId) {
     res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+
+  // Verify the run belongs to the caller's org BEFORE writing the SSE
+  // headers.  The emitter is keyed by runId only — without this check
+  // any authenticated user can subscribe to any org's live stream
+  // (test titles, error messages, screenshots-via-events) by knowing
+  // the run id.  Cross-tenant data leak via the SSE channel.
+  const owns = await tenantQuery(req.user!.orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+  if (!owns.rowCount) {
+    res.status(404).json({ error: "Run not found" });
     return;
   }
 
