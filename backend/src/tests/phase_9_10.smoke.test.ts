@@ -1145,8 +1145,8 @@ test("POST /live/:runId/screenshot stores file, appends to test screenshot_paths
   }
 });
 
-test("/runs/upload merge preserves screenshots streamed mid-run (issue #23)", async () => {
-  const suite = `issue-23-preserve-${Date.now()}`;
+test("/runs JSON merge preserves screenshots streamed mid-run (issue #23)", async () => {
+  const suite = `issue-23-preserve-json-${Date.now()}`;
   const start = await authPost("/live/start", { suite });
   const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
   const spec = "cypress/e2e/preserve.cy.ts";
@@ -1220,6 +1220,100 @@ test("/runs/upload merge preserves screenshots streamed mid-run (issue #23)", as
   assert.ok(
     test!.screenshot_paths.includes(streamedKey),
     `streamed screenshot must survive delete+reinsert; got ${JSON.stringify(test!.screenshot_paths)}`
+  );
+});
+
+// Sibling of the JSON test above — same flow but the end-of-run merge goes
+// through the multipart `/runs/upload` route in `routes/uploads.ts`. The
+// preservation logic on that path drifted away from `routes/runs.ts` once
+// (caught by tests in commit bbf04e0); this test is the regression fence
+// for *that* route, since the JSON test only exercises `routes/runs.ts`.
+test("/runs/upload multipart merge preserves screenshots streamed mid-run (issue #23)", async () => {
+  const suite = `issue-23-preserve-multipart-${Date.now()}`;
+  const start = await authPost("/live/start", { suite });
+  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+  const spec = "cypress/e2e/preserve-mp.cy.ts";
+  const fullTitle = "preserve > test gets a screenshot mid-run multipart";
+
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.started", spec, test: fullTitle },
+  ]);
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => rows.some((r) => r.full_title === fullTitle)
+  );
+
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const streamFd = new FormData();
+  streamFd.set("screenshot", new Blob([png], { type: "image/png" }), "preserve-mp.png");
+  streamFd.set("spec", spec);
+  streamFd.set("testTitle", fullTitle);
+  const streamed = await fetch(`${BASE}/live/${liveRunId}/screenshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: streamFd,
+  });
+  assert.equal(streamed.status, 200);
+  const streamedKey = ((await streamed.json()) as { key: string }).key;
+
+  // End-of-run multipart upload — same shape the cypress reporter sends
+  // when it has artifacts to ship. We attach an unrelated batch screenshot
+  // (different filename so it won't title-match) so the multipart code path
+  // exercises both `screenshotMap` matching and the streamed-paths merge.
+  const batchPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x0d]);
+  const uploadFd = new FormData();
+  uploadFd.set(
+    "payload",
+    JSON.stringify({
+      meta: {
+        suite_name: suite,
+        branch: "main",
+        commit_sha: "preserve-mp-sha",
+        ci_run_id,
+        started_at: "2026-05-04T00:00:00Z",
+        finished_at: "2026-05-04T00:00:10Z",
+        reporter: "cypress",
+      },
+      stats: { total: 1, passed: 0, failed: 1, skipped: 0, pending: 0, duration_ms: 10 },
+      specs: [
+        {
+          file_path: spec,
+          title: spec,
+          stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 10 },
+          tests: [
+            {
+              title: "test gets a screenshot mid-run multipart",
+              full_title: fullTitle,
+              status: "failed",
+              duration_ms: 10,
+              screenshot_paths: [],
+              error: { message: "boom" },
+            },
+          ],
+        },
+      ],
+    })
+  );
+  uploadFd.append("screenshots", new Blob([batchPng], { type: "image/png" }), "unrelated-batch.png");
+
+  const upload = await fetch(`${BASE}/runs/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: uploadFd,
+  });
+  assert.ok(upload.ok, `multipart upload merge failed: ${upload.status}`);
+
+  const after = await authGet(`/runs/${liveRunId}`);
+  const body = (await after.json()) as { specs: Array<{ tests: Array<{ full_title: string; screenshot_paths: string[] }> }> };
+  const test = body.specs.flatMap((s) => s.tests).find((t) => t.full_title === fullTitle);
+  assert.ok(test, "test row must still exist after multipart merge");
+  assert.ok(
+    test!.screenshot_paths.includes(streamedKey),
+    `streamed screenshot must survive multipart delete+reinsert; got ${JSON.stringify(test!.screenshot_paths)}`
   );
 });
 
