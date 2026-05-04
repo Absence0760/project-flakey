@@ -61,25 +61,41 @@ router.post("/", async (req, res) => {
 
         // Replace any live-path test rows for this spec — the upload carries
         // the authoritative per-test list, so prior pending/partial rows
-        // would otherwise accumulate as duplicates. Snapshot the live-path's
-        // snapshot_path linkages (written by /live/:runId/snapshot mid-run)
+        // would otherwise accumulate as duplicates. Preserve the live-path's
+        // snapshot_path (written by /live/:runId/snapshot mid-run) and
+        // screenshot_paths (written by /live/:runId/screenshot mid-run)
         // so we can re-apply them to the fresh rows by matching full_title.
         const preserved = await client.query(
-          `SELECT full_title, snapshot_path FROM tests WHERE spec_id = $1 AND snapshot_path IS NOT NULL`,
+          `SELECT full_title, snapshot_path, screenshot_paths
+           FROM tests
+           WHERE spec_id = $1
+             AND (snapshot_path IS NOT NULL
+                  OR (screenshot_paths IS NOT NULL AND array_length(screenshot_paths, 1) > 0))`,
           [specId]
         );
         const snapshotByTitle = new Map<string, string>();
-        for (const row of preserved.rows) snapshotByTitle.set(row.full_title, row.snapshot_path);
+        const screenshotsByTitle = new Map<string, string[]>();
+        for (const row of preserved.rows) {
+          if (row.snapshot_path) snapshotByTitle.set(row.full_title, row.snapshot_path);
+          if (row.screenshot_paths?.length) screenshotsByTitle.set(row.full_title, row.screenshot_paths);
+        }
 
         await client.query(`DELETE FROM tests WHERE spec_id = $1`, [specId]);
 
         for (const test of spec.tests) {
+          // Union streamed screenshots with whatever the JSON payload supplies
+          // so per-test live uploads aren't clobbered by the end-of-run
+          // rewrite. The JSON path has no batch-uploaded files to match
+          // against, so the union is just streamed ∪ payload.
+          const streamed = screenshotsByTitle.get(test.full_title) ?? [];
+          const finalScreenshots = Array.from(new Set([...streamed, ...test.screenshot_paths]));
+
           await client.query(
             `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [specId, test.title, test.full_title, test.status, test.duration_ms,
              test.error?.message ?? null, test.error?.stack ?? null,
-             test.screenshot_paths, test.video_path ?? null,
+             finalScreenshots, test.video_path ?? null,
              test.test_code ?? null, test.command_log ? JSON.stringify(test.command_log) : null,
              test.metadata ? JSON.stringify(test.metadata) : null,
              snapshotByTitle.get(test.full_title) ?? null]

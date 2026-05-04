@@ -982,3 +982,341 @@ test("upload without meta.release does not create a release row", async () => {
   const afterCount = ((await (await authGet("/releases")).json()) as unknown[]).length;
   assert.equal(afterCount, beforeCount, "release count unchanged for upload without release");
 });
+
+// ─── Issue #25: spec.finished must not undercount skipped tests ─────────
+// Cypress reports it.skip()/xit tests under stats.pending, not stats.skipped,
+// so a naive overwrite of specs.skipped from event.stats zeroes out tests
+// that were already streamed via test.skipped events. updateLiveSpecStats
+// now defers to the tests table when test rows exist for the spec.
+test("spec.finished does not overwrite live-streamed skipped count (issue #25)", async () => {
+  const start = await authPost("/live/start", { suite: "issue-25-skipped-counts" });
+  const { id: liveRunId } = (await start.json()) as { id: number };
+  const spec = "cypress/e2e/cucumber.feature";
+
+  // Stream a passed and a skipped test through the full lifecycle.
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "spec.started", spec },
+    { type: "test.started", spec, test: "scenario A" },
+    { type: "test.passed", spec, test: "scenario A", duration_ms: 10 },
+    { type: "test.started", spec, test: "scenario B" },
+    { type: "test.skipped", spec, test: "scenario B" },
+  ]);
+
+  // Now send Cypress-style spec.finished where stats.skipped is 0
+  // (the pending count it doesn't track separately would be 1).
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "spec.finished", spec, stats: { total: 2, passed: 1, failed: 0, skipped: 0 } },
+  ]);
+
+  const final = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      return (await d.json()) as { passed: number; failed: number; skipped: number; total: number };
+    },
+    (r) => r.passed === 1 && r.skipped === 1
+  );
+  assert.equal(final.passed, 1, "passed should be 1");
+  assert.equal(final.skipped, 1, "skipped must include the test.skipped event despite spec.finished claiming 0");
+  assert.equal(final.failed, 0);
+});
+
+// ─── Issue #22: heartbeat keeps a quiet run from being auto-aborted ─────
+test("empty-body events POST acts as a heartbeat (issue #22)", async () => {
+  const start = await authPost("/live/start", { suite: "issue-22-heartbeat" });
+  const { id: liveRunId } = (await start.json()) as { id: number };
+
+  // FLAKEY_LIVE_TIMEOUT_MS is 1500ms in this test process. Tick a heartbeat
+  // every 500ms for 2500ms — total elapsed is well past the stale window, so
+  // without the touch() the run would have been auto-aborted before we're
+  // done.
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const ping = await authPost(`/live/${liveRunId}/events`, []);
+    assert.equal(ping.status, 200, "empty-body events POST must succeed");
+  }
+
+  const active = await authGet("/live/active");
+  const activeBody = (await active.json()) as { runs: number[] };
+  assert.ok(
+    activeBody.runs.includes(liveRunId),
+    "still-pinged run must remain active despite exceeding the stale window"
+  );
+
+  // Stop pinging — the run should now go stale and get auto-aborted.
+  await new Promise((r) => setTimeout(r, 2500));
+  const after = await authGet("/live/active");
+  const afterBody = (await after.json()) as { runs: number[] };
+  assert.ok(
+    !afterBody.runs.includes(liveRunId),
+    "run must auto-abort once heartbeats stop arriving"
+  );
+});
+
+// ─── Issue #23: screenshot streaming endpoint ───────────────────────────
+test("POST /live/:runId/screenshot stores file, appends to test screenshot_paths (issue #23)", async () => {
+  const start = await authPost("/live/start", { suite: "issue-23-screenshot-stream" });
+  const { id: liveRunId } = (await start.json()) as { id: number };
+
+  const spec = "cypress/e2e/login.cy.ts";
+  const fullTitle = "Login flow > shows error on bad password";
+
+  // Pending test row needs to exist before the screenshot links to it.
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.started", spec, test: fullTitle },
+  ]);
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => rows.some((r) => r.full_title === fullTitle)
+  );
+
+  // Missing required field → 400
+  {
+    const fd = new FormData();
+    fd.set("screenshot", new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "shot.png");
+    const r = await fetch(`${BASE}/live/${liveRunId}/screenshot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    assert.equal(r.status, 400);
+  }
+
+  // Happy path
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const fd = new FormData();
+  fd.set("screenshot", new Blob([png], { type: "image/png" }), "shows error on bad password (failed).png");
+  fd.set("spec", spec);
+  fd.set("testTitle", fullTitle);
+  const ok = await fetch(`${BASE}/live/${liveRunId}/screenshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  assert.equal(ok.status, 200);
+  const { key } = (await ok.json()) as { key: string };
+  assert.ok(key.startsWith(`runs/${liveRunId}/screenshots/`), `key should be run-scoped, got: ${key}`);
+
+  // The screenshot path should propagate to the matching test row.
+  const tests = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string; screenshot_paths?: string[] | null }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => (rows.find((r) => r.full_title === fullTitle)?.screenshot_paths?.length ?? 0) > 0
+  );
+  const linked = tests.find((r) => r.full_title === fullTitle);
+  assert.ok(linked?.screenshot_paths?.includes(key), `tests.screenshot_paths should include ${key}`);
+
+  // Re-streaming the same path is a no-op (no duplicate entry).
+  const again = await fetch(`${BASE}/live/${liveRunId}/screenshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: (() => {
+      const f = new FormData();
+      f.set("screenshot", new Blob([png], { type: "image/png" }), "shows error on bad password (failed).png");
+      f.set("spec", spec);
+      f.set("testTitle", fullTitle);
+      return f;
+    })(),
+  });
+  assert.equal(again.status, 200);
+  const detail = await authGet(`/runs/${liveRunId}`);
+  const detailBody = (await detail.json()) as { specs: Array<{ tests: Array<{ full_title: string; screenshot_paths: string[] }> }> };
+  const same = detailBody.specs.flatMap((s) => s.tests).find((t) => t.full_title === fullTitle);
+  assert.equal(same?.screenshot_paths.filter((p) => p === key).length, 1, "duplicate stream must not produce duplicate paths");
+
+  // Foreign run → 404
+  {
+    const fd2 = new FormData();
+    fd2.set("screenshot", new Blob([png], { type: "image/png" }), "x.png");
+    fd2.set("spec", spec);
+    fd2.set("testTitle", fullTitle);
+    const r = await fetch(`${BASE}/live/999999/screenshot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd2,
+    });
+    assert.equal(r.status, 404);
+  }
+});
+
+test("/runs/upload merge preserves screenshots streamed mid-run (issue #23)", async () => {
+  const suite = `issue-23-preserve-${Date.now()}`;
+  const start = await authPost("/live/start", { suite });
+  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+  const spec = "cypress/e2e/preserve.cy.ts";
+  const fullTitle = "preserve > test gets a screenshot mid-run";
+
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.started", spec, test: fullTitle },
+  ]);
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => rows.some((r) => r.full_title === fullTitle)
+  );
+
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const fd = new FormData();
+  fd.set("screenshot", new Blob([png], { type: "image/png" }), "preserve.png");
+  fd.set("spec", spec);
+  fd.set("testTitle", fullTitle);
+  const streamed = await fetch(`${BASE}/live/${liveRunId}/screenshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  assert.equal(streamed.status, 200);
+  const streamedKey = ((await streamed.json()) as { key: string }).key;
+
+  // Now ship the end-of-run upload that the cypress reporter would normally
+  // post — same ci_run_id so it merges, and the upload payload's
+  // screenshot_paths is empty (i.e. the batch path didn't find anything to
+  // ship since it was already streamed). The streamed path must survive
+  // the test-row delete+reinsert.
+  const upload = await authPost("/runs", {
+    meta: {
+      suite_name: suite,
+      branch: "main",
+      commit_sha: "preserve-sha",
+      ci_run_id,
+      started_at: "2026-05-04T00:00:00Z",
+      finished_at: "2026-05-04T00:00:10Z",
+      reporter: "cypress",
+    },
+    stats: { total: 1, passed: 0, failed: 1, skipped: 0, pending: 0, duration_ms: 10 },
+    specs: [
+      {
+        file_path: spec,
+        title: spec,
+        stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 10 },
+        tests: [
+          {
+            title: "test gets a screenshot mid-run",
+            full_title: fullTitle,
+            status: "failed",
+            duration_ms: 10,
+            screenshot_paths: [],
+            error: { message: "boom" },
+          },
+        ],
+      },
+    ],
+  });
+  assert.ok(upload.ok, `upload merge failed: ${upload.status}`);
+
+  const after = await authGet(`/runs/${liveRunId}`);
+  const body = (await after.json()) as { specs: Array<{ tests: Array<{ full_title: string; screenshot_paths: string[] }> }> };
+  const test = body.specs.flatMap((s) => s.tests).find((t) => t.full_title === fullTitle);
+  assert.ok(test, "test row must still exist after merge");
+  assert.ok(
+    test!.screenshot_paths.includes(streamedKey),
+    `streamed screenshot must survive delete+reinsert; got ${JSON.stringify(test!.screenshot_paths)}`
+  );
+});
+
+// ─── Issue #21: target environment ──────────────────────────────────────
+test("POST /runs records meta.environment and exposes it on the list (issue #21)", async () => {
+  const suite = `env-upload-${Date.now()}`;
+  const ciRunId = `env-ci-${Date.now()}`;
+  const res = await authPost("/runs", {
+    meta: {
+      suite_name: suite,
+      branch: "main",
+      commit_sha: "env-sha",
+      ci_run_id: ciRunId,
+      started_at: "2026-05-04T00:01:00Z",
+      finished_at: "2026-05-04T00:01:05Z",
+      reporter: "cypress",
+      environment: "qa",
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 5 },
+    specs: [
+      {
+        file_path: "env.feature",
+        title: "env",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 5 },
+        tests: [{ title: "t", full_title: "t", status: "passed", duration_ms: 5, screenshot_paths: [] }],
+      },
+    ],
+  });
+  assert.ok(res.ok, `upload failed: ${res.status}`);
+  const newRunId = ((await res.json()) as { id: number }).id;
+
+  const list = await authGet("/runs?limit=100");
+  const body = (await list.json()) as { runs: Array<{ id: number; environment?: string }> };
+  const row = body.runs.find((r) => r.id === newRunId);
+  assert.ok(row, "uploaded run must appear in /runs");
+  assert.equal(row!.environment, "qa", "environment must round-trip through the list endpoint");
+
+  const detail = await authGet(`/runs/${newRunId}`);
+  const detailBody = (await detail.json()) as { environment?: string };
+  assert.equal(detailBody.environment, "qa");
+
+  const envs = await authGet("/runs/environments");
+  const envBody = (await envs.json()) as { environments: string[] };
+  assert.ok(envBody.environments.includes("qa"), `qa must appear in distinct list, got ${envBody.environments}`);
+});
+
+test("POST /live/start records environment and merge backfills it (issue #21)", async () => {
+  // Path 1: live-created run carries the env from /live/start.
+  const start = await authPost("/live/start", {
+    suite: `env-live-${Date.now()}`,
+    environment: "stage",
+  });
+  assert.equal(start.status, 201);
+  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+
+  const detail = await authGet(`/runs/${liveRunId}`);
+  const detailBody = (await detail.json()) as { environment?: string };
+  assert.equal(detailBody.environment, "stage", "live-created run must store environment");
+
+  // Path 2: live started without env, upload merge backfills it. This is
+  // the cypress flow where setupNodeEvents resolves --env name=… after
+  // /live/start has already created the placeholder.
+  const start2 = await authPost("/live/start", { suite: `env-backfill-${Date.now()}` });
+  assert.equal(start2.status, 201);
+  const { id: bfRunId, ci_run_id: bfCi } = (await start2.json()) as { id: number; ci_run_id: string };
+
+  const before = await authGet(`/runs/${bfRunId}`);
+  const beforeBody = (await before.json()) as { environment?: string };
+  assert.equal(beforeBody.environment ?? "", "", "placeholder run starts with no env");
+
+  const upload = await authPost("/runs", {
+    meta: {
+      suite_name: (beforeBody as unknown as { suite_name: string }).suite_name,
+      branch: "main",
+      commit_sha: "bf-sha",
+      ci_run_id: bfCi,
+      started_at: "2026-05-04T00:02:00Z",
+      finished_at: "2026-05-04T00:02:05Z",
+      reporter: "cypress",
+      environment: "prod",
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 5 },
+    specs: [
+      {
+        file_path: "x.feature",
+        title: "x",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 5 },
+        tests: [{ title: "t", full_title: "t", status: "passed", duration_ms: 5, screenshot_paths: [] }],
+      },
+    ],
+  });
+  assert.ok(upload.ok, `merge upload failed: ${upload.status}`);
+  const merged = (await upload.json()) as { id: number; merged: boolean };
+  assert.equal(merged.id, bfRunId, "upload must merge into the placeholder, not create a new run");
+  assert.equal(merged.merged, true);
+
+  const after = await authGet(`/runs/${bfRunId}`);
+  const afterBody = (await after.json()) as { environment?: string };
+  assert.equal(afterBody.environment, "prod", "merge must backfill environment from the upload payload");
+});
