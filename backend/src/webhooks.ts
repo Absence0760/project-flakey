@@ -6,6 +6,43 @@ export type { WebhookRunPayload };
 // Keep backward compat
 export type WebhookRunFailedPayload = WebhookRunPayload;
 
+/**
+ * Fire a single webhook delivery. Best-effort: catches every failure
+ * mode (URL parse error, JSON.stringify throw, network failure) and
+ * logs without rethrowing, so a malformed row in `webhooks` cannot
+ * abort the dispatch loop's later iterations.
+ *
+ * Has a 10s timeout — without it, a hung receiver leaks an open socket
+ * indefinitely (the surrounding fire-and-forget pattern means nobody
+ * is waiting on the promise to enforce timeout for us).
+ */
+export function sendWebhook(url: string, platform: string, payload: WebhookRunPayload): void {
+  let body: string;
+  try {
+    body = JSON.stringify(formatPayload(platform, payload));
+  } catch (err) {
+    // formatPayload returning a value with a BigInt / circular ref / etc.
+    // shouldn't kill the rest of the loop.
+    console.error(`Webhook formatter failed for ${url}:`, (err as Error).message);
+    return;
+  }
+
+  // fetch() throws synchronously on a malformed URL — wrap the call site
+  // (not just .catch) so one bad row doesn't abort dispatch to the rest.
+  try {
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    }).catch((err) => {
+      console.error(`Webhook dispatch to ${url} failed:`, err.message);
+    });
+  } catch (err) {
+    console.error(`Webhook dispatch to ${url} failed (sync):`, (err as Error).message);
+  }
+}
+
 export async function dispatchWebhooks(orgId: number, event: string, payload: WebhookRunPayload): Promise<void> {
   const orgIdNum = Number(orgId);
   if (!orgIdNum || isNaN(orgIdNum) || !Number.isInteger(orgIdNum) || orgIdNum <= 0) return;
@@ -16,14 +53,7 @@ export async function dispatchWebhooks(orgId: number, event: string, payload: We
     );
 
     for (const row of result.rows) {
-      const body = formatPayload(row.platform, payload);
-      fetch(row.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).catch((err) => {
-        console.error(`Webhook dispatch to ${row.url} failed:`, err.message);
-      });
+      sendWebhook(row.url, row.platform, payload);
     }
   } catch (err) {
     console.error("Webhook dispatch error:", err);
