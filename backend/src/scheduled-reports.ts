@@ -152,11 +152,21 @@ async function deliverReport(report: any): Promise<void> {
       summary,
     };
   }
-  await fetch(report.destination, {
+  // 10s timeout: this fetch is awaited under the advisory lock, so a
+  // hung receiver would block every scheduled report across the cluster
+  // until the OS eventually severs the connection (minutes, not seconds).
+  // Surface non-2xx so the outer try/catch logs them — silent 500s
+  // would update last_sent_at and the operator never sees the failure.
+  const res = await fetch(report.destination, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(formatted),
+    signal: AbortSignal.timeout(10_000),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Scheduled report POST → ${res.status}: ${body.slice(0, 200)}`);
+  }
 }
 
 async function deliverEmailReport(to: string, subject: string, body: string): Promise<void> {

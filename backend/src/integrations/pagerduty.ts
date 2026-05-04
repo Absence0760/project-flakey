@@ -33,6 +33,9 @@ export async function triggerPagerDutyEvent(
   customDetails: Record<string, unknown> = {}
 ): Promise<{ ok: boolean; status: number; dedup_key?: string }> {
   try {
+    // 10s timeout: this is awaited from the post-upload pipeline
+    // (maybeTriggerPagerDutyForRun → triggerPagerDutyEvent), so a hung
+    // PagerDuty events API stalls every upload's post-processing.
     const res = await fetch("https://events.pagerduty.com/v2/enqueue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -47,6 +50,7 @@ export async function triggerPagerDutyEvent(
           custom_details: customDetails,
         },
       }),
+      signal: AbortSignal.timeout(10_000),
     });
     const data = (await res.json().catch(() => ({}))) as { dedup_key?: string };
     return { ok: res.ok, status: res.status, dedup_key: data.dedup_key };

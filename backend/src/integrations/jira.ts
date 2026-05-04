@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import { decryptSecret } from "../crypto.js";
@@ -42,6 +43,12 @@ function authHeader(cfg: JiraConfig): string {
   return "Basic " + Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString("base64");
 }
 
+// 10s timeout on every Jira API call. Jira Cloud occasionally hangs for
+// minutes during incidents; without a timeout the auto-create loop blocks
+// the post-upload pipeline (and the Versions panel hangs the dashboard
+// when a user clicks into release readiness).
+const JIRA_TIMEOUT_MS = 10_000;
+
 /**
  * Create a Jira issue. Throws on HTTP errors.
  */
@@ -65,6 +72,7 @@ export async function createJiraIssue(
         issuetype: { name: cfg.issueType },
       },
     }),
+    signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -198,6 +206,7 @@ export async function fetchProjectVersions(cfg: JiraConfig): Promise<JiraVersion
     `${cfg.baseUrl}/rest/api/2/project/${encodeURIComponent(cfg.projectKey)}/versions`,
     {
       headers: { Authorization: authHeader(cfg), Accept: "application/json" },
+      signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
     }
   );
   if (!res.ok) {
@@ -226,7 +235,10 @@ export async function fetchVersionIssueCounts(
 ): Promise<JiraVersionIssueCounts> {
   const res = await fetch(
     `${cfg.baseUrl}/rest/api/2/version/${encodeURIComponent(versionId)}/relatedIssueCounts`,
-    { headers: { Authorization: authHeader(cfg), Accept: "application/json" } }
+    {
+      headers: { Authorization: authHeader(cfg), Accept: "application/json" },
+      signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
+    }
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -259,6 +271,7 @@ export async function fetchIssuesForVersion(
       maxResults: limit,
       fields: ["summary", "status", "assignee"],
     }),
+    signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -285,9 +298,9 @@ export async function fetchIssuesForVersion(
 }
 
 function hashString(s: string): string {
-  // Tiny stable fingerprint (not cryptographic). Matches existing pattern
-  // where error fingerprints are short strings.
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
-  return `jira-${(h >>> 0).toString(16)}`;
+  // 64 bits of SHA-256 (16 hex chars). djb2's prior 32-bit output had ~10%
+  // collision probability around 10k unique failures — reachable in a busy
+  // org over months — and a collision would mean a real failure silently
+  // inherits another failure's Jira issue and never gets its own ticket.
+  return `jira-${createHash("sha256").update(s).digest("hex").slice(0, 16)}`;
 }
