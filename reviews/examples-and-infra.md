@@ -5,6 +5,38 @@
 - Focus: bugs, misconfigurations, bad flows — Terraform safety, secrets, ECS/Fargate, RDS, S3/CloudFront, Helm chart, example correctness
 - Reviewer confidence: high — every file opened; all cross-references verified against the actual resource definitions
 
+## Status sweep — applied vs. open
+
+This review pre-dates several follow-up commits.  Status as of the latest
+sweep (2026-05-04):
+
+| # | Item | Status |
+|---|---|---|
+| H1 | ALB HTTPS listener + redirect | **Applied** — `infra/modules/ecs/main.tf` has both listeners; `acm_certificate_arn` wired |
+| H2 | S3 frontend OAC + private bucket | **Applied** — bucket public-access blocked, OAC + scoped policy in place |
+| H3 | Scoped IAM `iam:PassRole` + ECR | **Applied** — `infra/bootstrap/main.tf` PassRole limited to ECS roles, ECR limited to push/pull verbs |
+| H4 | GitHub OIDC second thumbprint | **Applied** — both thumbprints listed |
+| H5 | Real API keys in local `.env` | **User action required** — files are gitignored / not committed; user must revoke keys in dashboard and rotate |
+| M1 | CloudFront → S3 over HTTP | **Applied** (subsumed by H2) |
+| M2 | RDS `multi_az` hardcoded false | **Applied** — variable with default `true` |
+| M3 | RDS `publicly_accessible` explicit | **Applied** |
+| M4 | ECR lifecycle expiring tagged images | **Applied** — split into untagged-cleanup + keep-last-10-tagged rules |
+| M5 | Unused `db_password` in ECS module | **Applied** — only `db_password_arn` is now passed |
+| M6 | Helm migration job swallows SQL errors | **Applied** — bare `psql -v ON_ERROR_STOP=1 -q -f` |
+| M7 | Helm migration container resource limits | **Applied** — requests/limits set |
+| M8 | Helm default plaintext credentials | **Open — needs decision** — adding a `validateValues` guard breaks `helm install . ` without `--set`, which is the intended behavior but breaks any existing CI/docs that did so |
+| M9 | GHA template setup-node before pnpm | **Applied** — `Install pnpm` step now runs first |
+| M10 | SNS alerts topic without subscription | **Applied** — `aws_sns_topic_subscription.alerts_email` + `alert_email` variable wired from root |
+| L1 | RDS SG `0.0.0.0/0` egress | **Applied (this commit)** — egress block removed; implicit deny-all stands in |
+| L2 | Artifacts bucket no versioning | **Applied (this commit)** — versioning enabled, noncurrent expiry 30d |
+| L3 | `.terraform.lock.hcl` in `.gitignore` | **Applied (this commit)** — removed from gitignore; user should `terraform init` and commit the lock file |
+| L4 | Helm `tag: latest` + `IfNotPresent` | **Open — needs decision** — fixing breaks `helm install` without `--set image.tag=…` |
+| L5 | Postman script "Flakey" brand drift | **Applied (this commit)** |
+
+The remaining open items (H5, M8, L4) all require either user action
+(revocation) or a deliberate breaking change to consumer-facing wiring
+(values.yaml defaults).  Original sections retained below for traceability.
+
 ---
 
 ## Priority: high

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Uploads Newman JUnit results to Flakey via the CLI.
+ * Uploads Newman JUnit results to Better Testing via the CLI.
  * Usage: node scripts/upload.js <suite-suffix>
  *
  * Optional env vars:

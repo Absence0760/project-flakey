@@ -19,6 +19,11 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_versioning" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  versioning_configuration { status = "Enabled" }
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   rule {
@@ -29,6 +34,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
       storage_class = "STANDARD_IA"
     }
     expiration { days = 365 }
+    # Versioning is enabled to protect against silent overwrites on key
+    # collisions (e.g. re-runs that emit the same screenshot path).  Without
+    # this expiration, old versions would accumulate forever.
+    noncurrent_version_expiration { noncurrent_days = 30 }
   }
 }
 

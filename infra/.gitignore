@@ -3,4 +3,5 @@
 *.tfstate.backup
 *.tfvars
 !terraform.tfvars.example
-.terraform.lock.hcl
+# .terraform.lock.hcl SHOULD be committed — it pins provider versions
+# across machines.  Run `terraform init` to (re)generate it.
