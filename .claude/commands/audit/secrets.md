@@ -12,9 +12,15 @@ The backend has two foundational secrets — `JWT_SECRET` (signs auth tokens) an
 
 1. **`.env*` and `.envrc` files in git.** Run `git log --all --full-history -- '.env' '.env.*' '.envrc'` to confirm no `.env` (the real one) has ever been committed. `.env.example` is fine. If a real env has been committed, the secret is permanently exposed regardless of removal — flag for **rotation**, not deletion.
 
-2. **`JWT_SECRET` defaults.** `backend/CLAUDE.md` says: "JWT_SECRET is required in production (no default)." Verify that `backend/src/auth.ts` (or wherever JWT signing/verification lives) does NOT fall back to a hardcoded string when `process.env.JWT_SECRET` is unset in production (`NODE_ENV === "production"`). A dev fallback is acceptable but should refuse to start in prod.
+2. **`JWT_SECRET` defaults.** `backend/CLAUDE.md` says: "JWT_SECRET is required in production (no default)." Two things must hold:
+   - `backend/src/auth.ts` reads `process.env.JWT_SECRET` (currently with a `?? "flakey-dev-secret-change-me"` dev fallback — confirm the literal hasn't changed to something that looks production-grade).
+   - `backend/src/index.ts` has the prod-only refuse-to-start guard (`if (IS_PROD && !process.env.JWT_SECRET) { …; process.exit(1); }`). Both layers are required: the fallback gives local dev a usable default; the guard makes prod fail closed instead of accepting it.
 
-3. **`FLAKEY_ENCRYPTION_KEY` handling.** `backend/CLAUDE.md` says: "If the key is unset, the code falls back to plaintext passthrough — only acceptable in local dev." Confirm the fallback is gated on `NODE_ENV !== "production"`, or that it logs a loud warning. Read `backend/src/encrypt.ts` (or wherever `encryptSecret` / `decryptSecret` live) and verify.
+3. **`FLAKEY_ENCRYPTION_KEY` handling.** `backend/CLAUDE.md` says: "If the key is unset, the code falls back to plaintext passthrough — only acceptable in local dev." Read `backend/src/crypto.ts` and verify:
+   - `encryptSecret()` returns the plaintext when no key is set (intentional dev passthrough)
+   - `decryptSecret()` throws "Encrypted value present but no FLAKEY_ENCRYPTION_KEY is set" when an ENC value is read with no key (fail-closed read)
+   - The optional `FLAKEY_ENCRYPTION_KEY_OLD` is wired only into the read path (key rotation) and never used for new writes
+   - Cached primary/old keys are read via the helpers (`primaryKey()` / `oldKey()`), not by re-reading `process.env` mid-call
 
 4. **Client-bundle leakage (web).** SvelteKit + Vite: only `import.meta.env.VITE_*` is inlined into the client bundle. Anything else in `import.meta.env` is server-only. Grep `frontend/src/` for:
    - `import.meta.env.` references that aren't `VITE_*`
@@ -57,8 +63,8 @@ For each: the env var name + the file referencing it + what should change. **Nev
 ## Useful starting points
 
 - `backend/CLAUDE.md` — the documented constraints on `JWT_SECRET` and `FLAKEY_ENCRYPTION_KEY`
-- `backend/src/auth.ts` — JWT + API key paths
-- `backend/src/encrypt.ts` — AES-256-GCM helpers (or wherever they live)
+- `backend/src/auth.ts` — JWT signing / verification + `requireAuth` middleware (the file owns both — there's no `backend/src/middleware/` directory)
+- `backend/src/crypto.ts` — AES-256-GCM `encryptSecret` / `decryptSecret` / `rotateSecret`. The corresponding test is `backend/src/tests/crypto.test.ts` — useful as a reference for the contract
 - `frontend/src/lib/auth.ts` — `bt_*` localStorage convention
 - `frontend/src/lib/config.ts` — `API_URL` export
 - `.github/workflows/*.yml` — every workflow
