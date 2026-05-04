@@ -15,7 +15,7 @@
  *   });
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync, statSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync, statSync, unlinkSync } from "fs";
 import { join, basename } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
@@ -162,11 +162,6 @@ export function flakeyReporter(
   const url = opts.url.replace(/\/$/, "");
   const apiKey = opts.apiKey;
   const suite = opts.suite ?? "default";
-
-  // Local screenshot paths that have already been streamed to the backend
-  // mid-run via /live/:runId/screenshot. The after:run batch upload skips
-  // these so the same file isn't shipped twice.
-  const streamedScreenshotPaths = new Set<string>();
   const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
   const commitSha = opts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "";
   // ciRunId is resolved LAZILY at upload time. live-reporter sets
@@ -202,12 +197,14 @@ export function flakeyReporter(
   });
 
   // Stream screenshots to the backend the moment Cypress finishes writing them
-  // to disk, instead of waiting for the after:run batch. Saves the user from
-  // staring at an empty test detail page while a long suite is still running,
-  // and bypasses the fragile filename-substring matching the batch path uses
-  // (we know the spec + test title here, so the backend can link directly).
-  // On any failure the local file is left in place so the after:run upload
-  // can still ship it.
+  // to disk, instead of waiting for the after:run batch. Mirrors the snapshot
+  // plugin's pattern: on a 2xx response unlink the local file so screenshots
+  // don't accumulate on the runner's disk over a long suite (the canonical
+  // "CI pipeline ran out of space" failure mode). On a non-2xx or any throw,
+  // leave the file in place so the after:run batch upload can still ship it.
+  // The after:run batch's `findFiles` walks `screenshotsDir`, so a file that
+  // was unlink'd successfully is naturally absent from the batch — no
+  // separate Set is needed for dedup.
   on("after:screenshot", async (details: {
     path?: string;
     specName?: string;
@@ -241,7 +238,9 @@ export function flakeyReporter(
         headers: { Authorization: `Bearer ${apiKey}` },
         body: form,
       });
-      if (res.ok) streamedScreenshotPaths.add(filePath);
+      if (res.ok) {
+        try { unlinkSync(filePath); } catch { /* best-effort; batch upload tolerates duplicates */ }
+      }
     } catch {
       // Streaming failed — leave file in place; after:run will still pick it up.
     }
@@ -329,10 +328,10 @@ export function flakeyReporter(
       specs,
     };
 
-    // Collect artifacts. Screenshots already streamed via after:screenshot
-    // are dropped here so the batch upload doesn't ship the same PNG again.
-    const screenshots = findFiles(screenshotsDir, [".png"])
-      .filter((p) => !streamedScreenshotPaths.has(p));
+    // Collect artifacts. Screenshots streamed via after:screenshot were
+    // unlink'd on 2xx, so findFiles naturally returns only the screenshots
+    // that didn't ship mid-run (streaming failure or no live run id).
+    const screenshots = findFiles(screenshotsDir, [".png"]);
     const videos = findFiles(videosDir, [".mp4", ".webm"]);
     const snapshots = findFiles(snapshotsDir, [".json.gz"]);
 

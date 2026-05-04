@@ -46,6 +46,8 @@ Test run starts
         |       ├── POST /live/:runId/screenshot (cypress-reporter, after:screenshot)
         |       |     • stores to runs/{id}/screenshots/… in S3 / local disk
         |       |     • appends to tests.screenshot_paths by full_title match
+        |       |     • plugin unlinks local file on 2xx (CI disk-space guard);
+        |       |       retained on failure for the after:run batch fallback
         |       |     • streamed paths are preserved across the end-of-run
         |       |       merge (uploads.ts + runs.ts both snapshot existing
         |       |       screenshot_paths before the test delete+reinsert)

@@ -33,7 +33,11 @@ Don't promote the optional peers to required; users should be able to use the re
 
 ## Per-test screenshot streaming
 
-The plugin registers `on("after:screenshot", ...)`: each PNG is POSTed to `/live/:runId/screenshot` the moment Cypress writes it, with the spec path and full test title attached so the backend can link it directly to `tests.screenshot_paths` (no fragile filename matching). Streamed local paths are tracked in a per-run-of-cypress `Set<string>` and excluded from the `after:run` batch upload's `findFiles` result so the same PNG isn't shipped twice. If streaming fails (no live run id, network error), the file is left in place and the batch path picks it up unchanged.
+The plugin registers `on("after:screenshot", ...)`: each PNG is POSTed to `/live/:runId/screenshot` the moment Cypress writes it, with the spec path and full test title attached so the backend can link it directly to `tests.screenshot_paths` (no fragile filename matching).
+
+**On 2xx the local file is `unlinkSync`ed.** Mirrors the `flakey-cypress-snapshots` pattern, for the same reason: a long suite that takes hundreds of failure screenshots can otherwise fill a CI runner's disk before `after:run` ever fires. The `after:run` batch's `findFiles(screenshotsDir, [".png"])` walks the dir at end-of-run, so a deleted file is naturally absent from the batch — no separate `Set<string>` is needed for dedup. On streaming failure (no live run id, network blip, non-2xx response), the file is left in place and the batch path picks it up unchanged.
+
+If a consumer needs the local screenshots preserved for their own debugging, they should disable streaming (don't use `setupFlakey` or `flakeyReporter`'s `after:screenshot` registration) — the unlink is the contract of the streaming path.
 
 The end-of-run merge (both `/runs` and `/runs/upload`) preserves the streamed `screenshot_paths` and `snapshot_path` across the test delete+reinsert by snapshotting them before the `DELETE` and unioning them with whatever the upload payload supplies.
 
