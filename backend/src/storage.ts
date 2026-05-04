@@ -1,5 +1,5 @@
 import { mkdirSync, renameSync, rmSync, existsSync, readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve, relative } from "path";
 import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -24,9 +24,19 @@ class LocalStorage implements Storage {
   }
 
   async put(tempPath: string, destKey: string): Promise<void> {
-    const dest = join(this.baseDir, destKey);
-    mkdirSync(dirname(dest), { recursive: true });
-    renameSync(tempPath, dest);
+    // Defense-in-depth path-traversal guard.  Each upload route that
+    // builds destKey already sanitizes user-controlled segments, but
+    // the storage layer must not assume that — node's `path.join`
+    // resolves `..` and will happily write outside `baseDir` if a
+    // future caller forgets to sanitize.
+    const baseAbs = resolve(this.baseDir);
+    const destAbs = resolve(this.baseDir, destKey);
+    const rel = relative(baseAbs, destAbs);
+    if (rel.startsWith("..") || rel === "" || rel.includes("\0")) {
+      throw new Error(`refusing to write outside storage root: ${destKey}`);
+    }
+    mkdirSync(dirname(destAbs), { recursive: true });
+    renameSync(tempPath, destAbs);
   }
 
   async getUrl(key: string): Promise<string> {
