@@ -70,10 +70,44 @@ app.use(cors({
 
 app.use(express.json({ limit: "50mb" }));
 
-// Artifact serving — local disk or S3 redirect
+// Artifact serving — local disk or S3 redirect.
+//
+// Artifacts are stored under runs/<runId>/{screenshots,videos,snapshots}/...
+// We must:
+//   1. require authentication (otherwise anyone with the URL can download
+//      any artifact across the whole instance)
+//   2. parse the run id from the path and verify the caller's org owns
+//      that run (otherwise any authenticated user can read another org's
+//      screenshots / DOM snapshots / videos by enumerating run ids).
+//
+// The check is applied uniformly to both the local-disk and S3 paths.
 const STORAGE_MODE = process.env.STORAGE ?? "local";
+
+async function requireRunOwnership(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
+  // Path looks like /uploads/runs/<id>/<rest>; extract the id and verify
+  // the caller's org owns it.
+  const m = req.path.match(/^\/runs\/(\d+)\//);
+  if (!m) {
+    res.status(404).json({ error: "Artifact not found" });
+    return;
+  }
+  const runId = Number(m[1]);
+  try {
+    const { tenantQuery } = await import("./db.js");
+    const owns = await tenantQuery(req.user!.orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+    if (!owns.rowCount) {
+      res.status(404).json({ error: "Artifact not found" });
+      return;
+    }
+    next();
+  } catch (err) {
+    console.error("Artifact ownership check error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
 if (STORAGE_MODE === "s3") {
-  app.get("/uploads/*", async (req, res) => {
+  app.get("/uploads/*", requireAuth, requireRunOwnership, async (req, res) => {
     try {
       const key = req.path.replace(/^\/uploads\//, "");
       const url = await getStorage().getUrl(key);
@@ -83,11 +117,16 @@ if (STORAGE_MODE === "s3") {
     }
   });
 } else {
-  app.use("/uploads", express.static("uploads", {
-    setHeaders: (res) => {
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    },
-  }));
+  app.use(
+    "/uploads",
+    requireAuth,
+    requireRunOwnership,
+    express.static("uploads", {
+      setHeaders: (res) => {
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      },
+    })
+  );
 }
 
 // Fix 3: Rate limiting on auth endpoints

@@ -359,6 +359,71 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Artifact serving authentication + ownership ─────────────────────────
+
+test("GET /uploads/runs/:id/... requires authentication", async () => {
+  // Plant a snapshot artifact on org A's run via the streaming endpoint.
+  const fd = new FormData();
+  fd.append(
+    "snapshot",
+    new Blob([new Uint8Array([0x1f, 0x8b, 0x08, 0x00])], { type: "application/gzip" }),
+    "test.json.gz"
+  );
+  fd.append("spec", "secret-leak.spec.ts");
+  fd.append("testTitle", "secret leak canary");
+  const upload = await fetch(`${BASE}/live/${orgA.runId}/snapshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${orgA.token}` },
+    body: fd,
+  });
+  if (!upload.ok) {
+    // Some configurations may not have storage configured in tests; skip
+    // gracefully rather than fail unrelated to the bug being tested.
+    return;
+  }
+  const { key } = (await upload.json()) as { key: string };
+  assert.ok(key.startsWith(`runs/${orgA.runId}/`), "snapshot key should start with runs/<id>/");
+
+  // Try to fetch the artifact with NO auth header.  In dev mode the
+  // express.static handler serves these files without any auth check —
+  // anyone with the URL can download.
+  const res = await fetch(`${BASE}/uploads/${key}`);
+  assert.notEqual(
+    res.status,
+    200,
+    "GET /uploads/* must require authentication; otherwise anyone with the URL can download artifacts"
+  );
+});
+
+test("GET /uploads/runs/:id/... 404s for cross-org access", async () => {
+  // Plant a snapshot on org A's run and try to fetch it as org B.
+  const fd = new FormData();
+  fd.append(
+    "snapshot",
+    new Blob([new Uint8Array([0x1f, 0x8b, 0x08, 0x00])], { type: "application/gzip" }),
+    "cross.json.gz"
+  );
+  fd.append("spec", "cross-org.spec.ts");
+  fd.append("testTitle", "cross-org canary");
+  const upload = await fetch(`${BASE}/live/${orgA.runId}/snapshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${orgA.token}` },
+    body: fd,
+  });
+  if (!upload.ok) return;
+  const { key } = (await upload.json()) as { key: string };
+
+  // Org B authenticates but doesn't own org A's run.
+  const res = await fetch(`${BASE}/uploads/${key}`, {
+    headers: { Authorization: `Bearer ${orgB.token}` },
+  });
+  assert.notEqual(
+    res.status,
+    200,
+    "GET /uploads/* must verify the run id in the path belongs to the caller's org"
+  );
+});
+
 // ── Run-upload input validation ─────────────────────────────────────────
 
 test("POST /runs rejects payloads missing meta/stats/specs with 400", async () => {
