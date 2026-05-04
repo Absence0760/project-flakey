@@ -359,6 +359,38 @@ test("POST /security with empty findings still creates a scan row with all zeros
   assert.equal(data.high_count + data.medium_count + data.low_count + data.info_count, 0);
 });
 
+// ── Live active-run enumeration ─────────────────────────────────────────
+
+test("GET /live/active does not enumerate other orgs' active run ids", async () => {
+  // /live/start emits run.started internally, which adds the run id to
+  // the global activeRuns set inside liveEvents.  After that, any
+  // authenticated user calling GET /live/active sees ALL active run
+  // ids across the whole instance — an enumeration leak.
+  const startRes = await asAuth(orgA.token).post("/live/start", {
+    suite: "live-enum-suite",
+    branch: "main",
+  });
+  assert.equal(startRes.status, 201);
+  const startData = (await startRes.json()) as { id: number };
+
+  // Sanity: org A sees its own run in active.
+  const ownList = await asAuth(orgA.token).get("/live/active");
+  const ownData = (await ownList.json()) as { runs: number[] };
+  assert.ok(
+    ownData.runs.includes(startData.id),
+    "org A should see its own active run id; if this fails the test is mis-set-up"
+  );
+
+  // Org B fetches /live/active and must NOT see org A's run id.
+  const list = await asAuth(orgB.token).get("/live/active");
+  assert.equal(list.status, 200);
+  const data = (await list.json()) as { runs: number[] };
+  assert.ok(
+    !data.runs.includes(startData.id),
+    `org B's GET /live/active includes org A's live run id ${startData.id} — enumeration leak`
+  );
+});
+
 // ── Live SSE stream ownership ────────────────────────────────────────────
 
 test("GET /live/:runId/stream cannot subscribe to another org's run", async () => {

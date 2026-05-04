@@ -96,9 +96,20 @@ class LiveEventBus {
     return emitter ? emitter.listenerCount("event") > 0 : false;
   }
 
-  /** Get all run IDs that are actively in-progress (between run.started and run.finished). */
-  getActiveRunIds(): number[] {
-    return Array.from(this.activeRuns);
+  /**
+   * Get run IDs that are actively in-progress (between run.started and
+   * run.finished).  When `orgId` is provided, scopes the result to runs
+   * registered for that org — required by the public GET /live/active
+   * endpoint to avoid leaking other orgs' active run ids.  Without
+   * `orgId` (callers like getStaleRuns) returns the unscoped set.
+   */
+  getActiveRunIds(orgId?: number): number[] {
+    if (orgId === undefined) return Array.from(this.activeRuns);
+    const result: number[] = [];
+    for (const runId of this.activeRuns) {
+      if (this.runMeta.get(runId)?.orgId === orgId) result.push(runId);
+    }
+    return result;
   }
 
   /** Get active runs that have received no event for longer than maxInactivityMs. */

@@ -12,8 +12,10 @@ const screenshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 25 * 
 /**
  * GET /live/active — list run IDs that are currently receiving live events.
  */
-router.get("/active", (_req, res) => {
-  res.json({ runs: liveEvents.getActiveRunIds() });
+router.get("/active", (req, res) => {
+  // Scope to the caller's org — without this, any authenticated user
+  // can enumerate every other org's in-progress run ids.
+  res.json({ runs: liveEvents.getActiveRunIds(req.user!.orgId) });
 });
 
 /**
