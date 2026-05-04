@@ -26,7 +26,7 @@ Endpoint lists, env-var tables, schema descriptions, and "how the live path work
    - `LiveEventBus.touch()` reset path
 
 4. **Per-package CLAUDE.md.** Each `packages/*/CLAUDE.md` describes what the package does, env vars it reads, and consumer wiring. For each, cross-reference:
-   - **`flakey-cypress-reporter/CLAUDE.md`** — claims `after:screenshot` streaming, `streamedScreenshotPaths` Set, `/runs` and `/runs/upload` preservation, environment resolution chain. All should match `src/plugin.ts`.
+   - **`flakey-cypress-reporter/CLAUDE.md`** — claims `after:screenshot` streaming with `unlinkSync` on 2xx (Cypress Cloud parity, no `Set<string>` dedup), `/runs` and `/runs/upload` preservation across the test delete+reinsert, environment resolution chain. All should match `src/plugin.ts`.
    - **`flakey-cypress-snapshots/CLAUDE.md`** — claims the streaming `flakey:saveSnapshot` task and the local-file unlink. All should match `src/plugin.ts`.
    - **`flakey-live-reporter/CLAUDE.md`** — env-var table; the heartbeat section; `client.stop()` teardown. All should match `src/index.ts`, `src/mocha.ts`, `src/playwright.ts`, `src/webdriverio.ts`.
    - Other packages — same drill.

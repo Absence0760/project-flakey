@@ -59,12 +59,37 @@ POSTs to `POST /coverage` on the Better Testing backend.
 
 ### Live run streaming
 `@flakeytesting/live-reporter` streams per-test events to the backend in real time.  Results
-appear in the Live Runs view before the Cypress run finishes.
+appear in the Live Runs view before the Cypress run finishes.  Screenshots stream the same way
+via `after:screenshot` — each PNG POSTs to `POST /live/:runId/screenshot` the moment Cypress
+writes it, then the local file is `unlink`'d on 2xx so a long failure-heavy suite can't fill the
+runner's disk before `after:run` fires (the same pattern Cypress Cloud uses for per-spec
+artifacts).  If streaming fails (no live run id, network blip), the file is retained and the
+`after:run` batch picks it up.  DOM snapshots stream via `POST /live/:runId/snapshot` with the
+same unlink-on-2xx contract.
+
+### Environment tagging
+Label which target the suite ran against (e.g. `qa`, `stage`, `prod`) so the dashboard can show
+it as a chip and offer it as a filter.  Three equivalent routes — the reporter resolves any of
+them (in this order: explicit `reporterOptions.environment` → `FLAKEY_ENV` → `TEST_ENV` →
+`cypress --env environment=…` → `cypress --env name=…`):
+
+```bash
+# 1. dedicated env var
+FLAKEY_ENV=qa pnpm test:smoke
+
+# 2. via cypress's own --env (matches package.json scripts in the wild)
+cypress run --env name=qa --spec cypress/e2e/smoke/**
+
+# 3. explicit reporterOptions field in cypress.config.ts
+reporterOptions: { url, apiKey, suite, environment: "qa" }
+```
 
 ### Release metadata tagging
-`FlakeyReporterOptions` does not yet expose a `release` field.  When the reporter adds the field,
-uncomment the `release` line in `cypress.config.ts` — the example already reads `FLAKEY_RELEASE`
-from the environment so no further changes will be needed.
+`FLAKEY_RELEASE` (read by the reporter at upload time) tags the run with a release version.  The
+backend upserts the release on first sight and links every run with the same tag to it.  The
+example's `cypress.config.ts` already wires `release: process.env.FLAKEY_RELEASE` through
+`reporterOptions`, so set `FLAKEY_RELEASE=v1.2.3 pnpm test:smoke` and the run shows up under that
+release in the dashboard.
 
 ### AI classification
 Every uploaded run is eligible for AI-based failure classification on the Better Testing backend.

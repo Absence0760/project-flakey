@@ -12,6 +12,7 @@ The live path has a lot of moving parts and several invariants that have been br
 - A Cypress `spec.finished` event with `stats.skipped: 0` (because Cypress reports `it.skip()` as `pending`, not `skipped`) used to overwrite the live-streamed skipped count to 0 (issue #25 fix).
 - The end-of-run upload's "delete and reinsert tests" used to drop streamed `screenshot_paths` because only `snapshot_path` was preserved (issue #23 fix); the same bug existed once on `/runs` and once on `/runs/upload`.
 - A long quiet scenario used to trip the 10-minute stale-run timer and trigger a false abort while tests were still running (issue #22 fix — heartbeat).
+- Per-test artifacts (DOM snapshots, screenshots) are streamed mid-run AND must be unlink'd locally on 2xx so a long failure-heavy suite can't fill a CI runner's disk before `after:run` fires (Cypress Cloud parity, post-#23 follow-up).
 
 Each of these is one regression away from coming back. Sweep them.
 
@@ -45,7 +46,9 @@ Each of these is one regression away from coming back. Sweep them.
 
 6. **Reporter env var resolution chain.** `mocha.ts`'s `register()` resolves `environment` from `config.environment ?? FLAKEY_ENV ?? TEST_ENV ?? ""` and forwards it to `/live/start`. `plugin.ts` (cypress reporter) resolves it lazily from `opts.environment ?? FLAKEY_ENV ?? TEST_ENV ?? config.env.environment ?? config.env.name`. Both should resolve in the same order; the cypress reporter has the additional `config.env.*` paths because Cypress merges `--env` into `config.env` after the plugin registers. Drift between the two would make `/live/start` and the upload payload disagree about which env the run targeted.
 
-7. **Test coverage of the invariants.** `backend/src/tests/phase_9_10.smoke.test.ts` has a test for each of the live-flow invariants above (`issue #25`, `issue #22`, `issue #23` named tests). If you find a new live-route invariant that has no test, flag it.
+7. **Per-test artifact unlink on 2xx.** Both reporter-side streamers (`packages/flakey-cypress-reporter/src/plugin.ts`'s `after:screenshot` and `packages/flakey-cypress-snapshots/src/plugin.ts`'s `flakey:saveSnapshot` task) must `unlinkSync` the local file after a successful POST. The `after:run` batch's `findFiles` walks the disk at end-of-run, so deletion IS the dedup record — a `Set<string>` for the same job is a code smell (duplicate state with the filesystem). On non-2xx or any throw, the file is retained and the batch picks it up. If you find a new streaming endpoint without the unlink, flag it.
+
+8. **Test coverage of the invariants.** `backend/src/tests/phase_9_10.smoke.test.ts` has a test for each of the live-flow invariants above (`issue #25`, `issue #22`, `issue #23` named tests, plus the JSON / multipart sibling pair). If you find a new live-route invariant that has no test, flag it.
 
 ## Report
 
@@ -65,6 +68,8 @@ For each: file:line + the invariant + the recently-fixed PR/commit if you can id
 - `backend/src/live-events.ts` — `LiveEventBus`, including `touch()` and `getStaleRuns()`
 - `packages/flakey-live-reporter/src/index.ts` — `LiveClient` heartbeat
 - `packages/flakey-live-reporter/src/{mocha,playwright,webdriverio}.ts` — adapters that own `client.stop()`
+- `packages/flakey-cypress-reporter/src/plugin.ts` — `after:screenshot` streamer + unlink-on-2xx
+- `packages/flakey-cypress-snapshots/src/plugin.ts` — `flakey:saveSnapshot` task + unlink-on-2xx (the canonical pattern this project mirrors)
 - `backend/src/tests/phase_9_10.smoke.test.ts` — the live-flow regression suite
 - `backend/migrations/030_tests_pending_unique.sql` — the uniqueness fences
 

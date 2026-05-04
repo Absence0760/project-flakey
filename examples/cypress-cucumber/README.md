@@ -64,7 +64,16 @@ your convention (Jira, Linear, GitHub Issues, etc.).
 
 ### Live run streaming
 `@flakeytesting/live-reporter` streams per-test events to the backend in real time.  Results
-appear in the Live Runs view before the Cypress run finishes.
+appear in the Live Runs view before the Cypress run finishes.  Screenshots stream the same way
+via `after:screenshot` — each PNG is unlink'd locally on 2xx so a long failure-heavy suite can't
+fill the runner's disk before `after:run` fires (Cypress Cloud parity).  DOM snapshots use the
+same per-test streaming with the same unlink-on-2xx contract.
+
+### Environment tagging
+Label the target environment (e.g. `qa`, `stage`) on the run.  The reporter resolves any of:
+`reporterOptions.environment` → `FLAKEY_ENV` → `TEST_ENV` → `cypress --env environment=…` →
+`cypress --env name=…`.  The cucumber-style script convention `cypress run --env name=qa`
+works out of the box.
 
 ### AI classification
 Every uploaded run is eligible for AI-based failure classification on the Better Testing backend.
