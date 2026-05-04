@@ -146,8 +146,13 @@ router.post("/invites/:token/accept", async (req, res) => {
 
     const inv = invite.rows[0];
 
-    // Verify the current user's email matches the invite
-    if (req.user!.email !== inv.email) {
+    // Verify the current user's email matches the invite. Compare
+    // case-insensitively: in practice email-address case is ignored by
+    // every mainstream provider, and admins routinely type a mixed-case
+    // form ("Alice@Example.com") into the invite UI even though the
+    // recipient registered as "alice@example.com". Strict !== rejected
+    // the invite with a confusing 403 in that case.
+    if (req.user!.email.toLowerCase() !== inv.email.toLowerCase()) {
       res.status(403).json({ error: "This invite is for a different email address" });
       return;
     }

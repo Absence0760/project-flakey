@@ -316,6 +316,52 @@ test("PATCH /webhooks/:id rejects invalid scheme even if existing record is fine
   assert.equal(patch.status, 400, "PATCH with bad scheme must be rejected (defense-in-depth)");
 });
 
+// ── Invite acceptance is case-insensitive on email ──────────────────────
+
+test("POST /orgs/invites/:token/accept accepts even when invite email casing differs from registration", async () => {
+  // Real-world: the admin types "Alice@Example.com" into the invite form
+  // even though Alice registered as "alice@example.com".  The pre-fix
+  // behaviour was a confusing 403 "This invite is for a different email
+  // address" because the comparison was strict !==.  Fix: lowercase both
+  // sides at compare time.
+  const lowerEmail = `mixedcase+${Date.now()}@test.local`;
+  const upperEmail = lowerEmail.replace("@", "@").toUpperCase(); // "MIXEDCASE+..@TEST.LOCAL"
+
+  // Recipient registers with lowercase.
+  const reg = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: lowerEmail,
+      password: "testpass123",
+      name: "Mixed Case",
+      org_name: `MixedCase-${Date.now()}`,
+    }),
+  });
+  assert.ok(reg.ok, `registration must succeed (got ${reg.status})`);
+  const recipient = (await reg.json()) as { token: string };
+
+  // Admin invites with UPPERCASE email casing.
+  const invite = await fetch(`${BASE}/orgs/${ownerOrgId}/invites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ email: upperEmail, role: "viewer" }),
+  });
+  assert.equal(invite.status, 201, "invite creation must succeed");
+  const { invite_token } = (await invite.json()) as { invite_token: string };
+
+  // Recipient (lowercase JWT email) accepts the invite (uppercase invite email).
+  const accept = await fetch(`${BASE}/orgs/invites/${invite_token}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${recipient.token}` },
+  });
+  assert.equal(
+    accept.status,
+    200,
+    `accept should ignore email casing — got ${accept.status}: ${await accept.text().catch(() => "")}`
+  );
+});
+
 test("GET /pagerduty/settings never returns the integration_key field", async () => {
   const set = await fetch(`${BASE}/pagerduty/settings`, {
     method: "PATCH",
