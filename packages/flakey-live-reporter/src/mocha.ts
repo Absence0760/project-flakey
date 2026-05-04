@@ -66,6 +66,11 @@ interface MochaLiveConfig {
   commitSha?: string;
   ciRunId?: string;
   /**
+   * Target environment label (e.g. "qa", "stage", "prod"). Falls back to
+   * FLAKEY_ENV / TEST_ENV process env vars when omitted.
+   */
+  environment?: string;
+  /**
    * When true (default), register() installs its own `on("after:run", ...)`
    * handler. When false (used by setupFlakey to work around Cypress 15's
    * "only last after:run handler runs" behavior), register() skips that
@@ -114,6 +119,7 @@ export function register(
                 branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
                 commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
                 ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
+                environment: config.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? "",
               }),
             });
             if (res.ok) {

@@ -119,6 +119,13 @@ interface FlakeyReporterOptions {
   commitSha?: string;
   ciRunId?: string;
   release?: string;
+  /**
+   * Target environment label (e.g. "qa", "stage", "prod"). Recorded on
+   * the run so the dashboard can filter by it. Falls back to
+   * FLAKEY_ENV / TEST_ENV / cypress --env environment= / --env name=
+   * if not provided here.
+   */
+  environment?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
@@ -168,6 +175,17 @@ export function flakeyReporter(
   const resolveCiRunId = () =>
     opts.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "";
   const release = opts.release ?? process.env.FLAKEY_RELEASE ?? "";
+  // Resolved at upload time — `cypress run --env environment=qa` (or
+  // `--env name=qa`) is exposed on `config.env` and isn't available
+  // until the user's setupNodeEvents has merged it in. Walk both keys
+  // so the common Cypress conventions both work without ceremony.
+  const cypressEnvBag = (config?.env ?? {}) as Record<string, unknown>;
+  const cypressEnvironment =
+    (typeof cypressEnvBag.environment === "string" && cypressEnvBag.environment) ||
+    (typeof cypressEnvBag.name === "string" && cypressEnvBag.name) ||
+    "";
+  const resolveEnvironment = () =>
+    (opts.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? cypressEnvironment ?? "").trim();
   const screenshotsDir = opts.screenshotsDir ?? "cypress/screenshots";
   const videosDir = opts.videosDir ?? "cypress/videos";
   const snapshotsDir = opts.snapshotsDir ?? "cypress/snapshots";
@@ -294,6 +312,7 @@ export function flakeyReporter(
     const startedAt = (results as any)?.startedTestsAt ?? new Date().toISOString();
     const finishedAt = (results as any)?.endedTestsAt ?? new Date().toISOString();
 
+    const environment = resolveEnvironment();
     const run = {
       meta: {
         suite_name: suite,
@@ -304,6 +323,7 @@ export function flakeyReporter(
         finished_at: finishedAt,
         reporter: "cypress",
         ...(release ? { release } : {}),
+        ...(environment ? { environment } : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,
@@ -395,10 +415,18 @@ export async function setupFlakey(
       const url = opts.reporterOptions?.url ?? fromReporterOpts.url;
       const apiKey = opts.reporterOptions?.apiKey ?? fromReporterOpts.apiKey;
       const suite = opts.reporterOptions?.suite ?? fromReporterOpts.suite;
+      const cypEnvBag = (config?.env ?? {}) as Record<string, unknown>;
+      const cypEnv =
+        (typeof cypEnvBag.environment === "string" && cypEnvBag.environment) ||
+        (typeof cypEnvBag.name === "string" && cypEnvBag.name) ||
+        "";
+      const environment =
+        opts.reporterOptions?.environment ?? fromReporterOpts.environment
+          ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? cypEnv;
       // installAfterRun was added in @flakeytesting/live-reporter 0.6.0; older
       // versions ignore it and install their own after:run (which collides on
       // Cypress 15 but is harmless on earlier versions).
-      liveAfterRun = register(on, { url, apiKey, suite, installAfterRun: false }) ?? undefined;
+      liveAfterRun = register(on, { url, apiKey, suite, environment, installAfterRun: false }) ?? undefined;
     } catch {
       // @flakeytesting/live-reporter not installed — skip
     }
