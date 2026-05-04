@@ -155,6 +155,11 @@ export function flakeyReporter(
   const url = opts.url.replace(/\/$/, "");
   const apiKey = opts.apiKey;
   const suite = opts.suite ?? "default";
+
+  // Local screenshot paths that have already been streamed to the backend
+  // mid-run via /live/:runId/screenshot. The after:run batch upload skips
+  // these so the same file isn't shipped twice.
+  const streamedScreenshotPaths = new Set<string>();
   const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
   const commitSha = opts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "";
   // ciRunId is resolved LAZILY at upload time. live-reporter sets
@@ -176,6 +181,53 @@ export function flakeyReporter(
       writeFileSync(join(cmd, `${safeName}.json`), JSON.stringify(data));
       return null;
     },
+  });
+
+  // Stream screenshots to the backend the moment Cypress finishes writing them
+  // to disk, instead of waiting for the after:run batch. Saves the user from
+  // staring at an empty test detail page while a long suite is still running,
+  // and bypasses the fragile filename-substring matching the batch path uses
+  // (we know the spec + test title here, so the backend can link directly).
+  // On any failure the local file is left in place so the after:run upload
+  // can still ship it.
+  on("after:screenshot", async (details: {
+    path?: string;
+    specName?: string;
+    testFailure?: boolean;
+    testTitle?: string | string[];
+  }) => {
+    const filePath = details?.path;
+    if (!filePath || !existsSync(filePath)) return details;
+    const runId = readLiveRunIdForPlugin();
+    if (!runId) return details;
+
+    const titleArr = Array.isArray(details.testTitle)
+      ? details.testTitle
+      : (details.testTitle ? [details.testTitle] : []);
+    const fullTitle = titleArr.filter(Boolean).join(" > ");
+    const specName = details.specName ?? "";
+    if (!fullTitle || !specName) return details;
+
+    try {
+      const buf = readFileSync(filePath);
+      const ab = new ArrayBuffer(buf.byteLength);
+      new Uint8Array(ab).set(buf);
+
+      const form = new FormData();
+      form.append("screenshot", new Blob([ab], { type: "image/png" }), basename(filePath));
+      form.append("spec", specName);
+      form.append("testTitle", fullTitle);
+
+      const res = await fetch(`${url}/live/${runId}/screenshot`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      if (res.ok) streamedScreenshotPaths.add(filePath);
+    } catch {
+      // Streaming failed — leave file in place; after:run will still pick it up.
+    }
+    return details;
   });
 
   // (Intentionally no `before:run` here. Cypress 15+ runs ONLY the
@@ -257,8 +309,10 @@ export function flakeyReporter(
       specs,
     };
 
-    // Collect artifacts
-    const screenshots = findFiles(screenshotsDir, [".png"]);
+    // Collect artifacts. Screenshots already streamed via after:screenshot
+    // are dropped here so the batch upload doesn't ship the same PNG again.
+    const screenshots = findFiles(screenshotsDir, [".png"])
+      .filter((p) => !streamedScreenshotPaths.has(p));
     const videos = findFiles(videosDir, [".mp4", ".webm"]);
     const snapshots = findFiles(snapshotsDir, [".json.gz"]);
 
