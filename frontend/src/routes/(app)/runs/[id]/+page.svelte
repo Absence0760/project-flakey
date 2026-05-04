@@ -68,6 +68,21 @@
     if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
   }
 
+  // Coalesce bursts of live events into a single fetch so the header counters
+  // update within ~250ms of a test result, without flooding the backend when
+  // many tests finish at once.
+  let pendingStatFetch: ReturnType<typeof setTimeout> | null = null;
+  function scheduleStatRefresh(runId: number) {
+    if (pendingStatFetch) return;
+    pendingStatFetch = setTimeout(() => {
+      pendingStatFetch = null;
+      fetchRun(runId).then(r => { run = r; }).catch(() => {});
+    }, 250);
+  }
+  function cancelStatRefresh() {
+    if (pendingStatFetch) { clearTimeout(pendingStatFetch); pendingStatFetch = null; }
+  }
+
   function connectLive(runId: number) {
     const token = getAuth().token;
     // EventSource doesn't support headers, so pass token as query param
@@ -83,12 +98,24 @@
         }
         liveEvents = [...liveEvents.slice(-99), event];
 
+        // Refresh header counters as soon as a test result lands rather than
+        // waiting up to 3s for the next poll tick.
+        if (
+          event.type === "test.passed" ||
+          event.type === "test.failed" ||
+          event.type === "test.skipped" ||
+          event.type === "spec.finished"
+        ) {
+          scheduleStatRefresh(runId);
+        }
+
         // Auto-refresh full run data when run finishes
         if (event.type === "run.finished") {
           isLive = false;
           justFinished = true;
           eventSource?.close();
           stopLivePoll();
+          cancelStatRefresh();
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
           // Clear the "just finished" banner after 10 seconds
           setTimeout(() => { justFinished = false; }, 10000);
@@ -97,6 +124,7 @@
           runAborted = true;
           eventSource?.close();
           stopLivePoll();
+          cancelStatRefresh();
           // Refetch so run.aborted persists as the header pill after the
           // transient banner times out.
           fetchRun(runId).then(r => { run = r; }).catch(() => {});
@@ -108,6 +136,7 @@
     eventSource.onerror = () => {
       isLive = false;
       stopLivePoll();
+      cancelStatRefresh();
       eventSource?.close();
       eventSource = null;
     };
@@ -174,6 +203,7 @@
   onDestroy(() => {
     eventSource?.close();
     stopLivePoll();
+    cancelStatRefresh();
     if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
   });
 
