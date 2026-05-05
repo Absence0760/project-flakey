@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Maven Surefire" tests="8" failures="2" errors="1" time="14.532">
+  <testsuite name="com.acme.api.AuthServiceTest" tests="3" failures="1" errors="0" skipped="0" time="2.341" timestamp="2026-04-10T14:32:00" hostname="ci-runner-7" file="src/test/java/com/acme/api/AuthServiceTest.java">
+    <properties>
+      <property name="java.version" value="21.0.1"/>
+      <property name="maven.test.skip" value="false"/>
+    </properties>
+    <testcase name="hashesPasswordsWithBcrypt" classname="com.acme.api.AuthServiceTest" time="0.234"/>
+    <testcase name="rejectsEmptyPasswords" classname="com.acme.api.AuthServiceTest" time="0.012"/>
+    <testcase name="signsTokensWithOrgClaim" classname="com.acme.api.AuthServiceTest" time="0.089">
+      <failure message="expected 42 but was &lt;null&gt;" type="org.opentest4j.AssertionFailedError">
+org.opentest4j.AssertionFailedError: expected 42 but was &lt;null&gt;
+        at com.acme.api.AuthServiceTest.signsTokensWithOrgClaim(AuthServiceTest.java:34)
+      </failure>
+      <system-out>[INFO] Generating token for orgId=42</system-out>
+    </testcase>
+  </testsuite>
+
+  <testsuite name="com.acme.api.DbPoolTest" tests="3" failures="1" errors="1" skipped="1" time="11.234" timestamp="2026-04-10T14:32:03" file="src/test/java/com/acme/api/DbPoolTest.java">
+    <testcase name="connectsWithProvidedCredentials" classname="com.acme.api.DbPoolTest" time="0.567"/>
+    <testcase name="retriesOnTransientECONNREFUSED" classname="com.acme.api.DbPoolTest" time="30.001">
+      <error message="Test timed out after 30000ms" type="java.util.concurrent.TimeoutException">
+java.util.concurrent.TimeoutException: Test timed out after 30000ms
+        at java.util.concurrent.FutureTask.get(FutureTask.java:204)
+      </error>
+    </testcase>
+    <testcase name="handlesConnectionPoolExhaustion" classname="com.acme.api.DbPoolTest$EdgeCases" time="0">
+      <skipped message="Pending — see https://acme.atlassian.net/browse/JIRA-2384"/>
+    </testcase>
+    <testcase name="reconnectsAfterPostgresFailover" classname="com.acme.api.DbPoolTest" time="2.103">
+      <failure message="Connection state did not recover within 2s" type="org.opentest4j.AssertionFailedError">
+        Mock failover did not propagate to pool listeners
+      </failure>
+    </testcase>
+  </testsuite>
+
+  <testsuite name="empty.suite" tests="0" failures="0" errors="0" skipped="0" time="0">
+  </testsuite>
+</testsuites>

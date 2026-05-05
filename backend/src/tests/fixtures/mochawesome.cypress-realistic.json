@@ -1,0 +1,184 @@
+{
+  "stats": {
+    "suites": 4,
+    "tests": 6,
+    "passes": 4,
+    "pending": 1,
+    "failures": 1,
+    "start": "2026-04-10T14:32:11.234Z",
+    "end": "2026-04-10T14:34:55.789Z",
+    "duration": 164555,
+    "testsRegistered": 6,
+    "passPercent": 80,
+    "pendingPercent": 16.67,
+    "other": 0,
+    "hasOther": false,
+    "skipped": 0,
+    "hasSkipped": false
+  },
+  "results": [
+    {
+      "uuid": "f1a2-spec-1",
+      "title": "",
+      "fullFile": "/builds/acme/e2e/cypress/e2e/auth/login.cy.ts",
+      "file": "cypress/e2e/auth/login.cy.ts",
+      "beforeHooks": [],
+      "afterHooks": [],
+      "tests": [],
+      "suites": [
+        {
+          "uuid": "suite-login-1",
+          "title": "Login flow",
+          "fullFile": "cypress/e2e/auth/login.cy.ts",
+          "file": "",
+          "beforeHooks": [
+            {
+              "title": "\"before each\" hook for \"redirects to dashboard with valid creds\"",
+              "fullTitle": "Login flow \"before each\" hook for \"redirects to dashboard with valid creds\"",
+              "timedOut": null,
+              "duration": 1234,
+              "state": "passed",
+              "speed": "fast",
+              "pass": true,
+              "fail": false,
+              "pending": false,
+              "context": "",
+              "code": "",
+              "err": {},
+              "uuid": "hook-1",
+              "parentUUID": "suite-login-1"
+            }
+          ],
+          "afterHooks": [],
+          "tests": [
+            {
+              "title": "redirects to dashboard with valid creds",
+              "fullTitle": "Login flow redirects to dashboard with valid creds",
+              "timedOut": null,
+              "duration": 4321,
+              "state": "passed",
+              "speed": "medium",
+              "pass": true,
+              "fail": false,
+              "pending": false,
+              "context": null,
+              "code": "cy.visit('/login').get('input[name=email]').type(...);",
+              "err": {},
+              "uuid": "test-1",
+              "parentUUID": "suite-login-1",
+              "isHook": false,
+              "skipped": false
+            },
+            {
+              "title": "shows validation error for empty password",
+              "fullTitle": "Login flow shows validation error for empty password",
+              "timedOut": false,
+              "duration": 2814,
+              "state": "failed",
+              "speed": "slow",
+              "pass": false,
+              "fail": true,
+              "pending": false,
+              "context": null,
+              "code": "cy.visit('/login').get('button[type=submit]').click();",
+              "err": {
+                "message": "AssertionError: Timed out retrying after 4000ms: expected to find element with selector .field-error",
+                "estack": "AssertionError: Timed out retrying after 4000ms: expected to find element with selector .field-error\n    at Context.eval (webpack:///./cypress/e2e/auth/login.cy.ts:42:5)",
+                "diff": null
+              },
+              "uuid": "test-2",
+              "parentUUID": "suite-login-1"
+            }
+          ],
+          "suites": [],
+          "passes": ["test-1"],
+          "failures": ["test-2"],
+          "pending": [],
+          "skipped": [],
+          "duration": 7135,
+          "root": false,
+          "rootEmpty": false,
+          "_timeout": 60000
+        }
+      ]
+    },
+    {
+      "uuid": "f1a2-spec-2",
+      "title": "",
+      "fullFile": "cypress/e2e/dashboard/widgets.cy.ts",
+      "file": "cypress/e2e/dashboard/widgets.cy.ts",
+      "beforeHooks": [],
+      "afterHooks": [],
+      "tests": [],
+      "suites": [
+        {
+          "uuid": "suite-dash-1",
+          "title": "Dashboard",
+          "tests": [],
+          "suites": [
+            {
+              "uuid": "suite-dash-2",
+              "title": "widget grid",
+              "tests": [
+                {
+                  "title": "renders 4 widgets",
+                  "fullTitle": "Dashboard widget grid renders 4 widgets",
+                  "duration": 1543,
+                  "state": "passed",
+                  "pass": true,
+                  "fail": false,
+                  "pending": false,
+                  "err": {},
+                  "uuid": "test-3"
+                },
+                {
+                  "title": "drag-and-drop reorders widgets",
+                  "fullTitle": "Dashboard widget grid drag-and-drop reorders widgets",
+                  "duration": 0,
+                  "state": "pending",
+                  "pass": false,
+                  "fail": false,
+                  "pending": true,
+                  "err": {},
+                  "uuid": "test-4"
+                }
+              ]
+            }
+          ],
+          "passes": ["test-3"],
+          "failures": [],
+          "pending": ["test-4"],
+          "skipped": []
+        }
+      ]
+    },
+    {
+      "uuid": "f1a2-spec-3",
+      "title": "",
+      "file": "cypress/e2e/api/health.cy.ts",
+      "beforeHooks": [],
+      "afterHooks": [],
+      "tests": [
+        {
+          "title": "GET /health returns 200",
+          "fullTitle": "GET /health returns 200",
+          "duration": 89,
+          "state": "passed",
+          "pass": true,
+          "fail": false,
+          "pending": false,
+          "err": {},
+          "uuid": "test-5"
+        }
+      ],
+      "suites": []
+    },
+    {
+      "uuid": "f1a2-spec-4",
+      "title": "",
+      "file": "cypress/e2e/empty.cy.ts",
+      "tests": [],
+      "suites": []
+    }
+  ]
+}

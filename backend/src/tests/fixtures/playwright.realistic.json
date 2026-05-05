@@ -1,0 +1,205 @@
+{
+  "config": {
+    "rootDir": "/builds/acme/e2e/tests",
+    "version": "1.49.1"
+  },
+  "stats": {
+    "startTime": "2026-04-10T14:32:00.000Z",
+    "duration": 87543
+  },
+  "errors": [],
+  "suites": [
+    {
+      "title": "auth.spec.ts",
+      "file": "tests/auth/auth.spec.ts",
+      "line": 1,
+      "column": 1,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Login",
+          "file": "tests/auth/auth.spec.ts",
+          "line": 5,
+          "column": 1,
+          "specs": [
+            {
+              "title": "redirects to dashboard with valid creds",
+              "ok": true,
+              "tags": ["@smoke", "@auth"],
+              "tests": [
+                {
+                  "title": "redirects to dashboard with valid creds",
+                  "ok": true,
+                  "tags": ["@smoke", "@auth"],
+                  "expectedStatus": "passed",
+                  "annotations": [],
+                  "location": {
+                    "file": "tests/auth/auth.spec.ts",
+                    "line": 8,
+                    "column": 5
+                  },
+                  "results": [
+                    {
+                      "status": "failed",
+                      "duration": 5012,
+                      "error": {
+                        "message": "Timeout 5000ms exceeded waiting for locator('text=Welcome')",
+                        "stack": "Error: Timeout...\n    at /builds/acme/e2e/tests/auth/auth.spec.ts:14:24",
+                        "snippet": "  12 |     await page.fill('#password', 'pass');\n  13 |     await page.click('button[type=submit]');\n> 14 |     await expect(page.locator('text=Welcome')).toBeVisible();\n     |                        ^"
+                      },
+                      "errors": [],
+                      "stdout": ["[browser] navigated to /login\n"],
+                      "stderr": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "test-results/auth-Login-redirects-to-dashboard-1/test-failed-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "test-results/auth-Login-redirects-to-dashboard-1/trace.zip"
+                        }
+                      ]
+                    },
+                    {
+                      "status": "passed",
+                      "duration": 3210,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "attachments": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "shows error for invalid creds",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "title": "shows error for invalid creds",
+                  "ok": true,
+                  "tags": [],
+                  "expectedStatus": "passed",
+                  "annotations": [],
+                  "location": {
+                    "file": "tests/auth/auth.spec.ts",
+                    "line": 22,
+                    "column": 5
+                  },
+                  "results": [
+                    {
+                      "status": "passed",
+                      "duration": 1234,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "test-results/auth-Login-shows-error/video.webm"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "checkout.spec.ts",
+      "file": "tests/checkout/checkout.spec.ts",
+      "specs": [
+        {
+          "title": "completes a purchase",
+          "ok": false,
+          "tags": ["@critical"],
+          "tests": [
+            {
+              "title": "completes a purchase",
+              "ok": false,
+              "tags": ["@critical"],
+              "expectedStatus": "passed",
+              "annotations": [
+                { "type": "issue", "description": "JIRA-2384" }
+              ],
+              "location": {
+                "file": "tests/checkout/checkout.spec.ts",
+                "line": 15,
+                "column": 5
+              },
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 8456,
+                  "error": {
+                    "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 200\nReceived: 500",
+                    "stack": "Error...",
+                    "snippet": "expect(response.status()).toBe(200);"
+                  },
+                  "errors": [],
+                  "attachments": []
+                },
+                {
+                  "status": "failed",
+                  "duration": 8123,
+                  "error": {
+                    "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 200\nReceived: 500"
+                  },
+                  "errors": [],
+                  "attachments": []
+                },
+                {
+                  "status": "failed",
+                  "duration": 8001,
+                  "error": {
+                    "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 200\nReceived: 500"
+                  },
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "skipped.spec.ts",
+      "file": "tests/skipped.spec.ts",
+      "specs": [
+        {
+          "title": "test.skip placeholder",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "title": "test.skip placeholder",
+              "ok": true,
+              "tags": [],
+              "expectedStatus": "skipped",
+              "annotations": [{"type": "skip"}],
+              "location": { "file": "tests/skipped.spec.ts", "line": 4, "column": 5 },
+              "results": [
+                {
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "numTotalTests": 7,
+  "numPassedTests": 4,
+  "numFailedTests": 2,
+  "numPendingTests": 1,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 3,
+  "startTime": 1776103200000,
+  "success": false,
+  "wasInterrupted": false,
+  "testResults": [
+    {
+      "testFilePath": "/builds/acme/api/__tests__/auth.test.ts",
+      "numPassingTests": 2,
+      "numFailingTests": 1,
+      "numPendingTests": 0,
+      "numTodoTests": 0,
+      "perfStats": {
+        "start": 1776103201000,
+        "end": 1776103205432,
+        "runtime": 4432,
+        "slow": false
+      },
+      "testResults": [
+        {
+          "ancestorTitles": ["AuthService"],
+          "title": "hashes passwords with bcrypt",
+          "fullName": "AuthService hashes passwords with bcrypt",
+          "status": "passed",
+          "duration": 234,
+          "failureMessages": [],
+          "failureDetails": [],
+          "numPassingAsserts": 2
+        },
+        {
+          "ancestorTitles": ["AuthService"],
+          "title": "rejects empty passwords",
+          "fullName": "AuthService rejects empty passwords",
+          "status": "passed",
+          "duration": 12,
+          "failureMessages": [],
+          "failureDetails": [],
+          "numPassingAsserts": 1
+        },
+        {
+          "ancestorTitles": ["AuthService", "JWT signing"],
+          "title": "embeds the orgId claim",
+          "fullName": "AuthService JWT signing embeds the orgId claim",
+          "status": "failed",
+          "duration": 89,
+          "failureMessages": [
+            "Error: expect(received).toBe(expected)\n\nExpected: 42\nReceived: undefined\n    at Object.<anonymous> (/builds/acme/api/__tests__/auth.test.ts:34:30)"
+          ],
+          "failureDetails": [
+            {
+              "message": "expect(received).toBe(expected)",
+              "stack": "Error: expect(received).toBe(expected)\n    at /builds/acme/api/__tests__/auth.test.ts:34:30"
+            }
+          ],
+          "numPassingAsserts": 0
+        }
+      ]
+    },
+    {
+      "testFilePath": "/builds/acme/api/__tests__/db.test.ts",
+      "numPassingTests": 1,
+      "numFailingTests": 1,
+      "numPendingTests": 1,
+      "numTodoTests": 0,
+      "perfStats": {
+        "start": 1776103205500,
+        "end": 1776103208900,
+        "runtime": 3400,
+        "slow": false
+      },
+      "testResults": [
+        {
+          "ancestorTitles": ["DB pool"],
+          "title": "connects with provided credentials",
+          "fullName": "DB pool connects with provided credentials",
+          "status": "passed",
+          "duration": 567,
+          "failureMessages": [],
+          "failureDetails": [],
+          "numPassingAsserts": 1
+        },
+        {
+          "ancestorTitles": ["DB pool"],
+          "title": "retries on transient ECONNREFUSED",
+          "fullName": "DB pool retries on transient ECONNREFUSED",
+          "status": "failed",
+          "duration": null,
+          "failureMessages": [
+            "Error: Test timed out after 30000ms\n    at Timeout._onTimeout"
+          ],
+          "failureDetails": [
+            { "message": "Test timed out after 30000ms" }
+          ],
+          "numPassingAsserts": 0
+        },
+        {
+          "ancestorTitles": ["DB pool", "edge cases"],
+          "title": "handles connection pool exhaustion",
+          "fullName": "DB pool edge cases handles connection pool exhaustion",
+          "status": "pending",
+          "duration": 0,
+          "failureMessages": [],
+          "failureDetails": [],
+          "numPassingAsserts": 0
+        }
+      ]
+    },
+    {
+      "testFilePath": "/builds/acme/api/__tests__/empty.test.ts",
+      "numPassingTests": 0,
+      "numFailingTests": 0,
+      "numPendingTests": 0,
+      "numTodoTests": 0,
+      "perfStats": { "start": 1776103209000, "end": 1776103209100, "runtime": 100, "slow": false },
+      "testResults": []
+    }
+  ]
+}
