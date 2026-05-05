@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/playwright-reporter",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Playwright reporter for Flakey — uploads results, screenshots, and videos",
   "type": "module",
   "main": "dist/reporter.js",

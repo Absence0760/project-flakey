@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/cypress-snapshots",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Cypress plugin that captures DOM snapshots at each command step for Flakey",
   "type": "module",
   "main": "dist/plugin.js",

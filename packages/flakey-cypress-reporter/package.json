@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/cypress-reporter",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Cypress reporter for Flakey — uploads results, screenshots, videos, and DOM snapshots",
   "type": "module",
   "main": "dist/reporter.cjs",

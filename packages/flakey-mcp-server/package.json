@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/mcp-server",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "MCP server for Flakey — lets AI coding agents query test results",
   "type": "module",
   "main": "dist/index.js",
