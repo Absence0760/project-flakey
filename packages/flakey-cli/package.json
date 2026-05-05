@@ -25,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jaredhoward/project-flakey.git",
+    "url": "https://github.com/Absence0760/project-flakey.git",
     "directory": "packages/flakey-cli"
   },
   "devDependencies": {
