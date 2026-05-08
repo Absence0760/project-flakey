@@ -5,9 +5,25 @@ Project-curated extensions Claude Code loads when invoked from this repo:
 - **Agents** (`.claude/agents/`) — specialised personas with their own tool allowlists. You don't invoke these directly; the slash commands delegate to them.
 - **Slash commands** (`.claude/commands/`) — typed at the prompt as `/audit/<name>` (or `/<name>` at the top level). Each is a self-contained task that loads the file body as instructions.
 
-This folder ships with a single agent (`flakey-auditor`) and a suite of audit commands under `/audit/*`. They're read-only by default — they report findings, they don't apply fixes without explicit confirmation.
+This folder ships with:
+
+- A suite of read-only audit commands under `/audit/*` (broad, periodic sweeps), driven by the `flakey-auditor` agent.
+- A pre-commit gate `/check` and a coder ↔ reviewer loop `/safe-edit` (per-change, focused), driven by the `code-reviewer`, `test-gap-checker`, and `doc-hygiene-checker` agents.
+
+All commands are read-only by default — they report findings or hand off to the user, they don't apply fixes without explicit confirmation.
 
 ---
+
+## Per-change commands
+
+Use these on the diff you're about to commit. They're cheaper and more focused than `/audit/*`.
+
+| Command | Use when… | Cost |
+|---|---|---|
+| **`/check`** | Right before committing a non-trivial change. Spawns `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel, aggregates a single advisory report. Single pass — no fix-and-re-review loop. The user picks which gaps to land. | ~1x review cost |
+| **`/safe-edit <task>`** | Implementing a security-sensitive, schema, live-flow, or reporter-package change you want a second pair of eyes on before commit. Coder → `code-reviewer` round 1 → fix → round 2 → ready-to-commit handoff. Hard cap at 2 review cycles. | ~2-3x edit cost |
+
+Skip both on typos, comment-only edits, dep-version bumps, or any < ~10-line diff that touches no invariant — just edit those directly.
 
 ## Audit commands
 
@@ -93,7 +109,9 @@ Output shape (per command):
 
 ---
 
-## The agent
+## The agents
+
+### `flakey-auditor`
 
 [`.claude/agents/flakey-auditor.md`](agents/flakey-auditor.md) — read-only auditor with the project's conventions baked in:
 
@@ -103,6 +121,18 @@ Output shape (per command):
 - The existing legitimate `pool.query` callsites (auth, integrations, retention, scheduled-reports, badge, connectivity, coverage settings, health) — won't be false-flagged for cross-org reads
 
 You don't invoke this agent directly; the audit commands do. If you want to write a new audit, model it on one of the existing files — they all follow the same shape (frontmatter description → goal → "what to check" numbered list → severity rubric → starting points → "delegate to" line).
+
+### `code-reviewer`
+
+[`.claude/agents/code-reviewer.md`](agents/code-reviewer.md) — review-only agent invoked by `/safe-edit` (in a fix loop) and by `/check` (single pass). Reads `git diff`, cross-references the project's invariants (the four trust boundaries, live-flow rules, reporter-package shape, Svelte 5 runes, Better Testing rebrand layers, house style), outputs concrete numbered file:line findings the coder should apply. Read-only — never edits. Strict output format that the orchestrator parses (`Status: CLEAN | NEEDS_CHANGES`, capped at 5 findings).
+
+### `test-gap-checker`
+
+[`.claude/agents/test-gap-checker.md`](agents/test-gap-checker.md) — invoked by `/check`. Reads the working diff and reports which `*.unit.test.ts` / `*.smoke.test.ts` should ship with each modified backend source file. Frontend has **no tests by design**; the agent does not flag missing frontend tests. Skips trivial diffs. Reports only — does not write tests.
+
+### `doc-hygiene-checker`
+
+[`.claude/agents/doc-hygiene-checker.md`](agents/doc-hygiene-checker.md) — invoked by `/check`. Surveys the project's doc set (`README.md`, `docs/architecture.md`, `docs/overview.md`, `docs/run-locally.md`, `docs/roadmap.md`, root + per-app + per-package `CLAUDE.md`) against the diff and reports which docs need updating. Reports only — does not edit docs.
 
 ---
 
@@ -126,3 +156,13 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 3. Add the row to this file's [Audit commands](#audit-commands) table.
 4. If `/audit/all` should pick it up, add it to the right area block in `.claude/commands/audit/all.md`.
 5. If the audit is truly novel (i.e. doesn't fit `flakey-auditor`'s trust-boundary table), update the agent file with the new area in the routing table — otherwise the agent will say "not my lane."
+
+## Choosing between `/check`, `/safe-edit`, and `/audit/*`
+
+| Situation | Reach for |
+|---|---|
+| About to commit any non-trivial change | `/check` |
+| Implementing a security-sensitive / schema / live-flow / reporter-package change | `/safe-edit <task>` (also produces a clean status by the time you'd run `/check`, so don't double up) |
+| Periodic broad sweep over the whole repo against one trust boundary | `/audit/<name>` |
+| Pre-release confidence pass | `/audit/all` |
+| Typo / comment / single-line dep bump | none — just commit |
