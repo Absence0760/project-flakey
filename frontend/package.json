@@ -21,7 +21,7 @@
 		"svelte-check": "4.4.6",
 		"typescript": "5.5.4",
 		"unplugin-icons": "0.19.2",
-		"vite": "8.0.7"
+		"vite": "8.0.11"
 	},
 	"type": "module",
 	"dependencies": {
