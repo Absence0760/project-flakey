@@ -27,16 +27,25 @@ test.describe("/runs/<id>", () => {
   // navigate via the runs list to capture the real first id rather
   // than hard-coding.
   test("shows the right id in <h1> and renders at least one spec section", async ({ page }) => {
-    // Capture the first run-card's href, then visit it directly so
-    // we know the id we're asserting.
-    await page.goto("/");
-    const firstCard = page.locator("a.run-card").first();
-    await expect(firstCard).toBeVisible({ timeout: 10_000 });
-    const href = await firstCard.getAttribute("href");
-    expect(href).toMatch(/^\/runs\/\d+$/);
-    const runId = href!.split("/").pop()!;
-
-    await page.goto(href!);
+    // Find a run that has ≥1 spec via the API. The first card on /
+    // can be a side-effect of other specs (e.g. live-run tests
+    // create runs with synthetic suites that may have 0 or few
+    // specs depending on which specs ran prior in the session).
+    await page.goto("/dashboard");
+    const runId = await page.evaluate(async () => {
+      const token = localStorage.getItem("bt_token");
+      const res = await fetch("http://localhost:3000/runs?limit=200", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      for (const r of body.runs as Array<{ id: number; spec_count?: number }>) {
+        if ((r.spec_count ?? 0) >= 1) return r.id;
+      }
+      return null;
+    });
+    expect(runId, "expected at least one run with ≥1 spec").toBeTruthy();
+    const href = `/runs/${runId}`;
+    await page.goto(href);
 
     // Header card lands with the run id.
     const heading = page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) });
@@ -66,10 +75,24 @@ test.describe("/runs/<id>", () => {
     // its default rendered state. A regression that broke either the
     // default-collapse-state computation or the test-row rendering
     // would land us on a detail page with no visible test rows.
-    await page.goto("/");
-    const firstCard = page.locator("a.run-card").first();
-    await expect(firstCard).toBeVisible({ timeout: 10_000 });
-    await firstCard.click();
+    //
+    // Find a run that has ≥1 spec and navigate to it. The bare "first
+    // card" approach is brittle because other specs in the suite can
+    // create empty runs (live-run tests, etc.).
+    await page.goto("/dashboard");
+    const runId = await page.evaluate(async () => {
+      const token = localStorage.getItem("bt_token");
+      const res = await fetch("http://localhost:3000/runs?limit=200", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      for (const r of body.runs as Array<{ id: number; spec_count?: number }>) {
+        if ((r.spec_count ?? 0) >= 1) return r.id;
+      }
+      return null;
+    });
+    expect(runId).toBeTruthy();
+    await page.goto(`/runs/${runId}`);
 
     // Wait for the spec sections to land.
     await expect(page.locator(".spec-section").first()).toBeVisible({ timeout: 10_000 });
