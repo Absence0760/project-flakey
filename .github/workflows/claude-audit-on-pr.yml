@@ -22,7 +22,17 @@ concurrency:
 
 jobs:
   audit:
-    if: ${{ !github.event.pull_request.draft }}
+    # Skip drafts (don't burn spend until the author opens for review).
+    # Skip dependabot — dep bumps don't have business-logic implications
+    # worth a Claude audit pass; Dependabot's own security advisories
+    # are the right surface for those. The claude-code-action also
+    # rejects bot actors by default ("Workflow initiated by non-human
+    # actor"), so skipping at the job level avoids surfacing red Xs on
+    # every dependabot PR.
+    if: >-
+      ${{ !github.event.pull_request.draft &&
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
