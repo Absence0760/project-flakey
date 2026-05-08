@@ -17,7 +17,11 @@
 # - backend/ uses its own npm lockfile (not pnpm); intentional per
 #   backend/CLAUDE.md.
 # - frontend/ has its own pnpm-lock.yaml separate from the packages/*
-#   workspace; intentional per frontend/CLAUDE.md.
+#   workspace; intentional per frontend/CLAUDE.md. The npm ecosystem
+#   only updates package.json on pnpm workspaces — we regenerate the
+#   lockfile manually at merge time (see d296537 for the discipline
+#   this implies, including @types/node having to be a direct devDep
+#   so svelte-check resolves it under pnpm 10's strict hoisting).
 # - The workspace root config covers all nine @flakeytesting/* packages
 #   in a single Dependabot run.
 
