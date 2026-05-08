@@ -9,7 +9,12 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["cypress", "node"]
+    "types": [
+      "node",
+      "cypress"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }
