@@ -1,0 +1,172 @@
+# Dependabot configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Strategy:
+# - One update schedule per dependency root: backend (npm), frontend (pnpm),
+#   the pnpm workspace root that owns packages/* (pnpm), GitHub Actions
+#   workflows, and the Terraform stack under infra/.
+# - Weekly, Monday morning. Predictable and low-noise.
+# - Related packages are grouped so they move together (Svelte, Express,
+#   AWS SDK, types, test runners). Everything else is bundled into a
+#   single "minor-and-patch" group per root so you get ~1-2 PRs per root
+#   per week instead of dozens.
+# - Major bumps for ungrouped packages open as individual PRs and require
+#   review.
+#
+# Notes:
+# - backend/ uses its own npm lockfile (not pnpm); intentional per
+#   backend/CLAUDE.md.
+# - frontend/ has its own pnpm-lock.yaml separate from the packages/*
+#   workspace; intentional per frontend/CLAUDE.md.
+# - The workspace root config covers all nine @flakeytesting/* packages
+#   in a single Dependabot run.
+
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # Backend (Express + Node + TypeScript, npm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(backend)"
+      include: "scope"
+    groups:
+      express:
+        patterns:
+          - "express"
+          - "@types/express"
+          - "body-parser"
+          - "cors"
+          - "helmet"
+          - "compression"
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+      postgres:
+        patterns:
+          - "pg"
+          - "@types/pg"
+          - "postgres"
+      types:
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # Frontend (SvelteKit, Svelte 5, pnpm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(frontend)"
+      include: "scope"
+    groups:
+      svelte-ecosystem:
+        patterns:
+          - "svelte"
+          - "svelte-*"
+          - "@sveltejs/*"
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+      types:
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # @flakeytesting/* workspace (packages/*, pnpm-workspace.yaml at repo root)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: "chore(packages)"
+      include: "scope"
+    ignore:
+      # Reporter peer-deps move with the host test runner's release cadence,
+      # not ours. Pin manually when we adopt a new major.
+      - dependency-name: "cypress"
+      - dependency-name: "@playwright/test"
+      - dependency-name: "playwright"
+      - dependency-name: "webdriverio"
+      - dependency-name: "@wdio/*"
+    groups:
+      mocha-and-test-runners:
+        patterns:
+          - "mocha"
+          - "@types/mocha"
+          - "chai"
+          - "@types/chai"
+      types:
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Actions workflows (claude.yml, deploy.yml, publish.yml,
+  # claude-audit-on-pr.yml)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Terraform (AWS ECS Fargate + RDS + S3/CloudFront)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "terraform"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(infra)"
+      include: "scope"
+    groups:
+      aws-providers:
+        patterns:
+          - "hashicorp/aws"
+          - "hashicorp/random"
+          - "hashicorp/null"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
