@@ -11,17 +11,17 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
 	"devDependencies": {
-		"@iconify-json/material-symbols": "1.1.89",
+		"@iconify-json/material-symbols": "1.2.70",
 		"@sveltejs/adapter-static": "3.0.10",
-		"@sveltejs/kit": "2.56.1",
-		"@sveltejs/vite-plugin-svelte": "7.0.0",
+		"@sveltejs/kit": "2.59.1",
+		"@sveltejs/vite-plugin-svelte": "7.1.2",
 		"mdsvex": "^0.12.7",
 		"normalize.css": "8.0.1",
-		"svelte": "5.55.2",
-		"svelte-check": "4.4.6",
+		"svelte": "5.55.5",
+		"svelte-check": "4.4.8",
 		"typescript": "5.5.4",
 		"unplugin-icons": "0.19.2",
-		"vite": "8.0.7"
+		"vite": "8.0.11"
 	},
 	"type": "module",
 	"dependencies": {
