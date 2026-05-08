@@ -81,10 +81,10 @@ jobs:
     if: needs.detect-package.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -99,10 +99,10 @@ jobs:
     if: needs.detect-package.outputs.cli == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -119,10 +119,10 @@ jobs:
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -139,10 +139,10 @@ jobs:
     if: needs.detect-package.outputs.cypress_snapshots == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -159,10 +159,10 @@ jobs:
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -181,10 +181,10 @@ jobs:
     if: needs.detect-package.outputs.playwright_snapshots == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -201,10 +201,10 @@ jobs:
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -221,10 +221,10 @@ jobs:
     if: needs.detect-package.outputs.live_reporter == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
@@ -239,10 +239,10 @@ jobs:
     if: needs.detect-package.outputs.mcp_server == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 20, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install
       - run: pnpm build
