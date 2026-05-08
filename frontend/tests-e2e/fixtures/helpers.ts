@@ -34,9 +34,15 @@ export async function signIn(
 /**
  * Click through the sidebar profile menu → Sign out. Asserts the
  * post-logout redirect to /login.
+ *
+ * The profile dropdown lives inside the sidebar's `.user-row`. The
+ * row toggles a popover; the popover contains a "Sign out" button
+ * that calls auth.logout() (which clears bt_token / bt_user /
+ * bt_refresh and notifies subscribers, prompting the (app) layout
+ * to navigate back to /login).
  */
 export async function signOut(page: Page): Promise<void> {
-  await page.locator(".profile-btn").click();
+  await page.locator(".user-row").click();
   await page.getByRole("button", { name: /sign out/i }).click();
   await expect(page).toHaveURL(/\/login/);
 }
