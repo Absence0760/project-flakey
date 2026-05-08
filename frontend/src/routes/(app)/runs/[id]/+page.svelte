@@ -170,15 +170,18 @@
 
     // Feature 5: read URL filter param
     const urlStatus = $page.url.searchParams.get("status");
-    if (urlStatus && ["all", "passed", "failed", "skipped"].includes(urlStatus)) {
-      statusFilter = urlStatus;
+    const urlStatusExplicit = !!urlStatus && ["all", "passed", "failed", "skipped"].includes(urlStatus);
+    if (urlStatusExplicit) {
+      statusFilter = urlStatus!;
     }
 
     try {
       run = await fetchRun(id);
       if (run) {
-        // Feature 1: auto-filter to failed (only if no URL param override)
-        if (run.failed > 0 && statusFilter === "all") {
+        // Feature 1: auto-filter to failed (only when the user hasn't
+        // explicitly chosen a filter via the URL — `?status=all` is a
+        // deliberate override that must NOT get clobbered).
+        if (run.failed > 0 && statusFilter === "all" && !urlStatusExplicit) {
           setStatusFilter("failed");
         }
 
