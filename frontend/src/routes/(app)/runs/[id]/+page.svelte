@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
   import { getAuth, authFetch } from "$lib/auth";
   import ErrorModal from "$lib/components/ErrorModal.svelte";
@@ -159,7 +160,7 @@
     const url = new URL(window.location.href);
     if (value === "all") url.searchParams.delete("status");
     else url.searchParams.set("status", value);
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
 
   onMount(async () => {

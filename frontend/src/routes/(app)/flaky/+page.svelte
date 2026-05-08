@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
 
@@ -28,7 +29,7 @@
     set("suite", selectedSuite, "all");
     set("sort", sortBy, "flaky_rate");
     set("window", String(runWindow), "30");
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
   function readUrl() {
     const p = $page.url.searchParams;
@@ -136,6 +137,7 @@
 <div class="page">
   <div class="header">
     <div>
+      <h1 class="page-title">Flaky tests</h1>
       <p class="description">Tests that alternate between passing and failing across recent runs.</p>
     </div>
     <div class="filters">
@@ -255,6 +257,7 @@
   .header {
     display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;
   }
+  .page-title { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.25rem; }
   .description { margin: 0.25rem 0 0; color: var(--text-secondary); font-size: 0.875rem; }
 
   .filters { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }

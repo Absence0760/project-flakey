@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "$lib/api";
   import DateRangePicker from "$lib/components/DateRangePicker.svelte";
   import TrendChart from "$lib/components/TrendChart.svelte";
@@ -26,7 +27,7 @@
     const url = new URL(window.location.href);
     if (fromDate) url.searchParams.set("from", fromDate); else url.searchParams.delete("from");
     if (toDate) url.searchParams.set("to", toDate); else url.searchParams.delete("to");
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
   function readUrl() {
     const p = $page.url.searchParams;
@@ -172,7 +173,7 @@
 
     <div class="metrics-groups">
       <div class="metrics-group">
-        <h3 class="metrics-group-title">Automated runs</h3>
+        <h3 class="metrics-group-title">Automated test runs</h3>
         <div class="metrics">
           <div class="metric">
             <span class="metric-value">{stats.automated.total_runs}</span>

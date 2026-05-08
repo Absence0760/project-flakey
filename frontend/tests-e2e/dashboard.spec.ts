@@ -33,12 +33,14 @@ test.describe("/dashboard", () => {
     await expect(card.locator(".total-runs-sub")).toContainText("manual");
   });
 
-  test("renders both metric groups (Automated runs + Manual tests)", async ({ page }) => {
-    // `exact: true` because the dashboard ALSO has a "Recent automated
-    // runs" section heading further down — getByRole's default
-    // partial-match would resolve to two elements and trip strict mode.
+  test("renders both metric groups (Automated test runs + Manual tests)", async ({ page }) => {
+    // The metrics-group h3s sit inside .metrics-groups, distinct from
+    // the "Recent automated runs" / "Recent manual results" / "Recent
+    // failures" h2 sections further down. The h3 was renamed from
+    // "Automated runs" → "Automated test runs" to disambiguate the
+    // accessible heading hierarchy from "Recent automated runs".
     await expect(
-      page.getByRole("heading", { name: "Automated runs", exact: true }),
+      page.getByRole("heading", { name: "Automated test runs", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole("heading", { name: "Manual tests", exact: true }),

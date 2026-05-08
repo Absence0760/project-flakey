@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
 
@@ -16,7 +17,7 @@
     const set = (k: string, v: string, def: string) => { if (v !== def) url.searchParams.set(k, v); else url.searchParams.delete(k); };
     set("suite", selectedSuite, "all");
     set("sort", sortBy, "avg_duration_ms");
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
   function readUrl() {
     const p = $page.url.searchParams;

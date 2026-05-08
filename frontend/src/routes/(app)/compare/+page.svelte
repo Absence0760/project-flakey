@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchCompare, fetchRuns, type CompareResult, type CompareEntry, type Run } from "$lib/api";
 
   let result = $state<CompareResult | null>(null);
@@ -23,7 +24,7 @@
     const url = new URL(window.location.href);
     if (categoryFilter !== "all") url.searchParams.set("category", categoryFilter);
     else url.searchParams.delete("category");
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
 
   onMount(async () => {
@@ -65,7 +66,7 @@
     const url = new URL(window.location.href);
     url.searchParams.set("a", selectedA);
     url.searchParams.set("b", selectedB);
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
     loadComparison(Number(selectedA), Number(selectedB));
   }
 

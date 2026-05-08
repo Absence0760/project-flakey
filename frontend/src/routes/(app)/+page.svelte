@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
+  import { replaceState } from "$app/navigation";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { authFetch } from "$lib/auth";
   import { API_URL } from "$lib/config";
@@ -36,7 +37,7 @@
     set("status", selectedStatus, "all");
     set("date", selectedDate, "7d");
     set("q", searchQuery, "");
-    history.replaceState({}, "", url.toString());
+    replaceState(url, {});
   }
 
   function readFiltersFromUrl() {
