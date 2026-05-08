@@ -136,10 +136,38 @@ test.describe("/releases/<id>", () => {
     // unmounts and remounts the section, and any locator chain that
     // narrows by `:not(.checked)` would no longer match the same
     // element (it's now checked). Re-find by label after the action.
-    const uncheckedItem = checklistSection
+    let uncheckedItem = checklistSection
       .locator('ul.items > li:not(.checked)')
       .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
       .first();
+
+    // Test premise: the seed inserts 3 initially-unchecked
+    // togglable items, but every time this suite runs the toggle
+    // test checks one. After ~3 re-runs without a re-seed, all
+    // initially-unchecked items are now checked and there's no
+    // headroom. Set the premise back up by unchecking one first
+    // — the test's contract (clicking flips .checked on) is still
+    // exercised, just with the test responsible for its own
+    // pre-state.
+    if (!(await uncheckedItem.isVisible().catch(() => false))) {
+      const candidate = checklistSection
+        .locator("ul.items > li.checked")
+        .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
+        .first();
+      const candidateLabel = (await candidate.locator(".item-label").textContent())?.trim();
+      await candidate.locator('input[type="checkbox"]').uncheck();
+      // Re-find by label after section remount; reload settles.
+      await expect(
+        checklistSection.locator("ul.items > li", {
+          has: page.locator(".item-label", { hasText: candidateLabel! }),
+        }).first(),
+      ).not.toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+      uncheckedItem = checklistSection
+        .locator('ul.items > li:not(.checked)')
+        .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
+        .first();
+    }
+
     const labelText = (await uncheckedItem.locator(".item-label").textContent())?.trim();
     expect(labelText, "needed to capture the item's label for re-finding").toBeTruthy();
 
