@@ -1,0 +1,105 @@
+name: Claude Audit on PR
+
+# Runs a focused security-and-invariants audit pass on every PR opened
+# against `main`. Posts findings as a non-blocking PR comment. Stops
+# requireAuth-bypass, RLS-missing, secret-leak, and live-flow-regression
+# changes from making it into a release without at least surfacing them.
+#
+# This is a non-blocking advisory — the PR is not failed by findings.
+# Severity-Critical items should still be addressed before merge; the
+# `flakey-auditor` agent flags them prominently.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Don't run on draft PRs (saves spend until the author opens for review).
+# `ready_for_review` re-triggers when a draft is promoted.
+concurrency:
+  group: claude-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run focused audit pass
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --max-turns 30
+            --allowedTools 'Bash(git *),Bash(gh *),Read,Glob,Grep'
+          prompt: |
+            You are running on PR #${{ github.event.pull_request.number }}
+            ("${{ github.event.pull_request.title }}") against main.
+
+            Run a focused audit on the working diff covering the four
+            highest-impact areas:
+
+            1. /audit/auth — every Express route in the diff is behind
+               requireAuth, every tenant-scoped query goes through
+               tenantQuery / tenantTransaction.
+            2. /audit/multi-tenant — any new table has ENABLE ROW LEVEL
+               SECURITY plus a tenant policy; no new pool.query in a
+               tenant-scoped route.
+            3. /audit/secrets — no JWT_SECRET / FLAKEY_ENCRYPTION_KEY
+               fallback to a hardcoded default in non-dev paths; no
+               server-only env var referenced from a client-bundle file.
+            4. /audit/live-flow — uniqueness fences (uniq_specs_run_file,
+               idx_tests_pending_unique) intact; screenshot_paths and
+               snapshot_path preserved across the upload-merge
+               delete+reinsert in run-merge.ts / routes/runs.ts /
+               routes/uploads.ts.
+
+            Limit yourself to findings that touch files actually in this
+            PR's diff (`git diff origin/main...HEAD`). Do not audit the
+            whole repo — that's `/audit/all`'s job, and this is a
+            per-PR pass.
+
+            Output format:
+
+            ```
+            ## Claude PR audit
+
+            **Files in this PR:** <count>
+
+            ### Critical (N)
+            - <area> — file:line — <one-line> | <reproduction>
+
+            ### High (N)
+            - …
+
+            ### Medium / Low / Notes (collapsed)
+            - …
+
+            ### Clean
+            - <area> — no findings
+
+            > Advisory only — this comment does not fail the PR. Critical
+            > findings should be addressed before merge.
+            ```
+
+            Then post the report as a PR comment using:
+
+              gh pr comment ${{ github.event.pull_request.number }} \
+                --body-file <(cat <<'EOF'
+              <your report>
+              EOF
+              )
+
+            If you cannot run the comment-post step, print the report to
+            stdout — the workflow will fail visibly and a maintainer will
+            investigate. Do not silently swallow the output.
