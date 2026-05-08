@@ -4,9 +4,6 @@
  *   import "@flakeytesting/cypress-reporter/support";
  */
 
-declare const Cypress: any;
-declare const cy: any;
-
 interface CommandEntry {
   name: string;
   message: string;
@@ -66,5 +63,5 @@ afterEach(() => {
     testTitle,
     specFile,
     commands: [...currentCommands],
-  }, { log: false }).then(() => {}, () => {});
+  }, { log: false });
 });
