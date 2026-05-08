@@ -134,26 +134,134 @@ test.describe("ErrorModal snapshot viewer (gherkin demo run)", () => {
     await expect(whenItem).not.toHaveClass(/\bcmd-locked\b/);
   });
 
-  test("clicking an action-level (cmd-child) command locks that child", async ({ page }) => {
+  test("clicking an action-level (cmd-child) command locks AND moves the snapshot", async ({
+    page,
+  }) => {
     await openGherkinRun(page);
     await openErrorModal(page);
 
+    // SnapshotViewer's footer renders `<step-count>X / Y</step-count>`
+    // and `<step-name>commandName — commandMessage</step-name>`. Both
+    // are bound to the active snapshot step — if the snapshot didn't
+    // actually re-render in response to a click, these stay frozen
+    // even though the modal's class state changes.
+    const stepCount = page.locator(".snapshot-viewer .step-count");
+    const stepName = page.locator(".snapshot-viewer .step-name");
+
+    // Cold open: hasSnapshot defaults snapshotStep to 0 → "1 / 10".
+    // The first snapshot step is the cypress `visit /login`.
+    await expect(stepCount).toHaveText("1 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("visit");
+
+    // All four groups (Setup/Given/When/Then) start expanded, so all
+    // 7 cmd-child rows are in the DOM in order:
+    //   nth(0) Setup → visit       (snap 0)
+    //   nth(1) Given → get email   (snap 2)
+    //   nth(2) Given → type user   (snap 3)
+    //   nth(3) When  → get pwd     (snap 5)
+    //   nth(4) When  → type pwd    (snap 6)
+    //   nth(5) When  → click       (snap 7)
+    //   nth(6) Then  → should      (snap 9)
     const list = page.locator(".command-list");
-    const whenParent = list.locator("li.cmd-gherkin").nth(1);
 
-    // Lock the parent first.
-    await whenParent.click();
-    await expect(whenParent).toHaveClass(/\bcmd-locked\b/, { timeout: 2_000 });
-
-    // Now click an action under WHEN. Children are emitted in DOM
-    // order: Setup has 1 (idx 0), Given has 2 (idx 1,2), When has 3
-    // (idx 3,4,5), Then has 1 (idx 6). WHEN's first child is index 3.
+    // Click the first WHEN action — `get [data-testid="password-input"]`.
+    // Snapshot must advance to step 5 → footer "6 / 10", and the step
+    // name must reflect the cypress command, not the gherkin header.
     const whenFirstChild = list.locator("li.cmd-child").nth(3);
     await whenFirstChild.click();
-
-    // Lock moves to the child; parent loses it.
     await expect(whenFirstChild).toHaveClass(/\bcmd-locked\b/, { timeout: 2_000 });
-    await expect(whenParent).not.toHaveClass(/\bcmd-locked\b/);
+    await expect(stepCount).toHaveText("6 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("get");
+    await expect(stepName).toContainText("password-input");
+    await expect(stepName).not.toContainText("When the user submits");
+
+    // Click WHEN's second action (`type SecurePass123`). Snapshot
+    // advances one more step. If clicking children only changed the
+    // class (lockedStep) but not snapshotStep, this assertion fails.
+    const whenSecondChild = list.locator("li.cmd-child").nth(4);
+    await whenSecondChild.click();
+    await expect(whenSecondChild).toHaveClass(/\bcmd-locked\b/, { timeout: 2_000 });
+    await expect(stepCount).toHaveText("7 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("type");
+    await expect(stepName).toContainText("SecurePass123");
+
+    // Click the failing THEN action (`should include /dashboard`) —
+    // snapshot lands on the last step (the failure frame).
+    const thenChild = list.locator("li.cmd-child").nth(6);
+    await thenChild.click();
+    await expect(thenChild).toHaveClass(/\bcmd-locked\b/, { timeout: 2_000 });
+    await expect(stepCount).toHaveText("10 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("should");
+  });
+
+  test("hovering an action-level command moves the snapshot without losing the lock", async ({
+    page,
+  }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const stepCount = page.locator(".snapshot-viewer .step-count");
+    const stepName = page.locator(".snapshot-viewer .step-name");
+    const list = page.locator(".command-list");
+
+    // Lock GIVEN's first action (`get email-input`) → snapshot "3 / 10".
+    // Avoid clicking the gherkin parent itself: that would toggle the
+    // group closed and hide its children.
+    const givenFirstChild = list.locator("li.cmd-child").nth(1);
+    await givenFirstChild.click();
+    await expect(givenFirstChild).toHaveClass(/\bcmd-locked\b/, { timeout: 2_000 });
+    await expect(stepCount).toHaveText("3 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("get");
+    await expect(stepName).toContainText("email-input");
+
+    // Hover the THEN action (`should include /dashboard`). The
+    // snapshot must temporarily switch to step "10 / 10" while the
+    // lock remains on the GIVEN child. If hover-on-children was
+    // wired to the parent gherkin step (or didn't fire at all), the
+    // step counter would stay at "3 / 10".
+    const thenChild = list.locator("li.cmd-child").nth(6);
+    await thenChild.hover();
+    await expect(thenChild).toHaveClass(/\bcmd-active\b/, { timeout: 2_000 });
+    await expect(stepCount).toHaveText("10 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("should");
+
+    // Lock didn't move: GIVEN's first child still has cmd-locked.
+    await expect(givenFirstChild).toHaveClass(/\bcmd-locked\b/);
+
+    // Move the mouse off the command list. onmouseleave clears
+    // hoverStep → activeSnapshotStep falls back to lockedStep →
+    // snapshot reverts to the locked step ("3 / 10"). If the click
+    // had locked the lockedStep but the hover-state had broken, the
+    // snapshot would stick at "10 / 10" here.
+    await page.locator(".debugger .topbar").hover({ position: { x: 5, y: 5 } });
+    await expect(stepCount).toHaveText("3 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("get");
+    await expect(stepName).toContainText("email-input");
+  });
+
+  test("clicking a step-level (cmd-gherkin) parent moves the snapshot to the gherkin frame", async ({
+    page,
+  }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const stepCount = page.locator(".snapshot-viewer .step-count");
+    const stepName = page.locator(".snapshot-viewer .step-name");
+    const list = page.locator(".command-list");
+
+    // GIVEN parent → snapshot index 1 (the gherkin marker for
+    // "Given the user is on the login page") → "2 / 10". This also
+    // collapses the GIVEN group as a side-effect; what we care about
+    // here is the snapshot moved.
+    await list.locator("li.cmd-gherkin").nth(0).click();
+    await expect(stepCount).toHaveText("2 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("gherkin");
+    await expect(stepName).toContainText("Given the user is on the login page");
+
+    // THEN parent → snapshot index 8 → "9 / 10".
+    await list.locator("li.cmd-gherkin").nth(2).click();
+    await expect(stepCount).toHaveText("9 / 10", { timeout: 2_000 });
+    await expect(stepName).toContainText("Then the dashboard should load");
   });
 
   test("hovering a different command sets cmd-active without clearing the locked step", async ({
