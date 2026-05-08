@@ -1673,7 +1673,7 @@ router.post(
         req.user!.id,
         "release.session_result_evidence",
         "release",
-        req.params.id,
+        String(req.params.id),
         { session_id: req.params.sessionId, manual_test_id: req.params.testId, files: added.length }
       );
       res.json({ added });
