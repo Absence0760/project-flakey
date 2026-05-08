@@ -45,3 +45,5 @@ What is **not** tested here, by design:
 - **Route loaders / `+page.svelte` files** — covered by Playwright.
 
 Add a vitest spec only when the target is a pure function (no DOM, no global side-effects beyond the module's own state). For anything user-visible, write a Playwright test instead.
+
+End-to-end coverage lives in `tests-e2e/` (Playwright). Run with `pnpm test:e2e` (or `pnpm test:e2e:ui` for the UI runner). Prereqs (running backend + seeded Postgres) are in [`tests-e2e/README.md`](tests-e2e/README.md).

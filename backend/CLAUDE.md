@@ -5,7 +5,7 @@ Express + Node + TypeScript API. Multi-tenant via Postgres Row-Level Security.
 ## Commands
 
 - `npm run dev` — tsx watch with `.env` loading
-- `npm run seed` — seed sample data (2 users, 2 orgs, 56 runs across Mochawesome/Playwright/JUnit)
+- `npm run seed` — seed sample data: 2 users (`admin@example.com`/`admin`, `demo@example.com`/`demo123`), 2 orgs (Acme Corp, Demo Team), 56 runs across Mochawesome/Playwright/JUnit
 - `npm test` — `node --test` over `src/tests/**/*.test.ts` via tsx
 - `npm run build` — `tsc` → `dist/`
 - `npm start` — run the built `dist/index.js`

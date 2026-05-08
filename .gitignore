@@ -46,3 +46,8 @@ examples/*/playwright-report/
 examples/*/playwright-snapshots/
 examples/*/screenshots/
 .flakey-live-run-id
+
+# Frontend e2e artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
