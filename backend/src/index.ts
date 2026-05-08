@@ -143,9 +143,15 @@ if (STORAGE_MODE === "s3") {
 }
 
 // Fix 3: Rate limiting on auth endpoints
+// In production, throttle to 20 attempts per 15 min per IP — the
+// abuse-deterrence default. In development the same rate cripples
+// any rapid iteration (e.g. e2e suites and the dev's own login
+// retries during feature work), so the cap is loosened. Override
+// either side via AUTH_RATE_LIMIT_MAX if you need a non-default.
+const isProd = process.env.NODE_ENV === "production";
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 20,                    // 20 attempts per window
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? (isProd ? 20 : 500)),
   message: { error: "Too many attempts. Try again in 15 minutes." },
   standardHeaders: true,
   legacyHeaders: false,

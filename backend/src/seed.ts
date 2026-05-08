@@ -836,6 +836,69 @@ async function seed() {
     }
     console.log(`Seeded release v2.4.0 with ${checklist.length} checklist items.`);
 
+    // Link a handful of recent automated runs to v2.4.0 so the
+    // readiness panel + Linked automated runs section have content
+    // out of the box. Without this, the readiness panel falls back
+    // to the "no runs linked yet — using latest run" message.
+    const linkedRuns = await client.query(
+      `SELECT id FROM runs WHERE org_id = $1 ORDER BY created_at DESC LIMIT 5`,
+      [orgId]
+    );
+    for (const r of linkedRuns.rows) {
+      await client.query(
+        `INSERT INTO release_runs (release_id, run_id, org_id, added_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (release_id, run_id) DO NOTHING`,
+        [releaseId, r.id, orgId, adminId]
+      );
+    }
+    console.log(`Linked ${linkedRuns.rows.length} runs to release v2.4.0.`);
+
+    // ── Additional releases for state-coverage in e2e tests ─────────────
+    // v2.5.0 — fresh draft, empty checklist, no links. Exercises the
+    // "starting a release" UX (sign-off blocked, nothing linked yet).
+    const draftReleaseResult = await client.query(
+      `INSERT INTO releases (org_id, version, name, status, target_date, description, created_by)
+       VALUES ($1, 'v2.5.0', 'Q3 launch', 'draft', CURRENT_DATE + INTERVAL '60 days',
+               'Next-quarter draft. Checklist not yet populated.', $2)
+       RETURNING id`,
+      [orgId, adminId]
+    );
+    console.log(`Seeded draft release v2.5.0 (id=${draftReleaseResult.rows[0].id}).`);
+
+    // v2.3.0 — already shipped. Exercises the post-sign-off banner +
+    // read-only state. All required items are checked, sign-off
+    // metadata is populated.
+    const shippedReleaseResult = await client.query(
+      `INSERT INTO releases
+        (org_id, version, name, status, target_date, description,
+         created_by, signed_off_by, signed_off_at)
+       VALUES ($1, 'v2.3.0', 'February release', 'signed_off',
+               CURRENT_DATE - INTERVAL '30 days',
+               'Bug-fix-heavy point release. Shipped on schedule.',
+               $2, $2, NOW() - INTERVAL '28 days')
+       RETURNING id`,
+      [orgId, adminId]
+    );
+    const shippedId = shippedReleaseResult.rows[0].id;
+    const shippedChecklist: Array<[string, boolean]> = [
+      ["All critical tests passing", true],
+      ["Manual regression suite executed", true],
+      ["Release notes published", true],
+      ["Stakeholders notified", true],
+      ["Rollback plan archived", true],
+    ];
+    for (let i = 0; i < shippedChecklist.length; i++) {
+      const [label, required] = shippedChecklist[i];
+      await client.query(
+        `INSERT INTO release_checklist_items
+          (org_id, release_id, label, required, checked, checked_by, checked_at, position)
+         VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7)`,
+        [orgId, shippedId, label, required, adminId, new Date(now - 30 * DAY_MS), i]
+      );
+    }
+    console.log(`Seeded shipped release v2.3.0 with ${shippedChecklist.length} checked items.`);
+
     // ── Manual test groups + more manual tests ──────────────────────────
     const groups = [
       { name: "Checkout Flow", description: "Cart → payment → confirmation happy paths and edge cases." },
