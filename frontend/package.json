@@ -8,21 +8,25 @@
 		"build": "vite build",
 		"preview": "vite preview --port 8888",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run",
+		"test:watch": "vitest"
 	},
 	"devDependencies": {
 		"@iconify-json/material-symbols": "1.2.70",
 		"@sveltejs/adapter-static": "3.0.10",
-		"@types/node": "25.6.2",
 		"@sveltejs/kit": "2.59.1",
 		"@sveltejs/vite-plugin-svelte": "7.1.2",
+		"@types/node": "25.6.2",
+		"@vitest/ui": "4.1.5",
 		"mdsvex": "^0.12.7",
 		"normalize.css": "8.0.1",
 		"svelte": "5.55.5",
 		"svelte-check": "4.4.8",
 		"typescript": "6.0.3",
 		"unplugin-icons": "23.0.1",
-		"vite": "8.0.11"
+		"vite": "8.0.11",
+		"vitest": "4.1.5"
 	},
 	"type": "module",
 	"dependencies": {
