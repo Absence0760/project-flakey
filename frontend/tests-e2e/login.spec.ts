@@ -1,29 +1,60 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-const SEED_EMAIL = "admin@example.com";
-const SEED_PASSWORD = "admin";
+import { signIn } from "./fixtures/helpers";
+import { ADMIN_USER } from "./fixtures/users";
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/login");
-});
+/**
+ * /login — auth surface for the email-form path.
+ *
+ * This file holds the /login-only behaviours: the failed-sign-in
+ * error path, and (in future rounds) the forgot-password and
+ * sign-up affordances. The successful sign-in → /dashboard flow
+ * is also exercised here for now because there's only one spec
+ * file; once a cross-cutting/sign-in-out.spec.ts exists, move the
+ * happy-path case there and keep this file focused on the form's
+ * own behaviour.
+ *
+ * Every test in this file uses an empty storage state — the
+ * /login surface is only reachable from an unauthenticated
+ * context. globalSetup writes admin/demo states for other specs;
+ * we explicitly opt out here.
+ */
 
-test("login with seeded admin redirects to /dashboard and stores bt_token", async ({ page }) => {
-  await page.getByPlaceholder("you@example.com").fill(SEED_EMAIL);
-  await page.getByPlaceholder("Password").fill(SEED_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).first().click();
+test.describe("/login", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
 
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 10_000 });
+  test("seeded admin signs in → redirects to /dashboard with bt_token in localStorage", async ({
+    page,
+  }) => {
+    await signIn(page, ADMIN_USER);
 
-  const token = await page.evaluate(() => localStorage.getItem("bt_token"));
-  expect(token, "bt_token should be set after a successful login").toBeTruthy();
-});
+    // The success handler in src/routes/login/+page.svelte calls
+    // goto("/dashboard"); the URL transition is the contract.
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10_000 });
 
-test("invalid password shows an error and stays on /login", async ({ page }) => {
-  await page.getByPlaceholder("you@example.com").fill(SEED_EMAIL);
-  await page.getByPlaceholder("Password").fill("wrong-password");
-  await page.getByRole("button", { name: /sign in/i }).first().click();
+    // The auth singleton in src/lib/auth.ts persists the JWT under
+    // the `bt_` prefix on every successful login. A regression that
+    // forgets to write the token would still pass the URL assertion
+    // (initial /dashboard render works while in-memory state is
+    // populated) but every subsequent reload would bounce back to
+    // /login. Asserting on the localStorage write catches that.
+    const token = await page.evaluate(() => localStorage.getItem("bt_token"));
+    expect(token, "bt_token should be set after a successful login").toBeTruthy();
+  });
 
-  await expect(page).toHaveURL(/\/login/);
-  const token = await page.evaluate(() => localStorage.getItem("bt_token"));
-  expect(token, "bt_token should not be set after a failed login").toBeNull();
+  test("rejects an unknown email/password combo and stays on /login", async ({ page }) => {
+    await signIn(page, {
+      email: "noone@nowhere.test",
+      password: "wrong-password",
+    });
+
+    // Stay on /login — the form re-renders with an error banner.
+    // We don't assert the error copy; it may shift, and the URL
+    // behaviour is the security contract (no auth-state leak,
+    // no half-redirect, no token written).
+    await expect(page).toHaveURL(/\/login/);
+
+    const token = await page.evaluate(() => localStorage.getItem("bt_token"));
+    expect(token, "bt_token must not be written on a failed login").toBeNull();
+  });
 });
