@@ -96,7 +96,7 @@
         chunks.push(value);
       }
 
-      const blob = new Blob(chunks);
+      const blob = new Blob(chunks as BlobPart[]);
       const text = await blob.text();
       bundle = JSON.parse(text);
     } catch (e) {
