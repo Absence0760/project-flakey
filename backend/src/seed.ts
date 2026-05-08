@@ -200,6 +200,32 @@ const flakyTests = new Set([
   "should handle SSO login flow",
 ]);
 
+// Deterministic Gherkin demo. Drives the ErrorModal's gherkin-grouped
+// command list (cmd-gherkin parents + cmd-child actions) which the
+// flat command logs above don't exercise. Used for e2e coverage of
+// the snapshot click-through behaviour.
+const GHERKIN_DEMO_TITLE = "Login with valid credentials (Gherkin demo)";
+const gherkinDemoCommandLog = [
+  // SETUP group — pre-Gherkin cypress primitives roll up under a
+  // synthetic "Setup" header in the modal.
+  { name: "visit", message: "/login", state: "passed" },
+
+  // Given group
+  { name: "Given", message: "the user is on the login page", state: "passed" },
+  { name: "get", message: "[data-testid=\"email-input\"]", state: "passed" },
+  { name: "type", message: "user@example.com", state: "passed" },
+
+  // When group
+  { name: "When", message: "the user submits valid credentials", state: "passed" },
+  { name: "get", message: "[data-testid=\"password-input\"]", state: "passed" },
+  { name: "type", message: "SecurePass123", state: "passed" },
+  { name: "click", message: "submit", state: "passed" },
+
+  // Then group — this is where the failure surfaces.
+  { name: "Then", message: "the dashboard should load", state: "failed" },
+  { name: "should", message: "include /dashboard", state: "failed" },
+];
+
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -252,6 +278,52 @@ function generateSnapshotBundle(testTitle: string, specFile: string, commandLog:
   ${cmd.name === "should" || cmd.name === "url" ? `<div class="step-info"><div class="step-label">Assertion</div><div class="step-value">${cmd.message}</div></div>` : ""}
   ${statusText}
 </div>
+</body></html>`,
+      scrollX: 0,
+      scrollY: i * 50,
+    };
+  });
+
+  const bundle = {
+    version: 1,
+    testTitle,
+    specFile,
+    steps,
+    viewportWidth: 1280,
+    viewportHeight: 720,
+  };
+
+  return gzipSync(Buffer.from(JSON.stringify(bundle)));
+}
+
+// Gherkin-aware variant. Emits one snapshot step per command-log
+// entry, but rewrites Given/When/Then/And/But entries so their
+// commandName is "gherkin" — that's what ErrorModal's
+// snapshotIdxForCommandGroup keys on to match a step's parent
+// section to the right snapshot frame.
+function generateGherkinSnapshotBundle(testTitle: string, specFile: string, commandLog: object[]): Buffer {
+  const GHERKIN_RE = /^(Given|When|Then|And|But)$/;
+  const steps = commandLog.map((cmd: any, i: number) => {
+    const isGherkin = GHERKIN_RE.test(cmd.name);
+    const bgColor = cmd.state === "failed" ? "#fff0f0" : "#fff";
+    const label = isGherkin ? `${cmd.name} ${cmd.message}` : `cy.${cmd.name}(${cmd.message ? `'${cmd.message}'` : ""})`;
+    return {
+      index: i,
+      commandName: isGherkin ? "gherkin" : cmd.name,
+      commandMessage: isGherkin ? `${cmd.name} ${cmd.message}` : (cmd.message || ""),
+      timestamp: (i + 1) * 800,
+      html: `<!DOCTYPE html>
+<html><head><style>
+  body { font-family: -apple-system, sans-serif; margin: 0; padding: 2rem; background: ${bgColor}; }
+  .label { font-size: 0.9rem; color: #555; margin-bottom: 0.5rem; }
+  .value { font-family: monospace; }
+  .gherkin { background: #eef5ff; border-left: 4px solid #4a90d9; padding: 1rem; }
+</style></head><body>
+<div class="${isGherkin ? "gherkin" : ""}">
+  <div class="label">Step ${i + 1} of ${commandLog.length}</div>
+  <div class="value">${label}</div>
+</div>
+${cmd.state === "failed" ? `<div style="color:#e74c3c;padding:1rem;border:2px solid #e74c3c;border-radius:8px;margin-top:1rem;">Failure: ${cmd.name} ${cmd.message}</div>` : ""}
 </body></html>`,
       scrollX: 0,
       scrollY: i * 50,
@@ -501,6 +573,51 @@ async function seed() {
       }
     }
 
+    // --- Deterministic Gherkin demo run ---
+    // Inserted under Acme Corp so e2e tests can find a run with both
+    // command_log AND snapshot_path that exercises the gherkin-grouped
+    // (cmd-gherkin parents + cmd-child actions) command list.
+    {
+      const demoStart = new Date(now - DAY_MS * 0.1); // ~2.4h ago — appears at top of /runs
+      const demoDuration = 12_000;
+      const demoFinish = new Date(demoStart.getTime() + demoDuration);
+      const runIns = await client.query(
+        `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+         VALUES ('e2e-cucumber','main','gherkin01','gherkin-demo','mochawesome',$1,$2,1,0,1,0,0,$3,$1,$4)
+         RETURNING id`,
+        [demoStart.toISOString(), demoFinish.toISOString(), demoDuration, orgId]
+      );
+      const demoRunId = runIns.rows[0].id;
+      const demoSpecFile = "cypress/e2e/auth/login.feature";
+
+      const demoSnapshotDir = join("uploads", "runs", String(demoRunId), "snapshots");
+      mkdirSync(demoSnapshotDir, { recursive: true });
+      const demoSnapshotFile = "Login-with-valid-credentials-Gherkin-demo.json.gz";
+      writeFileSync(
+        join(demoSnapshotDir, demoSnapshotFile),
+        generateGherkinSnapshotBundle(GHERKIN_DEMO_TITLE, demoSpecFile, gherkinDemoCommandLog)
+      );
+
+      const specIns = await client.query(
+        `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
+         VALUES ($1,$2,$3,1,0,1,0,$4) RETURNING id`,
+        [demoRunId, demoSpecFile, "login", demoDuration]
+      );
+      await client.query(
+        `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
+         VALUES ($1,$2,$3,'failed',$4,$5,null,'{}',null,null,$6,null,$7)`,
+        [
+          specIns.rows[0].id,
+          GHERKIN_DEMO_TITLE,
+          `${demoSpecFile} > ${GHERKIN_DEMO_TITLE}`,
+          demoDuration,
+          "AssertionError: expected URL to include /dashboard but got /login",
+          JSON.stringify(gherkinDemoCommandLog),
+          `runs/${demoRunId}/snapshots/${demoSnapshotFile}`,
+        ]
+      );
+    }
+
     // --- Playwright seed runs ---
     const pwSpecs = [
       {
@@ -625,7 +742,11 @@ async function seed() {
     ];
 
     for (let i = 0; i < 3; i++) {
-      const jStart = new Date(now - DAY_MS * randomInt(1, 14));
+      // Keep at least one JUnit run inside the 7-day window so the
+      // dashboard's default "7 days" date filter never strands the
+      // api-tests suite with zero matching runs (would break the
+      // runs.spec.ts suite-filter test by accident of randomness).
+      const jStart = new Date(now - DAY_MS * (i === 0 ? randomInt(1, 5) : randomInt(1, 14)));
       const jDuration = randomInt(5000, 15000);
       const jRun = await client.query(
         `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
