@@ -82,5 +82,41 @@ test.describe("multi-tenant isolation", () => {
       // The error pane should appear. Source: src/routes/(app)/runs/[id]/+page.svelte:464.
       await expect(page.locator(".status-msg.error")).toBeVisible({ timeout: 10_000 });
     });
+
+    test("manual-tests page shows the empty state — Demo Team has no manual tests", async ({
+      page,
+    }) => {
+      await page.goto("/manual-tests");
+      // The route renders <p class="empty"> when tests.length === 0,
+      // before the table even mounts.
+      await expect(page.locator(".empty")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator("table.tests")).toHaveCount(0);
+    });
+
+    test("releases page shows the empty state — Demo Team has no releases", async ({
+      page,
+    }) => {
+      await page.goto("/releases");
+      await expect(page.locator(".empty")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".release-card")).toHaveCount(0);
+    });
+
+    test("direct GET to an Acme-owned release id fails closed (no leak via /releases/<id>)", async ({
+      page,
+    }) => {
+      // The first seeded Acme release is v2.4.0. We don't know its
+      // id from the demo context, but we can probe a low id (1) to
+      // mirror the run-id leak test.
+      await page.goto("/releases/1");
+
+      // The Acme version header must NOT render — that would mean a
+      // leak across tenants. Either the page stays on a loader/error
+      // branch, or it bounces. Critical regression contract.
+      await expect(page.getByRole("heading", { name: "v2.4.0" })).toHaveCount(0, {
+        timeout: 10_000,
+      });
+      await expect(page.getByRole("heading", { name: "v2.5.0" })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "v2.3.0" })).toHaveCount(0);
+    });
   });
 });
