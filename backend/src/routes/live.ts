@@ -239,6 +239,30 @@ export function forgetLiveRun(runId: number): void {
   runEventChain.delete(runId);
 }
 
+/**
+ * Returns true when an error from a live-path INSERT/UPDATE is the
+ * "run was deleted between when this work was queued and when it
+ * actually ran" race — Postgres FK violation (SQLSTATE 23503) on a
+ * runs.id reference, OR an RLS rejection on a tenancy policy that's
+ * empty because the parent run is gone.
+ *
+ * We swallow these silently because they're expected in the narrow
+ * window between DELETE /runs/:id (which calls forgetLiveRun and
+ * starts the CASCADE) and the in-flight chain step finishing its
+ * already-issued SQL roundtrips. Log noise from this case used to
+ * spam stderr for every deleted run; real DB errors (unique violations,
+ * connection drops, syntax errors) still surface.
+ */
+function isPostDeleteRace(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  if (e.code === "23503") return true; // foreign_key_violation — runs.id gone
+  // RLS rejection on a child table whose parent run was deleted —
+  // pg surfaces this as 42501 with a "row-level security policy" marker.
+  if (e.code === "42501" && /row-level security/i.test(e.message ?? "")) return true;
+  return false;
+}
+
 /** Persist a live event to the database (fire-and-forget). */
 function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void {
   tenantQuery(orgId,
@@ -247,6 +271,7 @@ function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void 
     [runId, orgId, event.type, event.spec ?? null, event.test ?? null, event.status ?? null,
      event.duration_ms ?? null, event.error ?? null, event.stats ? JSON.stringify(event.stats) : null]
   ).catch((err) => {
+    if (isPostDeleteRace(err)) return;
     console.error("Failed to persist live event:", err.message);
   });
 }
@@ -266,6 +291,7 @@ async function persistEventAwaited(orgId: number, runId: number, event: LiveTest
        event.duration_ms ?? null, event.error ?? null, event.stats ? JSON.stringify(event.stats) : null]
     );
   } catch (err: unknown) {
+    if (isPostDeleteRace(err)) return;
     console.error("Failed to persist live event:", err instanceof Error ? err.message : String(err));
   }
 }
@@ -402,6 +428,7 @@ async function upsertPendingTest(orgId: number, runId: number, event: LiveTestEv
       await recomputeSpecAndRunStats(orgId, runId, specId);
     }
   } catch (err: any) {
+    if (isPostDeleteRace(err)) return;
     console.error("Failed to upsert pending test:", err.message);
   }
 }
@@ -437,6 +464,7 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
 
     await recomputeSpecAndRunStats(orgId, runId, specId);
   } catch (err: any) {
+    if (isPostDeleteRace(err)) return;
     console.error("Failed to insert live test result:", err.message);
   }
 }
@@ -702,6 +730,15 @@ async function abortRun(runId: number, orgId: number, reason: string): Promise<v
   // the pending INSERT then lands afterwards and is never transitioned,
   // leaving a row stuck in 'pending' even though the run is aborted.
   await enqueueOnRun(runId, async () => {
+    // Bail if forgetLiveRun() has already wiped this run from the bus —
+    // the stale-detection timer can capture a runId in its sweep,
+    // queue abortRun onto the chain, and then a DELETE /runs/:id can
+    // race in BEFORE this chained work executes. Without this guard,
+    // transitionPendingTestsAfterAbort + persistEventAwaited both
+    // FK-fail because runs.id is gone, and stderr fills with
+    // `live_events_run_id_fkey` on every deleted run.
+    if (!liveEvents.hasRun(runId)) return;
+
     // Transition pending → skipped FIRST, so the DB is consistent before any
     // SSE listener refetches /runs/:id. The frontend's run-detail page calls
     // fetchRun() the moment it receives a `run.aborted` event; if we emit
@@ -745,6 +782,7 @@ async function transitionPendingTestsAfterAbort(
       await recomputeSpecAndRunStats(orgId, runId, specId);
     }
   } catch (err: unknown) {
+    if (isPostDeleteRace(err)) return;
     console.error(
       "Failed to transition pending tests after abort:",
       err instanceof Error ? err.message : String(err),
