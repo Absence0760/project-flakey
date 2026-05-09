@@ -12,13 +12,18 @@ router.get("/", async (req, res) => {
     const resultLimit = Math.min(Number(req.query.limit) || 50, 200);
     const orgId = req.user!.orgId;
 
-    // Build the run filter
+    // Build the run filter. The runs CTE references the table without an
+    // alias, so `suite_name` is the correct unqualified column name —
+    // earlier code wrote `r.suite_name` here which produced
+    // `missing FROM-clause entry for table "r"` whenever a suite was
+    // supplied (the unfiltered case happened to work because the empty
+    // filter string never referenced the alias).
     let runFilter = "";
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
     if (suite) {
-      runFilter = `AND r.suite_name = $${paramIndex++}`;
+      runFilter = `AND suite_name = $${paramIndex++}`;
       params.push(suite);
     }
 

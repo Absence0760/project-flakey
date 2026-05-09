@@ -34,6 +34,33 @@ class LiveEventBus {
   }
 
   /**
+   * Forget every trace of a run from the in-memory state — emitters,
+   * timeouts, activeRuns, runMeta. Call this when the run is deleted
+   * from the DB so that:
+   *   1. The stale-run timer doesn't try to abort a non-existent run
+   *      (the `liveEvents.emit('run.aborted')` in abortRun would FK-
+   *      fail on persistEvent because runs.id is gone, and the
+   *      transitionPendingTestsAfterAbort UPDATE would no-op).
+   *   2. /live/active doesn't keep listing the deleted run id.
+   *   3. SSE listeners get a clean empty stream (any reconnect after
+   *      delete sees `getEmitter` create a fresh one with no history).
+   */
+  unregister(runId: number): void {
+    const emitter = this.emitters.get(runId);
+    if (emitter) {
+      emitter.removeAllListeners();
+      this.emitters.delete(runId);
+    }
+    const timeout = this.timeouts.get(runId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.timeouts.delete(runId);
+    }
+    this.activeRuns.delete(runId);
+    this.runMeta.delete(runId);
+  }
+
+  /**
    * Bump lastEventAt without emitting anything. Used by the events POST
    * handler so an empty-body heartbeat from a still-running reporter keeps
    * the run from tripping stale-run detection during long quiet periods

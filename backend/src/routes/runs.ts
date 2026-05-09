@@ -7,6 +7,7 @@ import { postPRComment } from "../git-providers/index.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
 import { getStorage } from "../storage.js";
+import { forgetLiveRun } from "./live.js";
 
 const router = Router();
 
@@ -341,6 +342,14 @@ router.delete("/:id", async (req, res) => {
       res.status(404).json({ error: "Run not found" });
       return;
     }
+    // Drop every in-memory trace of the run BEFORE we ack the delete,
+    // so the stale-detection timer can't race the response and try to
+    // emit a run.aborted event for a row that's already gone (which
+    // would FK-fail on the live_events INSERT, plus log a confusing
+    // "Failed to upsert pending test … RLS … specs" cascade for any
+    // in-flight chain entry that's still trying to write events for
+    // this run).
+    forgetLiveRun(runId);
     // Best-effort artifact cleanup. Failure here doesn't fail the
     // request — the run is already gone from the DB.
     try {

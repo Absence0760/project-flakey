@@ -166,6 +166,14 @@ router.post("/:runId/events", async (req, res) => {
   // reporter is unchanged.
   enqueueOnRun(runId, async () => {
     for (const fullEvent of fullEvents) {
+      // If the run was deleted while this chain entry was queued, every
+      // subsequent DB write will FK-fail (runs.id is gone, ON DELETE
+      // CASCADE already dropped specs/tests/live_events for it). The
+      // forgetLiveRun() called from DELETE /runs/:id clears the runMeta
+      // entry; this re-check stops us writing event after event of
+      // FK-noise to stderr for a run that no longer exists.
+      if (!liveEvents.hasRun(runId)) return;
+
       // 1) DB writes first so the persisted state is consistent before any
       //    SSE listener triggers a refetch.
       if (fullEvent.type === "spec.started") {
@@ -213,6 +221,22 @@ function enqueueOnRun(runId: number, work: () => Promise<void>): Promise<void> {
     if (runEventChain.get(runId) === thisChain) runEventChain.delete(runId);
   });
   return thisChain;
+}
+
+/**
+ * Forget every in-memory trace of a run — bus emitters, stale-detection
+ * registry, and any pending chain entry. Called from DELETE /runs/:id
+ * after the row is gone, so that:
+ *   1. The stale-run timer doesn't fire abortRun for a deleted run
+ *      (which would FK-fail on persistEvent's INSERT into live_events).
+ *   2. In-flight events from a still-running reporter no longer try
+ *      to UPSERT specs/tests against a deleted runs.id (FK fail) or
+ *      a now-foreign org_id (RLS fail).
+ *   3. /live/active stops listing the deleted run id.
+ */
+export function forgetLiveRun(runId: number): void {
+  liveEvents.unregister(runId);
+  runEventChain.delete(runId);
 }
 
 /** Persist a live event to the database (fire-and-forget). */
