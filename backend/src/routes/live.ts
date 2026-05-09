@@ -354,13 +354,22 @@ async function upsertPendingTest(orgId: number, runId: number, event: LiveTestEv
   try {
     const specId = await findOrCreateSpec(orgId, runId, specPath);
     if (specId === null) return;
-    // Atomic insert-or-skip backed by the partial unique index
-    // `idx_tests_pending_unique` (migration 030). Two concurrent test.started
-    // events with the same spec/title can both race past an app-level SELECT,
-    // so we rely on the DB to enforce uniqueness and silently drop the dup.
+    // INSERT a pending row only if no row at all exists for (spec_id,
+    // full_title). Two layers of guards:
+    //   - INSERT … SELECT … WHERE NOT EXISTS skips when a terminal
+    //     row is already present (handles a stale or out-of-order
+    //     test.started landing AFTER its test.passed/failed/skipped —
+    //     without the WHERE NOT EXISTS we'd add a zombie pending row
+    //     alongside the existing terminal one).
+    //   - ON CONFLICT … DO NOTHING on the partial unique index handles
+    //     the inverse race where two concurrent test.started events
+    //     race past the WHERE NOT EXISTS check.
     const inserted = await tenantQuery(orgId,
       `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
-       VALUES ($1, $2, $2, 'pending', 0, NULL, '{}')
+       SELECT $1, $2, $2, 'pending', 0, NULL, '{}'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM tests WHERE spec_id = $1 AND full_title = $2
+       )
        ON CONFLICT (spec_id, full_title) WHERE status = 'pending' DO NOTHING
        RETURNING id`,
       [specId, event.test]
@@ -467,18 +476,21 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
 
     await getStorage().put(file.path, key);
 
-    // If a test row already exists for this run + title, link the snapshot.
-    // Match full_title exactly OR as a trailing substring (older clients send
-    // leaf title only). Escape LIKE special chars in the parameter so a title
-    // containing '%' or '_' doesn't match unintended rows.
+    // If a test row already exists for this run + spec + title, link the
+    // snapshot. Match full_title exactly OR as a trailing substring (older
+    // clients send leaf title only). Escape LIKE special chars in the
+    // parameter so a title containing '%' or '_' doesn't match unintended
+    // rows. Filter by specs.file_path so a same-titled test in a different
+    // spec of the same run doesn't also pick up this snapshot.
     const escapedTitle = testTitle.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
     await tenantQuery(orgId,
       `UPDATE tests SET snapshot_path = $3
        FROM specs
        WHERE specs.id = tests.spec_id
          AND specs.run_id = $1
+         AND specs.file_path = $5
          AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $4 ESCAPE '\\')`,
-      [runId, testTitle, key, escapedTitle]
+      [runId, testTitle, key, escapedTitle, spec]
     );
 
     res.status(200).json({ key });
@@ -528,17 +540,22 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
     await getStorage().put(file.path, key);
 
     // Match the test row by full_title (exact or trailing substring — older
-    // clients may send the leaf title only). LIKE special chars in the title
-    // are escaped so a '%' or '_' in the test name doesn't widen the match.
+    // clients may send the leaf title only) AND by the spec the upload was
+    // tagged for. Without the spec.file_path filter, two different specs in
+    // the same run with the same test title both pick up the screenshot —
+    // earlier coverage missed this because it depended on row-creation
+    // ordering. LIKE special chars in the title are escaped so a '%' or
+    // '_' in the test name doesn't widen the match.
     const escapedTitle = testTitle.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
     const updated = await tenantQuery(orgId,
       `UPDATE tests SET screenshot_paths = array_append(COALESCE(screenshot_paths, ARRAY[]::text[]), $3)
        FROM specs
        WHERE specs.id = tests.spec_id
          AND specs.run_id = $1
+         AND specs.file_path = $5
          AND (tests.full_title = $2 OR tests.full_title LIKE '%' || $4 ESCAPE '\\')
          AND NOT ($3 = ANY(COALESCE(tests.screenshot_paths, ARRAY[]::text[])))`,
-      [runId, testTitle, key, escapedTitle]
+      [runId, testTitle, key, escapedTitle, spec]
     );
 
     // Race guard: POST /events returns 200 before its DB writes complete
