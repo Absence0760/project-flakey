@@ -126,35 +126,71 @@ router.post("/:runId/events", async (req, res) => {
   // run is incorrectly flagged as aborted.
   liveEvents.touch(runId);
 
-  const fullEvents: LiveTestEvent[] = [];
-  for (const event of events) {
-    const fullEvent = { ...event, runId, timestamp: event.timestamp ?? Date.now() };
-    fullEvents.push(fullEvent);
-    liveEvents.emit(runId, fullEvent);
-    persistEvent(orgId, runId, fullEvent);
-  }
+  const fullEvents: LiveTestEvent[] = events.map((event) => ({
+    ...event,
+    runId,
+    timestamp: event.timestamp ?? Date.now(),
+  }));
 
-  // Send response immediately so the reporter isn't blocked
+  // Send response immediately so the reporter isn't blocked.
   res.json({ ok: true, listeners: liveEvents.hasListeners(runId) });
 
-  // Process DB writes sequentially after the response to avoid race conditions
-  // when multiple test events for the same spec arrive in a single batch.
-  // Wrapped in an async IIFE with a top-level .catch() so any unhandled error
-  // does not propagate to Node's global unhandled-rejection handler.
-  (async () => {
+  // Per-run serialization. Each POST's processing awaits the previous POST's
+  // chain for the same run, so:
+  //   1. test.started's INSERT is committed before a follow-up test.passed
+  //      from the next POST runs its UPDATE (closes the duplicate-row race
+  //      where the UPDATE matched zero pending rows and the fallback INSERT
+  //      created a second terminal row alongside the still-uncommitted
+  //      pending one).
+  //   2. The SSE emit for run.finished cannot fire before the DB writes for
+  //      preceding test.passed/failed events have committed. The frontend
+  //      stops polling and refetches once on run.finished — without
+  //      ordering, that refetch can land before the last test row was
+  //      flipped, leaving a row visibly stuck in "pending" forever.
+  // Different runs have independent chain entries, so cross-run traffic
+  // still parallelises (this is what the live-parallel.spec.ts coverage
+  // asserts). Within-run sequential processing matches the LiveClient's
+  // own batch-then-await behaviour, so the perceived latency of a single
+  // reporter is unchanged.
+  const previous = runEventChain.get(runId) ?? Promise.resolve();
+  const thisChain = previous.then(async () => {
     for (const fullEvent of fullEvents) {
+      // 1) DB writes first so the persisted state is consistent before any
+      //    SSE listener triggers a refetch.
       if (fullEvent.type === "spec.started") {
         await upsertLiveSpec(orgId, runId, fullEvent);
       } else if (fullEvent.type === "spec.finished") {
         await updateLiveSpecStats(orgId, runId, fullEvent);
       } else if (fullEvent.type === "test.started") {
         await upsertPendingTest(orgId, runId, fullEvent);
-      } else if (fullEvent.type === "test.passed" || fullEvent.type === "test.failed" || fullEvent.type === "test.skipped") {
+      } else if (
+        fullEvent.type === "test.passed" ||
+        fullEvent.type === "test.failed" ||
+        fullEvent.type === "test.skipped"
+      ) {
         await insertLiveTestResult(orgId, runId, fullEvent);
       }
+      // 2) Persist the raw event log (await so insert order matches
+      //    receive order — /live/:id/history relies on id ASC for
+      //    chronological replay).
+      await persistEventAwaited(orgId, runId, fullEvent);
+      // 3) Emit to SSE last, now that DB state is consistent.
+      liveEvents.emit(runId, fullEvent);
     }
-  })().catch(err => console.error("[live] post-response DB error:", err));
+  }).catch((err) => console.error("[live] post-response error:", err));
+
+  runEventChain.set(runId, thisChain);
+  // Free the map entry once this chain settles, but only if no later POST
+  // has chained off it (otherwise we'd orphan the chain and the next POST
+  // would skip the wait).
+  thisChain.finally(() => {
+    if (runEventChain.get(runId) === thisChain) runEventChain.delete(runId);
+  });
 });
+
+// Per-run promise chain so events for the same run process strictly in
+// arrival order. Map entries are removed once their chain settles.
+const runEventChain = new Map<number, Promise<void>>();
 
 /** Persist a live event to the database (fire-and-forget). */
 function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void {
@@ -166,6 +202,25 @@ function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void 
   ).catch((err) => {
     console.error("Failed to persist live event:", err.message);
   });
+}
+
+/**
+ * Awaited variant — the per-run event chain calls this so that
+ * /live/:id/history rows land in receive order (ordered by id ASC).
+ * Errors are swallowed so a failed insert doesn't break the chain for
+ * subsequent events.
+ */
+async function persistEventAwaited(orgId: number, runId: number, event: LiveTestEvent): Promise<void> {
+  try {
+    await tenantQuery(orgId,
+      `INSERT INTO live_events (run_id, org_id, event_type, spec, test, status, duration_ms, error_message, stats)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [runId, orgId, event.type, event.spec ?? null, event.test ?? null, event.status ?? null,
+       event.duration_ms ?? null, event.error ?? null, event.stats ? JSON.stringify(event.stats) : null]
+    );
+  } catch (err: unknown) {
+    console.error("Failed to persist live event:", err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
