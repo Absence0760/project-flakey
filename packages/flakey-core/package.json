@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/core",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Shared utilities for Flakey test reporting packages",
   "type": "module",
   "main": "dist/index.js",
