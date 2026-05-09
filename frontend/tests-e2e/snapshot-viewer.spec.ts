@@ -347,4 +347,61 @@ test.describe("ErrorModal snapshot viewer (gherkin demo run)", () => {
       )
       .not.toBe(givenSrc);
   });
+
+  /* Issue #26 regression — snapshot zoom + no-snap feedback. */
+
+  test("snapshot zoom controls scale the iframe in both directions and clamp", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const scaler = page.locator(".snapshot-scaler");
+    await expect(scaler).toBeVisible();
+
+    const zoomIn = page.getByRole("button", { name: /^Zoom in$/ });
+    const zoomOut = page.getByRole("button", { name: /^Zoom out$/ });
+    const reset = page.getByRole("button", { name: /^Reset zoom$/ });
+    await expect(zoomIn).toBeVisible();
+
+    // Snapshot the scaler's rendered width at default zoom, then zoom in
+    // twice and confirm the scaler grows. Width is `viewportWidth *
+    // fitScale * zoom`, so zoom 1 → 1.5625× (1.25^2) is detectable at
+    // any pane size that doesn't already pin scale to 1.
+    const initial = (await scaler.boundingBox())!.width;
+
+    await zoomIn.click();
+    await zoomIn.click();
+    await expect.poll(async () => (await scaler.boundingBox())!.width).toBeGreaterThan(initial);
+
+    // Reset returns us to the fit-scale baseline.
+    await reset.click();
+    await expect
+      .poll(async () => (await scaler.boundingBox())!.width)
+      .toBeCloseTo(initial, 0);
+
+    // Zooming out below 0.5 must be impossible — the button clamps via
+    // :disabled. Default zoom is 1; each click divides by 1.25, so the
+    // 4th click crosses the 0.5 floor (1 → 0.8 → 0.64 → 0.512 → 0.5)
+    // and the button latches disabled on the next render.
+    await reset.click();
+    for (let i = 0; i < 4; i++) {
+      if (await zoomOut.isDisabled()) break;
+      await zoomOut.click();
+    }
+    await expect(zoomOut).toBeDisabled();
+  });
+
+  test("zoom-reset button shows the percentage in its label", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    // The reset button doubles as a percentage readout: "<NN>%".
+    const reset = page.getByRole("button", { name: /^Reset zoom$/ });
+    await expect(reset).toHaveText(/^\d+%$/);
+
+    const initialLabel = await reset.textContent();
+    const zoomIn = page.getByRole("button", { name: /^Zoom in$/ });
+    await zoomIn.click();
+    await expect(reset).not.toHaveText(initialLabel ?? "");
+    await expect(reset).toHaveText(/^\d+%$/);
+  });
 });

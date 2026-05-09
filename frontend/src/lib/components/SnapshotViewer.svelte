@@ -33,7 +33,15 @@
   let error = $state<string | null>(null);
   let iframeEl = $state<HTMLIFrameElement | null>(null);
   let frameEl = $state<HTMLDivElement | null>(null);
-  let scale = $state(1);
+  // fitScale: whatever scale exactly fits the snapshot's viewport into
+  // the pane (auto, recomputed on resize). zoom: the user's zoom
+  // multiplier on top of that — 1.0 = "fit", 2.0 = 2× the fit size, etc.
+  // Issue #26: the original `Math.min(scaleX, scaleY, 1)` made the DOM
+  // unreadable for any test bigger than the modal pane, with no way to
+  // zoom in. We default to fit (zoom=1) and let users dial in.
+  let fitScale = $state(1);
+  let zoom = $state(1);
+  let scale = $derived(fitScale * zoom);
 
   let currentStep = $derived.by(() => {
     if (!bundle) return null;
@@ -70,8 +78,12 @@
 
     const scaleX = containerWidth / bundle.viewportWidth;
     const scaleY = containerHeight / bundle.viewportHeight;
-    scale = Math.min(scaleX, scaleY, 1);
+    fitScale = Math.min(scaleX, scaleY, 1);
   }
+
+  function zoomIn() { zoom = Math.min(zoom * 1.25, 4); }
+  function zoomOut() { zoom = Math.max(zoom / 1.25, 0.5); }
+  function zoomReset() { zoom = 1; }
 
   async function loadSnapshot(path: string) {
     loading = true;
@@ -116,13 +128,25 @@
     <div class="snapshot-status error">{error}</div>
   {:else if bundle && currentStep}
     <div class="snapshot-frame" bind:this={frameEl}>
-      <div class="snapshot-scaler" style="transform: scale({scale}); width: {bundle.viewportWidth}px; height: {bundle.viewportHeight}px;">
+      <!--
+        Layout box is sized to the *visually rendered* dimensions
+        (viewport × scale) so the parent's overflow scroll exposes the
+        extra pixels at zoom > 1. The iframe stays at intrinsic
+        viewport size and `transform: scale(...)` draws it inside that
+        box. transform-origin: top left so we anchor to the corner the
+        scrollbars start from. (Issue #26.)
+      -->
+      <div
+        class="snapshot-scaler"
+        style="width: {bundle.viewportWidth * scale}px; height: {bundle.viewportHeight * scale}px;"
+      >
         <iframe
           bind:this={iframeEl}
           sandbox="allow-same-origin"
           title="DOM Snapshot"
           width={bundle.viewportWidth}
           height={bundle.viewportHeight}
+          style="transform: scale({scale}); transform-origin: top left;"
         ></iframe>
       </div>
     </div>
@@ -132,6 +156,11 @@
         <span class="step-count">{Math.min(selectedStep, bundle.steps.length - 1) + 1} / {bundle.steps.length}</span>
         <span class="step-name">{currentStep.commandName}{currentStep.commandMessage ? ` — ${currentStep.commandMessage}` : ""}</span>
       </span>
+      <div class="zoom-controls" role="group" aria-label="Snapshot zoom">
+        <button class="step-btn" onclick={zoomOut} disabled={zoom <= 0.5} aria-label="Zoom out">−</button>
+        <button class="step-btn zoom-reset" onclick={zoomReset} aria-label="Reset zoom" title="Reset zoom">{Math.round(scale * 100)}%</button>
+        <button class="step-btn" onclick={zoomIn} disabled={zoom >= 4} aria-label="Zoom in">+</button>
+      </div>
       <button class="step-btn" onclick={() => selectedStep = Math.min(bundle!.steps.length - 1, selectedStep + 1)} disabled={selectedStep >= bundle.steps.length - 1} aria-label="Next step">›</button>
     </div>
   {:else}
@@ -161,7 +190,7 @@
 
   .snapshot-frame {
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
     background: #fff;
     display: flex;
     align-items: flex-start;
@@ -170,8 +199,20 @@
   }
 
   .snapshot-scaler {
-    transform-origin: top center;
     flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .zoom-controls .zoom-reset {
+    width: auto;
+    padding: 0 0.5rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.75rem;
   }
 
   iframe {

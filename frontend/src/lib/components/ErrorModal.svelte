@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { authFetch } from "$lib/auth";
+  import { toastInfo } from "$lib/toast";
   import Lightbox from "./Lightbox.svelte";
   import SnapshotViewer from "./SnapshotViewer.svelte";
   import NotesPanel from "./NotesPanel.svelte";
@@ -139,23 +140,6 @@
     }
     const target = base + childPos;
     return target < endIdx ? target : Math.max(headerIdx, endIdx - 1);
-  }
-
-  // Best-effort variants that never return null, so hover/click handlers
-  // always move the snapshot viewer to *some* sensible step even when the
-  // command→snapshot text match fails.
-  function bestSnapIdxForGroup(gIdx: number): number {
-    const idx = snapshotIdxForCommandGroup(gIdx);
-    if (idx !== null) return idx;
-    for (let i = gIdx - 1; i >= 0; i--) {
-      const prev = snapshotIdxForCommandGroup(i);
-      if (prev !== null) return prev;
-    }
-    return 0;
-  }
-  function bestSnapIdxForChild(gIdx: number, childPos: number): number {
-    const idx = snapshotIdxForCommandChild(gIdx, childPos);
-    return idx !== null ? idx : bestSnapIdxForGroup(gIdx);
   }
 
   function toggleGroup(g: number) {
@@ -579,21 +563,25 @@
                         {@const headerCmd = group.headerIdx !== null ? cmdLog[group.headerIdx] : null}
                         {@const groupFailed = (headerCmd?.state === "failed") || group.childIdxs.some((i) => cmdLog[i]?.state === "failed")}
                         {@const groupSnapIdx = snapshotIdxForCommandGroup(g)}
-                        {@const groupBestIdx = bestSnapIdxForGroup(g)}
+                        {@const groupHasSnap = hasSnapshot && groupSnapIdx !== null}
                         {#if group.headerIdx !== null}
                           <li
                             class="cmd cmd-clickable cmd-gherkin"
                             class:cmd-failed={groupFailed}
-                            class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
-                            class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (hasSnapshot) { hoverStep = groupBestIdx; leftTab = "snapshot"; } }}
+                            class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
+                            class:cmd-active={groupHasSnap && activeSnapshotStep === groupSnapIdx}
+                            class:cmd-locked={groupHasSnap && lockedStep === groupSnapIdx}
+                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
                             onclick={() => {
                               toggleGroup(g);
-                              if (hasSnapshot) {
-                                lockedStep = groupBestIdx;
-                                snapshotStep = groupBestIdx;
-                                leftTab = "snapshot";
+                              if (!hasSnapshot) return;
+                              if (groupSnapIdx === null) {
+                                toastInfo("No snapshot captured for this step");
+                                return;
                               }
+                              lockedStep = groupSnapIdx;
+                              snapshotStep = groupSnapIdx;
+                              leftTab = "snapshot";
                             }}
                           >
                             <span class="cmd-num">{(group.headerIdx ?? 0) + 1}</span>
@@ -608,16 +596,20 @@
                           <li
                             class="cmd cmd-clickable cmd-setup"
                             class:cmd-failed={groupFailed}
-                            class:cmd-active={hasSnapshot && groupSnapIdx !== null && activeSnapshotStep === groupSnapIdx}
-                            class:cmd-locked={hasSnapshot && groupSnapIdx !== null && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (hasSnapshot) { hoverStep = groupBestIdx; leftTab = "snapshot"; } }}
+                            class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
+                            class:cmd-active={groupHasSnap && activeSnapshotStep === groupSnapIdx}
+                            class:cmd-locked={groupHasSnap && lockedStep === groupSnapIdx}
+                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
                             onclick={() => {
                               toggleGroup(g);
-                              if (hasSnapshot) {
-                                lockedStep = groupBestIdx;
-                                snapshotStep = groupBestIdx;
-                                leftTab = "snapshot";
+                              if (!hasSnapshot) return;
+                              if (groupSnapIdx === null) {
+                                toastInfo("No snapshot captured for this step");
+                                return;
                               }
+                              lockedStep = groupSnapIdx;
+                              snapshotStep = groupSnapIdx;
+                              leftTab = "snapshot";
                             }}
                           >
                             <span class="cmd-num"></span>
@@ -633,21 +625,25 @@
                           {#each group.childIdxs as i, childPos}
                             {@const cmd = cmdLog[i]}
                             {@const childSnapIdx = snapshotIdxForCommandChild(g, childPos)}
-                            {@const childBestIdx = bestSnapIdxForChild(g, childPos)}
+                            {@const childHasSnap = hasSnapshot && childSnapIdx !== null}
                             {#if cmd}
                               <li
                                 class="cmd cmd-child"
                                 class:cmd-failed={cmd.state === "failed"}
-                                class:cmd-active={hasSnapshot && childSnapIdx !== null && activeSnapshotStep === childSnapIdx}
-                                class:cmd-locked={hasSnapshot && childSnapIdx !== null && lockedStep === childSnapIdx}
+                                class:cmd-no-snap={hasSnapshot && childSnapIdx === null}
+                                class:cmd-active={childHasSnap && activeSnapshotStep === childSnapIdx}
+                                class:cmd-locked={childHasSnap && lockedStep === childSnapIdx}
                                 class:cmd-clickable={hasSnapshot}
-                                onmouseenter={() => { if (hasSnapshot) { hoverStep = childBestIdx; leftTab = "snapshot"; } }}
+                                onmouseenter={() => { if (childHasSnap) { hoverStep = childSnapIdx; leftTab = "snapshot"; } }}
                                 onclick={() => {
-                                  if (hasSnapshot) {
-                                    lockedStep = lockedStep === childBestIdx ? null : childBestIdx;
-                                    snapshotStep = childBestIdx;
-                                    leftTab = "snapshot";
+                                  if (!hasSnapshot) return;
+                                  if (childSnapIdx === null) {
+                                    toastInfo("No snapshot captured for this step");
+                                    return;
                                   }
+                                  lockedStep = lockedStep === childSnapIdx ? null : childSnapIdx;
+                                  snapshotStep = childSnapIdx;
+                                  leftTab = "snapshot";
                                 }}
                               >
                                 <span class="cmd-num">{i + 1}</span>
@@ -1580,6 +1576,17 @@
 
   .cmd-clickable {
     cursor: pointer;
+  }
+
+  /*
+   * Step has no captured snapshot. Visually dim and use the
+   * not-allowed cursor so users can see at a glance which steps
+   * actually pin a snapshot. Click still fires (it raises a toast),
+   * so we don't disable pointer-events. Issue #26.
+   */
+  .cmd-no-snap {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .cmd-active {
