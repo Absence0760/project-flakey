@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import pool from "./db.js";
+import pool, { tenantQuery } from "./db.js";
 
 // Fix 1: Warn in dev, fail in prod (handled in index.ts)
 const JWT_SECRET = process.env.JWT_SECRET ?? "flakey-dev-secret-change-me";
@@ -90,7 +90,16 @@ async function verifyApiKey(key: string): Promise<AuthUser | null> {
 
   for (const row of rows.rows) {
     if (bcrypt.compareSync(key, row.key_hash)) {
-      pool.query("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", [row.key_id]).catch(() => {});
+      // The api_keys table has FORCE ROW LEVEL SECURITY (migration 004)
+      // and a tenancy policy on org_id; a plain pool.query without
+      // set_config('app.current_org_id', …) silently UPDATEs zero rows.
+      // Route through tenantQuery scoped to the api-key's own org so the
+      // RLS policy admits the write.
+      tenantQuery(
+        row.org_id,
+        "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
+        [row.key_id],
+      ).catch(() => {});
 
       const memberResult = await pool.query(
         "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",

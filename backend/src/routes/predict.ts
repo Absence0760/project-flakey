@@ -83,21 +83,30 @@ router.post("/tests", async (req, res) => {
           ELSE 'path_match'
         END AS reason
       FROM matched_tests
-      ORDER BY historical_failures DESC, total_appearances DESC
-      LIMIT 50`,
+      LIMIT 200`,
       params
     );
 
-    const tests = result.rows.map((row: any) => ({
-      full_title: row.full_title,
-      file_path: row.file_path,
-      suite_name: row.suite_name,
-      score: row.historical_failures > 0
-        ? Math.min(1, 0.5 + (row.historical_failures / row.total_appearances) * 0.5)
-        : 0.3,
-      reason: row.reason,
-      historical_failures: row.historical_failures,
-    }));
+    // Compute score AND sort by it descending. The previous SQL ordering
+    // (historical_failures DESC) didn't match the score formula — a test
+    // with 3 failures across 10 runs (score 0.65) sorted ABOVE a test
+    // with 1 failure across 1 run (score 1.0) even though the latter
+    // has stronger historical signal. Sorting by the same value the
+    // response advertises (`score`) makes the contract consistent for
+    // callers that pick a top-N off the front of the list.
+    const tests = result.rows
+      .map((row: any) => ({
+        full_title: row.full_title,
+        file_path: row.file_path,
+        suite_name: row.suite_name,
+        score: row.historical_failures > 0
+          ? Math.min(1, 0.5 + (row.historical_failures / row.total_appearances) * 0.5)
+          : 0.3,
+        reason: row.reason,
+        historical_failures: row.historical_failures,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 50);
 
     res.json({ tests });
   } catch (err) {
