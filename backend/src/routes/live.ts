@@ -453,7 +453,7 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
     // clients may send the leaf title only). LIKE special chars in the title
     // are escaped so a '%' or '_' in the test name doesn't widen the match.
     const escapedTitle = testTitle.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-    await tenantQuery(orgId,
+    const updated = await tenantQuery(orgId,
       `UPDATE tests SET screenshot_paths = array_append(COALESCE(screenshot_paths, ARRAY[]::text[]), $3)
        FROM specs
        WHERE specs.id = tests.spec_id
@@ -462,6 +462,30 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
          AND NOT ($3 = ANY(COALESCE(tests.screenshot_paths, ARRAY[]::text[])))`,
       [runId, testTitle, key, escapedTitle]
     );
+
+    // Race guard: POST /events returns 200 before its DB writes complete
+    // (events are processed sequentially in a post-response IIFE). A reporter
+    // that sends `test.started` then immediately uploads a screenshot can
+    // arrive here before the test row has been INSERTed. Without this fallback
+    // the screenshot file is stored to S3/disk but orphaned — it never
+    // attaches to any test, and the user never sees it. Upsert a pending
+    // row keyed on (spec, full_title) so the screenshot lands somewhere.
+    if (!updated.rowCount) {
+      const specId = await findOrCreateSpec(orgId, runId, spec);
+      if (specId !== null) {
+        await tenantQuery(orgId,
+          `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, screenshot_paths)
+           VALUES ($1, $2, $2, 'pending', 0, NULL, ARRAY[$3]::text[])
+           ON CONFLICT (spec_id, full_title) WHERE status = 'pending' DO UPDATE
+             SET screenshot_paths = array_append(
+               COALESCE(tests.screenshot_paths, ARRAY[]::text[]), $3
+             )
+             WHERE NOT ($3 = ANY(COALESCE(tests.screenshot_paths, ARRAY[]::text[])))`,
+          [specId, testTitle, key]
+        );
+        await recomputeSpecAndRunStats(orgId, runId, specId);
+      }
+    }
 
     res.status(200).json({ key });
   } catch (err) {
@@ -495,7 +519,7 @@ router.post("/:runId/abort", async (req, res) => {
   const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
     ? req.body.reason.trim().slice(0, 500)
     : "Run aborted by reporter (process received shutdown signal).";
-  abortRun(runId, orgId, reason);
+  await abortRun(runId, orgId, reason);
   res.json({ ok: true });
 });
 
@@ -552,7 +576,16 @@ router.get("/:runId/stream", async (req, res) => {
 });
 
 /** Emit and persist a run.aborted event, removing the run from the active set. */
-function abortRun(runId: number, orgId: number, reason: string): void {
+async function abortRun(runId: number, orgId: number, reason: string): Promise<void> {
+  // Transition pending → skipped FIRST, so the DB is consistent before any
+  // SSE listener refetches /runs/:id. The frontend's run-detail page calls
+  // fetchRun() the moment it receives a `run.aborted` event; if we emit
+  // before the UPDATE lands, the page sees stale `pending` rows and (since
+  // it also stops the 3s poll on abort) never refreshes them again. The
+  // user-visible symptom is a test row stuck in the "in progress" dot
+  // forever after a kill.
+  await transitionPendingTestsAfterAbort(orgId, runId, reason);
+
   const event: LiveTestEvent = {
     type: "run.aborted",
     runId,
@@ -561,6 +594,36 @@ function abortRun(runId: number, orgId: number, reason: string): void {
   };
   liveEvents.emit(runId, event);
   persistEvent(orgId, runId, event);
+}
+
+async function transitionPendingTestsAfterAbort(
+  orgId: number,
+  runId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    const result = await tenantQuery(
+      orgId,
+      `UPDATE tests SET status = 'skipped', error_message = $2
+       FROM specs
+       WHERE specs.id = tests.spec_id
+         AND specs.run_id = $1
+         AND tests.status = 'pending'
+       RETURNING tests.spec_id`,
+      [runId, `Run aborted before this test completed — ${reason}`],
+    );
+    if (!result.rowCount) return;
+    // Recompute stats for each affected spec, then for the run.
+    const specIds = Array.from(new Set(result.rows.map((r) => r.spec_id as number)));
+    for (const specId of specIds) {
+      await recomputeSpecAndRunStats(orgId, runId, specId);
+    }
+  } catch (err: unknown) {
+    console.error(
+      "Failed to transition pending tests after abort:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 // Mark runs as aborted after N ms of no events — handles terminal/process kills.
@@ -579,7 +642,7 @@ const staleCheckTimer = setInterval(() => {
   const stale = liveEvents.getStaleRuns(STALE_INACTIVITY_MS);
   for (const { runId, orgId } of stale) {
     console.log(`[live] Run ${runId} is stale — marking as aborted`);
-    abortRun(runId, orgId, "Run stopped unexpectedly — the test process may have been killed or the terminal was closed.");
+    void abortRun(runId, orgId, "Run stopped unexpectedly — the test process may have been killed or the terminal was closed.");
   }
 }, STALE_CHECK_INTERVAL_MS);
 staleCheckTimer.unref();
