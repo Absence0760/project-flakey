@@ -44,10 +44,13 @@ E2E_BACKEND_URL=https://api.staging.example.com pnpm test:e2e
 
 ## Seed credentials
 
-| Constant | Email | Password | Role | Org |
+| Constant | Email | Password | Org membership | Org |
 |---|---|---|---|---|
-| `ADMIN_USER` | `admin@example.com` | `admin` | admin | Acme Corp (`acme`) |
-| `DEMO_USER` | `demo@example.com` | `demo123` | viewer | Demo Team (`demo-team`) |
+| `ADMIN_USER` | `admin@example.com` | `admin` | owner | Acme Corp (`acme`) |
+| `DEMO_USER` | `demo@example.com` | `demo123` | owner | Demo Team (`demo-team`) |
+| `VIEWER_USER` | `viewer@example.com` | `viewer123` | viewer | Acme Corp (`acme`) |
+
+Use `VIEWER_USER` for any "admin-only endpoint must 403 a viewer" assertion — it's the only seeded user with `org_members.role = 'viewer'`. `DEMO_USER` is an *owner* of an empty org (used for cross-tenant isolation + empty-state coverage), despite the legacy `users.role = 'viewer'` global field.
 
 Source of truth: `backend/src/seed.ts`. If the seed changes, update `fixtures/users.ts` in lockstep.
 

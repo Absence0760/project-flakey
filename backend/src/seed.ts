@@ -368,6 +368,7 @@ async function seed() {
     // Seed users
     const adminHash = bcrypt.hashSync("admin", 10);
     const demoHash = bcrypt.hashSync("demo123", 10);
+    const viewerHash = bcrypt.hashSync("viewer123", 10);
     const admin = await client.query(
       "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Admin', 'admin') RETURNING id",
       ["admin@example.com", adminHash]
@@ -376,8 +377,13 @@ async function seed() {
       "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'viewer') RETURNING id",
       ["demo@example.com", demoHash]
     );
+    const viewer = await client.query(
+      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Viewer', 'viewer') RETURNING id",
+      ["viewer@example.com", viewerHash]
+    );
     const adminId = admin.rows[0].id;
     const demoId = demo.rows[0].id;
+    const viewerId = viewer.rows[0].id;
 
     // Seed orgs
     const org1 = await client.query(
@@ -389,11 +395,12 @@ async function seed() {
     const orgId = org1.rows[0].id;
     const org2Id = org2.rows[0].id;
 
-    // Admin owns Acme Corp, Demo User owns Demo Team
+    // Admin owns Acme Corp, Demo User owns Demo Team, Viewer is a viewer in Acme Corp
     await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [orgId, adminId]);
     await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')", [org2Id, demoId]);
+    await client.query("INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'viewer')", [orgId, viewerId]);
 
-    console.log("Seeded users: admin@example.com/admin (Acme Corp), demo@example.com/demo123 (Demo Team)");
+    console.log("Seeded users: admin@example.com/admin (Acme Corp owner), demo@example.com/demo123 (Demo Team owner), viewer@example.com/viewer123 (Acme Corp viewer)");
 
     // Set RLS context for seeded runs
     await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);

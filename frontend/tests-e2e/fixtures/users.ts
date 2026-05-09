@@ -46,4 +46,20 @@ export const DEMO_USER: SeededUser = {
   storageStatePath: resolve(STORAGE_DIR, "demo.json"),
 };
 
-export const ALL_USERS: SeededUser[] = [ADMIN_USER, DEMO_USER];
+/**
+ * Genuine viewer-role member of Acme Corp (the seed gives ADMIN_USER
+ * `owner` and DEMO_USER `owner` of their own org — so prior to this
+ * fixture there was no real viewer to assert role-403 enforcement
+ * against). Use VIEWER_USER for any "admin-only endpoint must 403 a
+ * viewer" assertion.
+ */
+export const VIEWER_USER: SeededUser = {
+  email: "viewer@example.com",
+  password: "viewer123",
+  name: "Viewer",
+  orgSlug: "acme",
+  role: "viewer",
+  storageStatePath: resolve(STORAGE_DIR, "viewer.json"),
+};
+
+export const ALL_USERS: SeededUser[] = [ADMIN_USER, DEMO_USER, VIEWER_USER];
