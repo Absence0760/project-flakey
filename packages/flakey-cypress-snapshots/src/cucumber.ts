@@ -28,12 +28,7 @@
 
 import { BeforeStep } from "@badeball/cypress-cucumber-preprocessor";
 import { pushStep } from "./shared.js";
-
-const KEYWORD_FOR_TYPE: Record<string, string> = {
-  Context: "Given",
-  Action: "When",
-  Outcome: "Then",
-};
+import { gherkinMarkerMessage } from "./cucumber-format.js";
 
 // BeforeStep is resolved at bundle time, but older versions of
 // @badeball/cypress-cucumber-preprocessor may export it as `undefined`. If
@@ -48,8 +43,7 @@ if (typeof BeforeStep === "function") {
   BeforeStep(function (options: any) {
     const ps = options?.pickleStep ?? (window as any).testState?.pickleStep;
     if (!ps?.text) return;
-    const keyword = KEYWORD_FOR_TYPE[ps.type as string] ?? "Step";
-    pushStep("gherkin", `${keyword} ${ps.text}`);
+    pushStep("gherkin", gherkinMarkerMessage(ps.type, ps.text));
   });
 } else {
   // eslint-disable-next-line no-console

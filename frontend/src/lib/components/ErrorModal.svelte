@@ -2,6 +2,11 @@
   import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { authFetch } from "$lib/auth";
   import { toastInfo } from "$lib/toast";
+  import {
+    snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
+    snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
+    type CommandGroup as PureCommandGroup,
+  } from "$lib/snapshot-match";
   import Lightbox from "./Lightbox.svelte";
   import SnapshotViewer from "./SnapshotViewer.svelte";
   import NotesPanel from "./NotesPanel.svelte";
@@ -83,63 +88,14 @@
   });
   let hasCommandGherkinGroups = $derived(commandGroups.some((g) => g.headerKeyword !== "SETUP"));
 
-  // Map a command-log Gherkin group to its matching snapshot-bundle step
-  // by text. command_log and snapshotSteps are parallel streams with
-  // different lengths, so a naive index match is wrong — we key on the
-  // human-readable step label instead.
-  // command_log messages come from Cypress's log.message and use markdown
-  // bolding (`**x**`), plus the keyword is in a separate field. Snapshot
-  // bundles record the plain text with the keyword prepended. Normalize
-  // both sides before comparing.
-  function normalizeGherkinText(s: string): string {
-    return s.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-  }
+  // Pure mapping logic lives in $lib/snapshot-match (unit-tested via
+  // snapshot-match.test.ts). These wrappers bind the current
+  // commandGroups + snapshotSteps so the template stays terse.
   function snapshotIdxForCommandGroup(gIdx: number): number | null {
-    const group = commandGroups[gIdx];
-    if (!group) return null;
-    if (group.headerKeyword === "SETUP") {
-      const first = snapshotSteps.findIndex((s) => s.commandName !== "gherkin");
-      return first >= 0 ? first : 0;
-    }
-    // Track which snapshot gherkin indices have already been matched to a
-    // command-log group, so repeated step text (e.g. two "And the user
-    // clicks X") advances to the next occurrence instead of snapping back
-    // to the first.
-    const consumed = new Set<number>();
-    for (let i = 0; i <= gIdx; i++) {
-      const g = commandGroups[i];
-      if (g.headerKeyword === "SETUP") continue;
-      const needle = normalizeGherkinText(g.headerLabel);
-      const found = snapshotSteps.findIndex((s, si) => {
-        if (s.commandName !== "gherkin" || consumed.has(si)) return false;
-        return normalizeGherkinText(s.commandMessage ?? "").includes(needle);
-      });
-      if (found >= 0) {
-        consumed.add(found);
-        if (i === gIdx) return found;
-      } else if (i === gIdx) {
-        return null;
-      }
-    }
-    return null;
+    return snapshotIdxForCommandGroupPure(commandGroups as PureCommandGroup[], snapshotSteps, gIdx);
   }
-  // Map a child command (by position within its group) to the nearest
-  // snapshot-bundle step after that group's gherkin marker. Falls back to
-  // the marker itself if the offset overshoots.
   function snapshotIdxForCommandChild(gIdx: number, childPos: number): number | null {
-    const headerIdx = snapshotIdxForCommandGroup(gIdx);
-    if (headerIdx === null) return null;
-    // For Gherkin groups headerIdx points AT the gherkin marker — children
-    // start one step later. For SETUP headerIdx already points at the first
-    // child (no synthetic marker exists in snapshotSteps), so don't skip it.
-    const isSetup = commandGroups[gIdx]?.headerKeyword === "SETUP";
-    const base = isSetup ? headerIdx : headerIdx + 1;
-    let endIdx = snapshotSteps.length;
-    for (let i = base; i < snapshotSteps.length; i++) {
-      if (snapshotSteps[i].commandName === "gherkin") { endIdx = i; break; }
-    }
-    const target = base + childPos;
-    return target < endIdx ? target : Math.max(headerIdx, endIdx - 1);
+    return snapshotIdxForCommandChildPure(commandGroups as PureCommandGroup[], snapshotSteps, gIdx, childPos);
   }
 
   function toggleGroup(g: number) {
