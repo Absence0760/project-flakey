@@ -6,6 +6,7 @@ import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
+import { getStorage } from "../storage.js";
 
 const router = Router();
 
@@ -311,6 +312,45 @@ router.get("/:id", async (req, res) => {
     res.json({ ...runResult.rows[0], specs, prev_id: prev_id ?? null, next_id: next_id ?? null });
   } catch (err) {
     console.error("GET /runs/:id error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /runs/:id — admin can remove a noisy / erroneous / synthetic
+// run from their org. Cascades to specs/tests/live_events via FK.
+// Mirrors the retention path's per-run cleanup (storage.deleteRun
+// drops artifacts on disk / S3) so a deleted run leaves no residue.
+router.delete("/:id", async (req, res) => {
+  if (req.user!.orgRole === "viewer") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  try {
+    const orgId = req.user!.orgId;
+    const runId = Number(req.params.id);
+    if (!Number.isFinite(runId)) {
+      res.status(400).json({ error: "Invalid run id" });
+      return;
+    }
+    const result = await tenantQuery(
+      orgId,
+      "DELETE FROM runs WHERE id = $1 RETURNING id",
+      [runId],
+    );
+    if (!result.rowCount) {
+      res.status(404).json({ error: "Run not found" });
+      return;
+    }
+    // Best-effort artifact cleanup. Failure here doesn't fail the
+    // request — the run is already gone from the DB.
+    try {
+      await getStorage().deleteRun(runId);
+    } catch (err) {
+      console.error("DELETE /runs/:id storage cleanup error:", err);
+    }
+    res.json({ ok: true, id: runId });
+  } catch (err) {
+    console.error("DELETE /runs/:id error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

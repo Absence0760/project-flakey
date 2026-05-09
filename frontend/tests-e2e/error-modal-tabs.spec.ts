@@ -18,64 +18,30 @@ import { ADMIN_USER } from "./fixtures/users";
  * to be at the top of a run.
  */
 
-async function findTestId(
+/**
+ * Locate a run id + test id for a test matching `titleFragment` AND the
+ * data shape the caller needs (test_code, metadata, command_log).
+ *
+ * The naive "first title match" approach is brittle because the dev DB
+ * accumulates synthetic runs from other specs (live-run, live-reporter-
+ * adapters, etc.). When a synthetic run shares a title fragment with a
+ * seeded test, the synthetic match wins and the test fails because the
+ * synthetic record has no test_code / metadata / command_log.
+ *
+ * Filtering on the data shape returns the right run regardless of how
+ * many synthetic runs exist or what they're titled.
+ */
+async function findRunAndTest(
   page: Page,
-  predicate: (t: { id: number; title: string; status: string; spec_file: string }) => boolean,
-): Promise<{ id: number; runId: number }> {
-  // The dashboard route exposes the auth token in localStorage.
-  await page.goto("/dashboard");
-  const found = await page.evaluate(async () => {
-    const token = localStorage.getItem("bt_token");
-    const runsRes = await fetch("http://localhost:3000/runs?limit=200", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const runsBody = await runsRes.json();
-    // Walk runs in newest-first order; for each, fetch its detail
-    // (which includes specs[].tests[]) and return the first matching
-    // test along with its run id. Stop on first hit.
-    for (const r of runsBody.runs as Array<{ id: number }>) {
-      const det = await fetch(`http://localhost:3000/runs/${r.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!det.ok) continue;
-      const detail = await det.json();
-      for (const spec of detail.specs ?? []) {
-        for (const t of spec.tests ?? []) {
-          // Return raw shape; the caller predicate decides match.
-          (globalThis as { __cand?: unknown }).__cand = {
-            id: t.id,
-            title: t.title,
-            status: t.status,
-            spec_file: spec.file_path,
-            test_code: t.test_code,
-            command_log: t.command_log,
-            metadata: t.metadata,
-            runId: r.id,
-          };
-          // Surface to the caller via a serialised list so we can
-          // filter in Node-land. Easier: dispatch all tests up.
-        }
-      }
-    }
-    return null;
-  });
-  // The above traversal is a bit convoluted because page.evaluate
-  // serialises return values eagerly; predicates can't be passed in.
-  // Simpler: re-implement here by fetching directly with a known
-  // server-side filter.
-  void predicate;
-  void found;
-  throw new Error("unused");
-}
-void findTestId;
-
-/** Locate the run id + test id for a test matching `titleFragment`. */
-async function findRunAndTestByTitle(
-  page: Page,
-  titleFragment: string,
+  match: {
+    titleFragment: string;
+    needsCode?: boolean;
+    needsMetadata?: boolean;
+    needsCommandLog?: boolean;
+  },
 ): Promise<{ runId: number; testId: number }> {
   await page.goto("/dashboard");
-  const result = await page.evaluate(async (frag: string) => {
+  const result = await page.evaluate(async (criteria) => {
     const token = localStorage.getItem("bt_token");
     const runsRes = await fetch("http://localhost:3000/runs?limit=200", {
       headers: { Authorization: `Bearer ${token}` },
@@ -89,15 +55,20 @@ async function findRunAndTestByTitle(
       const detail = await det.json();
       for (const spec of detail.specs ?? []) {
         for (const t of spec.tests ?? []) {
-          if (typeof t.title === "string" && t.title.includes(frag)) {
-            return { runId: r.id, testId: t.id };
-          }
+          if (typeof t.title !== "string" || !t.title.includes(criteria.titleFragment)) continue;
+          if (criteria.needsCode && !t.test_code) continue;
+          if (criteria.needsMetadata && !t.metadata) continue;
+          if (criteria.needsCommandLog && !t.command_log) continue;
+          return { runId: r.id, testId: t.id };
         }
       }
     }
     return null;
-  }, titleFragment);
-  expect(result, `seed should have a test whose title includes "${titleFragment}"`).toBeTruthy();
+  }, match);
+  expect(
+    result,
+    `expected a run/test matching ${JSON.stringify(match)}`,
+  ).toBeTruthy();
   return result!;
 }
 
@@ -133,9 +104,12 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Info tab shows test metadata strip + error message for failures", async ({ page }) => {
-    // Pick the gherkin demo failed test — guaranteed to exist post-seed
-    // and has an error_message populated.
-    const { runId } = await findRunAndTestByTitle(page, "Gherkin demo");
+    // The gherkin demo failed test — guaranteed to exist post-seed
+    // and has both a populated command_log AND error_message.
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "Gherkin demo",
+      needsCommandLog: true,
+    });
     await openModalForTest(page, runId, "Login with valid credentials (Gherkin demo)");
 
     // Info tab is the default for tests without snapshots, but the
@@ -158,10 +132,13 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
   });
 
   test("History tab lazy-loads and renders a timeline entry", async ({ page }) => {
-    // The SSO test has multiple Playwright runs in seed (3 pw runs)
-    // so history should show ≥1 entries. If only one entry exists,
-    // assertion still passes — we just check the timeline is visible.
-    const { runId } = await findRunAndTestByTitle(page, "should handle SSO redirect");
+    // The seeded SSO test has metadata populated (retries, annotations,
+    // stdout) — pin the lookup to that data shape so synthetic e2e
+    // runs (no metadata) can't shadow it.
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "should handle SSO redirect",
+      needsMetadata: true,
+    });
     await openModalForTest(page, runId, "should handle SSO redirect");
 
     // History is gated behind a click — selectHistoryTab() triggers
@@ -177,7 +154,10 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
   });
 
   test("Notes tab posts a new note + shows it back", async ({ page }) => {
-    const { runId } = await findRunAndTestByTitle(page, "Gherkin demo");
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "Gherkin demo",
+      needsCommandLog: true,
+    });
     await openModalForTest(page, runId, "Login with valid credentials (Gherkin demo)");
 
     await page.locator(".pane-tab", { hasText: /^Notes$/ }).click();
@@ -204,8 +184,14 @@ test.describe("ErrorModal — Source tab (test_code path)", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Source tab renders the test code block when test_code is present", async ({ page }) => {
-    // Mochawesome seed populates test_code for "should login with valid credentials".
-    const { runId } = await findRunAndTestByTitle(page, "should login with valid credentials");
+    // Mochawesome seed populates test_code for "should login with valid
+    // credentials". needsCode: true filters the lookup to the seeded
+    // mochawesome run, even if synthetic test runs (live-run, etc.) have
+    // a test by that title without test_code.
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "should login with valid credentials",
+      needsCode: true,
+    });
     await openModalForTest(page, runId, "should login with valid credentials");
 
     // The Source tab only renders when hasCode is true — so its
@@ -228,8 +214,13 @@ test.describe("ErrorModal — Details tab (metadata path)", () => {
 
   test("Details tab surfaces retry history + annotations + stdout", async ({ page }) => {
     // The Playwright SSO test has retries (1 fail, 1 pass), tags
-    // (@auth, @sso), annotations (slow), stdout entries, location.
-    const { runId } = await findRunAndTestByTitle(page, "should handle SSO redirect");
+    // (@auth, @sso), annotations (slow), stdout entries, location —
+    // all under the `metadata` column. Pin the lookup to the seeded
+    // record by requiring metadata present.
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "should handle SSO redirect",
+      needsMetadata: true,
+    });
     await openModalForTest(page, runId, "should handle SSO redirect");
 
     const detailsTab = page.locator(".pane-tab", { hasText: /^Details$/ });

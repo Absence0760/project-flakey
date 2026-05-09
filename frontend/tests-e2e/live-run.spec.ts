@@ -64,6 +64,18 @@ async function postLiveEvent(
   expect(res.status(), `live event ${event.type} should accept`).toBe(200);
 }
 
+/**
+ * Best-effort cleanup: delete the run we just created so it doesn't
+ * pollute the listing for downstream specs. Without this, repeated
+ * suite runs accumulate hundreds of synthetic runs that push seeded
+ * data out of the dashboard's default 7-day window.
+ */
+async function deleteRun(page: Page, token: string, runId: number): Promise<void> {
+  await page.request.delete(`http://localhost:3000/runs/${runId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}
+
 test.describe("live run flow (real-time test progress)", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
@@ -98,12 +110,11 @@ test.describe("live run flow (real-time test progress)", () => {
     //    to passed one by one, with a brief gap to let the run-detail
     //    poll (3s) flip the table rows.
     await postLiveEvent(page, token, runId,{ type: "spec.started", spec: specPath });
-    // Synthetic test titles that DON'T collide with seeded ones. A
-    // collision would break error-modal-tabs Source tab which keys on
-    // "should login with valid credentials" and expects the seed's
-    // test_code — a live run with that title has no test_code, so
-    // findRunAndTestByTitle returns the live run first.
-    const titles = ["e2e-live login flow", "e2e-live reject creds", "e2e-live session persistence"] as const;
+    const titles = [
+      "should login with valid credentials",
+      "should reject bad password",
+      "should remember session",
+    ] as const;
     for (const t of titles) {
       await postLiveEvent(page, token, runId,{ type: "test.started", spec: specPath, test: t });
     }
@@ -181,6 +192,8 @@ test.describe("live run flow (real-time test progress)", () => {
       stats: { total: 3, passed: 2, failed: 1, skipped: 0 },
     });
     await expect(liveBadge).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 
   test("live feed sidebar surfaces incoming events (connected → spec.started → test.passed)", async ({
@@ -218,6 +231,8 @@ test.describe("live run flow (real-time test progress)", () => {
       type: "run.finished",
       stats: { total: 1, passed: 1, failed: 0, skipped: 0 },
     });
+
+    await deleteRun(page, token, runId);
   });
 
   test("aborting a live run flips the badge state and shows the abort indicator", async ({
@@ -258,5 +273,7 @@ test.describe("live run flow (real-time test progress)", () => {
     // header's run-status-badge shows "Aborted" once the route
     // refetches the run.
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });

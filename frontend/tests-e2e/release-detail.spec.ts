@@ -120,7 +120,7 @@ test.describe("/releases/<id>", () => {
     expect(requiredCount, "seed has 5 required items out of 6").toBe(5);
   });
 
-  test("v2.4.0 — toggling an unchecked checklist item flips its <li> to .checked", async ({
+  test("v2.4.0 — toggling a checklist item flips its <li> .checked class (idempotent)", async ({
     page,
   }) => {
     await gotoRelease(page, "v2.4.0");
@@ -129,57 +129,43 @@ test.describe("/releases/<id>", () => {
       has: page.getByRole("heading", { name: "Checklist" }),
     });
 
-    // Find the first <li> that's currently unchecked AND has an
-    // enabled checkbox (not auto-ruled). Capture its LABEL TEXT
-    // *before* the toggle — after the toggle, the route's load()
-    // reloads `release`, the {#if loading}/{:else if release} branch
-    // unmounts and remounts the section, and any locator chain that
-    // narrows by `:not(.checked)` would no longer match the same
-    // element (it's now checked). Re-find by label after the action.
-    let uncheckedItem = checklistSection
-      .locator('ul.items > li:not(.checked)')
+    // Pick ANY togglable item — checked or unchecked, as long as the
+    // checkbox isn't disabled (auto-rule items have disabled checkboxes).
+    // Capture the label text BEFORE acting; the route's load() refetch
+    // keeps content mounted, but re-finding by label is robust either way.
+    const item = checklistSection
+      .locator("ul.items > li")
       .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
       .first();
-
-    // Test premise: the seed inserts 3 initially-unchecked
-    // togglable items, but every time this suite runs the toggle
-    // test checks one. After ~3 re-runs without a re-seed, all
-    // initially-unchecked items are now checked and there's no
-    // headroom. Set the premise back up by unchecking one first
-    // — the test's contract (clicking flips .checked on) is still
-    // exercised, just with the test responsible for its own
-    // pre-state.
-    if (!(await uncheckedItem.isVisible().catch(() => false))) {
-      const candidate = checklistSection
-        .locator("ul.items > li.checked")
-        .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
-        .first();
-      const candidateLabel = (await candidate.locator(".item-label").textContent())?.trim();
-      await candidate.locator('input[type="checkbox"]').uncheck();
-      // Re-find by label after section remount; reload settles.
-      await expect(
-        checklistSection.locator("ul.items > li", {
-          has: page.locator(".item-label", { hasText: candidateLabel! }),
-        }).first(),
-      ).not.toHaveClass(/\bchecked\b/, { timeout: 5_000 });
-      uncheckedItem = checklistSection
-        .locator('ul.items > li:not(.checked)')
-        .filter({ has: page.locator('input[type="checkbox"]:not([disabled])') })
-        .first();
-    }
-
-    const labelText = (await uncheckedItem.locator(".item-label").textContent())?.trim();
+    const labelText = (await item.locator(".item-label").textContent())?.trim();
     expect(labelText, "needed to capture the item's label for re-finding").toBeTruthy();
 
-    await uncheckedItem.locator('input[type="checkbox"]').check();
+    const itemByLabel = () =>
+      checklistSection.locator("ul.items > li", {
+        has: page.locator(".item-label", { hasText: labelText! }),
+      }).first();
 
-    // Re-find the same item by label after the section remounts. The
-    // section's section.checklist > ul.items > li that contains this
-    // label should now have class:checked on its <li>.
-    const itemAfter = checklistSection
-      .locator("ul.items > li", { has: page.locator(".item-label", { hasText: labelText! }) })
-      .first();
-    await expect(itemAfter).toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+    const wasChecked = await item.evaluate((el) => el.classList.contains("checked"));
+
+    // Toggle to the OPPOSITE state, assert the .checked class flipped.
+    if (wasChecked) {
+      await item.locator('input[type="checkbox"]').uncheck();
+      await expect(itemByLabel()).not.toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+    } else {
+      await item.locator('input[type="checkbox"]').check();
+      await expect(itemByLabel()).toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+    }
+
+    // Toggle BACK to the original state. The test must leave the seed
+    // exactly as it found it so multiple suite runs against the same DB
+    // are idempotent and don't drift the v2.4.0 checklist baseline.
+    if (wasChecked) {
+      await itemByLabel().locator('input[type="checkbox"]').check();
+      await expect(itemByLabel()).toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+    } else {
+      await itemByLabel().locator('input[type="checkbox"]').uncheck();
+      await expect(itemByLabel()).not.toHaveClass(/\bchecked\b/, { timeout: 5_000 });
+    }
   });
 
   test("v2.4.0 — Sign-off button reflects requiredRemaining (flip-flop a required item)", async ({

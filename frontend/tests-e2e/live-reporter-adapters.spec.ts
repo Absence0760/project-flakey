@@ -52,6 +52,18 @@ async function postEvent(
   expect(res.status(), `event ${event.type} should be accepted`).toBe(200);
 }
 
+/**
+ * Best-effort cleanup so synthetic adapter runs don't pollute the
+ * /runs listing for downstream specs. Repeated suite runs would
+ * otherwise accumulate hundreds of synthetic runs and push seeded
+ * data out of the dashboard's default 7-day window.
+ */
+async function deleteRun(page: Page, token: string, runId: number): Promise<void> {
+  await page.request.delete(`http://localhost:3000/runs/${runId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}
+
 async function bootstrap(
   page: Page,
   suiteSlug: string,
@@ -86,10 +98,11 @@ test.describe("live-reporter adapter — Cypress/Mocha event sequence", () => {
 
     // Per-test events come from the Cypress reporter (reporter.ts:onTestStart):
     // each test gets a test.started with the FULL TITLE format
-    // ("describe > it"). Use a synthetic title to avoid colliding with
-    // seeded test_code titles (error-modal-tabs Source tab keys on
-    // "should login with valid credentials" → mochawesome seed).
-    const fullTitle = "e2e-cypress-adapter > simulated login";
+    // ("describe > it"). The seeded mochawesome run also has a
+    // "should login with valid credentials" title — using the same
+    // title here is fine because error-modal-tabs.spec.ts looks up
+    // by data shape (needsCode: true), not just title fragment.
+    const fullTitle = "Auth flow > should login with valid credentials";
     await postEvent(page, token, runId, {
       type: "test.started",
       test: fullTitle,
@@ -122,6 +135,8 @@ test.describe("live-reporter adapter — Cypress/Mocha event sequence", () => {
 
     await postEvent(page, token, runId, { type: "run.finished" });
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });
 
@@ -186,6 +201,8 @@ test.describe("live-reporter adapter — Playwright event sequence", () => {
 
     await postEvent(page, token, runId, { type: "run.finished" });
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });
 
@@ -243,6 +260,8 @@ test.describe("live-reporter adapter — WebdriverIO event sequence", () => {
 
     await postEvent(page, token, runId, { type: "run.finished" });
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });
 
@@ -290,6 +309,8 @@ test.describe("live-reporter adapter — Cucumber/Gherkin spec format", () => {
     });
     await postEvent(page, token, runId, { type: "run.finished" });
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });
 
@@ -319,5 +340,7 @@ test.describe("live-reporter — heartbeat / empty-events flush", () => {
     // listing for downstream tests.
     await postEvent(page, token, runId, { type: "run.finished" });
     await expect(page.locator(".live-badge")).toHaveCount(0, { timeout: 10_000 });
+
+    await deleteRun(page, token, runId);
   });
 });
