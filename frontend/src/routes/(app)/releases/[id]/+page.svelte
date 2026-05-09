@@ -335,7 +335,15 @@
 	onMount(load);
 
 	async function load() {
-		loading = true;
+		// Only show the full-page "Loading..." state on the cold start. On
+		// re-fetches (after toggling a checklist item, linking/unlinking a
+		// run, etc.) keep the existing content mounted so the user's UI
+		// state — open <details> sections, scroll position — survives.
+		// Otherwise the {#if loading} branch unmounts the {:else if release}
+		// content and every <details> snaps back to its initial closed
+		// state, which is jarring (the section the user just acted on
+		// "closes" on them).
+		if (!release) loading = true;
 		error = null;
 		try {
 			const [rRes, readyRes, sRes] = await Promise.all([

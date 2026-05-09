@@ -213,22 +213,15 @@ test.describe("/releases/<id> — linked-runs picker", () => {
     await firstRow.locator('input[type="checkbox"]').check();
     await picker.getByRole("button", { name: /Link selected/ }).click();
 
-    // The picker closes and the link-list shows ≥1 row. The route's
-    // load() reloads release after linkRuns, which can re-render the
-    // details element in its collapsed state — re-open it before
-    // touching the unlink button.
+    // The picker closes and the link-list shows ≥1 row. The <details>
+    // section MUST stay open across the link mutation — load() now
+    // skips the full-page loading state on re-fetches so the
+    // user's open sections + scroll position survive.
     await expect(picker).toBeHidden({ timeout: 5_000 });
-    if (!(await panel.locator(".link-list li").first().isVisible().catch(() => false))) {
-      await panel.locator("summary").click();
-    }
     await expect(panel.locator(".link-list li")).toHaveCount(1, { timeout: 5_000 });
 
-    // Unlink via the × button.
+    // Unlink via the × button. Same contract — section stays open.
     await panel.locator('.link-list li button.del[title="Unlink"]').click();
-    // Same re-render after unlinkRun → load() — re-open if collapsed.
-    if (!(await panel.locator(".empty").isVisible().catch(() => false))) {
-      await panel.locator("summary").click();
-    }
     await expect(panel.locator(".empty", { hasText: /No runs linked/ })).toBeVisible({
       timeout: 5_000,
     });
@@ -256,10 +249,8 @@ test.describe("/releases/<id> — linked-runs picker", () => {
     await picker.getByRole("button", { name: /Link selected/ }).click();
     await expect(panel.locator(".link-list li")).toHaveCount(1, { timeout: 5_000 });
 
-    // Re-open the details (collapsed after load()) and re-open picker.
-    if (!(await panel.locator(".section-body").isVisible().catch(() => false))) {
-      await panel.locator("summary").click();
-    }
+    // Re-open picker. The <details> section stays open across load()
+    // so we don't need to reopen the summary.
     await panel.locator(".btn-ghost", { hasText: /Link runs/ }).click();
     await expect(picker).toBeVisible();
     expect(await picker.locator(".picker-row.disabled").count()).toBeGreaterThanOrEqual(1);
@@ -460,6 +451,89 @@ test.describe("/releases/<id> — manual-test linking", () => {
     } else {
       expect(await items.count()).toBe(0);
     }
+
+    await deleteRelease(page, token, id);
+  });
+});
+
+test.describe("/releases/<id> — UX regression: <details> survives load()", () => {
+  test.use({ storageState: ADMIN_USER.storageStatePath });
+
+  // Earlier versions of the route called `load()` after every mutation
+  // with `loading = true` at the top, which unmounted the entire
+  // {:else if release} content and every <details> element snapped
+  // back to its initial closed state. That meant clicking ×Remove on
+  // a checklist item, or +Link / ×Unlink on a run, would visibly
+  // collapse the section the user just acted on.
+  //
+  // The fix lives in the route's load() — only flip loading=true on
+  // the cold start (when `release` is still null). Re-fetches keep
+  // the content mounted so the <details> open state is preserved
+  // by the DOM.
+
+  test("Linked automated runs stays open across a + Link / × Unlink mutation", async ({ page }) => {
+    const { id, version, token } = await createRelease(page, {
+      items: [{ label: "x", required: true }],
+    });
+    await gotoRelease(page, id, version);
+
+    const panel = page.locator(".linked-runs-panel details");
+    // Open the section.
+    await panel.locator("summary").click();
+    await expect(panel).toHaveAttribute("open", "");
+
+    // Drive the link → unlink mutation cycle.
+    await panel.locator(".btn-ghost", { hasText: /Link runs/ }).click();
+    const picker = panel.locator(".picker");
+    await expect(picker).toBeVisible();
+    await picker.locator(".picker-row:not(.disabled)").first()
+      .locator('input[type="checkbox"]').check();
+    await picker.getByRole("button", { name: /Link selected/ }).click();
+    await expect(picker).toBeHidden({ timeout: 5_000 });
+
+    // After the link mutation + load() refetch, the <details> MUST
+    // still be open. A regression in the loading-state guard would
+    // collapse it.
+    await expect(panel).toHaveAttribute("open", "");
+    await expect(panel.locator(".link-list li")).toHaveCount(1);
+
+    // Same for unlink.
+    await panel.locator('.link-list li button.del[title="Unlink"]').click();
+    await expect(panel.locator(".empty", { hasText: /No runs linked/ })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(panel).toHaveAttribute("open", "");
+
+    await deleteRelease(page, token, id);
+  });
+
+  test("Checklist Add / Remove cycle keeps Linked automated runs section open", async ({
+    page,
+  }) => {
+    const { id, version, token } = await createRelease(page, {
+      items: [{ label: "stays", required: true }],
+    });
+    await gotoRelease(page, id, version);
+
+    // Open the linked-runs section.
+    const runsPanel = page.locator(".linked-runs-panel details");
+    await runsPanel.locator("summary").click();
+    await expect(runsPanel).toHaveAttribute("open", "");
+
+    // Add a checklist item — triggers load() → previously would have
+    // collapsed runsPanel.
+    const checklistSection = page.locator("section", {
+      has: page.getByRole("heading", { name: "Checklist" }),
+    });
+    const newLabel = `e2e-keep-open-${Date.now().toString(36)}`;
+    await checklistSection.locator(".add-item").getByPlaceholder("Add checklist item…").fill(newLabel);
+    await checklistSection.locator(".add-item").getByRole("button", { name: /^Add$/ }).click();
+    await expect(checklistSection.locator("ul.items > li", { hasText: newLabel })).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // The unrelated section MUST still be open.
+    await expect(runsPanel).toHaveAttribute("open", "");
 
     await deleteRelease(page, token, id);
   });
