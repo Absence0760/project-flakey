@@ -67,6 +67,18 @@ router.get("/:runId/history", async (req, res) => {
       return;
     }
 
+    // Match the rest of /live/* — confirm the run is in the caller's
+    // org BEFORE running the query. RLS already strips foreign rows so
+    // the SELECT below is harmless without this check, but the response
+    // status code (200 [] vs 404) leaks run-id validity across tenants.
+    // Returning 404 here makes existence indistinguishable from absence,
+    // matching POST /events, /abort, /screenshot, /stream.
+    const owns = await tenantQuery(req.user!.orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+    if (!owns.rowCount) {
+      res.status(404).json({ error: "Run not found" });
+      return;
+    }
+
     const result = await tenantQuery(req.user!.orgId,
       `SELECT event_type, spec, test, status, duration_ms, error_message, stats, created_at
        FROM live_events WHERE run_id = $1 ORDER BY id ASC LIMIT 500`,
@@ -152,8 +164,7 @@ router.post("/:runId/events", async (req, res) => {
   // asserts). Within-run sequential processing matches the LiveClient's
   // own batch-then-await behaviour, so the perceived latency of a single
   // reporter is unchanged.
-  const previous = runEventChain.get(runId) ?? Promise.resolve();
-  const thisChain = previous.then(async () => {
+  enqueueOnRun(runId, async () => {
     for (const fullEvent of fullEvents) {
       // 1) DB writes first so the persisted state is consistent before any
       //    SSE listener triggers a refetch.
@@ -177,20 +188,32 @@ router.post("/:runId/events", async (req, res) => {
       // 3) Emit to SSE last, now that DB state is consistent.
       liveEvents.emit(runId, fullEvent);
     }
-  }).catch((err) => console.error("[live] post-response error:", err));
-
-  runEventChain.set(runId, thisChain);
-  // Free the map entry once this chain settles, but only if no later POST
-  // has chained off it (otherwise we'd orphan the chain and the next POST
-  // would skip the wait).
-  thisChain.finally(() => {
-    if (runEventChain.get(runId) === thisChain) runEventChain.delete(runId);
   });
 });
 
 // Per-run promise chain so events for the same run process strictly in
 // arrival order. Map entries are removed once their chain settles.
 const runEventChain = new Map<number, Promise<void>>();
+
+/**
+ * Append `work` to the per-run processing chain. Concurrent calls for the
+ * same run serialize; different runs run in parallel. Returns the promise
+ * for the appended work so callers (like abort) can await its completion.
+ */
+function enqueueOnRun(runId: number, work: () => Promise<void>): Promise<void> {
+  const previous = runEventChain.get(runId) ?? Promise.resolve();
+  const thisChain = previous
+    .then(work)
+    .catch((err) => console.error("[live] chain error:", err));
+  runEventChain.set(runId, thisChain);
+  // Free the map entry once this chain settles, but only if no later
+  // call has chained off it (otherwise we'd orphan the chain and the
+  // next caller would skip the wait).
+  thisChain.finally(() => {
+    if (runEventChain.get(runId) === thisChain) runEventChain.delete(runId);
+  });
+  return thisChain;
+}
 
 /** Persist a live event to the database (fire-and-forget). */
 function persistEvent(orgId: number, runId: number, event: LiveTestEvent): void {
@@ -632,23 +655,30 @@ router.get("/:runId/stream", async (req, res) => {
 
 /** Emit and persist a run.aborted event, removing the run from the active set. */
 async function abortRun(runId: number, orgId: number, reason: string): Promise<void> {
-  // Transition pending → skipped FIRST, so the DB is consistent before any
-  // SSE listener refetches /runs/:id. The frontend's run-detail page calls
-  // fetchRun() the moment it receives a `run.aborted` event; if we emit
-  // before the UPDATE lands, the page sees stale `pending` rows and (since
-  // it also stops the 3s poll on abort) never refreshes them again. The
-  // user-visible symptom is a test row stuck in the "in progress" dot
-  // forever after a kill.
-  await transitionPendingTestsAfterAbort(orgId, runId, reason);
+  // Run on the per-run chain so the abort observes any in-flight /events
+  // POSTs that haven't yet inserted their pending rows. Without this, an
+  // abort racing a not-yet-committed test.started would UPDATE zero rows;
+  // the pending INSERT then lands afterwards and is never transitioned,
+  // leaving a row stuck in 'pending' even though the run is aborted.
+  await enqueueOnRun(runId, async () => {
+    // Transition pending → skipped FIRST, so the DB is consistent before any
+    // SSE listener refetches /runs/:id. The frontend's run-detail page calls
+    // fetchRun() the moment it receives a `run.aborted` event; if we emit
+    // before the UPDATE lands, the page sees stale `pending` rows and (since
+    // it also stops the 3s poll on abort) never refreshes them again. The
+    // user-visible symptom is a test row stuck in the "in progress" dot
+    // forever after a kill.
+    await transitionPendingTestsAfterAbort(orgId, runId, reason);
 
-  const event: LiveTestEvent = {
-    type: "run.aborted",
-    runId,
-    timestamp: Date.now(),
-    error: reason,
-  };
-  liveEvents.emit(runId, event);
-  persistEvent(orgId, runId, event);
+    const event: LiveTestEvent = {
+      type: "run.aborted",
+      runId,
+      timestamp: Date.now(),
+      error: reason,
+    };
+    liveEvents.emit(runId, event);
+    await persistEventAwaited(orgId, runId, event);
+  });
 }
 
 async function transitionPendingTestsAfterAbort(
