@@ -72,6 +72,9 @@ importers:
       cypress:
         specifier: ^15.0.0
         version: 15.14.0
+      tsx:
+        specifier: ^4.20.6
+        version: 4.21.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -81,6 +84,9 @@ importers:
       '@types/node':
         specifier: ^25.6.2
         version: 25.6.2
+      tsx:
+        specifier: ^4.20.6
+        version: 4.21.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

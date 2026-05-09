@@ -24,7 +24,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "node --import tsx --test src/tests/**/*.test.ts"
   },
   "keywords": [
     "cypress",
@@ -47,6 +48,7 @@
     "@badeball/cypress-cucumber-preprocessor": "^24.0.0",
     "@types/node": "^25.6.2",
     "cypress": "^15.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^6.0.3"
   }
 }

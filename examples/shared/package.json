@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node app/serve.js"
+    "start": "node app/serve.js",
+    "test": "node --import tsx --test tests/**/*.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }
