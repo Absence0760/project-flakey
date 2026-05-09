@@ -93,19 +93,29 @@ test("examples/playwright references @flakeytesting/playwright-reporter in its c
   );
 });
 
-test("examples/playwright's package.json declares the workspace dep link to playwright-reporter", () => {
+test("examples/playwright also wires @flakeytesting/live-reporter/playwright for live progress streaming", () => {
+  const config = readExampleFile("playwright/playwright.config.ts");
+  assert.match(
+    config,
+    /@flakeytesting\/live-reporter\/playwright/,
+    "playwright config should list the live-reporter alongside the post-run reporter so the run shows up on the dashboard with a LIVE badge while it runs",
+  );
+});
+
+test("examples/playwright's package.json declares the workspace dep link to playwright-reporter + live-reporter", () => {
   const pkg = JSON.parse(readExampleFile("playwright/package.json")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
   const all = { ...pkg.dependencies, ...pkg.devDependencies };
   assert.ok(all["@flakeytesting/playwright-reporter"]);
-  // live-reporter is OPTIONAL for the Playwright example (Playwright's
-  // own reporter pipeline already covers the use case). Do not assert
-  // its presence here.
+  assert.ok(
+    all["@flakeytesting/live-reporter"],
+    "playwright example links live-reporter for the secondary live-streaming reporter",
+  );
 });
 
-test("examples/webdriverio's package.json wires the WDIO reporter as a workspace dep", () => {
+test("examples/webdriverio's package.json wires the WDIO reporter + live-reporter as workspace deps", () => {
   const pkg = JSON.parse(readExampleFile("webdriverio/package.json")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
@@ -114,6 +124,19 @@ test("examples/webdriverio's package.json wires the WDIO reporter as a workspace
   assert.ok(
     all["@flakeytesting/webdriverio-reporter"],
     "webdriverio example must link the wdio reporter package",
+  );
+  assert.ok(
+    all["@flakeytesting/live-reporter"],
+    "webdriverio example links live-reporter for live-streaming alongside the post-run upload",
+  );
+});
+
+test("examples/webdriverio also wires @flakeytesting/live-reporter/webdriverio in its wdio.conf.ts", () => {
+  const config = readExampleFile("webdriverio/wdio.conf.ts");
+  assert.match(
+    config,
+    /@flakeytesting\/live-reporter\/webdriverio/,
+    "wdio.conf.ts should import and register the WDIO live-reporter alongside the post-run reporter",
   );
 });
 

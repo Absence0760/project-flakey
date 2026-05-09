@@ -17,6 +17,7 @@
     "coverage:upload": "npx tsx ../../packages/flakey-cli/src/index.ts coverage --file coverage/coverage-summary.json --api-key $FLAKEY_API_KEY"
   },
   "devDependencies": {
+    "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
     "@flakeytesting/webdriverio-reporter": "link:../../packages/flakey-webdriverio-reporter",
     "@wdio/cli": "latest",
     "@wdio/local-runner": "latest",

@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@flakeytesting/live-reporter':
+        specifier: link:../../packages/flakey-live-reporter
+        version: link:../../packages/flakey-live-reporter
       '@flakeytesting/webdriverio-reporter':
         specifier: link:../../packages/flakey-webdriverio-reporter
         version: link:../../packages/flakey-webdriverio-reporter

@@ -47,5 +47,16 @@ export default defineConfig({
       suite: `playwright-example-${suite}`,
       release: process.env.FLAKEY_RELEASE ?? "",
     }],
+    // @flakeytesting/live-reporter/playwright streams test progress in real time
+    // so the run appears on the Better Testing dashboard with a pulsing LIVE
+    // badge while it executes. It calls /live/start before onBegin and sets
+    // CI_RUN_ID so the main playwright-reporter's end-of-run upload merges
+    // into the same run id rather than creating a duplicate. Inert without
+    // FLAKEY_API_URL + FLAKEY_API_KEY.
+    ["@flakeytesting/live-reporter/playwright", {
+      url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+      apiKey: process.env.FLAKEY_API_KEY ?? "",
+      suite: `playwright-example-${suite}`,
+    }],
   ],
 });

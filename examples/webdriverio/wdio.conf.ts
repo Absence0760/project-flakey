@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, existsSync, rmSync, mkdirSync } from "fs";
 import { join, basename } from "path";
 import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+import FlakeyLiveReporter from "@flakeytesting/live-reporter/webdriverio";
 
 // Load .env
 if (existsSync(".env")) {
@@ -53,6 +54,17 @@ export const config = {
       apiKey: process.env.FLAKEY_API_KEY ?? "",
       suite: `webdriverio-example-${suite}`,
       release: process.env.FLAKEY_RELEASE ?? "",
+    }],
+    // Streams test progress in real time so the run shows up on the
+    // dashboard with a pulsing LIVE badge while WDIO is still executing.
+    // Calls /live/start before onRunnerStart and sets CI_RUN_ID so the
+    // post-run @flakeytesting/webdriverio-reporter upload merges into
+    // the same placeholder run rather than creating a duplicate. Inert
+    // without FLAKEY_API_URL + FLAKEY_API_KEY.
+    [FlakeyLiveReporter, {
+      url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
+      apiKey: process.env.FLAKEY_API_KEY ?? "",
+      suite: `webdriverio-example-${suite}`,
     }],
   ],
   // Screenshot on failure

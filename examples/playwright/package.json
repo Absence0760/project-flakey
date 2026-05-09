@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.2",
+    "@flakeytesting/live-reporter": "link:../../packages/flakey-live-reporter",
     "@flakeytesting/playwright-reporter": "link:../../packages/flakey-playwright-reporter",
     "@playwright/test": "latest",
     "typescript": "latest"
