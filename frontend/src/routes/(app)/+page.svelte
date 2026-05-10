@@ -209,15 +209,18 @@
       if (res.ok) {
         const data = await res.json() as { runs: number[] };
         const newSet = new Set(data.runs);
-        // If a run just finished (was live, no longer active), refresh the run list
-        for (const id of liveRunIds) {
-          if (!newSet.has(id)) {
-            const data = await fetchRunsWithSummary(0, allRuns.length || 50);
-            allRuns = data.runs;
-            dbSummary = data.summary;
-            hasMore = data.hasMore;
-            break;
-          }
+        // Refetch the runs list on ANY change to the active set:
+        //   - additions: a fresh /live/start run that needs to show
+        //     up while it's still in progress (issue #41).
+        //   - removals: a run that just finished, so its terminal
+        //     stats land before the LIVE badge drops.
+        const changed = newSet.size !== liveRunIds.size
+          || [...newSet].some((id) => !liveRunIds.has(id));
+        if (changed) {
+          const refreshed = await fetchRunsWithSummary(0, allRuns.length || 50);
+          allRuns = refreshed.runs;
+          dbSummary = refreshed.summary;
+          hasMore = refreshed.hasMore;
         }
         liveRunIds = newSet;
       }

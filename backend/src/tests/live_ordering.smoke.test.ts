@@ -283,6 +283,46 @@ test("events POST with malformed body returns 4xx, not 5xx", async () => {
   assert.ok(res.status < 500, `malformed body should not 5xx; got ${res.status}`);
 });
 
+// ── Issue #41: live-started runs must be visible immediately ──────────
+
+test("GET /runs lists a live-started run immediately, before any events", async () => {
+  // The dashboard's runs list depends on /runs to surface in-progress
+  // live runs. POST /live/start inserts a row with reporter='live'
+  // and zero stats; that row must appear in /runs the moment the
+  // POST returns, before any test.started events arrive. Without
+  // this, users can't see long-running suites until the run finishes
+  // (issue #41).
+  const suite = `live-visibility-${Date.now()}`;
+  const runId = await startLiveRun(suite);
+
+  const list = await fetch(`${BASE}/runs?limit=100`, { headers: authHeaders() });
+  assert.ok(list.ok, `/runs should 2xx; got ${list.status}`);
+  const body = (await list.json()) as {
+    runs: Array<{ id: number; reporter: string; suite_name: string }>;
+  };
+  const row = body.runs.find((r) => r.id === runId);
+  assert.ok(row, "live-started run must appear in /runs before any events");
+  assert.equal(row!.reporter, "live", "reporter must be 'live' so the UI can flag the row as in-progress");
+  assert.equal(row!.suite_name, suite);
+});
+
+test("GET /live/active includes a live-started run immediately, before any events", async () => {
+  // Companion contract for issue #41: the dashboard cross-references
+  // /live/active to decide which rows in the list deserve the LIVE
+  // badge. A new run must appear here the moment /live/start returns
+  // so the badge renders on the first poll cycle after creation —
+  // not only after the first events POST.
+  const runId = await startLiveRun(`live-active-${Date.now()}`);
+
+  const active = await fetch(`${BASE}/live/active`, { headers: authHeaders() });
+  assert.ok(active.ok, `/live/active should 2xx; got ${active.status}`);
+  const body = (await active.json()) as { runs: number[] };
+  assert.ok(
+    body.runs.includes(runId),
+    "live-started run must appear in /live/active so the dashboard can render the LIVE badge",
+  );
+});
+
 // ── /live/start input validation ────────────────────────────────────────
 
 test("POST /live/start without suite returns 400", async () => {

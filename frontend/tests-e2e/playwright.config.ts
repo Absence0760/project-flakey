@@ -58,7 +58,7 @@ export default defineConfig({
   // precedence locally.
   webServer: {
     command: "pnpm run dev",
-    url: "http://localhost:7777",
+    url: "http://localhost:7778",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     // Vite logs are noisy; only surface them on failure.
@@ -71,7 +71,7 @@ export default defineConfig({
   },
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:7777",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:7778",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
