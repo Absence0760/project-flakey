@@ -64,6 +64,15 @@ async function resolveOrg(userId: number, email: string): Promise<{ orgId: numbe
 const LOGIN_LOCKOUT_THRESHOLD = Math.max(1, Number(process.env.LOGIN_LOCKOUT_THRESHOLD ?? 5));
 const LOGIN_LOCKOUT_MINUTES = Math.max(1, Number(process.env.LOGIN_LOCKOUT_MINUTES ?? 15));
 
+// Precomputed dummy bcrypt hash used to flatten the unknown-email
+// vs wrong-password response-time difference on /auth/login. The
+// real login branch runs bcrypt.compareSync (~200ms at cost 12);
+// without this, the unknown-email branch returns immediately and
+// the timing alone leaks account existence to an attacker.
+// crypto.randomBytes seeds the hash so it has no chance of
+// matching any real password.
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString("hex"), 12);
+
 // POST /auth/login
 router.post("/login", async (req, res) => {
   try {
@@ -81,10 +90,19 @@ router.post("/login", async (req, res) => {
     );
 
     const user = result.rows[0];
-    // Preserve the unknown-vs-wrong-password indistinguishability —
-    // an unknown email still returns the same 401 shape as a wrong
-    // password, never 404 or a lockout-shaped 429.
+    // Preserve the unknown-vs-wrong-password indistinguishability
+    // on TWO axes:
+    //   1. Response shape — both branches return 401 with the same
+    //      body, never 404 or a lockout-shaped 429.
+    //   2. Response TIMING — a wrong-password branch runs bcrypt
+    //      (~200ms at cost factor 12). If the unknown-email branch
+    //      returned immediately the response time alone would tell
+    //      an attacker which emails exist, regardless of the body.
+    //      Run a fixed-cost bcrypt comparison against a precomputed
+    //      dummy hash so both branches incur the same wall-clock
+    //      cost before the 401 is returned.
     if (!user) {
+      bcrypt.compareSync(password, DUMMY_BCRYPT_HASH);
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
