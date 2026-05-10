@@ -283,6 +283,70 @@ test("events POST with malformed body returns 4xx, not 5xx", async () => {
   assert.ok(res.status < 500, `malformed body should not 5xx; got ${res.status}`);
 });
 
+// ── /live/start idempotency on (suite, ci_run_id) ───────────────────────
+
+test("POST /live/start with the same suite+ci_run_id twice returns the same id (idempotent resume)", async () => {
+  // Real-world scenarios: reporter crash + restart, CI retry, fork-
+  // and-merge of parallel matrix workers that all call /live/start
+  // with the same CI run id. The route's INSERT ... ON CONFLICT
+  // against uniq_runs_ci_run (migration 035) must return the
+  // existing run row instead of either (a) silently creating a
+  // duplicate or (b) failing with a 500 on the unique-index
+  // violation. The response carries `resumed: true` so the caller
+  // can tell which branch they got.
+  const suite = `live-start-resume-${Date.now()}`;
+  const ciRunId = `ci-resume-${Date.now()}`;
+
+  const first = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ suite, ciRunId }),
+  });
+  assert.equal(first.status, 201);
+  const firstBody = (await first.json()) as { id: number; ci_run_id: string; resumed: boolean };
+  assert.equal(firstBody.resumed, false, "first /live/start with a fresh ci_run_id must NOT be flagged resumed");
+
+  const second = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ suite, ciRunId }),
+  });
+  assert.equal(second.status, 201, "repeated /live/start must succeed, not 500 on the unique-index violation");
+  const secondBody = (await second.json()) as { id: number; ci_run_id: string; resumed: boolean };
+  assert.equal(secondBody.id, firstBody.id, "repeated /live/start with the same (suite, ci_run_id) must return the original id");
+  assert.equal(secondBody.resumed, true, "second /live/start must flag resumed=true so the reporter knows it reattached");
+});
+
+test("POST /live/start WITHOUT a ci_run_id always allocates a fresh id (no accidental collapse)", async () => {
+  // The route generates a random `live-<hex>` ci_run_id when the
+  // caller omits one. Two omitted-ciRunId calls must NEVER collide
+  // onto the same row — the partial unique index is gated by
+  // `WHERE ci_run_id <> ''` and the generated ids are crypto-random
+  // hex so the practical collision odds are zero, but pin it so a
+  // future refactor (e.g. switching to a constant default) can't
+  // quietly conflate every live run into one.
+  const suite = `live-no-ci-${Date.now()}`;
+
+  const a = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ suite }),
+  });
+  assert.equal(a.status, 201);
+  const aBody = (await a.json()) as { id: number; ci_run_id: string };
+
+  const b = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ suite }),
+  });
+  assert.equal(b.status, 201);
+  const bBody = (await b.json()) as { id: number; ci_run_id: string };
+
+  assert.notEqual(aBody.id, bBody.id, "two no-ciRunId /live/start calls must allocate distinct ids");
+  assert.notEqual(aBody.ci_run_id, bBody.ci_run_id, "the auto-generated ci_run_id values must differ");
+});
+
 // ── Issue #41: live-started runs must be visible immediately ──────────
 
 test("GET /runs lists a live-started run immediately, before any events", async () => {

@@ -187,6 +187,40 @@ test("POST /live/:id/screenshot from org B 404s on org A's run (no artifact inje
 
 // ── /live/start owns its run; never collides across tenants ─────────────
 
+test("POST /live/start with the same ci_run_id+suite across orgs returns distinct ids (idempotency is org-scoped)", async () => {
+  // The dedup index on runs is (org_id, suite_name, ci_run_id) — so
+  // the same (suite, ci_run_id) pair belongs to a different bucket
+  // per org. A regression that dropped org_id from the index (or
+  // made /live/start's ON CONFLICT clause match without org_id)
+  // would let one tenant's ci_run_id collide onto another's runs
+  // row, breaking the tenant isolation invariant.
+  const sharedSuite = `cross-org-shared-suite-${Date.now()}`;
+  const sharedCi = `cross-org-shared-ci-${Date.now()}`;
+
+  const a = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: jsonHeaders(tokenA),
+    body: JSON.stringify({ suite: sharedSuite, ciRunId: sharedCi }),
+  });
+  assert.equal(a.status, 201);
+  const aBody = (await a.json()) as { id: number; resumed: boolean };
+  assert.equal(aBody.resumed, false, "org A's fresh /live/start should not be flagged resumed");
+
+  const b = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: jsonHeaders(tokenB),
+    body: JSON.stringify({ suite: sharedSuite, ciRunId: sharedCi }),
+  });
+  assert.equal(b.status, 201, "org B starting with the same suite+ci_run_id must succeed against its own org bucket");
+  const bBody = (await b.json()) as { id: number; resumed: boolean };
+  assert.notEqual(
+    bBody.id,
+    aBody.id,
+    "same (suite, ci_run_id) across two orgs must allocate distinct runs — the index is per-org",
+  );
+  assert.equal(bBody.resumed, false, "org B's start must NOT be flagged resumed — org A's row is invisible to it");
+});
+
 test("POST /live/start from org B allocates a fresh id, never colliding with org A's run", async () => {
   // /live/start is org-scoped: it always INSERTs a new runs row
   // owned by the caller's org. The id is sequence-allocated so a

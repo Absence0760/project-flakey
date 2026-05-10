@@ -19,8 +19,20 @@ router.get("/active", (req, res) => {
 });
 
 /**
- * POST /live/start — create a placeholder run for live tracking, returns the run ID.
+ * POST /live/start — create (or resume) a placeholder run for live tracking, returns the run ID.
  * Body: { suite, branch?, commitSha?, ciRunId? }
+ *
+ * Idempotent on (org_id, suite_name, ci_run_id) via the partial unique
+ * index uniq_runs_ci_run (migration 035). A reporter that restarts
+ * after a crash, or a CI job that retries with the same CI run id,
+ * re-enters the same run row instead of either creating a duplicate
+ * (no constraint) or 500'ing on a unique violation (with constraint
+ * but no upsert). When ciRunId is omitted the route generates a
+ * random one — guaranteed unique, so the upsert always inserts.
+ *
+ * Response includes `resumed: true` when the row already existed so
+ * a reporter knows whether it just allocated a fresh run or attached
+ * to an in-flight one.
  */
 router.post("/start", async (req, res) => {
   try {
@@ -35,21 +47,32 @@ router.post("/start", async (req, res) => {
     const effectiveCiRunId = ciRunId || `live-${crypto.randomBytes(8).toString("hex")}`;
     const env = typeof environment === "string" ? environment.trim() : "";
 
+    // ON CONFLICT against the partial unique index lets a repeat
+    // /live/start with the same (org, suite, ci_run_id) return the
+    // existing row's id instead of failing. The DO UPDATE is a
+    // deliberate no-op set so RETURNING fires on the conflict path.
+    // xmax = 0 distinguishes inserted-now from already-existed.
     const result = await tenantQuery(orgId,
       `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
        VALUES ($1, $2, $3, $4, 'live', NOW(), NOW(), 0, 0, 0, 0, 0, 0, $5, $6)
-       RETURNING id`,
+       ON CONFLICT (org_id, suite_name, ci_run_id) WHERE ci_run_id <> ''
+       DO UPDATE SET reporter = runs.reporter
+       RETURNING id, (xmax = 0) AS inserted`,
       [suite, branch ?? "", commitSha ?? "", effectiveCiRunId, orgId, env]
     );
 
     const runId = result.rows[0].id;
+    const resumed = !result.rows[0].inserted;
+    // registerRun is idempotent (it just overwrites runMeta), so a
+    // resumed run gets its stale-timer reset, which is what we want
+    // if the reporter is actively attaching again.
     liveEvents.registerRun(runId, orgId);
     liveEvents.emit(runId, { type: "run.started", runId, timestamp: Date.now() });
 
     // Persist the start event
     persistEvent(orgId, runId, { type: "run.started", runId, timestamp: Date.now() });
 
-    res.status(201).json({ id: runId, ci_run_id: effectiveCiRunId });
+    res.status(201).json({ id: runId, ci_run_id: effectiveCiRunId, resumed });
   } catch (err) {
     console.error("POST /live/start error:", err);
     res.status(500).json({ error: "Internal server error" });
