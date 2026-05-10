@@ -1,5 +1,5 @@
 /**
- * INTENTIONALLY FLAKY TESTS — for demonstrating Better Testing flaky detection.
+ * INTENTIONALLY FLAKY TESTS — for demonstrating Flakey flaky detection.
  *
  * These tests randomly fail ~30% of the time by design. They are NOT included
  * in test:smoke / test:sanity / test:regression / test:all. Run them explicitly

@@ -1,6 +1,6 @@
 # Migrations
 
-Better Testing uses plain SQL migration files in `backend/migrations/`. They are numbered sequentially (`001_initial.sql`, `002_test_artifacts.sql`, etc.) and run in order.
+Flakey uses plain SQL migration files in `backend/migrations/`. They are numbered sequentially (`001_initial.sql`, `002_test_artifacts.sql`, etc.) and run in order.
 
 ## When migrations run automatically
 

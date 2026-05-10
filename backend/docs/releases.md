@@ -1,7 +1,7 @@
 # Releases
 
 A **release** is a gate between "we built something" and "we shipped
-something". Better Testing tracks two side-by-side concerns per release:
+something". Flakey tracks two side-by-side concerns per release:
 
 1. **Readiness** — a checklist + auto-evaluated rules that decide
    whether sign-off is allowed.

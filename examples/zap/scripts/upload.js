@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Uploads converted ZAP results to Better Testing.
+ * Uploads converted ZAP results to Flakey.
  *
  * Two-step flow:
  *   1.  JUnit upload via the CLI — produces a run that lives in the normal

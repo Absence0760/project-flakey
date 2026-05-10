@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Uploads coverage/coverage-summary.json to the Better Testing backend.
+ * Uploads coverage/coverage-summary.json to the Flakey backend.
  *
  * Usage: node scripts/upload-coverage.js --run-id <id>
  *

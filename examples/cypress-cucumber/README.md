@@ -1,4 +1,4 @@
-# Cypress + Cucumber Example — Better Testing
+# Cypress + Cucumber Example — Flakey
 
 This example wires the [`@flakeytesting/cypress-reporter`](../../packages/flakey-cypress-reporter),
 [`@flakeytesting/cypress-snapshots`](../../packages/flakey-cypress-snapshots), and
@@ -36,7 +36,7 @@ dashboard can show which step each snapshot corresponds to.
 ### Flaky test detection
 Run `pnpm test:flaky` repeatedly.  `cypress/e2e/flaky/intentionally-flaky.feature` has three
 scenarios that each randomly fail ~30 % of the time via a `Math.random()` guard in the step
-definition.  Once enough run history accumulates, Better Testing surfaces them as flaky.
+definition.  Once enough run history accumulates, Flakey surfaces them as flaky.
 
 ### Accessibility testing
 `pnpm test:a11y` uses [`cypress-axe`](https://github.com/component-driven/cypress-axe) with a
@@ -58,7 +58,7 @@ to `false` once the app's violations are resolved.
 Scenario: Add a todo (CCF-123 — user must be able to create tasks)
 ```
 
-Cucumber tags like `@req-CCF-123` are included in the test result uploaded to Better Testing,
+Cucumber tags like `@req-CCF-123` are included in the test result uploaded to Flakey,
 linking the scenario to the requirement in your issue tracker.  Use any ID format that matches
 your convention (Jira, Linear, GitHub Issues, etc.).
 
@@ -76,7 +76,7 @@ Label the target environment (e.g. `qa`, `stage`) on the run.  The reporter reso
 works out of the box.
 
 ### AI classification
-Every uploaded run is eligible for AI-based failure classification on the Better Testing backend.
+Every uploaded run is eligible for AI-based failure classification on the Flakey backend.
 No extra Cypress config is required — classification runs server-side on the uploaded result.
 
 ### PR status / comments

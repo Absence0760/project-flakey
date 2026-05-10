@@ -1,6 +1,6 @@
-# Better Testing — WebdriverIO example
+# Flakey — WebdriverIO example
 
-WebdriverIO 8/9 integration example for the Better Testing platform (`@flakeytesting/webdriverio-reporter`).
+WebdriverIO 8/9 integration example for the Flakey platform (`@flakeytesting/webdriverio-reporter`).
 
 Runs against the shared todo app at `http://localhost:4444` (see `examples/shared/app`).
 
@@ -22,7 +22,7 @@ Runs against the shared todo app at `http://localhost:4444` (see `examples/share
 | `pnpm test:visual` | Visual regression compare against baselines |
 | `pnpm test:visual:update` | Regenerate visual baselines |
 | `pnpm test:flaky` | Intentionally flaky tests (for flaky-detection demo) |
-| `pnpm coverage:upload` | Upload `coverage/coverage-summary.json` to Better Testing |
+| `pnpm coverage:upload` | Upload `coverage/coverage-summary.json` to Flakey |
 
 ## Features exercised
 
@@ -49,7 +49,7 @@ npx tsx ../../packages/flakey-cli/src/index.ts visual --run-id <id> --file repor
 
 ### Flaky detection (`tests/flaky/`)
 Three tests that fail randomly ~30% of the time. Run repeatedly to generate the
-flakiness signal that Better Testing uses for detection and tracking. These specs are
+flakiness signal that Flakey uses for detection and tracking. These specs are
 isolated in `tests/flaky/` and are **not** included in `smoke`, `sanity`, or `regression`
 spec globs.
 

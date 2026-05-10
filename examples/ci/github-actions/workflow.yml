@@ -1,21 +1,21 @@
-# Better Testing — GitHub Actions workflow template
+# Flakey — GitHub Actions workflow template
 #
 # Copy this file to .github/workflows/test.yml in your own repo and adjust:
 #   - The test command (cypress, playwright, jest, etc.)
-#   - The suite name (used to group runs in the Better Testing dashboard)
+#   - The suite name (used to group runs in the Flakey dashboard)
 #   - The FLAKEY_API_URL if your backend is not on localhost
 #
 # Required GitHub secrets (Settings > Secrets and variables > Actions):
-#   FLAKEY_API_KEY      — Better Testing API key (Profile > API Keys)
-#   FLAKEY_API_URL      — Better Testing backend URL (e.g. https://bt.yourcompany.com)
+#   FLAKEY_API_KEY      — Flakey API key (Profile > API Keys)
+#   FLAKEY_API_URL      — Flakey backend URL (e.g. https://bt.yourcompany.com)
 #   GITHUB_TOKEN        — Already provided by GitHub; used for PR status and comments.
 #                         The backend's GitHub integration uses its own stored token
-#                         (configured in Better Testing Settings > Integrations), not
+#                         (configured in Flakey Settings > Integrations), not
 #                         this one. GITHUB_TOKEN here is only needed if you call the
 #                         GitHub API directly in this workflow.
 #
 # How PR integration works:
-#   After flakey-upload completes, the Better Testing backend:
+#   After flakey-upload completes, the Flakey backend:
 #     1. Looks up an open PR for the current commit SHA or branch name via
 #        GET /repos/{owner}/{repo}/commits/{sha}/pulls (GitHub API).
 #     2. Posts or updates a PR comment (via POST/PATCH /repos/{owner}/{repo}/issues/{pr}/comments)
@@ -23,7 +23,7 @@
 #     3. Posts a commit status (POST /repos/{owner}/{repo}/statuses/{sha}) with
 #        state=success/failure and a link to the run.
 #   This is all automatic once the GitHub integration is configured in
-#   Better Testing Settings > Integrations > GitHub.
+#   Flakey Settings > Integrations > GitHub.
 
 name: Tests
 
@@ -85,7 +85,7 @@ jobs:
       #   run: pnpm test:smoke
       #   working-directory: examples/jest
       #
-      # - name: Upload Jest results to Better Testing
+      # - name: Upload Jest results to Flakey
       #   working-directory: examples/jest
       #   run: |
       #     npx tsx ../../packages/flakey-cli/src/index.ts \

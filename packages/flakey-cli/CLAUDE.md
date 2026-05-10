@@ -1,6 +1,6 @@
 # @flakeytesting/cli
 
-CLI for uploading test results and quality metrics to a Flakey/Better Testing backend.
+CLI for uploading test results and quality metrics to a Flakey backend.
 
 ## Commands
 

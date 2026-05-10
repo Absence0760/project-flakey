@@ -1,7 +1,7 @@
 /**
  * Intentionally flaky tests (~30% failure rate).
  *
- * Used to exercise the Better Testing flaky-detection feature.
+ * Used to exercise the Flakey flaky-detection feature.
  * NOT included in smoke/sanity/regression spec patterns — use test:flaky.
  */
 

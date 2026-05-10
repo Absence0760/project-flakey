@@ -1,4 +1,4 @@
-# Jest example — Better Testing
+# Jest example — Flakey
 
 Unit tests for the pure utility functions that back the sample app (`src/todo.ts`, `src/auth.ts`, `src/utils.ts`). Jest is a natural fit for testing library code — no browser, no server, fast feedback.
 
@@ -26,7 +26,7 @@ examples/jest/
     flaky/
       timing.test.ts      — intentionally flaky (~30% failure rate); excluded from default run
   scripts/
-    upload.js           — upload JUnit results to Better Testing
+    upload.js           — upload JUnit results to Flakey
     upload-coverage.js  — upload Istanbul coverage summary
   jest.config.js
   package.json
@@ -37,8 +37,8 @@ examples/jest/
 
 ### Prerequisites
 
-- Better Testing backend running on `http://localhost:3000`
-- An API key from Better Testing (Profile > API Keys)
+- Flakey backend running on `http://localhost:3000`
+- An API key from Flakey (Profile > API Keys)
 
 ### Install
 
@@ -62,7 +62,7 @@ This runs `__tests__/smoke/**` with coverage, writes:
 ### Upload results
 
 ```bash
-# Upload JUnit results (creates a run in Better Testing, prints the run ID)
+# Upload JUnit results (creates a run in Flakey, prints the run ID)
 FLAKEY_API_KEY=fk_your_key node scripts/upload.js smoke
 
 # Upload coverage for that run
@@ -83,13 +83,13 @@ RUN_ID=43 FLAKEY_API_KEY=fk_your_key node scripts/upload-coverage.js --coverage-
 pnpm test:flaky
 ```
 
-The flaky suite is excluded from `test:smoke` and `test:regression` via `testPathIgnorePatterns` in `jest.config.ts`. Run it separately to see the ~30% failure rate appear as a flaky pattern in the Better Testing dashboard after a few uploads.
+The flaky suite is excluded from `test:smoke` and `test:regression` via `testPathIgnorePatterns` in `jest.config.ts`. Run it separately to see the ~30% failure rate appear as a flaky pattern in the Flakey dashboard after a few uploads.
 
 ## How the upload path works
 
 ### Test results (JUnit XML)
 
-Jest does not have a built-in Better Testing reporter. Instead:
+Jest does not have a built-in Flakey reporter. Instead:
 
 1. `jest-junit` writes a JUnit XML file to `reports/junit.xml` after each run (configured in `jest.config.ts`).
 2. `flakey-upload` reads that XML and POSTs it to `/runs` (or `/runs/upload` when artifacts are present):
@@ -121,7 +121,7 @@ Coverage is attached to a specific run ID, so you must upload results first.
 | Variable | Default | Purpose |
 |---|---|---|
 | `FLAKEY_API_KEY` | — | Required. API key for authentication. |
-| `FLAKEY_API_URL` | `http://localhost:3000` | Better Testing backend URL. |
+| `FLAKEY_API_URL` | `http://localhost:3000` | Flakey backend URL. |
 | `RUN_ID` | — | Run ID for coverage upload (from results upload output). |
 
 Create a `.env` file in `examples/jest/` for local development:

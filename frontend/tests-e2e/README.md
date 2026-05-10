@@ -1,6 +1,6 @@
 # tests-e2e/
 
-Playwright end-to-end specs for the Better Testing dashboard. These cover surfaces that the frontend's vitest unit tests deliberately don't (Svelte 5 components, route loaders, the auth singleton, anything user-visible).
+Playwright end-to-end specs for the Flakey dashboard. These cover surfaces that the frontend's vitest unit tests deliberately don't (Svelte 5 components, route loaders, the auth singleton, anything user-visible).
 
 ## Layout
 

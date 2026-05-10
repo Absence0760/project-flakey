@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Upload Jest JUnit results to Better Testing via the CLI.
+ * Upload Jest JUnit results to Flakey via the CLI.
  *
  * Usage: node scripts/upload.js <suite-suffix>
  *   suite-suffix: "smoke" | "regression" (appended to "jest-example-")

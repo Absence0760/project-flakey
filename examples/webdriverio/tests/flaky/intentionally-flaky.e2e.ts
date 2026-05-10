@@ -1,7 +1,7 @@
 /**
  * Intentionally flaky tests.
  *
- * These tests fail randomly ~30% of the time to exercise the Better Testing
+ * These tests fail randomly ~30% of the time to exercise the Flakey
  * flaky-detection feature.  They must never be included in smoke/sanity/regression
  * spec patterns — they have their own `test:flaky` script.
  *

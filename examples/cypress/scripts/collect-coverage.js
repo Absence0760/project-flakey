@@ -17,7 +17,7 @@
  *      each spec and write coverage/coverage-final.json.
  *   3. Run `nyc report --reporter=json-summary` to produce coverage-summary.json.
  *   4. Then run `pnpm coverage:upload` (set FLAKEY_RUN_ID to the run you want
- *      to attach coverage to) to ship it to Better Testing.
+ *      to attach coverage to) to ship it to Flakey.
  */
 
 "use strict";

@@ -1,6 +1,6 @@
-# MCP integration — Better Testing
+# MCP integration — Flakey
 
-`@flakeytesting/mcp-server` exposes Better Testing data as an MCP (Model Context Protocol) server. Once wired up, AI coding agents (Claude Code, Claude Desktop, Cursor) can query your test runs, flaky tests, errors, and coverage data directly from chat — no copy-pasting from the dashboard.
+`@flakeytesting/mcp-server` exposes Flakey data as an MCP (Model Context Protocol) server. Once wired up, AI coding agents (Claude Code, Claude Desktop, Cursor) can query your test runs, flaky tests, errors, and coverage data directly from chat — no copy-pasting from the dashboard.
 
 ## Quick start
 
@@ -14,8 +14,8 @@ Then configure your MCP client (see sections below). You need:
 
 | Variable | Description |
 |---|---|
-| `FLAKEY_API_URL` | Better Testing backend URL (e.g. `https://bt.yourcompany.com`) |
-| `FLAKEY_API_KEY` | API key from Better Testing (Profile > API Keys) |
+| `FLAKEY_API_URL` | Flakey backend URL (e.g. `https://bt.yourcompany.com`) |
+| `FLAKEY_API_KEY` | API key from Flakey (Profile > API Keys) |
 
 ---
 

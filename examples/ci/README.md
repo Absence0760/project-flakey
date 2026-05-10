@@ -1,9 +1,9 @@
-# CI integration examples — Better Testing
+# CI integration examples — Flakey
 
 Copy-paste workflow templates for the three major CI providers. Each template shows:
 
 1. Running a test suite (Cypress or Jest)
-2. Uploading results to Better Testing via `flakey-upload`
+2. Uploading results to Flakey via `flakey-upload`
 3. Automatic PR/MR status and comment posting
 
 The templates are in the subdirectory for each provider. Copy the relevant file into your repo and fill in the marked variables.
@@ -26,14 +26,14 @@ All three providers need the same two variables:
 
 | Variable | Where to set it | Description |
 |---|---|---|
-| `FLAKEY_API_KEY` | CI secret / repo variable | Better Testing API key (Profile > API Keys) |
+| `FLAKEY_API_KEY` | CI secret / repo variable | Flakey API key (Profile > API Keys) |
 | `FLAKEY_API_URL` | CI secret / repo variable | Backend URL, e.g. `https://bt.yourcompany.com` |
 
 CI metadata is passed as standard environment variables. The templates show the provider-specific names for branch, commit SHA, and run/build ID.
 
 ## How PR/MR integration works
 
-After `flakey-upload` completes, the Better Testing backend automatically:
+After `flakey-upload` completes, the Flakey backend automatically:
 
 1. Finds the PR/MR for the current commit (by SHA then by branch name)
 2. Posts or updates a comment summarising: pass rate, failure count, flaky tests detected, coverage delta, and a link to the full run
@@ -50,7 +50,7 @@ This is driven by the git-provider adapters in `backend/src/git-providers/`. The
 - Posts commit status: `POST /repos/{owner}/{repo}/statuses/{sha}`
   - States: `success`, `failure`, `pending` (GitHub's native states)
 
-Configure in Better Testing: **Settings > Integrations > GitHub**. Required token scope: `repo` (for private repos) or `public_repo` (for public repos), plus `statuses:write`.
+Configure in Flakey: **Settings > Integrations > GitHub**. Required token scope: `repo` (for private repos) or `public_repo` (for public repos), plus `statuses:write`.
 
 ### GitLab
 
@@ -59,9 +59,9 @@ Configure in Better Testing: **Settings > Integrations > GitHub**. Required toke
 - Posts note: `POST /projects/{id}/merge_requests/{iid}/notes`
 - Updates note: `PUT /projects/{id}/merge_requests/{iid}/notes/{note_id}`
 - Posts commit status: `POST /projects/{id}/statuses/{sha}`
-  - States: `success`, `failed`, `pending` (mapped from Better Testing's states)
+  - States: `success`, `failed`, `pending` (mapped from Flakey's states)
 
-Configure in Better Testing: **Settings > Integrations > GitLab**. Required token scope: `api`.
+Configure in Flakey: **Settings > Integrations > GitLab**. Required token scope: `api`.
 
 ### Bitbucket
 
@@ -72,7 +72,7 @@ Configure in Better Testing: **Settings > Integrations > GitLab**. Required toke
 - Posts build status: `POST /repositories/{workspace}/{repo}/commit/{sha}/statuses/build`
   - States: `SUCCESSFUL`, `FAILED`, `INPROGRESS` (Bitbucket's native states)
 
-Configure in Better Testing: **Settings > Integrations > Bitbucket**. Required OAuth consumer scopes: `pullrequest:write`, `repository`.
+Configure in Flakey: **Settings > Integrations > Bitbucket**. Required OAuth consumer scopes: `pullrequest:write`, `repository`.
 
 ## How upload works
 
@@ -108,7 +108,7 @@ The CLI reads `FLAKEY_API_URL` from the environment (default: `http://localhost:
 ## What the PR comment looks like
 
 ```
-## Better Testing results — jest-example-smoke
+## Flakey results — jest-example-smoke
 
 | | Count |
 |---|---|

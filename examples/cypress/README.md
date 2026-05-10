@@ -1,4 +1,4 @@
-# Cypress Example — Better Testing
+# Cypress Example — Flakey
 
 This example wires the [`@flakeytesting/cypress-reporter`](../../packages/flakey-cypress-reporter),
 [`@flakeytesting/cypress-snapshots`](../../packages/flakey-cypress-snapshots), and
@@ -35,7 +35,7 @@ HTML replay for every failing test.
 
 ### Flaky test detection
 Run `pnpm test:flaky` repeatedly.  `cypress/e2e/flaky/intentionally-flaky.cy.ts` contains three
-tests that randomly fail ~30 % of the time.  Once enough run history accumulates, Better Testing
+tests that randomly fail ~30 % of the time.  Once enough run history accumulates, Flakey
 surfaces them as flaky in the Flaky Tests view.
 
 ### Accessibility testing
@@ -55,7 +55,7 @@ FLAKEY_RUN_ID=<run-id> pnpm coverage:upload
 
 The `coverage:upload` script generates the summary then calls
 `flakey-upload coverage --run-id $FLAKEY_RUN_ID --file coverage/coverage-summary.json` which
-POSTs to `POST /coverage` on the Better Testing backend.
+POSTs to `POST /coverage` on the Flakey backend.
 
 ### Live run streaming
 `@flakeytesting/live-reporter` streams per-test events to the backend in real time.  Results
@@ -92,7 +92,7 @@ example's `cypress.config.ts` already wires `release: process.env.FLAKEY_RELEASE
 release in the dashboard.
 
 ### AI classification
-Every uploaded run is eligible for AI-based failure classification on the Better Testing backend.
+Every uploaded run is eligible for AI-based failure classification on the Flakey backend.
 No extra Cypress config is required — classification runs server-side on the uploaded result.
 
 ### PR status / comments

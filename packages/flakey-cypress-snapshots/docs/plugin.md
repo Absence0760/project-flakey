@@ -1,6 +1,6 @@
 # Cypress DOM Snapshot Plugin
 
-A Cypress plugin that captures DOM snapshots at each command step during test execution, enabling step-by-step DOM replay in the Better Testing UI.
+A Cypress plugin that captures DOM snapshots at each command step during test execution, enabling step-by-step DOM replay in the Flakey UI.
 
 ## Overview
 

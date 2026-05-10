@@ -1,4 +1,4 @@
-# Better Testing — Playwright example
+# Flakey — Playwright example
 
 Integration example wiring `@flakeytesting/playwright-reporter` into a Playwright project.
 The example app is a simple todo/login SPA served locally from `examples/shared/app/` on port 4444.
@@ -22,7 +22,7 @@ pnpm test:smoke
 ### Core test reporting
 
 The reporter (`@flakeytesting/playwright-reporter`) uploads results, screenshots, and
-videos to the Better Testing backend after each suite run. Set `FLAKEY_API_URL` and
+videos to the Flakey backend after each suite run. Set `FLAKEY_API_URL` and
 `FLAKEY_API_KEY` before running.
 
 ### DOM snapshot replay
@@ -56,7 +56,7 @@ pnpm test:visual:update          # regenerate baselines after intentional UI cha
 ### Flaky detection (`test:flaky`)
 
 `tests/flaky/intentionally-flaky.spec.ts` contains 3 tests that randomly fail ~30% of
-the time. Running this suite repeatedly demonstrates how the Better Testing dashboard
+the time. Running this suite repeatedly demonstrates how the Flakey dashboard
 surfaces flaky patterns. This folder is excluded from all other suites.
 
 ```sh

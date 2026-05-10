@@ -1,6 +1,6 @@
 # @flakeytesting/mcp-server
 
-MCP (Model Context Protocol) server that lets AI coding agents query test results from a Flakey/Better Testing backend.
+MCP (Model Context Protocol) server that lets AI coding agents query test results from a Flakey backend.
 
 ## Commands
 

@@ -3,7 +3,7 @@ Feature: Intentionally flaky scenarios
   # INTENTIONALLY FLAKY SCENARIOS
   #
   # These scenarios randomly fail ~30 % of the time to exercise the
-  # flaky-detection feature of Better Testing.  Run them with:
+  # flaky-detection feature of Flakey.  Run them with:
   #
   #   pnpm test:flaky
   #

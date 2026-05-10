@@ -1,22 +1,22 @@
-# Better Testing — GitLab CI template
+# Flakey — GitLab CI template
 #
 # Copy this to your repository root as .gitlab-ci.yml and adjust:
 #   - The test command and working directory
 #   - SUITE_NAME to match your project
 #
 # Required CI/CD variables (Settings > CI/CD > Variables):
-#   FLAKEY_API_KEY      — Better Testing API key (Profile > API Keys)
-#   FLAKEY_API_URL      — Better Testing backend URL (e.g. https://bt.yourcompany.com)
+#   FLAKEY_API_KEY      — Flakey API key (Profile > API Keys)
+#   FLAKEY_API_URL      — Flakey backend URL (e.g. https://bt.yourcompany.com)
 #
 # How MR integration works:
-#   After flakey-upload completes, the Better Testing backend:
+#   After flakey-upload completes, the Flakey backend:
 #     1. Looks up an open MR for the current commit SHA or source branch via
 #        GET /projects/{id}/repository/commits/{sha}/merge_requests (GitLab API).
 #     2. Posts or updates an MR note (POST/PUT /projects/{id}/merge_requests/{iid}/notes)
 #        with pass rate, flaky tests, and a link to the run.
 #     3. Posts a commit status (POST /projects/{id}/statuses/{sha}) with
 #        state=success/failed and a link to the run.
-#   Configure the GitLab integration in Better Testing Settings > Integrations > GitLab.
+#   Configure the GitLab integration in Flakey Settings > Integrations > GitLab.
 #   Required token scope: api (to post notes and statuses).
 
 stages:

@@ -1,7 +1,7 @@
-# Better Testing — OWASP ZAP example
+# Flakey — OWASP ZAP example
 
 Runs an OWASP ZAP API scan against a target URL and uploads findings to the
-Better Testing dashboard as a JUnit test run.
+Flakey dashboard as a JUnit test run.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ FLAKEY_RELEASE=v1.2.0 TARGET_URL=https://api.example.com/openapi.json pnpm test:
 | Native findings endpoint | `scripts/upload.js` then POSTs the raw `zap-report.json` to `/security`, which normalizes alerts into severity buckets (high / medium / low / info) and stores the raw payload for forensics |
 | Findings retention | The backend stores both the JUnit payload (per-alert pass/fail) and the raw ZAP report on `security_scans.raw_report` |
 | Release linking | Set `FLAKEY_RELEASE=<tag>` to associate the scan with a release; stored on the run record |
-| Flaky/intermittent alert tracking | Re-running the scan periodically lets Better Testing surface alerts that appear and disappear across runs |
+| Flaky/intermittent alert tracking | Re-running the scan periodically lets Flakey surface alerts that appear and disappear across runs |
 
 ## rules.tsv
 
@@ -75,7 +75,7 @@ Add rows for any other rules that are noise for your target.
 
 ## Demo: scanning a deliberately vulnerable target
 
-To see Better Testing surface real findings, point the scan at a publicly
+To see Flakey surface real findings, point the scan at a publicly
 available vulnerable application.  **Do not enable this in CI** — it is
 for local demo purposes only.
 
@@ -93,7 +93,7 @@ Revert to `$TARGET_URL` before committing.
 
 | Variable | Required | Description |
 |---|---|---|
-| `FLAKEY_API_KEY` | yes | API key for the Better Testing backend |
+| `FLAKEY_API_KEY` | yes | API key for the Flakey backend |
 | `TARGET_URL` | yes | OpenAPI spec URL to scan |
 | `FLAKEY_API_URL` | no | Backend URL (default: `http://localhost:3000`) |
 | `FLAKEY_RELEASE` | no | Release tag to link the run to |

@@ -1,6 +1,6 @@
-# Better Testing — Selenium example
+# Flakey — Selenium example
 
-Selenium WebDriver 4 + Mocha + Mochawesome integration example for the Better Testing
+Selenium WebDriver 4 + Mocha + Mochawesome integration example for the Flakey
 platform. Results are uploaded via the `@flakeytesting/cli` (`flakey-upload` binary).
 
 Runs against the shared todo app at `http://localhost:4444` (see `examples/shared/app`).
@@ -16,14 +16,14 @@ Runs against the shared todo app at `http://localhost:4444` (see `examples/share
 
 | Script | Description |
 |---|---|
-| `pnpm test:smoke` | Smoke suite + upload to Better Testing |
+| `pnpm test:smoke` | Smoke suite + upload to Flakey |
 | `pnpm test:sanity` | Sanity suite + upload |
 | `pnpm test:regression` | Regression suite + upload |
 | `pnpm test:a11y` | Accessibility scan (axe-core, WCAG 2.0 A/AA) |
 | `pnpm test:visual` | Visual regression compare against baselines |
 | `pnpm test:visual:update` | Regenerate visual baselines |
 | `pnpm test:flaky` | Intentionally flaky tests (for flaky-detection demo) |
-| `pnpm coverage:upload` | Upload `coverage/coverage-summary.json` to Better Testing |
+| `pnpm coverage:upload` | Upload `coverage/coverage-summary.json` to Flakey |
 
 ## Features exercised
 

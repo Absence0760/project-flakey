@@ -1,21 +1,21 @@
-# Better Testing — Bitbucket Pipelines template
+# Flakey — Bitbucket Pipelines template
 #
 # Copy this to your repository root as bitbucket-pipelines.yml and adjust:
 #   - The test command and directory
 #   - SUITE_NAME to match your project
 #
 # Required repository variables (Repository settings > Pipelines > Repository variables):
-#   FLAKEY_API_KEY      — Better Testing API key (Profile > API Keys)
-#   FLAKEY_API_URL      — Better Testing backend URL (e.g. https://bt.yourcompany.com)
+#   FLAKEY_API_KEY      — Flakey API key (Profile > API Keys)
+#   FLAKEY_API_URL      — Flakey backend URL (e.g. https://bt.yourcompany.com)
 #
 # How PR integration works:
-#   After flakey-upload completes, the Better Testing backend:
+#   After flakey-upload completes, the Flakey backend:
 #     1. Looks up an open PR for the current commit SHA or source branch via
 #        GET /repositories/{workspace}/{repo}/commit/{sha}/pullrequests (Bitbucket API).
 #     2. Posts or updates a PR comment (POST/PUT /repositories/{w}/{r}/pullrequests/{id}/comments).
 #     3. Posts a build status (POST /repositories/{w}/{r}/commit/{sha}/statuses/build)
 #        with state=SUCCESSFUL/FAILED and a link to the run.
-#   Configure the Bitbucket integration in Better Testing Settings > Integrations > Bitbucket.
+#   Configure the Bitbucket integration in Flakey Settings > Integrations > Bitbucket.
 #   Required OAuth consumer scopes: pullrequest:write, repository.
 
 image: node:20
@@ -45,7 +45,7 @@ definitions:
           - examples/cypress/cypress/videos/**
 
     - step: &upload-jest
-        name: Upload Jest results to Better Testing
+        name: Upload Jest results to Flakey
         caches:
           - pnpm
           - node

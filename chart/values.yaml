@@ -104,7 +104,7 @@ smtp:
   secure: true
   user: ""
   password: ""
-  from: "Better Testing <noreply@example.com>"
+  from: "Flakey <noreply@example.com>"
   # -- Use an existing secret for SMTP password (key: smtp-password)
   existingSecret: ""
 

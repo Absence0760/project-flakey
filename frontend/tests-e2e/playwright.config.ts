@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Playwright e2e config for the Better Testing dashboard (frontend/).
+ * Playwright e2e config for the Flakey dashboard (frontend/).
  *
  * Prereq: backend API + seeded Postgres up. From the repo root:
  *   pnpm db:up

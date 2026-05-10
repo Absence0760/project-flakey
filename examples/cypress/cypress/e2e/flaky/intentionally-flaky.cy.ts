@@ -2,7 +2,7 @@
  * INTENTIONALLY FLAKY TESTS
  *
  * These tests randomly fail ~30 % of the time to exercise the flaky-detection
- * feature of Better Testing.  The dashboard should surface them as "flaky" once
+ * feature of Flakey.  The dashboard should surface them as "flaky" once
  * enough run history accumulates.
  *
  * Run in isolation:  pnpm test:flaky

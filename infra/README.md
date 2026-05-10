@@ -1,4 +1,4 @@
-# Better Testing — AWS Infrastructure
+# Flakey — AWS Infrastructure
 
 Terraform configuration for deploying Flakey to AWS. Designed to be as touchless as possible — secrets are auto-generated, migrations run automatically on deploy, and monitoring is built in.
 

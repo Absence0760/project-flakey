@@ -2,7 +2,7 @@
 
 ## Feature matrix
 
-| Feature | Cypress Cloud | Sorry Cypress | Currents.dev | ReportPortal | Allure TestOps | Tesults | BuildPulse | Launchable | Better Testing |
+| Feature | Cypress Cloud | Sorry Cypress | Currents.dev | ReportPortal | Allure TestOps | Tesults | BuildPulse | Launchable | Flakey |
 |---|---|---|---|---|---|---|---|---|---|
 | **Reporting** | | | | | | | | | |
 | Pass/fail dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -76,7 +76,7 @@ Focused on flaky test detection and CI optimization. Core feature is flaky test 
 ### Launchable (now CloudBees Smart Tests)
 ML-powered predictive test selection — the core differentiator. Analyzes code changes + test history to predict which tests will fail, selecting only relevant tests per change. Claims 90% of failures caught in 20% of test time. Also provides AI failure classification and intelligent test scheduling. Acquired by CloudBees and integrated into their CI/CD platform. Framework-agnostic. Strongest claims on CI cost savings (3-5 cloud instances saved per test hour).
 
-## Key differentiators for Better Testing
+## Key differentiators for Flakey
 
 1. **Multi-reporter normalizer** — accepts Mochawesome, JUnit XML, and Playwright JSON via a normalizer layer
 2. **CI-native parallelization** — works with Bitbucket parallel steps and GitHub Actions matrix out of the box, no orchestration server needed
@@ -88,7 +88,7 @@ ML-powered predictive test selection — the core differentiator. Analyzes code 
 
 These are the remaining areas where mature competitors still have an edge:
 
-1. **Live test orchestration / spec balancing over a single run** (Cypress Cloud, Currents, Sorry Cypress) — Better Testing assumes your CI does parallel matrix; it stitches results via `ci_run_id` but does not actively allocate specs across machines.
-2. **Test Replay polish** (Cypress Cloud) — Cloud's Test Replay captures network requests, console logs, and full UI events. Better Testing captures per-command DOM snapshots (with Gherkin markers for Cucumber projects) but not network-level replay.
-3. **Commercial support / SLAs** — paid vendors offer response teams; Better Testing is self-hosted OSS.
-4. **Analytics maturity** — trend charts, slowest-tests dashboards, and top-failures views on established vendors have had years of iteration; Better Testing has the data but fewer curated views.
+1. **Live test orchestration / spec balancing over a single run** (Cypress Cloud, Currents, Sorry Cypress) — Flakey assumes your CI does parallel matrix; it stitches results via `ci_run_id` but does not actively allocate specs across machines.
+2. **Test Replay polish** (Cypress Cloud) — Cloud's Test Replay captures network requests, console logs, and full UI events. Flakey captures per-command DOM snapshots (with Gherkin markers for Cucumber projects) but not network-level replay.
+3. **Commercial support / SLAs** — paid vendors offer response teams; Flakey is self-hosted OSS.
+4. **Analytics maturity** — trend charts, slowest-tests dashboards, and top-failures views on established vendors have had years of iteration; Flakey has the data but fewer curated views.

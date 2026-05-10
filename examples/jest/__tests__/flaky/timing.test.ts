@@ -6,7 +6,7 @@
  *
  *   pnpm test:flaky
  *
- * It exists to demonstrate Better Testing's flaky detection: run it several
+ * It exists to demonstrate Flakey's flaky detection: run it several
  * times and you'll see alternating PASS/FAIL results appear in the dashboard
  * with a flaky indicator once the flip rate exceeds the threshold.
  *

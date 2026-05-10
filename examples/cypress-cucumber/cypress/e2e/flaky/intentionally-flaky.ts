@@ -2,7 +2,7 @@
  * INTENTIONALLY FLAKY step definitions
  *
  * These steps randomly fail ~30 % of the time to exercise the
- * flaky-detection feature of Better Testing.  Run via `pnpm test:flaky`.
+ * flaky-detection feature of Flakey.  Run via `pnpm test:flaky`.
  * DO NOT add this file's steps to any smoke/sanity/regression suite.
  */
 

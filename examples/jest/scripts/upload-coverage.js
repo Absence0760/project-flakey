@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Upload Jest coverage summary to Better Testing.
+ * Upload Jest coverage summary to Flakey.
  *
  * Prerequisites:
  *   1. Run tests with coverage first:

@@ -1,6 +1,6 @@
 Feature: Requirements traceability
 
-  # Better Testing links Cucumber scenarios to external requirement IDs via
+  # Flakey links Cucumber scenarios to external requirement IDs via
   # Cucumber tags.  Tag a scenario with @req-<ID> and the tag appears in the
   # uploaded result, enabling traceability from test run to requirement.
   #

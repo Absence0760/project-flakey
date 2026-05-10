@@ -189,7 +189,7 @@ npx tsx src/index.ts \
 | `SMTP_USER` | _(none)_ | SMTP username (optional, only if your relay requires auth) |
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
-| `EMAIL_FROM` | `Better Testing <noreply@example.com>` | From-address used for all outgoing email |
+| `EMAIL_FROM` | `Flakey <noreply@example.com>` | From-address used for all outgoing email |
 | `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
 
 ### Frontend

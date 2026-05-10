@@ -1,6 +1,6 @@
 # Testing
 
-Better Testing's backend ships with an integration smoke-test suite that covers
+Flakey's backend ships with an integration smoke-test suite that covers
 the Phase 9 / 10 feature set (Jira, PagerDuty, scheduled reports, coverage,
 accessibility, visual regression, UI coverage, manual tests, releases).
 

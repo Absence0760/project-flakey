@@ -33,7 +33,7 @@ export default defineConfig({
   },
   reporter: [
     ["list"],
-    // @flakeytesting/playwright-reporter uploads results + artifacts to the Better Testing
+    // @flakeytesting/playwright-reporter uploads results + artifacts to the Flakey
     // backend. It also parses Playwright trace (.zip) files via @flakeytesting/playwright-snapshots
     // to extract per-step DOM snapshots and command logs — that's why trace: "on" is set below.
     // The snapshots are written to playwright-snapshots/ at runtime and uploaded with each run.
@@ -48,7 +48,7 @@ export default defineConfig({
       release: process.env.FLAKEY_RELEASE ?? "",
     }],
     // @flakeytesting/live-reporter/playwright streams test progress in real time
-    // so the run appears on the Better Testing dashboard with a pulsing LIVE
+    // so the run appears on the Flakey dashboard with a pulsing LIVE
     // badge while it executes. It calls /live/start before onBegin and sets
     // CI_RUN_ID so the main playwright-reporter's end-of-run upload merges
     // into the same run id rather than creating a duplicate. Inert without

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Uploads the API endpoint coverage summary to Better Testing.
+ * Uploads the API endpoint coverage summary to Flakey.
  *
  * Requires:
  *   FLAKEY_API_KEY  — API key
