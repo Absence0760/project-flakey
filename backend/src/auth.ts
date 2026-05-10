@@ -110,7 +110,12 @@ async function verifyApiKey(key: string): Promise<AuthUser | null> {
         "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
         [row.org_id, row.user_id]
       );
-      const orgRole = memberResult.rows[0]?.role ?? "viewer";
+      // If the user has been removed from the org their key was
+      // issued for, refuse the key entirely. Previously this path
+      // defaulted to "viewer", which silently downgraded a kicked
+      // member to read-only rather than logging them out — a
+      // removed member must have NO access, not lesser access.
+      if (memberResult.rows.length === 0) return null;
 
       return {
         id: row.user_id,
@@ -118,7 +123,7 @@ async function verifyApiKey(key: string): Promise<AuthUser | null> {
         name: row.name,
         role: row.user_role,
         orgId: row.org_id,
-        orgRole,
+        orgRole: memberResult.rows[0].role,
       };
     }
   }
@@ -160,47 +165,59 @@ function parseCookie(cookieHeader: string | undefined, name: string): string | n
  * 1. Authorization: Bearer <api_key> (fk_ prefix)
  * 2. Authorization: Bearer <jwt>
  * 3. httpOnly cookie (flakey_token)
+ *
+ * On every accepted credential, re-validates org_members so a
+ * kicked-out member or a downgraded role takes effect immediately
+ * — JWTs carry orgId+orgRole baked in at sign-time, which would
+ * otherwise leave a removed user with full access until exp.
+ * verifyApiKey handles its own membership check internally and
+ * returns null when the user is no longer in the org.
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
+  let candidate: AuthUser | null = null;
 
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
-
-    // API key
     if (token.startsWith("fk_")) {
-      verifyApiKey(token).then((user) => {
-        if (!user) {
-          res.status(401).json({ error: "Invalid API key" });
-          return;
-        }
-        req.user = user;
-        next();
-      }).catch(() => {
-        res.status(401).json({ error: "Authentication failed" });
-      });
-      return;
-    }
-
-    // JWT from header
-    const user = verifyToken(token);
-    if (user) {
-      req.user = user;
-      next();
-      return;
+      candidate = await verifyApiKey(token).catch(() => null);
+    } else {
+      candidate = verifyToken(token);
     }
   }
 
-  // httpOnly cookie
-  const cookieToken = parseCookie(req.headers.cookie, "flakey_token");
-  if (cookieToken) {
-    const user = verifyToken(cookieToken);
-    if (user) {
-      req.user = user;
-      next();
-      return;
-    }
+  if (!candidate) {
+    const cookieToken = parseCookie(req.headers.cookie, "flakey_token");
+    if (cookieToken) candidate = verifyToken(cookieToken);
   }
 
-  res.status(401).json({ error: "Authentication required" });
+  if (!candidate) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  // Session-staleness check: re-read org_members on every request.
+  // Skip when verifyApiKey already populated `candidate` — the API
+  // key path resolves orgRole from the live row above, so its
+  // candidate is non-stale by construction. The JWT/cookie paths
+  // carry sign-time claims and need the re-read.
+  if (!authHeader?.startsWith("Bearer fk_")) {
+    const member = await pool.query(
+      "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
+      [candidate.orgId, candidate.id],
+    );
+    if (member.rows.length === 0) {
+      res.status(401).json({ error: "Session is no longer valid; please sign in again" });
+      return;
+    }
+    // Refresh orgRole from current DB state so a downgrade from
+    // owner → viewer takes effect on the next request, not at JWT
+    // exp. role-gated route handlers (e.g. requireAdmin) consult
+    // req.user.orgRole — they need the current value, not the
+    // sign-time snapshot.
+    candidate.orgRole = member.rows[0].role;
+  }
+
+  req.user = candidate;
+  next();
 }
