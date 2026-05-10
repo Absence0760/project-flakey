@@ -46,11 +46,11 @@ export function isLoggedIn(): boolean {
   return state.token !== null;
 }
 
-// localStorage key names — prefixed "bt_" (Better Testing) rather than "flakey_".
-// Migration note: on first load, restoreAuth() checks both the old "flakey_*"
-// keys and the new "bt_*" keys so that existing logged-in users are not
-// silently logged out on deploy. Once the new keys are written the old ones
-// are deleted so the migration is one-shot.
+// localStorage key names — kept as "bt_*" from the earlier "Better Testing"
+// rebrand even though the product brand is now Flakey again. They're not
+// user-visible; renaming would silently sign out every existing user with
+// no upside. restoreAuth() still migrates the original "flakey_*" keys
+// it may find from pre-bt_ installs (one-shot, idempotent).
 const KEY_TOKEN = "bt_token";
 const KEY_USER = "bt_user";
 const KEY_REFRESH = "bt_refresh";

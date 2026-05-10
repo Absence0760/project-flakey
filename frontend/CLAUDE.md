@@ -1,6 +1,6 @@
 # frontend
 
-SvelteKit + Svelte 5 dashboard. Package name is `better-testing` (post-rebrand).
+SvelteKit + Svelte 5 dashboard. Package name is `better-testing` (legacy — not user-visible, kept to avoid lockfile churn).
 
 ## Commands
 
@@ -14,7 +14,7 @@ SvelteKit + Svelte 5 dashboard. Package name is `better-testing` (post-rebrand).
 - **Svelte 5 runes only**: use `$state`, `$derived`, `$effect`, `$props`. Do not regress to Svelte 4 `let`/`$:`/`export let` reactivity.
 - API base URL is exported as `API_URL` from `src/lib/config.ts`. Import it from there — do not re-declare `import.meta.env.VITE_API_URL` in individual files.
 - Routes live in `src/routes/`; shared logic and components in `src/lib/`.
-- User-facing strings say **"Better Testing"**, not "Flakey". The rebrand landed in commit 95efd7d — keep new copy consistent.
+- User-facing strings say **"Flakey"**. The earlier "Better Testing" rebrand has been reverted; keep new copy consistent with "Flakey".
 
 ## Auth module
 
@@ -24,7 +24,7 @@ Auth state is a plain singleton in `src/lib/auth.ts` (not a Svelte store). Key e
 - `restoreAuth()` — reads auth from `localStorage` (keys `bt_token`, `bt_user`, `bt_refresh`). Call it in the root layout's `onMount`.
 - `subscribe(fn)` — manual listener registration (returns an unsubscribe function).
 
-`localStorage` keys use the `bt_` prefix (Better Testing). On first load after the rename, `restoreAuth` migrates existing `flakey_*` keys to the new names automatically.
+`localStorage` keys use the `bt_` prefix — a holdover from the earlier "Better Testing" rebrand. The brand is back to Flakey but the keys stay `bt_*`: they aren't user-visible and reverting them would invalidate every signed-in session. `restoreAuth` still migrates any legacy `flakey_*` keys it finds.
 
 ## URL-state sync pattern
 

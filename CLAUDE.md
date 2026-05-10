@@ -2,7 +2,7 @@
 
 Self-hosted, CI-agnostic test reporting dashboard. Monorepo.
 
-Product is branded as **"Better Testing"** in the UI (rebrand from "Flakey"). npm package scopes remain `@flakeytesting/*` and the repo directory is still `project-flakey` — do not rename those. When touching user-facing copy, prefer "Better Testing".
+Product is branded as **"Flakey"** in the UI (the earlier "Better Testing" rebrand was reverted). Domain: `flakey.io`. npm package scopes remain `@flakeytesting/*`, the repo directory is still `project-flakey`, and the auth singleton's localStorage keys keep the `bt_*` prefix — none of those are user-visible and there's no migration cost worth paying to flip them. When touching user-facing copy, use "Flakey".
 
 ## Layout
 

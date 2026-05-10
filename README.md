@@ -1,4 +1,4 @@
-# Better Testing
+# Flakey
 
 A self-hosted, CI-agnostic test reporting dashboard. Collects test results from Cypress, Playwright, Jest, pytest, and any framework that outputs Mochawesome JSON, JUnit XML, or Playwright JSON. Displays results with trend charts, flaky test detection, and failure analysis.
 
@@ -274,7 +274,7 @@ Create an API key from the Settings page for permanent access (no expiry).
 - **PagerDuty integration** — fire Events API v2 incidents on run failure with configurable severity and per-suite dedup keys
 - **Scheduled reports** — daily/weekly test digests delivered via email, Slack, or webhook; filterable by suite; advisory-lock coordinated so multi-replica backends don't double-fire
 - **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
-- **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-better-testing/badge/my-suite)`
+- **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-flakey/badge/my-suite)`
 - **Secrets encryption at rest** — Jira tokens and PagerDuty keys are AES-256-GCM encrypted (via `FLAKEY_ENCRYPTION_KEY`); gracefully falls back to plaintext in local dev
 
 ### Admin

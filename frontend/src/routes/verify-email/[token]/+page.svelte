@@ -47,7 +47,7 @@
         <rect x="220" y="100" width="72" height="36" rx="18" ry="18" fill="url(#logo-bg)"/>
         <polyline points="192,296 240,344 320,248" fill="none" stroke="url(#logo-bg)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      Better Testing
+      Flakey
     </div>
 
     {#if status === 'verifying'}
