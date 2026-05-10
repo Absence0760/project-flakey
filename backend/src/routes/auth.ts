@@ -56,6 +56,14 @@ async function resolveOrg(userId: number, email: string): Promise<{ orgId: numbe
   return { orgId, orgRole: "owner" };
 }
 
+// Per-account lockout knobs.  Defaults match the threat model in
+// docs but stay env-configurable so ops can tune them without a
+// code change.  LOGIN_LOCKOUT_THRESHOLD = consecutive failures
+// before the account is locked.  LOGIN_LOCKOUT_MINUTES = how long
+// the account stays locked before it self-unlocks.
+const LOGIN_LOCKOUT_THRESHOLD = Math.max(1, Number(process.env.LOGIN_LOCKOUT_THRESHOLD ?? 5));
+const LOGIN_LOCKOUT_MINUTES = Math.max(1, Number(process.env.LOGIN_LOCKOUT_MINUTES ?? 15));
+
 // POST /auth/login
 router.post("/login", async (req, res) => {
   try {
@@ -68,12 +76,53 @@ router.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, email, name, role, password_hash, email_verified FROM users WHERE LOWER(email) = $1",
+      "SELECT id, email, name, role, password_hash, email_verified, failed_login_attempts, locked_until FROM users WHERE LOWER(email) = $1",
       [email]
     );
 
     const user = result.rows[0];
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    // Preserve the unknown-vs-wrong-password indistinguishability —
+    // an unknown email still returns the same 401 shape as a wrong
+    // password, never 404 or a lockout-shaped 429.
+    if (!user) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    // Per-account lockout check.  The per-IP authLimiter handles
+    // volume from a single source; this guards a single account
+    // against a distributed attack that rotates IPs and so flies
+    // under the per-IP gate.  Lockout 429 is its own response code
+    // so the UI can prompt for password reset rather than just
+    // re-rendering the wrong-password message.
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      res.status(429).json({
+        error: "Account temporarily locked due to repeated failed login attempts. Try again later or reset your password.",
+        code: "ACCOUNT_LOCKED",
+      });
+      return;
+    }
+
+    const passwordOk = bcrypt.compareSync(password, user.password_hash);
+    if (!passwordOk) {
+      // Increment the counter, stamp locked_until if we just crossed
+      // the threshold.  Both columns are part of the same UPDATE so
+      // there's no window where the counter is updated without the
+      // lock taking effect.
+      const newCount = (user.failed_login_attempts ?? 0) + 1;
+      if (newCount >= LOGIN_LOCKOUT_THRESHOLD) {
+        await pool.query(
+          `UPDATE users SET failed_login_attempts = $1,
+                            locked_until = NOW() + ($2 || ' minutes')::INTERVAL
+             WHERE id = $3`,
+          [newCount, String(LOGIN_LOCKOUT_MINUTES), user.id]
+        );
+      } else {
+        await pool.query(
+          "UPDATE users SET failed_login_attempts = $1 WHERE id = $2",
+          [newCount, user.id]
+        );
+      }
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -81,6 +130,16 @@ router.post("/login", async (req, res) => {
     if (REQUIRE_EMAIL_VERIFICATION && !user.email_verified) {
       res.status(403).json({ error: "Please verify your email before signing in.", code: "EMAIL_NOT_VERIFIED" });
       return;
+    }
+
+    // Successful login — clear the lockout state so a user who
+    // recovered their password isn't penalised for the earlier
+    // mis-typed attempts.
+    if ((user.failed_login_attempts ?? 0) > 0 || user.locked_until) {
+      await pool.query(
+        "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+        [user.id]
+      );
     }
 
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
