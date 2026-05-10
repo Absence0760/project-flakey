@@ -57,7 +57,22 @@ const PORT = Number(process.env.PORT ?? 3000);
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:7777,http://localhost:3000")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// Strict CSP. This backend serves JSON, SVG badges, and static
+// upload artifacts — none of which need to load external resources.
+// Setting `default-src 'none'` means an accidentally-rendered HTML
+// response (Express's default error page, a future SSR route)
+// can't fetch any attacker-controlled assets on the user's behalf.
+// `frame-ancestors 'none'` is the CSP-layer clickjacking defence
+// that complements helmet's X-Frame-Options DENY.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+}));
 app.use(cors({
   origin: IS_PROD
     ? (origin, callback) => {
