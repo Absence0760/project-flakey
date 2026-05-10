@@ -1257,6 +1257,93 @@ async function seed() {
       [orgId, "qa-team@example.com"]
     );
     console.log(`Seeded 1 scheduled report.`);
+
+    // Admin API key. The prefix is deterministic ("fk_demoad") so the
+    // README can document a known value for `curl --header
+    // "Authorization: Bearer fk_demoadmindemoadmindemoadmindemoa"`
+    // without leaking it through the UI. The bcrypt'd hash is what
+    // lookup_api_key() resolves against; the raw value is printed
+    // below for the operator to copy.
+    const demoAdminKey = "fk_demoadmindemoadmindemoadmindemoa";
+    const demoAdminKeyHash = bcrypt.hashSync(demoAdminKey, 10);
+    await client.query(
+      `INSERT INTO api_keys (user_id, key_hash, key_prefix, label, org_id)
+       VALUES ($1, $2, $3, 'Local dev / CLI', $4)`,
+      [adminId, demoAdminKeyHash, demoAdminKey.slice(0, 8), orgId],
+    );
+    console.log(`Seeded admin API key (raw value: ${demoAdminKey}) for CLI testing.`);
+
+    // One webhook target.  Points at an .invalid host so any actual
+    // dispatch fails fast (no accidental traffic to a real service in
+    // local dev) but the row exists so the Settings → Webhooks page
+    // has something to show.
+    await client.query(
+      `INSERT INTO webhooks (org_id, name, url, events, active, platform)
+       VALUES ($1, 'Local dev webhook', 'https://example.invalid/seeded-hook', $2, true, 'generic')`,
+      [orgId, ["run.failed", "new.failures"]],
+    );
+    console.log(`Seeded 1 webhook target (https://example.invalid/seeded-hook) for the Settings page demo.`);
+
+    // Quarantine entries.  Pick two failed tests from existing seeded
+    // runs and quarantine them so /quarantine isn't an empty list and
+    // the dashboard's "Quarantined" filter has rows to render.
+    // tests.full_title + r.suite_name keys the quarantine row.
+    const failedSample = await client.query(
+      `SELECT DISTINCT t.full_title, s.file_path, r.suite_name
+       FROM tests t
+       JOIN specs s ON s.id = t.spec_id
+       JOIN runs r ON r.id = s.run_id
+       WHERE t.status = 'failed' AND r.org_id = $1
+       ORDER BY t.full_title
+       LIMIT 2`,
+      [orgId],
+    );
+    for (const row of failedSample.rows) {
+      await client.query(
+        `INSERT INTO quarantined_tests (org_id, suite_name, full_title, file_path, reason, quarantined_by)
+         VALUES ($1, $2, $3, $4, 'Intermittent failure under load — quarantined pending root-cause investigation', $5)
+         ON CONFLICT DO NOTHING`,
+        [orgId, row.suite_name, row.full_title, row.file_path, adminId],
+      );
+    }
+    console.log(`Seeded ${failedSample.rows.length} quarantine entries on existing failed tests.`);
+
+    // Error-group statuses.  Pick a couple of error-message fingerprints
+    // from the seeded failed tests and stamp them as 'investigating' /
+    // 'known' so the /errors page demos all three states (the default
+    // 'open' will populate from the un-stamped fingerprints automatically).
+    const fingerprintSample = await client.query(
+      `SELECT DISTINCT md5(t.error_message || '|' || r.suite_name) AS fp
+       FROM tests t
+       JOIN specs s ON s.id = t.spec_id
+       JOIN runs r ON r.id = s.run_id
+       WHERE t.status = 'failed' AND t.error_message IS NOT NULL AND r.org_id = $1
+       LIMIT 2`,
+      [orgId],
+    );
+    const stampStates = ["investigating", "known"] as const;
+    for (let i = 0; i < fingerprintSample.rows.length; i++) {
+      await client.query(
+        `INSERT INTO error_groups (org_id, fingerprint, status, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (org_id, fingerprint) DO UPDATE SET status = $3`,
+        [orgId, fingerprintSample.rows[i].fp, stampStates[i]],
+      );
+    }
+    console.log(`Seeded ${fingerprintSample.rows.length} non-default error_group statuses (investigating, known).`);
+
+    // Pending org invite. Lets manual /invite UX testing happen
+    // without first sending an invite — the URL pattern is
+    // /invite/<token>. Token is a deterministic constant for the
+    // same operator-copy-and-paste reason as the API key above.
+    const demoInviteToken = "demo-invite-token-do-not-use-in-prod-aaaa";
+    await client.query(
+      `INSERT INTO org_invites (org_id, email, role, token, invited_by)
+       VALUES ($1, 'invitee@example.com', 'viewer', $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [orgId, demoInviteToken, adminId],
+    );
+    console.log(`Seeded 1 pending org invite (token: ${demoInviteToken}).`);
   } finally {
     client.release();
     await pool.end();
