@@ -57,8 +57,13 @@ export function signToken(user: AuthUser): string {
 }
 
 export function signRefreshToken(userId: number): string {
+  // jti = unique id per refresh token, so /auth/logout and the
+  // refresh-token rotation in /auth/refresh can mark a specific
+  // token as revoked without invalidating every refresh ever
+  // issued to the user. crypto.randomUUID() is collision-safe
+  // and is the standard jti shape per RFC 7519.
   return jwt.sign(
-    { id: userId, type: "refresh" },
+    { id: userId, type: "refresh", jti: crypto.randomUUID() },
     JWT_SECRET,
     { expiresIn: REFRESH_EXPIRY }
   );

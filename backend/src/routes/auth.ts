@@ -242,6 +242,21 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
+    // Revocation check. Tokens issued before migration 037 don't
+    // carry a jti — those legacy tokens stay usable until their
+    // natural exp (max 7d) so the upgrade doesn't sign out every
+    // active user on deploy.
+    if (typeof payload.jti === "string") {
+      const revoked = await pool.query(
+        "SELECT 1 FROM revoked_refresh_tokens WHERE jti = $1",
+        [payload.jti],
+      );
+      if (revoked.rowCount && revoked.rowCount > 0) {
+        res.status(401).json({ error: "Refresh token has been revoked" });
+        return;
+      }
+    }
+
     const userResult = await pool.query(
       "SELECT id, email, name, role FROM users WHERE id = $1",
       [payload.id]
@@ -257,6 +272,18 @@ router.post("/refresh", async (req, res) => {
     const token = signToken(authUser);
     const newRefresh = signRefreshToken(user.id);
 
+    // Refresh-token rotation. Mark the just-consumed jti as
+    // revoked so the same refresh token cannot be replayed. If an
+    // attacker captures a refresh token but the legitimate user
+    // refreshes first, the attacker's subsequent /auth/refresh
+    // 401s — self-detection of the compromise.
+    if (typeof payload.jti === "string") {
+      await pool.query(
+        "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
+        [payload.jti, payload.id],
+      );
+    }
+
     setTokenCookie(res, token, newRefresh);
     res.json({ token, refreshToken: newRefresh, user: authUser });
   } catch {
@@ -264,8 +291,43 @@ router.post("/refresh", async (req, res) => {
   }
 });
 
-// POST /auth/logout — clear cookies
-router.post("/logout", (_req, res) => {
+// POST /auth/logout — clear cookies and revoke the current refresh token
+router.post("/logout", async (req, res) => {
+  // Try to find the refresh token in (a) the body, (b) the
+  // flakey_refresh cookie, in that order. Revoke its jti so a
+  // captured copy cannot be reused after the user logs out.
+  // Logout is idempotent: a missing / invalid / legacy (no-jti)
+  // token is a no-op on the revocation side; cookies are cleared
+  // regardless.
+  let refreshTokenValue: string | undefined = req.body?.refreshToken;
+  const cookieHeader = req.headers.cookie;
+  if (!refreshTokenValue && cookieHeader) {
+    const match = cookieHeader
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("flakey_refresh="));
+    if (match) refreshTokenValue = match.split("=").slice(1).join("=");
+  }
+
+  if (refreshTokenValue) {
+    try {
+      const payload = jwt.verify(
+        refreshTokenValue,
+        process.env.JWT_SECRET ?? "flakey-dev-secret-change-me",
+      ) as any;
+      if (payload.type === "refresh" && typeof payload.jti === "string") {
+        await pool.query(
+          "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
+          [payload.jti, payload.id],
+        );
+      }
+    } catch {
+      // Invalid / expired token — nothing to revoke. Continue
+      // with the cookie clear so the caller's session state is
+      // still tidy.
+    }
+  }
+
   clearTokenCookies(res);
   res.json({ ok: true });
 });
