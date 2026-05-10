@@ -15,7 +15,7 @@ Each subdirectory has its own CLAUDE.md — read it before editing.
 
 ## Root commands
 
-- `pnpm dev` — start backend (3000) and frontend (7777) concurrently
+- `pnpm dev` — start backend (3000) and frontend (7778) concurrently
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
 - `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — docker-compose Postgres lifecycle
 

@@ -54,7 +54,7 @@ const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
 // Fix 2: CORS whitelist — only allow configured origins (default: localhost for dev)
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:7777,http://localhost:3000")
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:7778,http://localhost:3000")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 // Strict CSP. This backend serves JSON, SVG badges, and static

@@ -43,7 +43,7 @@ Creates two users, two orgs, and 56 sample test runs (Mochawesome, Playwright, J
 pnpm dev
 ```
 
-- **Frontend:** http://localhost:7777
+- **Frontend:** http://localhost:7778
 - **API:** http://localhost:3000
 
 ### 5. Log in
@@ -332,8 +332,8 @@ after-script:
 | `DB_USER` | `flakey_app` | Database user (non-superuser for RLS) |
 | `DB_PASSWORD` | `flakey_app` | Database password |
 | `PORT` | `3000` | API port |
-| `CORS_ORIGINS` | `http://localhost:7777` | Allowed origins (comma-separated) |
-| `FRONTEND_URL` | `http://localhost:7777` | Frontend URL (used in webhook notification links) |
+| `CORS_ORIGINS` | `http://localhost:7778` | Allowed origins (comma-separated) |
+| `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
 | `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
 | `NODE_ENV` | — | Set `production` to enforce JWT_SECRET and strict CORS |
 | `FLAKEY_ENCRYPTION_KEY` | — | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Unset = plaintext passthrough (local dev). |

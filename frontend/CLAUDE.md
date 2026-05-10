@@ -4,7 +4,7 @@ SvelteKit + Svelte 5 dashboard. Package name is `better-testing` (legacy — not
 
 ## Commands
 
-- `pnpm dev` — vite dev server on **port 7777**
+- `pnpm dev` — vite dev server on **port 7778**
 - `pnpm build` — production build
 - `pnpm preview` — preview the built app on port 8888
 - `pnpm check` — `svelte-kit sync` + `svelte-check` (type check). Run this before claiming a task done.

@@ -72,11 +72,11 @@ pnpm dev
 This starts both services concurrently:
 
 - **Backend API** — http://localhost:3000
-- **Frontend** — http://localhost:7777
+- **Frontend** — http://localhost:7778
 
 ### 6. Log in
 
-Open http://localhost:7777 and log in with:
+Open http://localhost:7778 and log in with:
 
 - **Email:** `admin@example.com`
 - **Password:** `admin`
@@ -105,7 +105,7 @@ curl -X POST http://localhost:3000/runs \
 
 #### Option B: Create an API key and use curl (recommended for CI)
 
-1. Log in at http://localhost:7777
+1. Log in at http://localhost:7778
 2. Go to **Settings** (sidebar)
 3. Under **API Keys**, enter a label and click **Create key**
 4. Copy the key (starts with `fk_`) — it's only shown once
@@ -176,7 +176,7 @@ npx tsx src/index.ts \
 | `JWT_SECRET` | `flakey-dev-secret-change-me` | JWT signing secret (change in production) |
 | `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
-| `FRONTEND_URL` | `http://localhost:7777` | Used for email links and PR comments |
+| `FRONTEND_URL` | `http://localhost:7778` | Used for email links and PR comments |
 | `STORAGE` | `local` | `local` or `s3` for artifact storage |
 | `S3_BUCKET` | _(none)_ | S3 bucket name (when `STORAGE=s3`) |
 | `S3_REGION` | `us-east-1` | AWS region (when `STORAGE=s3`) |
