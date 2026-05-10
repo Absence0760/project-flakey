@@ -212,6 +212,17 @@ router.delete("/:id/members/:userId", async (req, res) => {
       "DELETE FROM org_members WHERE org_id = $1 AND user_id = $2",
       [orgId, targetUserId]
     );
+    // Member removal is one of the most security-critical actions
+    // an admin can take — it ends another user's access to the
+    // tenant. Log it so forensics can reconstruct who kicked whom
+    // and when.
+    await logAudit(
+      orgId,
+      req.user!.id,
+      "org.member.remove",
+      "user",
+      String(targetUserId),
+    );
     res.json({ deleted: true });
   } catch (err) {
     console.error("DELETE /orgs/:id/members/:userId error:", err);
@@ -264,6 +275,18 @@ router.patch("/:id/members/:userId", async (req, res) => {
     await pool.query(
       "UPDATE org_members SET role = $1 WHERE org_id = $2 AND user_id = $3",
       [role, orgId, targetUserId]
+    );
+    // Role change is a privilege boundary mutation. Record the
+    // before/after role so an audit trail shows the trajectory
+    // (admin → viewer is benign; viewer → admin is the one a
+    // reviewer most needs to spot).
+    await logAudit(
+      orgId,
+      req.user!.id,
+      "org.member.role_change",
+      "user",
+      String(targetUserId),
+      { from: target.rows[0].role, to: role },
     );
     res.json({ updated: true, role });
   } catch (err) {

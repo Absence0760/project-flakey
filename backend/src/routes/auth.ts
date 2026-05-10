@@ -6,6 +6,7 @@ import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
+import { logAudit } from "../audit.js";
 
 // Secure default: registration is disabled unless ALLOW_REGISTRATION=true is explicitly set.
 const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION === "true";
@@ -407,10 +408,22 @@ router.post("/api-keys", requireAuth, async (req, res) => {
     const prefix = rawKey.slice(0, 8);
     const hash = bcrypt.hashSync(rawKey, 10);
 
-    await tenantQuery(
+    const inserted = await tenantQuery(
       req.user!.orgId,
-      "INSERT INTO api_keys (user_id, key_hash, key_prefix, label, org_id) VALUES ($1, $2, $3, $4, $5)",
+      "INSERT INTO api_keys (user_id, key_hash, key_prefix, label, org_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
       [req.user!.id, hash, prefix, label, req.user!.orgId]
+    );
+    // API-key issuance is a long-lived credential creation — log it
+    // for forensics. Detail records the prefix (not the raw key)
+    // and the label so an admin reviewing the audit can identify
+    // which row the attacker created without needing the secret.
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "auth.api_key.create",
+      "api_key",
+      String(inserted.rows[0].id),
+      { prefix, label },
     );
 
     res.status(201).json({ key: rawKey, prefix, label });
@@ -425,13 +438,21 @@ router.delete("/api-keys/:id", requireAuth, async (req, res) => {
   try {
     const result = await tenantQuery(
       req.user!.orgId,
-      "DELETE FROM api_keys WHERE id = $1 AND user_id = $2 RETURNING id",
+      "DELETE FROM api_keys WHERE id = $1 AND user_id = $2 RETURNING id, key_prefix",
       [req.params.id, req.user!.id]
     );
     if (result.rows.length === 0) {
       res.status(404).json({ error: "API key not found" });
       return;
     }
+    await logAudit(
+      req.user!.orgId,
+      req.user!.id,
+      "auth.api_key.delete",
+      "api_key",
+      req.params.id,
+      { prefix: result.rows[0].key_prefix },
+    );
     res.json({ deleted: true });
   } catch (err) {
     console.error("DELETE /auth/api-keys error:", err);
