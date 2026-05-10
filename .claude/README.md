@@ -117,14 +117,14 @@ Output shape (per command):
 
 - The four trust boundaries: DB↔caller (RLS via `tenantQuery`), API↔caller (`requireAuth`), Storage↔paths, client-bundle↔runtime
 - Repo layout: `backend/` npm, `frontend/` pnpm-not-workspace, `packages/*` pnpm workspace, `infra/` Terraform
-- The "Better Testing" UI / `@flakeytesting/*` npm-scope / `project-flakey` repo-dir naming layers (intentional, not drift — won't be flagged)
+- The "Flakey" UI / `@flakeytesting/*` npm-scope / `project-flakey` repo-dir naming layers (intentional, not drift — won't be flagged)
 - The existing legitimate `pool.query` callsites (auth, integrations, retention, scheduled-reports, badge, connectivity, coverage settings, health) — won't be false-flagged for cross-org reads
 
 You don't invoke this agent directly; the audit commands do. If you want to write a new audit, model it on one of the existing files — they all follow the same shape (frontmatter description → goal → "what to check" numbered list → severity rubric → starting points → "delegate to" line).
 
 ### `code-reviewer`
 
-[`.claude/agents/code-reviewer.md`](agents/code-reviewer.md) — review-only agent invoked by `/safe-edit` (in a fix loop) and by `/check` (single pass). Reads `git diff`, cross-references the project's invariants (the four trust boundaries, live-flow rules, reporter-package shape, Svelte 5 runes, Better Testing rebrand layers, house style), outputs concrete numbered file:line findings the coder should apply. Read-only — never edits. Strict output format that the orchestrator parses (`Status: CLEAN | NEEDS_CHANGES`, capped at 5 findings).
+[`.claude/agents/code-reviewer.md`](agents/code-reviewer.md) — review-only agent invoked by `/safe-edit` (in a fix loop) and by `/check` (single pass). Reads `git diff`, cross-references the project's invariants (the four trust boundaries, live-flow rules, reporter-package shape, Svelte 5 runes, Flakey rebrand layers, house style), outputs concrete numbered file:line findings the coder should apply. Read-only — never edits. Strict output format that the orchestrator parses (`Status: CLEAN | NEEDS_CHANGES`, capped at 5 findings).
 
 ### `test-gap-checker`
 

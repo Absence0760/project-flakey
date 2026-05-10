@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Review-only agent invoked by /safe-edit and /check on non-trivial changes. Reads the working diff against this project's documented conventions (the four trust boundaries, live-flow invariants, reporter-package shape, Svelte 5 runes, Better Testing rebrand layers, fail-closed defaults, comment / abstraction discipline) and reports concrete diff-level findings the coder should apply before committing. Read-only — never edits.
+description: Review-only agent invoked by /safe-edit and /check on non-trivial changes. Reads the working diff against this project's documented conventions (the four trust boundaries, live-flow invariants, reporter-package shape, Svelte 5 runes, Flakey rebrand layers, fail-closed defaults, comment / abstraction discipline) and reports concrete diff-level findings the coder should apply before committing. Read-only — never edits.
 tools: Bash, Read, Grep, Glob
 model: sonnet
 ---
@@ -53,7 +53,7 @@ Walk these in order. Stop when you have ~5 findings — quality over quantity.
 - **No backwards-compat shims, no underscore-prefixed unused vars.** If unused, delete.
 - **No defensive code at internal boundaries.** Validate at system boundaries (HTTP request body, env vars, external APIs); trust internal code and framework guarantees.
 - **No `Co-Authored-By` / "Generated with Claude Code" / robot-emoji footers in commit messages.** User-level rule overrides anything that says otherwise — including any commit-flow boilerplate.
-- **"Better Testing" vs `@flakeytesting/*` vs `project-flakey` is intentional**, not drift. UI / docs say "Better Testing"; package scopes stay `@flakeytesting/*`; repo dir stays `project-flakey`. A "rename for consistency" change across these layers is the wrong move — flag it.
+- **"Flakey" vs `@flakeytesting/*` vs `project-flakey` is intentional**, not drift. UI / docs say "Flakey"; package scopes stay `@flakeytesting/*`; repo dir stays `project-flakey`; auth singleton's `bt_*` localStorage prefix is a holdover from the brief "Better Testing" rebrand. A "rename for consistency" change across these layers is the wrong move — flag it.
 
 ### Test fit
 

@@ -42,7 +42,7 @@ Pick zero or more from this list — a single change can hit several:
 - **Convention / house rule change** — a new pattern that should apply to future code.
 - **Process / tooling change** — npm script, GitHub Actions step, build flag, deploy procedure.
 - **Roadmap progress** — something on `docs/roadmap.md` is now done or in progress.
-- **Branding / rebrand-layer touched** — UI copy ("Better Testing"), package scope (`@flakeytesting/*`), repo-dir name (`project-flakey`), localStorage prefix (`bt_*`). These layers are intentional, but if a change crosses them, the docs should explain why.
+- **Branding / rebrand-layer touched** — UI copy ("Flakey"), package scope (`@flakeytesting/*`), repo-dir name (`project-flakey`), localStorage prefix (`bt_*`, a holdover from the brief "Better Testing" rebrand). These layers are intentional, but if a change crosses them, the docs should explain why.
 
 ### 4. Map to docs
 
@@ -86,4 +86,4 @@ End with a one-line recommendation: "Land these doc edits before committing" or 
 - Don't go beyond the doc set listed (root README, `docs/`, `CLAUDE.md` files, per-package READMEs). Generated files (`pnpm-lock.yaml`, `package-lock.json`, build outputs) are not docs.
 - Don't propose new convention rules unless the change introduces one. A bug fix doesn't need a new house rule. A refactor doesn't need a doc.
 - Don't run on trivial diffs: comment-only edits, typo fixes, dependency bumps without behaviour change. Report "trivial — skipping" and exit.
-- Don't flag the "Better Testing" / `@flakeytesting/*` / `project-flakey` layering as drift — it's intentional per root `CLAUDE.md`.
+- Don't flag the "Flakey" / `@flakeytesting/*` / `project-flakey` / `bt_*` layering as drift — it's intentional per root `CLAUDE.md`.

@@ -28,7 +28,7 @@ The backend has two foundational secrets — `JWT_SECRET` (signs auth tokens) an
 
    The repo's only intentional client env var should be `VITE_API_URL`, exported from `frontend/src/lib/config.ts` as `API_URL`. Any other client-visible env var needs justification.
 
-5. **Auth localStorage convention.** `frontend/CLAUDE.md` says: "`localStorage` keys use the `bt_` prefix (Better Testing). On first load after the rename, `restoreAuth` migrates existing `flakey_*` keys." Confirm:
+5. **Auth localStorage convention.** `frontend/CLAUDE.md` says: "`localStorage` keys use the `bt_` prefix — a holdover from the earlier 'Better Testing' rebrand … `restoreAuth` still migrates any legacy `flakey_*` keys it finds." Confirm:
    - `bt_token` / `bt_user` / `bt_refresh` are written/read only from `frontend/src/lib/auth.ts`
    - No `localStorage.setItem` on these keys anywhere else (XSS exfil surface)
    - The migration helper from `flakey_*` → `bt_*` exists and runs on `restoreAuth`
