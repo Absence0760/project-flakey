@@ -37,7 +37,7 @@ import { once } from "node:events";
 import jwt from "jsonwebtoken";
 import pg from "pg";
 
-const PORT = 3992;
+const PORT = 3987;
 const BASE = `http://localhost:${PORT}`;
 const JWT_SECRET = "auth-tokens-test-secret";
 
