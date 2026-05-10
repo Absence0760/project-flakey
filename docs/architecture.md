@@ -187,6 +187,10 @@ Supported reporters:
 - JWT contains user ID, email, name, role, and `orgId` (active organization)
 - API keys (`fk_` prefix) for CLI/programmatic access, scoped to an organization
 - API keys are stored as bcrypt hashes with a prefix for efficient lookup
+- Per-account lockout: 5 wrong-password attempts (env-tunable via `LOGIN_LOCKOUT_THRESHOLD`) locks the account for 15 minutes (`LOGIN_LOCKOUT_MINUTES`) on top of the per-IP rate limit, defending the single-account threat that a distributed brute-force from many IPs would otherwise fly under
+- Login response time is bcrypt-bounded even on unknown emails (a dummy compare runs on the unknown-email branch) so account existence can't be enumerated by timing
+- Refresh tokens carry a `jti` claim; `/auth/logout` and `/auth/refresh` both revoke the consumed jti via the `revoked_refresh_tokens` table, giving real server-side logout + refresh-token rotation
+- `requireAuth` re-reads `org_members` on every request, so a removed member's JWT or API key 401s on the next request rather than retaining access until JWT exp
 
 **Tenant isolation:**
 - Every run belongs to an organization (`runs.org_id`)
@@ -206,8 +210,18 @@ Supported reporters:
 
 ```sql
 -- Auth
-users (id, email, password_hash, name, role, created_at)
+users (id, email, password_hash, name, role,
+       email_verified, email_verification_token, email_verification_expires_at,
+       password_reset_token, password_reset_expires_at,
+       failed_login_attempts, locked_until,
+       created_at)
+-- failed_login_attempts + locked_until (migration 036) implement
+-- per-account brute-force lockout on top of the per-IP rate limit.
 api_keys (id, user_id, key_hash, key_prefix, label, org_id, last_used_at, created_at)
+revoked_refresh_tokens (jti, user_id, revoked_at)
+-- migration 037. /auth/logout inserts the current refresh token's jti
+-- here; /auth/refresh consults it before issuing a new pair AND inserts
+-- the consumed jti on success (refresh-token rotation).
 
 -- Multi-tenancy
 organizations (id, name, slug, created_at)

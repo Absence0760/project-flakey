@@ -29,3 +29,4 @@ Everything else (`src/routes/`, `src/normalizers/`, `src/tests/`) is self-descri
 - `JWT_SECRET` is required in production (no default).
 - Secrets for integrations (Jira tokens, PagerDuty keys) are AES-256-GCM encrypted via `FLAKEY_ENCRYPTION_KEY`. If the key is unset, the code falls back to plaintext passthrough — only acceptable in local dev.
 - `SMTP_*` + `EMAIL_FROM` control transactional mail (auth verification, password reset) and scheduled report delivery; all have safe defaults for local dev.
+- Login hardening (see `docs/architecture.md` § 4 for the full picture): per-account lockout via `LOGIN_LOCKOUT_THRESHOLD` (default 5) / `LOGIN_LOCKOUT_MINUTES` (default 15) on top of the per-IP `AUTH_RATE_LIMIT_MAX` gate, bcrypt-bounded response time on unknown emails (no enumeration via timing), refresh-token revocation + rotation via the `revoked_refresh_tokens` table, and per-request org-membership re-validation in `requireAuth` so removed members 401 immediately.
