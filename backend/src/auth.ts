@@ -184,9 +184,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     } else {
       candidate = verifyToken(token);
     }
-  }
-
-  if (!candidate) {
+    // Explicit Bearer auth: succeeds or fails on its own merits. Do
+    // NOT fall back to cookie auth — a revoked API key + a still-valid
+    // session cookie must reject, otherwise revocation isn't honoured
+    // when the two are sent together (browser tab with a stale key).
+  } else {
     const cookieToken = parseCookie(req.headers.cookie, "flakey_token");
     if (cookieToken) candidate = verifyToken(cookieToken);
   }

@@ -509,3 +509,73 @@ test("POST /auth/login accepts mixed-case email and trimmed whitespace", async (
     `login with uppercase + whitespace should succeed (got ${login.status})`);
 });
 
+// ── Bearer / cookie precedence ──────────────────────────────────────────
+//
+// When a request carries BOTH an `Authorization: Bearer …` header and a
+// session cookie, the Bearer must be authoritative. Previously the
+// requireAuth flow fell through to cookie auth whenever the Bearer
+// failed verification — which silently re-authenticated revoked API
+// keys as their owning user (the Playwright auth-keys-quarantine
+// regression: page.request.post inherits the storageState cookie, the
+// Bearer carried the just-revoked key, and the request returned 201
+// instead of 401). Pin the contract here.
+
+test("revoked API key + still-valid session cookie → 401 (Bearer wins; no cookie fallthrough)", async () => {
+  // Mint a fresh API key just for this test so the existing key-flow
+  // tests above don't poison the state we're poking at.
+  const created = await fetch(`${BASE}/auth/api-keys`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${userToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ label: "bearer-cookie-precedence" }),
+  });
+  assert.equal(created.status, 201, "key creation should succeed");
+  const { key: rawKey, prefix } = (await created.json()) as { key: string; prefix: string };
+
+  // POST /auth/api-keys returns the raw key + prefix but no id; have
+  // to look it up via the list (same pattern as the earlier
+  // "DELETE … revokes the key" test).
+  const list = await fetch(`${BASE}/auth/api-keys`, {
+    headers: { Authorization: `Bearer ${userToken}` },
+  });
+  const keys = (await list.json()) as Array<{ id: number; key_prefix: string }>;
+  const keyId = keys.find((k) => k.key_prefix === prefix)?.id;
+  assert.ok(keyId, "newly-created key should appear in the list");
+
+  // The session cookie is just the JWT (see setTokenCookie in auth.ts).
+  // Build the Cookie header by hand so we control whether it's present.
+  const cookie = `flakey_token=${userToken}`;
+
+  // Sanity: with the live key + the cookie, /auth/me succeeds.
+  const sanity = await fetch(`${BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${rawKey}`, Cookie: cookie },
+  });
+  assert.equal(sanity.status, 200, "live key + cookie should authenticate");
+
+  // Revoke the key.
+  const del = await fetch(`${BASE}/auth/api-keys/${keyId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${userToken}` },
+  });
+  assert.equal(del.status, 200, "revoke should return 200");
+
+  // The fix: revoked Bearer + valid cookie must NOT fall back to the
+  // cookie. The request must reject — credential revocation is the
+  // user's intent and a stale cookie can't override it.
+  const replay = await fetch(`${BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${rawKey}`, Cookie: cookie },
+  });
+  assert.equal(
+    replay.status,
+    401,
+    "revoked API key must reject even when a valid session cookie is present (no cookie fallthrough on Bearer failure)",
+  );
+
+  // The cookie itself is still valid — proves the prior assertion isn't
+  // failing because we somehow invalidated the session, only because
+  // the explicit Bearer was honoured exclusively.
+  const cookieOnly = await fetch(`${BASE}/auth/me`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(cookieOnly.status, 200, "cookie alone must still authenticate (only the Bearer was revoked)");
+});
+
