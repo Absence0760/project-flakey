@@ -1,0 +1,222 @@
+name: Tests
+
+# Runs the full test surface on every PR + every push to main, plus
+# on manual workflow_dispatch. Four jobs, three of them independent
+# (parallel) and one (Playwright e2e) gated on the backend suite so
+# we don't burn ~10 min of e2e spend on a PR that already failed at
+# the backend unit/smoke layer.
+#
+# Service containers: Postgres 16-alpine matching docker-compose.yml,
+# seeded with the same admin@example.com / demo@example.com /
+# viewer@example.com triple the local dev tooling expects (so the
+# Playwright fixtures/users.ts file stays a single source of truth).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-flight runs for the same ref when a new push lands. Final
+# verdict on each commit is what matters; older runs are throwaway.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests (node --test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flakey
+          POSTGRES_PASSWORD: flakey
+          POSTGRES_DB: flakey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flakey"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Apply migrations
+        # migrate.sh defaults to flakey:flakey on localhost:5432 — matches
+        # the service container above without extra env wiring.
+        run: ./migrate.sh
+      - name: Seed sample data
+        # The seed creates the flakey_app non-superuser the tests run as.
+        # `node --test` spawns backend instances inside each smoke file
+        # with DB_USER=flakey_app, which exists once the seed has finished.
+        run: npm run seed
+      - name: Run tests
+        run: npm test
+
+  packages:
+    name: Package tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run @flakeytesting/* tests
+        # `pnpm test:packages` is the root-level fan-out across every
+        # @flakeytesting/* workspace that defines a test script —
+        # currently every package under packages/.
+        run: pnpm test:packages
+
+  frontend-check:
+    name: Frontend type-check (svelte-check)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  e2e:
+    name: Frontend e2e (Playwright)
+    runs-on: ubuntu-latest
+    # Gate e2e on the backend suite passing so we don't burn ~10 min
+    # of Playwright spend on a PR that's already broken below.
+    needs: [backend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flakey
+          POSTGRES_PASSWORD: flakey
+          POSTGRES_DB: flakey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flakey"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Backend deps + DB state. Playwright's globalSetup signs each
+      # seeded user in via the real /auth/login route, so the seed must
+      # have completed before the spec phase begins.
+      - name: Install backend deps (npm)
+        working-directory: backend
+        run: npm ci
+      - name: Apply migrations
+        working-directory: backend
+        run: ./migrate.sh
+      - name: Seed sample data
+        working-directory: backend
+        run: npm run seed
+
+      # Frontend deps. pnpm install at the workspace root pulls in the
+      # frontend (it's NOT in the workspace) only via the explicit
+      # frontend/ install below; root install is for packages/.
+      - name: Install workspace deps (pnpm)
+        run: pnpm install --frozen-lockfile
+      - name: Install frontend deps (pnpm)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Playwright browsers. Cached by version so repeated runs don't
+      # re-download Chromium.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Start the backend in the background. The Playwright config's
+      # webServer block auto-starts vite on 7778, so we don't need to
+      # spawn the frontend ourselves.
+      - name: Start backend
+        working-directory: backend
+        env:
+          PORT: "3000"
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_USER: flakey_app
+          DB_PASSWORD: flakey_app
+          DB_NAME: flakey
+          JWT_SECRET: ci-e2e-test-secret
+          ALLOW_REGISTRATION: "true"
+          NODE_ENV: test
+          CORS_ORIGINS: http://localhost:7778
+        run: |
+          npx tsx src/index.ts > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
+              echo "backend healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend did not become healthy"
+          cat /tmp/backend.log
+          exit 1
+
+      - name: Run Playwright
+        working-directory: frontend
+        env:
+          # webServer baseURL is 7778; CI flag tightens retries/reporters.
+          CI: "true"
+        run: pnpm test:e2e
+
+      - name: Backend log on failure
+        if: failure()
+        run: cat /tmp/backend.log || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
