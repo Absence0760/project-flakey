@@ -81,6 +81,13 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build @flakeytesting/* packages
+        # Reporter packages (cypress-/playwright-/webdriverio-reporter, etc.)
+        # import the workspace @flakeytesting/core at runtime; that resolves
+        # to core/dist/index.js. Without an explicit build step, the dist/
+        # dir doesn't exist and the test run crashes with ERR_MODULE_NOT_FOUND.
+        # `-r` walks the workspace in topological order so core builds first.
+        run: pnpm -r --filter "@flakeytesting/*" build
       - name: Run @flakeytesting/* tests
         # `pnpm test:packages` is the root-level fan-out across every
         # @flakeytesting/* workspace that defines a test script —
