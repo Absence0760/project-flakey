@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/build-cjs.cjs",
-    "test": "node --import tsx --test src/tests/**/*.test.ts"
+    "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "keywords": [
     "cypress",
