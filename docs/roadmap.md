@@ -120,6 +120,10 @@
 - [x] Per-test assignees + session target dates
 - [x] Manual-test flakiness signals derived from session history
 
+## Phase 12 — Realtime dashboard UX
+
+- [ ] Replace dashboard `/live/active` polling with an org-scoped SSE subscription. The backend already exposes per-run SSE at `/live/:runId/stream`; adding `/live/stream` (org-scoped active-set events) would let the runs list react within milliseconds of `/live/start` instead of waiting up to 5 s for the next poll cycle. Closes the visible-latency gap in issue #41 that the polling-based fix can't shrink further.
+
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
