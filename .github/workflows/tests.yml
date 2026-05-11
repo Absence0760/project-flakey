@@ -104,7 +104,11 @@ jobs:
           node-version: 20
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      # frontend isn't a workspace member (root pnpm-workspace.yaml
+      # only globs packages/*), so pnpm would walk up and install the
+      # workspace instead — leaving frontend/node_modules empty.
+      # --ignore-workspace pins the install to this directory.
+      - run: pnpm install --frozen-lockfile --ignore-workspace
       - run: pnpm check
 
   e2e:
@@ -157,7 +161,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install frontend deps (pnpm)
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       # Playwright browsers. Cached by version so repeated runs don't
       # re-download Chromium.
