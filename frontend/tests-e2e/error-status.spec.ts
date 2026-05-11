@@ -24,10 +24,26 @@ test.describe("/errors — status CRUD", () => {
   }) => {
     await page.goto("/errors");
 
-    // First error header lands; click to expand.
-    const firstHeader = page.locator(".error-header").first();
-    await expect(firstHeader).toBeVisible({ timeout: 10_000 });
-    await firstHeader.click();
+    // The seed already stamps one error group as 'investigating' (see
+    // backend/src/seed.ts — non-default error_group statuses) so we
+    // can't rely on a global uniqueness count, and we must not pick
+    // an already-investigating row (the test would no-op and the
+    // cleanup would corrupt the seed). Find the first row whose badge
+    // is anything OTHER than Investigating, capture its message, and
+    // drive the change off that row.
+    await expect(page.locator(".error-header").first()).toBeVisible({ timeout: 10_000 });
+    const target = page
+      .locator(".error-header", {
+        hasNot: page.locator(".status-badge", { hasText: "Investigating" }),
+      })
+      .first();
+    await expect(target, "expected at least one non-Investigating error in the seed").toBeVisible({
+      timeout: 5_000,
+    });
+    const targetMessage = (await target.locator(".error-message-primary").innerText()).trim();
+    expect(targetMessage.length, "target error header must have a message").toBeGreaterThan(0);
+
+    await target.click();
 
     // The expanded body has a status-controls section with 5 pills.
     const statusControls = page.locator(".status-controls").first();
@@ -39,20 +55,25 @@ test.describe("/errors — status CRUD", () => {
     // updates too (statusInfo(err.status).label).
     await expect(investigatingBtn).toHaveClass(/\bactive\b/, { timeout: 2_000 });
 
-    // Reload — the change must have hit the server. The first group
-    // could re-sort to a different position depending on aggregation
-    // ordering; we look for a group whose badge reads "Investigating"
-    // anywhere on the page.
+    // Reload — the change must have hit the server. The row may
+    // re-sort, so locate by the captured message and assert that
+    // specific row has the Investigating badge.
     await page.reload();
     await expect(page.locator(".error-header").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(".status-badge", { hasText: "Investigating" })).toHaveCount(1, {
+    const reloadedHeader = page
+      .locator(".error-header", { has: page.locator(".error-message-primary", { hasText: targetMessage }) })
+      .first();
+    await expect(reloadedHeader.locator(".status-badge", { hasText: "Investigating" })).toBeVisible({
       timeout: 5_000,
     });
 
-    // Clean up — flip the status back to "Open" so the suite re-runs
-    // start from the same baseline.
-    await page.locator(".error-header", { has: page.locator(".status-badge", { hasText: "Investigating" }) }).first().click();
+    // Clean up — flip the captured row back to "Open" so the suite
+    // re-runs start from the same baseline. Scoped to the same
+    // captured row so we don't disturb the seed's pre-existing
+    // investigating entry.
+    await reloadedHeader.click();
     await page
+      .locator(".error-card", { has: page.locator(".error-message-primary", { hasText: targetMessage }) })
       .locator(".status-controls .status-btn", { hasText: "Open" })
       .first()
       .click();

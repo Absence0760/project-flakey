@@ -86,7 +86,7 @@ async function storageStateIsValid(user: SeededUser): Promise<boolean> {
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL =
-    config.projects[0]?.use.baseURL ?? "http://localhost:7777";
+    config.projects[0]?.use.baseURL ?? "http://localhost:7778";
 
   // First pass: filter by file presence + mtime. Cheap.
   const ageFilter = ALL_USERS.filter((u) => {

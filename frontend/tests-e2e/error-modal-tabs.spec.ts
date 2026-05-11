@@ -43,7 +43,11 @@ async function findRunAndTest(
   await page.goto("/dashboard");
   const result = await page.evaluate(async (criteria) => {
     const token = localStorage.getItem("bt_token");
-    const runsRes = await fetch("http://localhost:3000/runs?limit=200", {
+    // limit=500 — earlier specs in the suite create dozens of fresh
+    // /live/start + /runs/upload rows that all sort above the seed
+    // Playwright runs (created_at scattered 1-14 days ago). 200 was
+    // not enough to reach them once the suite warmed up.
+    const runsRes = await fetch("http://localhost:3000/runs?limit=500", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const runsBody = await runsRes.json();
