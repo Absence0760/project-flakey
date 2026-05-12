@@ -1729,16 +1729,18 @@
 	table.tests tbody tr.test-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
 	.test-title { font-weight: 500; color: var(--text); }
 	.priority { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
-	.priority-low { background: #e5e7eb; color: #4b5563; }
-	.priority-medium { background: #dbeafe; color: #1e40af; }
-	.priority-high { background: #fef3c7; color: #92400e; }
-	.priority-critical { background: #fee2e2; color: #991b1b; }
+	/* Color-mix against the page background so the pale fills auto-
+	   adapt to dark mode instead of reading as glowing patches. */
+	.priority-low { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
+	.priority-medium { background: color-mix(in srgb, var(--link) 18%, transparent); color: var(--link); }
+	.priority-high { background: color-mix(in srgb, #f59e0b 22%, transparent); color: #d97706; }
+	.priority-critical { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
 	.status { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
-	.status-passed { background: #dcfce7; color: #166534; }
-	.status-failed { background: #fee2e2; color: #991b1b; }
-	.status-blocked { background: #fef3c7; color: #92400e; }
-	.status-skipped { background: #e5e7eb; color: #4b5563; }
-	.status-not-run { background: #e5e7eb; color: #4b5563; }
+	.status-passed { background: color-mix(in srgb, var(--color-pass) 18%, transparent); color: var(--color-pass); }
+	.status-failed { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
+	.status-blocked { background: color-mix(in srgb, #f59e0b 22%, transparent); color: #d97706; }
+	.status-skipped { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
+	.status-not-run { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
 	.empty, .error { padding: 2rem; text-align: center; color: var(--text-muted); }
 	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 300; }
 	.modal {

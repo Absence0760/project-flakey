@@ -555,11 +555,14 @@
 		text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em;
 		white-space: nowrap; flex-shrink: 0;
 	}
-	.status-draft        { background: #e5e7eb; color: #4b5563; }
-	.status-in_progress  { background: #dbeafe; color: #1e40af; }
-	.status-signed_off   { background: #dcfce7; color: #166534; }
-	.status-released     { background: #d1fae5; color: #065f46; }
-	.status-cancelled    { background: #fee2e2; color: #991b1b; }
+	/* Status badges — color-mix against the page background so the
+	   pale fills auto-adapt to dark mode instead of reading as
+	   glowing patches against a dark backdrop. */
+	.status-draft        { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
+	.status-in_progress  { background: color-mix(in srgb, var(--link) 18%, transparent); color: var(--link); }
+	.status-signed_off   { background: color-mix(in srgb, var(--color-pass) 18%, transparent); color: var(--color-pass); }
+	.status-released     { background: color-mix(in srgb, var(--color-pass) 22%, transparent); color: var(--color-pass); }
+	.status-cancelled    { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
 
 	.progress-row { display: flex; flex-direction: column; gap: 0.25rem; }
 	.progress {
