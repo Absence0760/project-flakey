@@ -408,27 +408,25 @@
   {/if}
 
   {#if !loading && allRuns.length > 0}
-    <div class="summary-bar">
-      <button class="summary-btn" class:active={selectedStatus === "all"} onclick={() => selectedStatus = "all"}>
-        {stats.total} run{stats.total !== 1 ? "s" : ""}
-      </button>
-      <span class="sep">·</span>
-      <button class="summary-btn summary-pass" class:active={selectedStatus === "passed"} onclick={() => selectedStatus = selectedStatus === "passed" ? "all" : "passed"}>
-        {stats.passed} passed
-      </button>
-      <span class="sep">·</span>
-      <button class="summary-btn summary-fail" class:active={selectedStatus === "failed"} onclick={() => selectedStatus = selectedStatus === "failed" ? "all" : "failed"}>
-        {stats.failed} failed
-      </button>
-      {#if stats.newFailures > 0}
-        <span class="sep">·</span>
-        <button class="summary-btn summary-new" class:active={selectedStatus === "new_failures"} onclick={() => selectedStatus = selectedStatus === "new_failures" ? "all" : "new_failures"}>
-          {stats.newFailures} with new failures
+    <div class="status-tab-row">
+      <div class="filter-tabs">
+        <button class="filter-tab" class:active={selectedStatus === "all"} onclick={() => selectedStatus = "all"}>
+          All <span class="tab-count">{stats.total}</span>
         </button>
-      {/if}
+        <button class="filter-tab pass" class:active={selectedStatus === "passed"} onclick={() => selectedStatus = selectedStatus === "passed" ? "all" : "passed"}>
+          Passed <span class="tab-count">{stats.passed}</span>
+        </button>
+        <button class="filter-tab fail" class:active={selectedStatus === "failed"} onclick={() => selectedStatus = selectedStatus === "failed" ? "all" : "failed"}>
+          Failed <span class="tab-count">{stats.failed}</span>
+        </button>
+        {#if stats.newFailures > 0}
+          <button class="filter-tab new" class:active={selectedStatus === "new_failures"} onclick={() => selectedStatus = selectedStatus === "new_failures" ? "all" : "new_failures"}>
+            New failures <span class="tab-count">{stats.newFailures}</span>
+          </button>
+        {/if}
+      </div>
       {#if selectedStatus !== "all"}
-        <span class="sep">·</span>
-        <span class="summary-filtered">showing {runs.length}</span>
+        <span class="status-filtered">showing {runs.length}</span>
       {/if}
     </div>
   {/if}
@@ -691,21 +689,29 @@
     background: var(--link); color: #fff; font-size: 0.75rem; font-weight: 600; cursor: pointer;
   }
 
-  .summary-bar {
-    display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;
+  /* Status filter tabs — same segmented-control style as /flaky,
+     /errors, /slowest, /manual-tests. Three status-modifier classes
+     (.pass, .fail, .new) tint the COUNT pill only, so the row reads
+     like a consistent control row while still surfacing pass/fail
+     proportions at a glance. */
+  .status-tab-row {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
   }
-  .sep { color: var(--border); }
-  .summary-btn {
-    background: none; border: none; padding: 0.15rem 0.35rem; border-radius: 4px;
-    font: inherit; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer;
-    transition: background 0.1s;
+  .tab-count {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 8px;
+    background: var(--bg-hover, var(--bg-secondary));
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.4;
   }
-  .summary-btn:hover { background: var(--bg-secondary); }
-  .summary-btn.active { background: var(--bg-secondary); font-weight: 600; }
-  .summary-btn.summary-pass { color: var(--color-pass); font-weight: 600; }
-  .summary-btn.summary-fail { color: var(--color-fail); font-weight: 600; }
-  .summary-btn.summary-new { color: #d97706; font-weight: 600; }
-  .summary-filtered { font-style: italic; color: var(--text-muted); font-size: 0.78rem; }
+  .filter-tab.pass .tab-count { background: color-mix(in srgb, var(--color-pass) 18%, transparent); color: var(--color-pass); }
+  .filter-tab.fail .tab-count { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
+  .filter-tab.new  .tab-count { background: color-mix(in srgb, #d97706 18%, transparent); color: #d97706; }
+  .status-filtered { font-style: italic; color: var(--text-muted); font-size: 0.78rem; }
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }
