@@ -788,22 +788,66 @@
 		await load();
 	}
 
-	// Readable short-form dates for badges / toolbars.
+	// ── Date helpers ─────────────────────────────────────────────────
+	// Mirror the /releases index helpers so detail and index stay
+	// consistent. timeAgo() handles past timestamps, relativeDate()
+	// handles target/future dates with day granularity, absoluteDate()
+	// is the title-attribute fallback.
+	const DAY_MS = 86_400_000;
+	function startOfDay(t: number): number {
+		const d = new Date(t);
+		d.setHours(0, 0, 0, 0);
+		return d.getTime();
+	}
+	function daysUntil(iso: string): number {
+		return Math.round((startOfDay(new Date(iso).getTime()) - startOfDay(Date.now())) / DAY_MS);
+	}
+	function relativeDate(iso: string | null | undefined): string {
+		if (!iso) return '';
+		const d = daysUntil(iso);
+		if (d === 0) return 'today';
+		if (d === 1) return 'tomorrow';
+		if (d === -1) return 'yesterday';
+		if (d > 0 && d < 7) return `in ${d} days`;
+		if (d < 0 && d > -7) return `${-d} days ago`;
+		return new Date(iso).toLocaleDateString(undefined, {
+			month: 'short', day: 'numeric',
+			year: d < -300 || d > 300 ? 'numeric' : undefined,
+		});
+	}
+	function timeAgo(iso: string | null | undefined): string {
+		if (!iso) return '';
+		const diff = Date.now() - new Date(iso).getTime();
+		const s = Math.floor(diff / 1000);
+		if (s < 45) return 'just now';
+		if (s < 90) return '1 min ago';
+		const m = Math.floor(s / 60);
+		if (m < 45) return `${m} min ago`;
+		if (m < 90) return '1 hour ago';
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h} hours ago`;
+		const d = Math.floor(h / 24);
+		if (d < 2) return 'yesterday';
+		if (d < 7) return `${d} days ago`;
+		return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+	}
+	function absoluteDate(iso: string | null | undefined): string {
+		if (!iso) return '';
+		return new Date(iso).toLocaleString(undefined, {
+			weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+			hour: '2-digit', minute: '2-digit',
+		});
+	}
+	// Legacy short-form date used by a couple of badges where the
+	// surrounding chrome already implies "this is a date" — kept so
+	// the existing target/session-target chips don't get verbose.
 	function formatDate(d: string | null | undefined): string {
 		if (!d) return '';
-		const date = new Date(d);
-		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleDateString(undefined, {
-			year: 'numeric', month: 'short', day: 'numeric',
-		});
+		return relativeDate(d);
 	}
 	function formatDateTime(d: string | null | undefined): string {
 		if (!d) return '';
-		const date = new Date(d);
-		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleString(undefined, {
-			month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-		});
+		return timeAgo(d);
 	}
 	function truncate(s: string | null, n: number): string {
 		if (!s) return '';
@@ -871,32 +915,169 @@
 		await load();
 	}
 
+	async function cancelRelease() {
+		const ok = await openConfirm({
+			title: 'Cancel release?',
+			message: 'This marks the release as cancelled. The checklist, sessions, and links are preserved for audit, but the release will no longer be considered active.',
+			confirmLabel: 'Cancel release',
+			cancelLabel: 'Keep',
+			tone: 'danger',
+		});
+		if (!ok) return;
+		await changeStatus('cancelled');
+	}
+
+	function handleEsc(e: KeyboardEvent) {
+		if (e.key !== 'Escape') return;
+		// Topmost-first: close whichever overlay is open.
+		if (confirmState) { resolveConfirm(false); e.preventDefault(); return; }
+		if (bugFileTargetTestId !== null) { closeBugFileDialog(); e.preventDefault(); return; }
+		if (acceptTargetTestId !== null) { closeAcceptDialog(); e.preventDefault(); return; }
+		if (runnerTestId !== null) { closeRunner(); e.preventDefault(); return; }
+	}
+
 	const checked = $derived(release?.items.filter(i => i.checked).length ?? 0);
 	const total = $derived(release?.items.length ?? 0);
-	const requiredRemaining = $derived(release?.items.filter(i => i.required && !i.checked).length ?? 0);
+	const progressPct = $derived(total > 0 ? Math.round((checked / total) * 100) : 0);
+	const requiredItems = $derived(release?.items.filter(i => i.required) ?? []);
+	const requiredRemaining = $derived(requiredItems.filter(i => !i.checked).length);
+	const optionalItems = $derived(release?.items.filter(i => !i.required) ?? []);
+
+	// Days until target — null when no target. Negative = overdue.
+	const daysToTarget = $derived(
+		release?.target_date ? daysUntil(release.target_date) : null
+	);
+	// At-risk lens: open release + (overdue OR imminent with required items
+	// left). Mirrors the /releases index logic so the two views agree on
+	// what "needs attention" means.
+	const OPEN_STATUSES = new Set(['draft', 'in_progress']);
+	const riskLevel = $derived.by<'overdue' | 'imminent' | null>(() => {
+		if (!release) return null;
+		if (!OPEN_STATUSES.has(release.status)) return null;
+		if (daysToTarget === null) return null;
+		if (daysToTarget < 0) return 'overdue';
+		if (daysToTarget <= 7 && requiredRemaining > 0) return 'imminent';
+		return null;
+	});
+
+	// Whether the danger zone's "Cancel" affordance applies. A signed-off
+	// or released or already-cancelled release shouldn't offer it.
+	const canCancel = $derived(
+		release !== null && OPEN_STATUSES.has(release.status)
+	);
 </script>
+
+<svelte:window onkeydown={handleEsc} />
 
 <div class="page">
 	<a href="/releases" class="back">← All releases</a>
 
 	{#if loading}
-		<p>Loading…</p>
+		<p class="muted">Loading…</p>
 	{:else if error}
 		<p class="error">{error}</p>
 	{:else if release}
-		<header class="release-header">
-			<div>
-				<h1>{release.version}</h1>
-				{#if release.name}<p class="name">{release.name}</p>{/if}
-				{#if release.description}<p class="description">{release.description}</p>{/if}
+		<header class="release-header status-{release.status}" class:at-risk={riskLevel !== null}>
+			<div class="header-top">
+				<div class="header-titles">
+					<div class="title-row">
+						<h1>{release.version}</h1>
+						<span class="status status-{release.status}">{release.status.replace('_', ' ')}</span>
+					</div>
+					{#if release.name}<p class="name">{release.name}</p>{/if}
+					{#if release.description}<p class="description">{release.description}</p>{/if}
+				</div>
+				<div class="header-actions">
+					{#if release.signed_off_at}
+						<span class="header-cta-pill done" title={absoluteDate(release.signed_off_at)}>
+							✓ Signed off {timeAgo(release.signed_off_at)}
+						</span>
+					{:else if release.status === 'cancelled'}
+						<span class="header-cta-pill bad">Cancelled</span>
+					{:else if requiredRemaining > 0}
+						<span class="header-cta-pill warn" title="Complete all required checklist items to sign off">
+							Sign-off blocked · {requiredRemaining} required left
+						</span>
+					{:else}
+						<span class="header-cta-pill ready">Ready to sign off</span>
+					{/if}
+				</div>
 			</div>
-			<div class="header-side">
-				<span class="status status-{release.status}">{release.status.replace('_', ' ')}</span>
+
+			<div class="kpi-strip">
+				<div class="kpi">
+					<span class="kpi-label">Checklist</span>
+					<span class="kpi-value">{checked}<span class="kpi-suffix">/{total}</span></span>
+					<div class="kpi-progress" aria-label="{progressPct}% complete">
+						<div class="kpi-progress-fill" style="width: {progressPct}%"></div>
+					</div>
+				</div>
+				<div class="kpi" class:warn={requiredRemaining > 0}>
+					<span class="kpi-label">Required remaining</span>
+					<span class="kpi-value">{requiredRemaining}</span>
+					<span class="kpi-sub">of {requiredItems.length} required</span>
+				</div>
 				{#if release.target_date}
-					<span class="target">Target {formatDate(release.target_date)}</span>
+					<div class="kpi" class:warn={riskLevel === 'imminent'} class:bad={riskLevel === 'overdue'}>
+						<span class="kpi-label">Target</span>
+						<span class="kpi-value" title={absoluteDate(release.target_date)}>
+							{#if daysToTarget !== null && daysToTarget < 0}
+								{-daysToTarget}d <span class="kpi-suffix">overdue</span>
+							{:else if daysToTarget !== null && daysToTarget === 0}
+								today
+							{:else if daysToTarget !== null}
+								{daysToTarget}d
+							{/if}
+						</span>
+						<span class="kpi-sub">{relativeDate(release.target_date)}</span>
+					</div>
+				{:else}
+					<div class="kpi">
+						<span class="kpi-label">Target</span>
+						<span class="kpi-value dim">—</span>
+						<span class="kpi-sub">no target set</span>
+					</div>
+				{/if}
+				<div class="kpi" class:good={readiness?.ready}>
+					<span class="kpi-label">Readiness</span>
+					{#if readiness}
+						<span class="kpi-value">
+							{readiness.ready ? '✓ Ready' : `${readiness.blocking_items.length}`}
+						</span>
+						<span class="kpi-sub">
+							{readiness.ready ? 'all checks pass' : `blocker${readiness.blocking_items.length === 1 ? '' : 's'}`}
+						</span>
+					{:else}
+						<span class="kpi-value dim">—</span>
+						<span class="kpi-sub">computing…</span>
+					{/if}
+				</div>
+				{#if release.signed_off_at}
+					<div class="kpi good signed-kpi">
+						<span class="kpi-label">Signed off</span>
+						<span class="kpi-value" title={absoluteDate(release.signed_off_at)}>{timeAgo(release.signed_off_at)}</span>
+						<span class="kpi-sub" title={release.signed_off_by_email ?? ''}>
+							{release.signed_off_by_email ?? ''}
+						</span>
+					</div>
 				{/if}
 			</div>
+
 		</header>
+
+		{#if riskLevel !== null}
+			<section class="risk-band" aria-label="Release at risk">
+				<span class="risk-icon" aria-hidden="true">⚠</span>
+				<div class="risk-text">
+					<strong>This release {riskLevel === 'overdue' ? 'is overdue' : 'is at risk'}.</strong>
+					{#if riskLevel === 'overdue'}
+						Target was {relativeDate(release.target_date)} and {requiredRemaining} required item{requiredRemaining === 1 ? '' : 's'} remain.
+					{:else}
+						Target is {relativeDate(release.target_date)} with {requiredRemaining} required item{requiredRemaining === 1 ? '' : 's'} still outstanding.
+					{/if}
+				</div>
+			</section>
+		{/if}
 
 		{#if readiness}
 			<section class="readiness" class:ready={readiness.ready}>
@@ -1148,7 +1329,7 @@
 									<span class="session-label">{inProgressSession.label}</span>
 								{/if}
 								{#if inProgressSession.target_date}
-									<span class="target-badge" title="Target date">🎯 {formatDate(inProgressSession.target_date)}</span>
+									<span class="target-badge" title={`Target date: ${absoluteDate(inProgressSession.target_date)}`}>🎯 {relativeDate(inProgressSession.target_date)}</span>
 								{/if}
 							</div>
 							<div class="progress-wrap">
@@ -1288,7 +1469,7 @@
 											<td class="last-run-cell dim">
 												{#if r.run_at}
 													<div class="last-run-by" title={r.run_by_email ?? ''}>{shortName(r.run_by_email)}</div>
-													<div class="dim small">{formatDateTime(r.run_at)}</div>
+													<div class="dim small" title={absoluteDate(r.run_at)}>{timeAgo(r.run_at)}</div>
 												{:else}
 													—
 												{/if}
@@ -1397,10 +1578,10 @@
 											<span class="status-pill status-accepted">{s.accepted} accepted</span>
 										{/if}
 										{#if s.target_date}
-											<span class="target-badge" title="Target date">🎯 {formatDate(s.target_date)}</span>
+											<span class="target-badge" title={`Target date: ${absoluteDate(s.target_date)}`}>🎯 {relativeDate(s.target_date)}</span>
 										{/if}
 									</div>
-									<span class="dim">{formatDateTime(s.created_at)} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
+									<span class="dim" title={absoluteDate(s.created_at)}>{timeAgo(s.created_at)} · {expandedSessionId === s.id ? '▼' : '▶'}</span>
 								</div>
 								<div class="progress-bar">
 									{#if s.total > 0}
@@ -1462,7 +1643,7 @@
 														<td class="dim">
 															{#if r.run_at}
 																<span title={r.run_by_email ?? ''}>{shortName(r.run_by_email)}</span><br />
-																<span class="dim small">{formatDateTime(r.run_at)}</span>
+																<span class="dim small" title={absoluteDate(r.run_at)}>{timeAgo(r.run_at)}</span>
 															{:else}
 																—
 															{/if}
@@ -1553,6 +1734,7 @@
 			</section>
 		{/if}
 
+		<div class="links-grid">
 		<section class="linked-runs-panel">
 			<details>
 				<summary>
@@ -1580,7 +1762,7 @@
 						<li>
 							<a href={`/runs/${r.id}`}>
 								<strong>{r.suite_name}</strong>
-								<span class="dim">#{r.id} · {r.branch || 'main'} · {formatDateTime(r.created_at)}</span>
+								<span class="dim">#{r.id} · {r.branch || 'main'} · <span title={absoluteDate(r.created_at)}>{timeAgo(r.created_at)}</span></span>
 							</a>
 							<span class="mini-stats">
 								<span class="pass">{r.passed}</span> /
@@ -1614,7 +1796,7 @@
 										onchange={() => toggleRunSelection(r.id)}
 									/>
 									<strong>{r.suite_name}</strong>
-									<span class="dim">#{r.id} · {r.branch || 'main'} · {formatDateTime(r.created_at)}</span>
+									<span class="dim">#{r.id} · {r.branch || 'main'} · <span title={absoluteDate(r.created_at)}>{timeAgo(r.created_at)}</span></span>
 									<span class="mini-stats">{r.passed}/{r.failed}/{r.total}</span>
 									{#if alreadyLinked}<span class="dim">(linked)</span>{/if}
 								</label>
@@ -1733,6 +1915,7 @@
 			</div>
 			</details>
 		</section>
+		</div>
 
 
 		{#if runnerTestId !== null}
@@ -1860,10 +2043,15 @@
 			</div>
 		{/if}
 
-		<section>
+		<section class="checklist-section">
 			<div class="section-header">
 				<h2>Checklist</h2>
-				<span class="progress-text">{checked}/{total} complete · {requiredRemaining} required remaining</span>
+				<div class="checklist-meta">
+					<div class="checklist-progress" aria-label="{progressPct}% complete">
+						<div class="checklist-progress-fill" style="width: {progressPct}%"></div>
+					</div>
+					<span class="progress-text">{checked}/{total} complete · <strong class:fail-text={requiredRemaining > 0}>{requiredRemaining}</strong> required remaining</span>
+				</div>
 			</div>
 			<ul class="items">
 				{#each release.items as item}
@@ -1902,33 +2090,54 @@
 		</section>
 
 		<section class="actions-section">
-			<h2>Actions</h2>
-			{#if release.signed_off_at}
-				<p class="signed-off">
-					✅ Signed off by <strong>{release.signed_off_by_email}</strong>
-					on {new Date(release.signed_off_at).toLocaleString()}
-				</p>
-				<button class="btn-primary" onclick={() => changeStatus('released')} disabled={release.status === 'released'}>
-					Mark released
-				</button>
-			{:else}
-				<button class="btn-primary" onclick={signOff} disabled={requiredRemaining > 0}>
-					Sign off release
-				</button>
-				{#if requiredRemaining > 0}
-					<p class="hint">Complete all required checklist items to sign off.</p>
-				{/if}
-			{/if}
-			<div class="status-actions">
-				<label>Status:
-					<select value={release.status} onchange={(e) => changeStatus((e.target as HTMLSelectElement).value)}>
-						<option value="draft">Draft</option>
-						<option value="in_progress">In progress</option>
-						<option value="signed_off">Signed off</option>
-						<option value="released">Released</option>
-						<option value="cancelled">Cancelled</option>
-					</select>
-				</label>
+			<div class="actions-grid">
+				<div class="actions-left">
+					<h2>Release actions</h2>
+					{#if release.signed_off_at}
+						<p class="signed-off">
+							✓ Signed off by <strong>{release.signed_off_by_email}</strong>
+							<span title={absoluteDate(release.signed_off_at)}>{timeAgo(release.signed_off_at)}</span>
+						</p>
+						<button class="btn-primary" onclick={() => changeStatus('released')} disabled={release.status === 'released'}>
+							Mark released
+						</button>
+					{:else if release.status !== 'cancelled'}
+						<button class="btn-primary" onclick={signOff} disabled={requiredRemaining > 0}>
+							Sign off release
+						</button>
+						{#if requiredRemaining > 0}
+							<p class="hint">Complete all required checklist items to sign off.</p>
+						{/if}
+					{:else}
+						<p class="hint">This release has been cancelled. Change the status below to revive it.</p>
+					{/if}
+					<div class="status-actions">
+						<label>Status:
+							<select value={release.status} onchange={(e) => changeStatus((e.target as HTMLSelectElement).value)}>
+								<option value="draft">Draft</option>
+								<option value="in_progress">In progress</option>
+								<option value="signed_off">Signed off</option>
+								<option value="released">Released</option>
+								<option value="cancelled">Cancelled</option>
+							</select>
+						</label>
+					</div>
+				</div>
+				<div class="danger-zone">
+					<h3>Danger zone</h3>
+					<p class="hint">
+						Cancelling a release stops it from blocking sign-off and removes it from
+						the at-risk band. Sessions, checklist, and links are preserved.
+					</p>
+					<button
+						class="btn-danger-outline"
+						onclick={cancelRelease}
+						disabled={!canCancel}
+						title={canCancel ? 'Cancel this release' : 'Only draft or in-progress releases can be cancelled'}
+					>
+						Cancel release
+					</button>
+				</div>
 			</div>
 		</section>
 	{/if}
@@ -1936,24 +2145,169 @@
 
 <style>
 	.page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
-	.back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
+	.back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; display: inline-block; margin-bottom: 0.5rem; }
 	.back:hover { color: var(--text); }
-	.release-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 0.75rem 0 1.5rem; gap: 1rem; }
-	.release-header h1 { margin: 0.25rem 0 0.5rem; }
-	.name { color: var(--text-muted); margin: 0 0 0.5rem; }
-	.description { color: var(--text-secondary); margin: 0; }
-	.header-side { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end; }
-	.status { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
-	.status-draft { background: #e5e7eb; color: #4b5563; }
-	.status-in_progress { background: #dbeafe; color: #1e40af; }
-	.status-signed_off { background: #dcfce7; color: #166534; }
-	.status-released { background: #d1fae5; color: #065f46; }
-	.status-cancelled { background: #fee2e2; color: #991b1b; }
+	.muted { color: var(--text-muted); }
+
+	/* ── Release header — status-accented hero with KPI strip ─────── */
+	.release-header {
+		position: relative;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 1rem 1.25rem 1rem 1.4rem;
+		margin: 0.25rem 0 1rem;
+		overflow: hidden;
+	}
+	.release-header::before {
+		content: '';
+		position: absolute; left: 0; top: 0; bottom: 0;
+		width: 4px;
+		background: var(--border);
+	}
+	.release-header.status-draft::before        { background: #9ca3af; }
+	.release-header.status-in_progress::before  { background: var(--link, #2563eb); }
+	.release-header.status-signed_off::before   { background: var(--color-pass, #16a34a); }
+	.release-header.status-released::before     { background: #059669; }
+	.release-header.status-cancelled::before    { background: var(--color-fail, #dc2626); }
+	.release-header.at-risk::before             { background: var(--color-fail); }
+	.release-header.at-risk {
+		border-color: color-mix(in srgb, var(--color-fail) 35%, var(--border));
+		background: color-mix(in srgb, var(--color-fail) 3%, var(--bg));
+	}
+
+	.header-top {
+		display: flex; justify-content: space-between; align-items: flex-start;
+		gap: 1.25rem; margin-bottom: 0.85rem;
+	}
+	.header-titles { flex: 1; min-width: 0; }
+	.title-row {
+		display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;
+		margin-bottom: 0.25rem;
+	}
+	.title-row h1 {
+		margin: 0; font-size: 1.6rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		letter-spacing: -0.01em;
+	}
+	.name { color: var(--text-secondary); margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 500; }
+	.description { color: var(--text-muted); margin: 0; font-size: 0.85rem; line-height: 1.45; max-width: 80ch; }
+	.header-actions { display: flex; align-items: flex-start; gap: 0.5rem; flex-shrink: 0; }
+	.header-cta-pill {
+		display: inline-block;
+		font-size: 0.75rem; font-weight: 700;
+		padding: 0.45rem 0.8rem; border-radius: 6px;
+		text-transform: uppercase; letter-spacing: 0.04em;
+		white-space: nowrap;
+	}
+	.header-cta-pill.done { background: color-mix(in srgb, var(--color-pass) 14%, var(--bg)); color: var(--color-pass); border: 1px solid color-mix(in srgb, var(--color-pass) 40%, var(--border)); }
+	.header-cta-pill.ready { background: color-mix(in srgb, var(--color-pass) 14%, var(--bg)); color: var(--color-pass); border: 1px solid color-mix(in srgb, var(--color-pass) 40%, var(--border)); }
+	.header-cta-pill.warn { background: color-mix(in srgb, #f59e0b 14%, var(--bg)); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border)); }
+	.header-cta-pill.bad { background: color-mix(in srgb, var(--color-fail) 14%, var(--bg)); color: var(--color-fail); border: 1px solid color-mix(in srgb, var(--color-fail) 40%, var(--border)); }
+
+	.status {
+		font-size: 0.62rem; padding: 0.2rem 0.6rem; border-radius: 4px;
+		text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;
+		white-space: nowrap;
+	}
+	.status-draft        { background: #e5e7eb; color: #4b5563; }
+	.status-in_progress  { background: #dbeafe; color: #1e40af; }
+	.status-signed_off   { background: #dcfce7; color: #166534; }
+	.status-released     { background: #d1fae5; color: #065f46; }
+	.status-cancelled    { background: #fee2e2; color: #991b1b; }
 	.target { font-size: 0.8rem; color: var(--text-muted); }
+
+	/* KPI strip — packs the four hero metrics into the header card. */
+	.kpi-strip {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: 0.5rem;
+		padding: 0.6rem 0;
+		border-top: 1px solid var(--border);
+	}
+	.kpi {
+		display: flex; flex-direction: column; gap: 0.1rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		min-width: 0;
+	}
+	.kpi-label {
+		font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em;
+		color: var(--text-muted); font-weight: 600;
+	}
+	.kpi-value {
+		font-size: 1.2rem; font-weight: 700; color: var(--text);
+		font-variant-numeric: tabular-nums; line-height: 1.2;
+	}
+	.kpi-value.dim { color: var(--text-muted); font-weight: 500; }
+	.kpi-suffix { font-size: 0.78rem; font-weight: 500; color: var(--text-muted); margin-left: 0.15rem; }
+	.kpi-sub { font-size: 0.7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.kpi.warn { background: color-mix(in srgb, #f59e0b 12%, var(--bg-secondary)); }
+	.kpi.warn .kpi-value { color: #b45309; }
+	.kpi.bad { background: color-mix(in srgb, var(--color-fail) 12%, var(--bg-secondary)); }
+	.kpi.bad .kpi-value { color: var(--color-fail); }
+	.kpi.good { background: color-mix(in srgb, var(--color-pass) 10%, var(--bg-secondary)); }
+	.kpi.good .kpi-value { color: var(--color-pass); }
+	.kpi-progress {
+		margin-top: 0.25rem;
+		height: 4px;
+		background: var(--bg);
+		border-radius: 2px;
+		overflow: hidden;
+	}
+	.kpi-progress-fill {
+		height: 100%; background: var(--link, #2563eb);
+		transition: width 0.25s;
+	}
+
+	/* ── At-risk band (mirrors /releases index) ───────────────────── */
+	.risk-band {
+		display: flex; align-items: center; gap: 0.65rem;
+		background: color-mix(in srgb, var(--color-fail) 6%, var(--bg));
+		border: 1px solid color-mix(in srgb, var(--color-fail) 35%, var(--border));
+		border-left: 4px solid var(--color-fail);
+		border-radius: 8px;
+		padding: 0.65rem 0.9rem;
+		margin-bottom: 1rem;
+		font-size: 0.85rem;
+	}
+	.risk-icon { font-size: 1.1rem; color: var(--color-fail); flex-shrink: 0; }
+	.risk-text { color: var(--text); line-height: 1.45; }
+	.risk-text strong { color: var(--color-fail); }
 	section { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-	.section-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+	.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 0.75rem; flex-wrap: wrap; }
 	.section-header h2 { margin: 0; font-size: 1rem; }
 	.progress-text { font-size: 0.78rem; color: var(--text-muted); }
+	.progress-text strong { color: var(--text); font-weight: 700; }
+	.progress-text strong.fail-text { color: var(--color-fail); }
+
+	/* Checklist progress bar — pairs with the section-header counts. */
+	.checklist-meta { display: flex; align-items: center; gap: 0.65rem; flex: 1; max-width: 480px; }
+	.checklist-progress {
+		flex: 1;
+		height: 6px;
+		background: var(--bg-secondary);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+	.checklist-progress-fill {
+		height: 100%; background: var(--link, #2563eb);
+		transition: width 0.25s;
+	}
+
+	/* Two-up grid for linked-runs + linked-tests on wide viewports.
+	   Each panel keeps its own collapse / picker / unlink mechanics —
+	   the grid only pairs them horizontally so they share the row. */
+	.links-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+	@media (min-width: 1100px) {
+		.links-grid { grid-template-columns: 1fr 1fr; }
+		.links-grid > section { margin-bottom: 0; }
+	}
 	.items { list-style: none; padding: 0; margin: 0; }
 	.items li { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
 	.items li:last-child { border-bottom: none; }
@@ -1968,11 +2322,53 @@
 	.req-toggle { font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem; }
 	.btn-primary { background: var(--link, #2563eb); color: #fff; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
 	.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-	.actions-section h2 { margin-top: 0; font-size: 1rem; }
-	.hint { font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0 0; }
-	.signed-off { color: #166534; margin: 0 0 0.75rem; }
-	.status-actions { margin-top: 0.75rem; }
+	.actions-section h2 { margin-top: 0; margin-bottom: 0.6rem; font-size: 1rem; }
+	.actions-section h3 { margin: 0 0 0.4rem; font-size: 0.92rem; color: var(--color-fail); }
+	.actions-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 1rem;
+	}
+	@media (min-width: 900px) {
+		.actions-grid { grid-template-columns: 1fr auto; align-items: start; }
+	}
+	.actions-left { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+	.hint { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+	.signed-off {
+		display: inline-flex; align-items: center; gap: 0.4rem;
+		color: var(--color-pass); margin: 0;
+		font-size: 0.88rem;
+	}
+	.signed-off span { color: var(--text-muted); font-weight: 500; }
+	.status-actions { margin-top: 0.25rem; font-size: 0.85rem; color: var(--text-muted); }
 	.status-actions select { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); margin-left: 0.5rem; }
+
+	/* Danger zone — same red-accent treatment used elsewhere; the
+	   button is outlined rather than filled so it doesn't compete
+	   with the primary "Sign off" CTA in the header. */
+	.danger-zone {
+		border: 1px solid color-mix(in srgb, var(--color-fail) 35%, var(--border));
+		background: color-mix(in srgb, var(--color-fail) 4%, var(--bg));
+		border-radius: 8px;
+		padding: 0.75rem 0.9rem;
+		display: flex; flex-direction: column; gap: 0.45rem;
+		min-width: 240px;
+		max-width: 360px;
+	}
+	.btn-danger-outline {
+		background: transparent;
+		color: var(--color-fail);
+		border: 1px solid color-mix(in srgb, var(--color-fail) 50%, var(--border));
+		padding: 0.45rem 0.9rem; border-radius: 6px;
+		font-weight: 600; font-size: 0.85rem;
+		cursor: pointer;
+		align-self: flex-start;
+	}
+	.btn-danger-outline:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-fail) 8%, var(--bg));
+		border-color: var(--color-fail);
+	}
+	.btn-danger-outline:disabled { opacity: 0.45; cursor: not-allowed; }
 	.error { color: var(--color-fail, #dc2626); }
 
 	/* ── Readiness panel ─────────────────────────────────────────────── */
