@@ -24,28 +24,16 @@
 	color-scheme: light dark;
 }
 
-[data-theme="dark"],
-:root:has([data-theme="dark"]) {
-	--bg: #0d1117;
-	--bg-secondary: #161b22;
-	--bg-hover: #1c2128;
-	--text: #e6edf3;
-	--text-secondary: #8b949e;
-	--text-muted: #6e7681;
-	--border: #30363d;
-	--border-light: #21262d;
-	--link: #58a6ff;
-	--error-bg: #2d1214;
-	--error-border: #5a1e23;
-	--error-text: #f88;
-	--badge-total: #8b949e;
-	--color-pass: #3fb950;
-	--color-fail: #f85149;
-	--color-skip: #d29922;
-}
+/* Theme is system-driven only. The previous manual light/dark
+   toggle in the sidebar was removed — its `[data-theme="light"]`
+   override broke the light path on dark systems (`:has()` only
+   walks descendants, not the root attribute itself), so two of
+   three toggle states matched the system by coincidence. Keeping
+   one source of truth (the OS / browser preference) avoids that
+   class of bug entirely. */
 
 @media (prefers-color-scheme: dark) {
-	:root:not(:has([data-theme="light"])) {
+	:root {
 		--bg: #0d1117;
 		--bg-secondary: #161b22;
 		--bg-hover: #1c2128;
