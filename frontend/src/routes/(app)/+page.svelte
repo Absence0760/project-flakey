@@ -159,6 +159,27 @@
     newFailures: runs.filter((r) => (r.new_failures ?? 0) > 0).length,
   });
 
+  // Show Load more only when fetching more rows could realistically
+  // surface more matches for the current filter. Without this guard
+  // the button appears "as if All time were selected" — the user has
+  // 7d picked but only 32 of the loaded 50 match, and clicking Load
+  // more would fetch older rows that almost certainly don't match
+  // either. Two cases to suppress:
+  //
+  //   1. A date filter is active AND the oldest loaded run already
+  //      sits past the threshold — runs are sorted desc by created_at,
+  //      so anything older won't match either.
+  //   2. Any non-date filter narrowed the loaded set to nothing — the
+  //      user filtered to an empty state, fetching more rows of the
+  //      same DB shape won't help.
+  let oldestLoadedAge = $derived(
+    allRuns.length > 0 ? Date.now() - new Date(allRuns[allRuns.length - 1].created_at).getTime() : 0
+  );
+  let dateFilterExhausted = $derived(
+    selectedDate !== "all" && oldestLoadedAge > Date.now() - dateThreshold(selectedDate)
+  );
+  let showLoadMore = $derived(hasMore && !dateFilterExhausted);
+
   // Page-level summary for the tile strip. `dbSummary` is the org's
   // database totals (always-on). `newFailuresAcrossLoaded` is computed
   // from rows we've actually fetched — the backend doesn't surface a
@@ -306,6 +327,28 @@
     if (liveStream) { liveStream.close(); liveStream = null; }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   });
+
+  // SvelteKit snapshot — capture loaded rows + scroll position when
+  // the user navigates away (e.g. to /runs/<id>) so back-nav lands
+  // on the same row at the same scroll position. Without this, back
+  // re-mounts the page with the default 50 rows and scroll at top,
+  // forcing the user to Load more again to find where they were.
+  export const snapshot = {
+    capture: () => ({
+      allRuns,
+      dbSummary,
+      hasMore,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    }),
+    restore: (s: { allRuns: Run[]; dbSummary: RunsSummary; hasMore: boolean; scrollY: number }) => {
+      allRuns = s.allRuns;
+      dbSummary = s.dbSummary;
+      hasMore = s.hasMore;
+      loading = false;
+      // Defer scroll until after the rows render.
+      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    },
+  };
 
   function formatDuration(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
@@ -673,10 +716,14 @@
         {/each}
       </tbody>
     </table>
-    {#if hasMore}
+    {#if showLoadMore}
       <div class="load-more">
         <button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
-          {loadingMore ? "Loading..." : `Load more (showing ${allRuns.length} of ${dbSummary.total})`}
+          {loadingMore
+            ? "Loading..."
+            : hasActiveFilters
+              ? `Load more (${runs.length} match · loaded ${allRuns.length} of ${dbSummary.total})`
+              : `Load more (showing ${allRuns.length} of ${dbSummary.total})`}
         </button>
       </div>
     {/if}
