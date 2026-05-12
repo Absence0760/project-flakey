@@ -52,3 +52,8 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/playwright/.cache/
 frontend/tests-e2e/.auth/
+
+# Audit/review reports — kept locally as working documents but not
+# tracked. Findings get applied as commits / PRs; the report files
+# themselves go stale fast and shouldn't be the source of truth.
+reviews/
