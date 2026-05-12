@@ -21,6 +21,13 @@ module "s3" {
   source      = "./modules/s3"
   app_name    = var.app_name
   environment = var.environment
+  # CloudFront WAFv2 must be created in us-east-1; pass the aliased
+  # provider in via the `aws.us_east_1` configuration alias the module
+  # declares in its required_providers block.
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 module "rds" {

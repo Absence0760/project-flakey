@@ -113,11 +113,72 @@ resource "aws_s3_bucket_policy" "frontend" {
   })
 }
 
+# WAFv2 web ACL for the CloudFront distribution. Lives in us-east-1
+# (where CloudFront reads its ACLs) regardless of the rest of the
+# stack's region. Two AWS-managed rule groups give us OWASP common +
+# known-bad-input coverage at the CloudFront edge before traffic ever
+# reaches the ALB. Resolves Trivy AWS-0011.
+resource "aws_wafv2_web_acl" "frontend" {
+  provider    = aws.us_east_1
+  name        = "${var.app_name}-${var.environment}-frontend"
+  scope       = "CLOUDFRONT"
+  description = "OWASP common + known-bad inputs for the public CloudFront distribution."
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 0
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.app_name}-common"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
+    name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
+    priority = 1
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.app_name}-badinputs"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "${var.app_name}-${var.environment}-frontend-acl"
+    sampled_requests_enabled   = true
+  }
+}
+
 # CloudFront for HTTPS + caching
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
+  web_acl_id          = aws_wafv2_web_acl.frontend.arn
 
   origin {
     # Use the regional S3 domain (not the website endpoint) for OAC.

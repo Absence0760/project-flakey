@@ -32,3 +32,20 @@ provider "aws" {
     }
   }
 }
+
+# Second provider pinned to us-east-1. WAFv2 web ACLs that attach to a
+# CloudFront distribution must live in us-east-1 regardless of where
+# the rest of the stack runs — CloudFront is a global service and only
+# reads ACLs from that region.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = "flakey"
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
