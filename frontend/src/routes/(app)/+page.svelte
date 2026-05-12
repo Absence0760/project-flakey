@@ -133,8 +133,11 @@
       if (selectedSuite !== "all" && r.suite_name !== selectedSuite) return false;
       if (selectedBranch !== "all" && r.branch !== selectedBranch) return false;
       if (selectedEnv !== "all" && (r.environment ?? "") !== selectedEnv) return false;
-      if (selectedStatus === "passed" && r.failed > 0) return false;
-      if (selectedStatus === "failed" && r.failed === 0) return false;
+      // Aborted runs aren't "passed" — they finished without running to
+      // completion. Bucket them out of the Passed tab; they still show
+      // up under All.
+      if (selectedStatus === "passed" && (r.failed > 0 || r.aborted)) return false;
+      if (selectedStatus === "failed" && r.failed === 0 && !r.aborted) return false;
       if (selectedStatus === "new_failures" && (r.new_failures ?? 0) === 0) return false;
       if (selectedDate !== "all" && new Date(r.created_at).getTime() < dateThreshold(selectedDate)) return false;
       if (searchQuery) {
@@ -151,8 +154,8 @@
 
   let stats = $derived({
     total: runs.length,
-    passed: runs.filter((r) => r.failed === 0).length,
-    failed: runs.filter((r) => r.failed > 0).length,
+    passed: runs.filter((r) => r.failed === 0 && !r.aborted).length,
+    failed: runs.filter((r) => r.failed > 0 || r.aborted).length,
     newFailures: runs.filter((r) => (r.new_failures ?? 0) > 0).length,
   });
 
