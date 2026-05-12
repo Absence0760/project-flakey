@@ -307,20 +307,17 @@
   .snapshot-frame {
     flex: 1;
     overflow: auto;
-    background: #fff;
+    /* Neutral surround that works in both themes. The captured iframe
+       content is white internally (it's the snapshot of the rendered
+       page); the box-shadow on .snapshot-scaler provides the edge cue
+       that distinguishes iframe-end from frame-empty-space — no checker
+       pattern needed (the earlier checker read as eye-searing high-
+       contrast noise in dark mode). */
+    background: var(--bg-secondary);
     display: flex;
     align-items: flex-start;
     justify-content: center;
     position: relative;
-    /* Subtle checker so the user can tell the iframe ends — useful when
-       the captured page is shorter than the modal pane. */
-    background-image:
-      linear-gradient(45deg, var(--bg-secondary) 25%, transparent 25%),
-      linear-gradient(-45deg, var(--bg-secondary) 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, var(--bg-secondary) 75%),
-      linear-gradient(-45deg, transparent 75%, var(--bg-secondary) 75%);
-    background-size: 16px 16px;
-    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   }
 
   .snapshot-scaler {
