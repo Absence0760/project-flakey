@@ -65,6 +65,11 @@ resource "aws_s3_bucket" "state_logs" {
   force_destroy = false
 }
 
+resource "aws_s3_bucket_versioning" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+  versioning_configuration { status = "Enabled" }
+}
+
 resource "aws_s3_bucket_ownership_controls" "state_logs" {
   bucket = aws_s3_bucket.state_logs.id
   rule {

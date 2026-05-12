@@ -1,3 +1,29 @@
+data "aws_caller_identity" "current" {}
+
+# Customer-managed KMS key for ECR image-layer encryption. Trivy
+# AWS-0033 wanted a CMK; the AWS-managed alias/aws/ecr earlier got us
+# partway there but Trivy still flagged "not a CMK". ~$1/month per key.
+resource "aws_kms_key" "ecr" {
+  description             = "${var.app_name} CMK for ECR image-layer encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "EnableRootAccess"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
+}
+
+resource "aws_kms_alias" "ecr" {
+  name          = "alias/${var.app_name}-ecr"
+  target_key_id = aws_kms_key.ecr.key_id
+}
+
 resource "aws_ecr_repository" "backend" {
   name = "${var.app_name}-backend"
   # IMMUTABLE prevents a compromised OIDC role from overwriting an
@@ -13,10 +39,8 @@ resource "aws_ecr_repository" "backend" {
   }
 
   encryption_configuration {
-    # KMS-encrypted layers (defaults to the AWS-managed key for ECR).
-    # Resolves Trivy AWS-0033 without bringing the cost / lifecycle of
-    # a CMK.
     encryption_type = "KMS"
+    kms_key         = aws_kms_key.ecr.arn
   }
 }
 

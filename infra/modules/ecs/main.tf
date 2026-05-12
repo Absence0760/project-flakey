@@ -352,13 +352,55 @@ resource "aws_appautoscaling_policy" "backend_cpu" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
 # --- Monitoring & alerts ---
+#
+# Customer-managed KMS key for the alerts SNS topic. Trivy AWS-0136
+# requires a CMK rather than the AWS-managed alias/aws/sns — the audit
+# trail (key-policy + CloudTrail) is account-local rather than shared
+# across every AWS-managed-key user. ~$1/month per CMK; alarm volume
+# keeps API-call charges negligible.
+#
+# Key policy grants:
+#   - account root: full kms:* (the standard "let IAM manage it" grant)
+#   - cloudwatch.amazonaws.com: Decrypt + GenerateDataKey so CloudWatch
+#     Alarms can publish encrypted notifications to the topic.
+resource "aws_kms_key" "alerts" {
+  description             = "${var.app_name}-${var.environment} CMK for SNS alerts topic"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableRootAccess"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "CloudWatchAlarmsPublish"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+      },
+    ]
+  })
+}
+
+resource "aws_kms_alias" "alerts" {
+  name          = "alias/${var.app_name}-${var.environment}-alerts"
+  target_key_id = aws_kms_key.alerts.key_id
+}
+
 resource "aws_sns_topic" "alerts" {
   name = "${var.app_name}-${var.environment}-alerts"
-  # AWS-managed SNS key for at-rest encryption - alarm payloads can
-  # carry resource ARNs and account ids, so default-unencrypted is a
-  # gratuitous data-exposure surface. Resolves Trivy AWS-0095.
-  kms_master_key_id = "alias/aws/sns"
+  # CMK reference (full ARN, not the alias). Resolves Trivy AWS-0136
+  # (CMK preferred over AWS-managed alias/aws/sns from AWS-0095).
+  kms_master_key_id = aws_kms_key.alerts.arn
 }
 
 resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {

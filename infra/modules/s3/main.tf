@@ -9,6 +9,14 @@ resource "aws_s3_bucket" "logs" {
   tags          = { Name = "${var.app_name}-${var.environment}-logs" }
 }
 
+# Versioning on the logs bucket. S3 + CloudFront access-log delivery
+# overwrites the per-object key on partial-day rollups, so versioning
+# preserves the audit trail through those overwrites. Resolves AWS-0090.
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration { status = "Enabled" }
+}
+
 resource "aws_s3_bucket_ownership_controls" "logs" {
   bucket = aws_s3_bucket.logs.id
   rule {
