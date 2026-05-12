@@ -4,19 +4,45 @@ Playwright end-to-end specs for the Flakey dashboard. These cover surfaces that 
 
 ## Layout
 
+Specs are grouped into one directory per top-level page (matching the route
+under `src/routes/(app)/<route>/`), plus a `live/` directory for the live-run
+feature (which spans multiple routes) and a `cross-cutting/` directory for
+flows that traverse several routes or test whole-app behaviour.
+
 ```
 tests-e2e/
   playwright.config.ts        # Playwright config (lives next to specs)
   fixtures/
-    users.ts                  # SeededUser + ADMIN_USER / DEMO_USER constants
+    users.ts                  # SeededUser + ADMIN_USER / DEMO_USER / VIEWER_USER constants
     helpers.ts                # signIn / signOut helpers shared by specs + globalSetup
     auth.ts                   # globalSetup — signs each user in once, writes .auth/<user>.json
   .auth/                      # storage states (gitignored)
-  *.spec.ts                   # surface-scoped specs (one file per route or feature)
-  cross-cutting/              # multi-route flows (sign-in-out, run-upload-and-view, …)
+
+  login/                      # /login + registration / verification / reset / switch-org
+  dashboard/                  # /dashboard
+  runs/                       # /runs (list + power-user views) + /runs/:id (detail)
+  errors/                     # /errors + ErrorModal (keyboard / tabs / snapshot viewer)
+  flaky/                      # /flaky
+  slowest/                    # /slowest
+  compare/                    # /compare
+  manual-tests/               # /manual-tests (+ groups, requirements, runner)
+  releases/                   # /releases (+ detail, sessions, sign-off chain)
+  settings/                   # /settings (team, integrations, API keys, quarantine)
+  live/                       # live-run feature (SSE + reporter adapters + lifecycle)
+  cross-cutting/              # multi-route flows: branding, auth walls, cross-tenant,
+                              # url-state bookmarking, upload bughunt, viewer-role, …
 ```
 
-Add a new spec file when adding a route or a major affordance. Use `test.use({ storageState: ADMIN_USER.storageStatePath })` for tests that need to be signed in; use `test.use({ storageState: { cookies: [], origins: [] } })` for the unauthenticated cases (the /login surface, public-by-design pages).
+Add a new spec file under the matching page directory (or `cross-cutting/`
+for whole-app flows). Use `test.use({ storageState: ADMIN_USER.storageStatePath })`
+for tests that need to be signed in; use
+`test.use({ storageState: { cookies: [], origins: [] } })` for the
+unauthenticated cases (the /login surface, public-by-design pages).
+
+Spec files import shared fixtures with `from "../fixtures/..."` (one
+directory up from the page folder). The Playwright config's `testDir: "."`
+recurses into every subdirectory; `testIgnore` excludes `fixtures/` and
+`.auth/` so neither shows up as a spec file.
 
 ## Prerequisites
 
