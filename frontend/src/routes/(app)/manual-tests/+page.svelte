@@ -349,6 +349,16 @@
 		}
 	}
 
+	// Keyboard parity for clickable table rows — Enter/Space triggers
+	// the row's onclick by re-dispatching the click event. Same pattern
+	// the runs-detail page uses on its `.test-error-bar` row.
+	function onRowActivate(e: KeyboardEvent) {
+		if (e.key === "Enter" || e.key === " ") {
+			e.preventDefault();
+			(e.currentTarget as HTMLElement).click();
+		}
+	}
+
 	async function openTest(id: number) {
 		const res = await authFetch(`${API_URL}/manual-tests/${id}`);
 		if (res.ok) {
@@ -855,10 +865,21 @@
 			</thead>
 			<tbody>
 				{#each filteredTests as t}
-					<tr>
+					<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+					     mirrors the runs-list `a.run-card` pattern — the whole row
+					     is the click target. Native <tr> isn't focusable so we
+					     promote to role="button" + tabindex + onkeydown. The
+					     delete button inside the row stops propagation so clicking
+					     ✕ doesn't also open the detail modal. -->
+					<tr
+						role="button"
+						tabindex="0"
+						class="test-row"
+						onclick={() => openTest(t.id)}
+						onkeydown={onRowActivate}
+					>
 						<td>
-							<!-- svelte-ignore a11y_invalid_attribute -->
-							<a href="#" onclick={(e) => { e.preventDefault(); openTest(t.id); }}>{t.title}</a>
+							<span class="test-title">{t.title}</span>
 							{#if t.is_flaky}<span class="badge flaky" title="Mixed pass/fail across sessions">flaky</span>{/if}
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
@@ -919,7 +940,7 @@
 								{t.last_run_at ? new Date(t.last_run_at).toLocaleString() : '—'}
 							{/if}
 						</td>
-						<td><button class="btn-ghost" onclick={() => deleteTest(t.id)}>✕</button></td>
+						<td><button class="btn-ghost" onclick={(e) => { e.stopPropagation(); deleteTest(t.id); }}>✕</button></td>
 					</tr>
 				{/each}
 			</tbody>
@@ -1375,14 +1396,23 @@
 		width: 24px;
 		height: 24px;
 		padding: 0;
-		font-size: 0.78rem;
-		color: var(--text-muted);
+		/* Was 0.78rem + var(--text-muted) — the ↑ ↓ ✕ glyphs rendered
+		   so light at rest they were barely visible. Bump to the
+		   slightly larger font-size and use the darker
+		   --text-secondary token so the buttons read clearly without
+		   needing hover state. */
+		font-size: 0.95rem;
+		line-height: 1;
+		color: var(--text-secondary);
 		cursor: pointer;
 		margin-left: 0.15rem;
 		transition: all 0.1s;
 	}
 	.icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
-	.icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+	/* Was 0.3 — combined with the muted text colour this made
+	   disabled buttons effectively invisible. 0.5 keeps the
+	   disabled affordance obvious while staying legible. */
+	.icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.icon-btn.danger:hover:not(:disabled) { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
 	.btn-small { font-size: 0.75rem; padding: 0.3rem 0.6rem; }
@@ -1406,34 +1436,7 @@
 		margin-bottom: 0.75rem;
 		flex-wrap: wrap;
 	}
-	.filter-tabs {
-		display: flex;
-		gap: 0.2rem;
-		background: var(--bg-secondary);
-		border-radius: 6px;
-		padding: 0.2rem;
-	}
-	.filter-tab {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		padding: 0.35rem 0.65rem;
-		border: none;
-		border-radius: 4px;
-		background: transparent;
-		color: var(--text-secondary);
-		font-size: 0.78rem;
-		cursor: pointer;
-		transition: all 0.15s;
-		white-space: nowrap;
-	}
-	.filter-tab:hover { color: var(--text); }
-	.filter-tab.active {
-		background: var(--bg);
-		color: var(--text);
-		font-weight: 600;
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-	}
+	/* .filter-tabs / .filter-tab base styles live in src/app.css. */
 	.tab-count {
 		font-size: 0.7rem;
 		color: var(--text-muted);
@@ -1469,6 +1472,14 @@
 	table.tests { width: 100%; border-collapse: collapse; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 	table.tests th, table.tests td { padding: 0.55rem 0.75rem; text-align: left; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
 	table.tests th { background: var(--bg-secondary); color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.04em; }
+
+	/* Row click pattern — mirrors the runs-list `a.run-card`: the
+	   whole row is the click target, not just the title cell. The
+	   title is plain text (used to be an `<a href="#">`). */
+	table.tests tbody tr.test-row { cursor: pointer; transition: background 0.1s; }
+	table.tests tbody tr.test-row:hover { background: var(--bg-hover); }
+	table.tests tbody tr.test-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+	.test-title { font-weight: 500; color: var(--text); }
 	.priority { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; font-weight: 600; }
 	.priority-low { background: #e5e7eb; color: #4b5563; }
 	.priority-medium { background: #dbeafe; color: #1e40af; }
