@@ -60,8 +60,8 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
 
     await page.goto("/");
     // Wait for hydration so the connectLiveStream() EventSource is
-    // open. The first-card visibility check is just a hydration probe.
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+    // open. The first-row visibility check is just a hydration probe.
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     // Brief settle so the EventSource handshake completes before we
     // fire /live/start. The SSE response is streamed, so there's no
     // single deterministic event we can wait on from the client side.
@@ -71,16 +71,16 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     const suite = `live-stream-add-${Date.now().toString(36)}`;
     const runId = await startLive(page, token, suite);
 
-    const newCard = page.locator(`a.run-card[href="/runs/${runId}"]`);
+    const newRow = page.locator(`tr.run-row[data-run-id="${runId}"]`);
     // Tight bound: ~2 s. With polling this would frequently fail
     // (5 s cycle + DB fetch). With SSE the delta lands in ms; the
     // refetch + render is the only real cost.
     await expect(
-      newCard,
+      newRow,
       "live-started run must appear via SSE delta within 2 s",
     ).toBeVisible({ timeout: 2500 });
 
-    await expect(newCard.locator(".live-badge")).toBeVisible({ timeout: 5000 });
+    await expect(newRow.locator(".live-badge")).toBeVisible({ timeout: 5000 });
 
     await abortRun(page, token, runId, "stream-add cleanup");
     await deleteRun(page, token, runId);
@@ -92,22 +92,22 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     test.setTimeout(45_000);
 
     await page.goto("/");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(500);
 
     const token = await getToken(page);
     const suite = `live-stream-remove-${Date.now().toString(36)}`;
     const runId = await startLive(page, token, suite);
 
-    const card = page.locator(`a.run-card[href="/runs/${runId}"]`);
-    await expect(card).toBeVisible({ timeout: 2500 });
-    await expect(card.locator(".live-badge")).toBeVisible({ timeout: 5000 });
+    const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
+    await expect(row).toBeVisible({ timeout: 2500 });
+    await expect(row.locator(".live-badge")).toBeVisible({ timeout: 5000 });
 
     await abortRun(page, token, runId, "phase12 SSE remove delta");
 
     // Pre-SSE this allowed 20 s; SSE delta delivers within ms.
     await expect(
-      card.locator(".live-badge"),
+      row.locator(".live-badge"),
       "LIVE badge must drop via SSE remove delta within 2 s",
     ).toHaveCount(0, { timeout: 2500 });
 
@@ -127,7 +127,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     // Authenticate via a stand-alone page first so we can mint a
     // token without loading the dashboard yet.
     await page.goto("/");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     const token = await getToken(page);
 
     // Start the live run BEFORE navigating fresh to /.
@@ -138,13 +138,13 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
       // Hard reload so the dashboard mounts from scratch and
       // connectLiveStream() runs against an org with one in-flight run.
       await page.goto("/");
-      await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
-      const card = page.locator(`a.run-card[href="/runs/${runId}"]`);
+      const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
       // The snapshot fires immediately on EventSource connect — should
       // be well under 3 s even on a cold load.
       await expect(
-        card.locator(".live-badge"),
+        row.locator(".live-badge"),
         "LIVE badge must come from the SSE snapshot, not a poll",
       ).toBeVisible({ timeout: 3000 });
     } finally {
@@ -169,7 +169,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     });
 
     await page.goto("/");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
     // Watch for one full pre-SSE polling cycle plus padding.
     await page.waitForTimeout(7000);
@@ -191,7 +191,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     });
 
     await page.goto("/");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     // Allow the connectLiveStream() handshake to complete.
     await page.waitForTimeout(1500);
 

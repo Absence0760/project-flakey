@@ -26,11 +26,11 @@ import { ADMIN_USER } from "../fixtures/users";
 async function openRunWithFailures(page: Page): Promise<void> {
   // Find a run with at least one failed test whose `error_message`
   // is populated. `.test-error-bar` only renders when the test has
-  // an error_message, so picking the first `.fail-badge` card is
+  // an error_message, so picking the first `.fail-badge` row is
   // fragile — cucumber-style runs can report failure at the spec
   // level without per-test rows.
   await page.goto("/");
-  await page.locator("a.run-card").first().waitFor({ timeout: 15_000 });
+  await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
   const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
   if (!token) throw new Error("no auth token in localStorage");
 

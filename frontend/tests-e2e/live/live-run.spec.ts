@@ -243,7 +243,7 @@ test.describe("live run flow (real-time test progress)", () => {
     const runId = await startLiveRun(page, token, `live-abort-${Date.now().toString(36)}`);
 
     // Post a spec + test event so the aborted run has ≥1 spec/test
-    // row; otherwise downstream tests that pick the first run-card
+    // row; otherwise downstream tests that pick the first run-row
     // off the listing land on this empty run and trip on
     // .spec-section visibility.
     await postLiveEvent(page, token, runId, {

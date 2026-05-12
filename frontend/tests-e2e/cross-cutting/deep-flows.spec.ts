@@ -344,7 +344,7 @@ test.describe("deep cross-page flows", () => {
     // afterNavigate (and not the initial mount) would land on the
     // listing with the default 7-day filter, ignoring the URL.
     await page.goto("/?date=all");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     await expect(
       page.locator(".filter-tab", { hasText: "All time" }),
     ).toHaveClass(/active/);

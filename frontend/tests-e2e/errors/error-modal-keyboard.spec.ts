@@ -11,18 +11,41 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 async function openModalForFailedTest(page: Page): Promise<void> {
-  // Use ?status=failed on the runs list so we land on a failed-run
-  // card. The first such card guaranteed has ≥1 failed test.
-  await page.goto("/?status=failed");
-  const firstCard = page.locator("a.run-card").first();
-  await expect(firstCard).toBeVisible({ timeout: 10_000 });
-  const href = await firstCard.getAttribute("href");
-  await page.goto(`${href}?status=failed`);
-  // The route auto-expands failed specs.
-  await expect(page.locator(".test-row").first()).toBeVisible({ timeout: 10_000 });
+  // Pick a run that has per-test rows (with a failed test), not just
+  // a spec-level failure — cucumber-style runs report `failed > 0` on
+  // the spec without any underlying `.test-row` entries, which would
+  // strand this test on a page with "No tests match the current
+  // filter." Query the backend to find a real per-test failure.
+  await page.goto("/");
+  await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
+  const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
+  if (!token) throw new Error("no auth token in localStorage");
 
-  await page.locator("button.test-name").first().click();
-  await expect(page.locator(".debugger")).toBeVisible({ timeout: 5_000 });
+  const runsRes = await page.request.get("http://localhost:3000/runs?limit=200", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { runs } = (await runsRes.json()) as { runs: { id: number; failed: number }[] };
+  const candidates = runs.filter((r) => r.failed > 0).map((r) => r.id);
+
+  for (const id of candidates) {
+    const detailRes = await page.request.get(`http://localhost:3000/runs/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const detail = (await detailRes.json()) as {
+      specs?: { tests?: { status: string }[] }[];
+    };
+    const hasFailedTestRow = (detail.specs ?? []).some((s) =>
+      (s.tests ?? []).some((t) => t.status === "failed"),
+    );
+    if (hasFailedTestRow) {
+      await page.goto(`/runs/${id}?status=failed`);
+      await expect(page.locator(".test-row").first()).toBeVisible({ timeout: 10_000 });
+      await page.locator("button.test-name").first().click();
+      await expect(page.locator(".debugger")).toBeVisible({ timeout: 5_000 });
+      return;
+    }
+  }
+  throw new Error("No run with a failed per-test row found in the first 200 runs");
 }
 
 test.describe("ErrorModal — close affordances", () => {

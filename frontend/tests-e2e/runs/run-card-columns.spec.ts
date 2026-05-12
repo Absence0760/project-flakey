@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN_USER } from "../fixtures/users";
 
 /**
- * Run-card columns added to make better use of horizontal real
+ * Run-row columns added to make better use of horizontal real
  * estate on the runs list. Four new affordances:
  *
  *   - `.meta-chip.reporter` — framework name (cypress / playwright
@@ -27,21 +27,21 @@ import { ADMIN_USER } from "../fixtures/users";
 
 async function loadRuns(page: Page): Promise<void> {
   await page.goto("/");
-  await page.locator("a.run-card").first().waitFor({ timeout: 15_000 });
+  await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
 }
 
-test.describe("runs list — new chips on the run card", () => {
+test.describe("runs list — new chips on the run row", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
-  test("every run card shows a `.meta-chip.reporter` framework chip", async ({ page }) => {
+  test("every run row shows a `.meta-chip.reporter` framework chip", async ({ page }) => {
     await loadRuns(page);
-    const cards = page.locator("a.run-card");
-    const total = await cards.count();
+    const rows = page.locator("tr.run-row");
+    const total = await rows.count();
     expect(total).toBeGreaterThan(0);
 
-    // Sample the first card — the seed sets a reporter on every run,
+    // Sample the first row — the seed sets a reporter on every run,
     // so the chip must be present.
-    const firstReporter = cards.first().locator(".meta-chip.reporter");
+    const firstReporter = rows.first().locator(".meta-chip.reporter");
     await expect(firstReporter).toBeVisible();
     const text = await firstReporter.textContent();
     expect(
@@ -53,7 +53,7 @@ test.describe("runs list — new chips on the run card", () => {
   test("runs with skipped > 0 render a `.skip-badge` chip", async ({ page }) => {
     await loadRuns(page);
 
-    // Find a card where the skip-badge is rendered. The seed has at
+    // Find a row where the skip-badge is rendered. The seed has at
     // least one run with skipped > 0 (junit-style runs typically do).
     // If none exists in the current seed snapshot, the test docs the
     // contract via a count assertion instead.
@@ -79,7 +79,7 @@ test.describe("runs list — new chips on the run card", () => {
 
     const startRes = await page.request.post("http://localhost:3000/live/start", {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: { suite: `aborted-card-${Date.now().toString(36)}` },
+      data: { suite: `aborted-row-${Date.now().toString(36)}` },
     });
     const { id: runId } = (await startRes.json()) as { id: number };
     await page.request.post(`http://localhost:3000/live/${runId}/abort`, {
@@ -89,15 +89,15 @@ test.describe("runs list — new chips on the run card", () => {
 
     try {
       await page.goto("/");
-      const card = page.locator(`a.run-card[href="/runs/${runId}"]`);
-      await expect(card).toBeVisible({ timeout: 15_000 });
+      const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
+      await expect(row).toBeVisible({ timeout: 15_000 });
 
-      // The aborted card carries the aborted badge AND does NOT show
+      // The aborted row carries the aborted badge AND does NOT show
       // the pass/fail/live alternatives.
-      await expect(card.locator(".aborted-badge")).toBeVisible();
-      await expect(card.locator(".pass-badge")).toHaveCount(0);
-      await expect(card.locator(".fail-badge")).toHaveCount(0);
-      await expect(card.locator(".live-badge")).toHaveCount(0);
+      await expect(row.locator(".aborted-badge")).toBeVisible();
+      await expect(row.locator(".pass-badge")).toHaveCount(0);
+      await expect(row.locator(".fail-badge")).toHaveCount(0);
+      await expect(row.locator(".live-badge")).toHaveCount(0);
     } finally {
       await page.request.delete(`http://localhost:3000/runs/${runId}`, {
         headers: { Authorization: `Bearer ${token}` },

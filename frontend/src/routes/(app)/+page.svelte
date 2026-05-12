@@ -342,6 +342,18 @@
     copiedSuite = name;
     setTimeout(() => copiedSuite = null, 1500);
   }
+
+  // Programmatic navigation on row activation — the whole <tr> is the
+  // click target, mirroring the /manual-tests table pattern.
+  function openRun(id: number) {
+    window.location.href = `/runs/${id}`;
+  }
+  function onRowActivate(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).click();
+    }
+  }
 </script>
 
 <div class="page">
@@ -478,25 +490,60 @@
       </div>
     {/if}
 
-    <div class="run-list">
-      {#each runs as run}
-        <a href="/runs/{run.id}" class="run-card" class:compare-selected={compareMode && (compareA === run.id || compareB === run.id)}>
+    <table class="runs-table">
+      <thead>
+        <tr>
           {#if compareMode}
-            <button class="compare-check" onclick={(e) => toggleCompareSelect(e, run.id)}>
-              {#if compareA === run.id}
-                <span class="compare-label">A</span>
-              {:else if compareB === run.id}
-                <span class="compare-label">B</span>
-              {:else}
-                <span class="compare-empty"></span>
-              {/if}
-            </button>
+            <th class="col-compare" aria-label="Compare select"></th>
           {/if}
-          <div class="card-left">
-            <span class="run-status-dot" class:live={liveRunIds.has(run.id)} class:pass={run.failed === 0} class:fail={run.failed > 0}></span>
-            <div class="card-info">
-              <div class="card-title-row">
-                <span class="run-id">#{run.id}</span>
+          <th class="col-status" aria-label="Status"></th>
+          <th class="col-id">#</th>
+          <th class="col-suite">Suite</th>
+          <th class="col-branch">Branch</th>
+          <th class="col-env">Env</th>
+          <th class="col-reporter">Reporter</th>
+          <th class="col-num">Pass</th>
+          <th class="col-num">Fail</th>
+          <th class="col-num">Skip</th>
+          <th class="col-num">Pass %</th>
+          <th class="col-duration">Duration</th>
+          <th class="col-started">Started</th>
+          <th class="col-actions" aria-label="Row actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each runs as run}
+          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+               whole row is the click target, mirroring /manual-tests. -->
+          <tr
+            role="button"
+            tabindex="0"
+            class="run-row"
+            class:compare-selected={compareMode && (compareA === run.id || compareB === run.id)}
+            data-run-id={run.id}
+            data-href="/runs/{run.id}"
+            onclick={() => openRun(run.id)}
+            onkeydown={onRowActivate}
+          >
+            {#if compareMode}
+              <td class="col-compare">
+                <button class="compare-check" onclick={(e) => toggleCompareSelect(e, run.id)}>
+                  {#if compareA === run.id}
+                    <span class="compare-label">A</span>
+                  {:else if compareB === run.id}
+                    <span class="compare-label">B</span>
+                  {:else}
+                    <span class="compare-empty"></span>
+                  {/if}
+                </button>
+              </td>
+            {/if}
+            <td class="col-status">
+              <span class="run-status-dot" class:live={liveRunIds.has(run.id)} class:pass={run.failed === 0 && !run.aborted} class:fail={run.failed > 0} class:aborted={run.aborted}></span>
+            </td>
+            <td class="col-id"><span class="run-id">#{run.id}</span></td>
+            <td class="col-suite">
+              <div class="suite-cell">
                 <span class="run-suite">{run.suite_name}</span>
                 <button class="copy-btn" title="Copy suite name" onclick={(e) => copySuite(e, run.suite_name)}>
                   {#if copiedSuite === run.suite_name}
@@ -520,62 +567,45 @@
                 {#if run.skipped > 0}
                   <span class="skip-badge" title="{run.skipped} test(s) skipped">{run.skipped} skipped</span>
                 {/if}
-              </div>
-              {#if run.spec_files && run.spec_files.length > 0}
-                <div class="card-specs" title={run.spec_files.join("\n")}>
-                  {#each run.spec_files.slice(0, 2) as file}
-                    <span class="spec-chip">{specName(file)}</span>
-                  {/each}
-                  {#if run.spec_count > 2}
-                    <span class="spec-chip more">+{run.spec_count - 2} more</span>
-                  {/if}
-                </div>
-              {/if}
-              <div class="card-meta">
-                {#if run.reporter}
-                  <span class="meta-chip reporter" title="Reporter / framework">{run.reporter}</span>
-                {/if}
-                {#if run.branch}
-                  <span class="meta-chip branch">{run.branch}</span>
-                {/if}
-                {#if run.environment}
-                  <span class="meta-chip env" title="Environment">{run.environment}</span>
-                {/if}
                 {#if run.commit_sha}
-                  <span class="meta-chip mono">{run.commit_sha.slice(0, 7)}</span>
+                  <span class="meta-chip mono commit-chip" title={run.commit_sha}>{run.commit_sha.slice(0, 7)}</span>
                 {/if}
                 {#if run.ci_run_id}
                   <span class="meta-chip mono ci" title="CI run id">{run.ci_run_id}</span>
                 {/if}
-                <span>{formatDuration(run.duration_ms)}</span>
-                <span class="meta-time" title={formatTimestamp(run.started_at)}>{formatTime(run.started_at)} · {timeAgo(run.started_at)}</span>
               </div>
-            </div>
-          </div>
-
-          <div class="card-right">
-            <button class="pin-btn" class:pinned={pinnedIds.has(run.id)} title={pinnedIds.has(run.id) ? "Unpin" : "Pin for quick access"} onclick={(e) => togglePin(e, run.id)}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill={pinnedIds.has(run.id) ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5">
-                <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
-              </svg>
-            </button>
-            <div class="card-stats">
-              <span class="stat-pass">{run.passed}</span>
-              <span class="stat-sep">/</span>
-              <span class="stat-total">{run.total}</span>
-            </div>
-            <div class="result-bar">
-              {#if run.total > 0}
-                <div class="bar-pass" style="width: {(run.passed / run.total) * 100}%"></div>
-                <div class="bar-fail" style="width: {(run.failed / run.total) * 100}%"></div>
-                <div class="bar-skip" style="width: {((run.skipped + run.pending) / run.total) * 100}%"></div>
-              {/if}
-            </div>
-            <span class="pass-pct">{passRate(run)}%</span>
-          </div>
-        </a>
-      {/each}
-    </div>
+            </td>
+            <td class="col-branch">
+              {#if run.branch}<span class="meta-chip branch">{run.branch}</span>{:else}<span class="dim">—</span>{/if}
+            </td>
+            <td class="col-env">
+              {#if run.environment}<span class="meta-chip env">{run.environment}</span>{:else}<span class="dim">—</span>{/if}
+            </td>
+            <td class="col-reporter">
+              {#if run.reporter}<span class="meta-chip reporter">{run.reporter}</span>{:else}<span class="dim">—</span>{/if}
+            </td>
+            <td class="col-num stat-pass">{run.passed}</td>
+            <td class="col-num" class:stat-fail={run.failed > 0}>{run.failed}</td>
+            <td class="col-num dim">{run.skipped + run.pending}</td>
+            <td class="col-num pass-pct">{passRate(run)}%</td>
+            <td class="col-duration">{formatDuration(run.duration_ms)}</td>
+            <td class="col-started" title={formatTimestamp(run.started_at)}>
+              <div class="started-cell">
+                <span>{formatTime(run.started_at)}</span>
+                <span class="dim">{timeAgo(run.started_at)}</span>
+              </div>
+            </td>
+            <td class="col-actions">
+              <button class="pin-btn" class:pinned={pinnedIds.has(run.id)} title={pinnedIds.has(run.id) ? "Unpin" : "Pin for quick access"} onclick={(e) => togglePin(e, run.id)}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill={pinnedIds.has(run.id) ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5">
+                  <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
     {#if hasMore}
       <div class="load-more">
         <button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
@@ -748,35 +778,75 @@
   .pin-btn:hover { color: var(--link); border-color: var(--link); background: color-mix(in srgb, var(--link) 8%, transparent); }
   .pin-btn.pinned { color: var(--link); border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, transparent); }
 
-  .run-list { display: flex; flex-direction: column; gap: 0.35rem; }
-
-  .run-card {
-    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-    padding: 0.65rem 1rem; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg); text-decoration: none; color: var(--text);
-    transition: border-color 0.1s, background 0.1s;
+  /* ── Runs table ─────────────────────────────────────────────────────
+     Dense table layout (mirrors /manual-tests). The whole <tr> is the
+     click target; pin + compare-check live inside cells with
+     stopPropagation so clicking them doesn't navigate. */
+  .runs-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 0.85rem;
   }
-  .run-card:hover { border-color: var(--link); background: var(--bg-hover); }
+  .runs-table th, .runs-table td {
+    padding: 0.5rem 0.65rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .runs-table th {
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .runs-table tbody tr:last-child td { border-bottom: none; }
+  .runs-table tbody tr.run-row { cursor: pointer; transition: background 0.1s; }
+  .runs-table tbody tr.run-row:hover { background: var(--bg-hover); }
+  .runs-table tbody tr.run-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+  .runs-table tbody tr.run-row.compare-selected {
+    background: color-mix(in srgb, var(--link) 8%, var(--bg));
+  }
 
-  .card-left { display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0; }
+  .col-status { width: 18px; padding-right: 0; }
+  .col-id { width: 60px; }
+  .col-branch, .col-env, .col-reporter { white-space: nowrap; }
+  .col-num { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+  .col-duration { width: 80px; white-space: nowrap; }
+  .col-started { width: 140px; white-space: nowrap; }
+  .col-compare { width: 36px; }
+  .col-actions { width: 36px; text-align: right; padding-left: 0; }
 
-  .run-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .run-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
   .run-status-dot.pass { background: var(--color-pass); }
   .run-status-dot.fail { background: var(--color-fail); }
+  .run-status-dot.aborted { background: var(--text-muted); }
   .run-status-dot.live { background: #3b82f6; animation: live-pulse 2s ease-in-out infinite; }
 
-  .card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+  .run-id { font-weight: 700; font-family: monospace; color: var(--text); }
+  .run-suite { font-weight: 500; color: var(--text); }
+  .dim { color: var(--text-muted); }
 
-  .card-title-row { display: flex; align-items: center; gap: 0.5rem; }
-  .run-id { font-weight: 700; font-size: 0.85rem; font-family: monospace; }
-  .run-suite { font-size: 0.82rem; font-weight: 500; }
+  .suite-cell {
+    display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+  }
+  .started-cell { display: flex; gap: 0.4rem; align-items: baseline; font-size: 0.78rem; }
+
   .copy-btn {
     background: none; border: none; padding: 0.1rem; cursor: pointer;
-    color: var(--text-muted); border-radius: 4px; display: inline-flex; align-items: center;
+    color: var(--text-muted); border-radius: 4px;
+    display: inline-flex; align-items: center;
     opacity: 0; transition: opacity 0.15s;
   }
-  .copy-btn:hover { color: var(--text-primary); background: var(--bg-hover, rgba(128,128,128,0.1)); }
-  .run-card:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { color: var(--text); background: var(--bg-hover, rgba(128,128,128,0.1)); }
+  .run-row:hover .copy-btn { opacity: 1; }
+
   .new-fail-badge {
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706;
@@ -809,22 +879,10 @@
     50% { opacity: 0.6; }
   }
 
-  .card-specs {
-    display: flex; flex-wrap: wrap; gap: 0.3rem;
-  }
-  .spec-chip {
-    padding: 0.08rem 0.35rem; border-radius: 4px; font-size: 0.68rem;
-    font-family: monospace; background: var(--bg-secondary); color: var(--text-secondary);
-    max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .spec-chip.more { font-family: inherit; font-style: italic; }
-
-  .card-meta {
-    display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted);
-  }
   .meta-chip {
     padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.68rem;
     background: var(--bg-secondary); color: var(--text-secondary);
+    white-space: nowrap;
   }
   .meta-chip.branch { font-weight: 500; }
   .meta-chip.env {
@@ -837,8 +895,8 @@
   .meta-chip.mono { font-family: monospace; }
   .meta-chip.ci {
     /* CI run ids can get long — cap width with an ellipsis so they
-       don't blow out the meta row on a wide monitor. */
-    max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+       don't blow out the suite cell on a wide monitor. */
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis;
   }
   .meta-chip.reporter {
     text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
@@ -846,32 +904,16 @@
     background: color-mix(in srgb, var(--text-secondary) 12%, var(--bg-secondary));
     color: var(--text);
   }
-  .meta-time { margin-left: auto; }
+  .commit-chip { color: var(--text-muted); }
 
-  .card-right { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
-
-  .card-stats { font-family: monospace; font-size: 0.8rem; text-align: right; min-width: 3.5rem; }
   .stat-pass { color: var(--color-pass); font-weight: 700; }
-  .stat-sep { color: var(--text-muted); }
-  .stat-total { color: var(--text-secondary); }
+  .stat-fail { color: var(--color-fail); font-weight: 700; }
+  .pass-pct { font-weight: 700; color: var(--text-secondary); }
 
-  .result-bar {
-    display: flex; width: 100px; height: 6px; border-radius: 3px; overflow: hidden;
-    background: var(--border-light);
-  }
-  .bar-pass { background: var(--color-pass); }
-  .bar-fail { background: var(--color-fail); }
-  .bar-skip { background: var(--color-skip); }
-
-  .pass-pct { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); min-width: 2.5rem; text-align: right; }
-
-  /* Load more */
-  /* .load-more / .load-more-btn base styles live in src/app.css. */
-
-  /* Compare mode */
+  /* Compare mode — the check moves into a leading cell. */
   .compare-check {
-    display: flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px;
     border: 2px solid var(--border); border-radius: 6px;
     background: none; cursor: pointer; transition: border-color 0.15s;
   }
@@ -879,8 +921,7 @@
   .compare-label {
     font-size: 0.72rem; font-weight: 700; color: var(--link);
   }
-  .compare-empty { width: 12px; height: 12px; }
-  .run-card.compare-selected { border-color: var(--link); background: color-mix(in srgb, var(--link) 4%, var(--bg)); }
+  .compare-empty { width: 10px; height: 10px; }
 
   .compare-bar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;

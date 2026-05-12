@@ -25,12 +25,15 @@ async function openRunWithErrorBar(page: Page): Promise<void> {
   // is true. Cucumber-style runs report failure at the spec level
   // without per-test rows, so we can't rely on `.fail-badge` alone.
   //
+  // The runs-list is rendered as `tr.run-row` (table layout); we use
+  // it as a "page is hydrated" probe only.
+  //
   // Query the backend directly via the localStorage bt_token (same
   // auth the frontend uses). Walk the runs list paged at 200, find
   // the first run with at least one failed test that has
   // error_message, navigate there.
   await page.goto("/");
-  await page.locator("a.run-card").first().waitFor({ timeout: 15_000 });
+  await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
   const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
   if (!token) throw new Error("no auth token in localStorage");
 

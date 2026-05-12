@@ -15,7 +15,7 @@ import { ADMIN_USER } from "../fixtures/users";
  *
  * 2. The test rows on /manual-tests used `<a href="#">` around
  *    the title only. The user's request: mirror the runs-list
- *    `a.run-card` pattern where the WHOLE card is the click
+ *    `tr.run-row` pattern where the WHOLE row is the click
  *    target. The row is now `role="button" tabindex="0"` with
  *    an onclick on the <tr> and stopPropagation on the delete
  *    button so ✕ doesn't open the detail modal.

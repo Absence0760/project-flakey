@@ -31,10 +31,10 @@ test.describe("multi-tenant isolation", () => {
     test("runs list shows Acme runs (seed creates 50+)", async ({ page }) => {
       await page.goto("/");
       // Wait for the loading state to clear.
-      await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
 
-      const cardCount = await page.locator("a.run-card").count();
-      expect(cardCount, "admin should see at least one Acme run").toBeGreaterThan(0);
+      const rowCount = await page.locator("tr.run-row").count();
+      expect(rowCount, "admin should see at least one Acme run").toBeGreaterThan(0);
 
       // Sidebar org chrome confirms we're in Acme.
       await expect(page.locator("aside.sidebar .org-name")).toHaveText("Acme Corp");
@@ -53,7 +53,7 @@ test.describe("multi-tenant isolation", () => {
       // on whether filters are active. With default filters this is
       // the "no runs uploaded yet" message.
       await expect(page.locator(".empty")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator("a.run-card")).toHaveCount(0);
+      await expect(page.locator("tr.run-row")).toHaveCount(0);
 
       // Sidebar org chrome confirms we're in Demo Team — proves the
       // assertion isn't just "demo logged into the wrong org".

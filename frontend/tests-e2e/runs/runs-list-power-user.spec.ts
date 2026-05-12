@@ -17,14 +17,14 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("pin → pinned section appears → reload preserves it → unpin", async ({ page }) => {
     // Pinned state lives in localStorage as JSON-serialised Set;
-    // reload must restore it. We pick the first run card to pin.
-    const firstCard = page.locator("a.run-card").first();
-    const pinBtn = firstCard.locator(".pin-btn");
+    // reload must restore it. We pick the first run row to pin.
+    const firstRow = page.locator("tr.run-row").first();
+    const pinBtn = firstRow.locator(".pin-btn");
     await expect(pinBtn).toBeVisible();
 
     // Pin (button title is "Pin for quick access" before pinning).
@@ -45,7 +45,7 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
     await expect(page.locator(".pinned-section")).toHaveCount(0);
   });
 
-  test("search filter narrows the visible run cards", async ({ page }) => {
+  test("search filter narrows the visible run rows", async ({ page }) => {
     const searchInput = page.getByPlaceholder("Search runs...");
     await expect(searchInput).toBeVisible();
 
@@ -55,23 +55,23 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
     // test name (server-side OR client-side).
     await searchInput.fill("auth-e2e");
 
-    // After narrowing, every visible card must include the suite
+    // After narrowing, every visible row must include the suite
     // name "auth-e2e" somewhere in its text content.
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 2_000 });
-    const suites = await page.locator("a.run-card .run-suite, a.run-card .card-info")
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 2_000 });
+    const suites = await page.locator("tr.run-row .run-suite")
       .evaluateAll((els) => els.map((e) => e.textContent ?? ""));
     for (const t of suites) {
-      // Either the card's suite text mentions auth-e2e, or no
-      // narrowing happened yet — but at least one card must be
+      // Either the row's suite text mentions auth-e2e, or no
+      // narrowing happened yet — but at least one row must be
       // present in the rendered list.
       void t;
     }
-    expect(await page.locator("a.run-card").count()).toBeGreaterThan(0);
+    expect(await page.locator("tr.run-row").count()).toBeGreaterThan(0);
 
-    // Clear the search; cards should grow back to the unfiltered count.
-    const beforeClear = await page.locator("a.run-card").count();
+    // Clear the search; rows should grow back to the unfiltered count.
+    const beforeClear = await page.locator("tr.run-row").count();
     await searchInput.fill("");
-    await expect.poll(async () => await page.locator("a.run-card").count()).toBeGreaterThanOrEqual(
+    await expect.poll(async () => await page.locator("tr.run-row").count()).toBeGreaterThanOrEqual(
       beforeClear,
     );
   });
@@ -114,19 +114,19 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
     await searchInput.fill("");
   });
 
-  test("compare mode: toggle on → picking 2 cards shows the 'Compare' link", async ({ page }) => {
+  test("compare mode: toggle on → picking 2 rows shows the 'Compare' link", async ({ page }) => {
     const compareLink = page.getByRole("button", { name: /^Compare runs$/ });
     await expect(compareLink).toBeVisible();
     await compareLink.click();
 
-    // After entering compare mode, every card sprouts a `.compare-check`
+    // After entering compare mode, every row sprouts a `.compare-check`
     // affordance.
-    const checks = page.locator("a.run-card .compare-check");
+    const checks = page.locator("tr.run-row .compare-check");
     await expect(checks.first()).toBeVisible({ timeout: 2_000 });
     expect(await checks.count()).toBeGreaterThanOrEqual(2);
 
-    // Pick the first two cards. The handler stops the anchor's
-    // navigation (preventDefault) so we stay on /.
+    // Pick the first two rows. The handler stops the row's
+    // navigation (stopPropagation) so we stay on /.
     await checks.nth(0).click();
     await checks.nth(1).click();
 
@@ -139,6 +139,6 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
 
     // Cancel compare to leave the listing in its default state.
     await page.getByRole("button", { name: /^Cancel compare$/ }).click();
-    await expect(page.locator("a.run-card .compare-check")).toHaveCount(0);
+    await expect(page.locator("tr.run-row .compare-check")).toHaveCount(0);
   });
 });

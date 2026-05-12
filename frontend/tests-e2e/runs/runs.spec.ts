@@ -4,8 +4,8 @@ import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /  — the automated runs list. Primary read affordance for the
- * product. Renders a list of run cards, supports filters (suite,
- * branch, env, date range, search), and links each card to /runs/<id>.
+ * product. Renders a table of run rows, supports filters (suite,
+ * branch, env, date range, search), and links each row to /runs/<id>.
  *
  * The route lives at routes/(app)/+page.svelte (not /runs) — /runs/<id>
  * is the detail page only. The sidebar's "Automated runs" nav item
@@ -18,19 +18,19 @@ test.describe("/ runs list", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     // The list defaults its date filter to "7 days" so the cold load
-    // is fast on heavy users. Wait for the first run-card to appear
+    // is fast on heavy users. Wait for the first run-row to appear
     // before driving anything else.
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test("renders run cards with the expected structural pieces", async ({ page }) => {
-    const firstCard = page.locator("a.run-card").first();
+  test("renders run rows with the expected structural pieces", async ({ page }) => {
+    const firstRow = page.locator("tr.run-row").first();
 
-    // Every card has: a status dot (.run-status-dot), a run id
-    // (.run-id), and links to /runs/<id>.
-    await expect(firstCard.locator(".run-status-dot")).toBeVisible();
-    await expect(firstCard.locator(".run-id")).toContainText(/^#\d+$/);
-    await expect(firstCard).toHaveAttribute("href", /^\/runs\/\d+$/);
+    // Every row has: a status dot (.run-status-dot), a run id
+    // (.run-id), and links to /runs/<id> via data-href.
+    await expect(firstRow.locator(".run-status-dot")).toBeVisible();
+    await expect(firstRow.locator(".run-id")).toContainText(/^#\d+$/);
+    await expect(firstRow).toHaveAttribute("data-href", /^\/runs\/\d+$/);
   });
 
   test("suite filter narrows the list", async ({ page }) => {
@@ -45,11 +45,11 @@ test.describe("/ runs list", () => {
     const targetSuite = optionValues[1];
     await suiteSelect.selectOption(targetSuite);
 
-    // After narrowing, every visible run-card's suite text must
-    // match. The card renders the suite under .card-info — use a
-    // less brittle assertion: at least one card remains AND none
+    // After narrowing, every visible run-row's suite text must
+    // match. The row renders the suite under .suite-cell — use a
+    // less brittle assertion: at least one row remains AND none
     // of the visible suite labels is for a different suite.
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 5_000 });
 
     // The URL state-sync should add ?suite= to the querystring once
     // a non-default value is chosen (per syncFiltersToUrl in the
@@ -71,12 +71,12 @@ test.describe("/ runs list", () => {
     expect(page.url()).toContain("date=all");
   });
 
-  test("clicking a run card navigates to /runs/<id>", async ({ page }) => {
-    const firstCard = page.locator("a.run-card").first();
-    const href = await firstCard.getAttribute("href");
-    expect(href, "first run card must link to /runs/<id>").toMatch(/^\/runs\/\d+$/);
+  test("clicking a run row navigates to /runs/<id>", async ({ page }) => {
+    const firstRow = page.locator("tr.run-row").first();
+    const href = await firstRow.getAttribute("data-href");
+    expect(href, "first run row must link to /runs/<id>").toMatch(/^\/runs\/\d+$/);
 
-    await firstCard.click();
+    await firstRow.click();
 
     // The detail page may auto-append ?status=failed when the run has
     // failures (run-detail/+page.svelte's "Feature 1" auto-filter).

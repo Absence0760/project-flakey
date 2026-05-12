@@ -15,10 +15,10 @@ import { ADMIN_USER } from "../fixtures/users";
 
 async function gotoFirstRun(page: Page): Promise<number> {
   await page.goto("/");
-  const firstCard = page.locator("a.run-card").first();
-  await expect(firstCard).toBeVisible({ timeout: 10_000 });
-  const href = await firstCard.getAttribute("href");
-  const runId = Number(href!.split("/").pop()!);
+  const firstRow = page.locator("tr.run-row").first();
+  await expect(firstRow).toBeVisible({ timeout: 10_000 });
+  const runIdAttr = await firstRow.getAttribute("data-run-id");
+  const runId = Number(runIdAttr!);
   await page.goto(`/runs/${runId}?status=all`);
   await expect(
     page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
@@ -99,7 +99,7 @@ test.describe("/runs/<id> — run-level affordances", () => {
     void runId;
     await page.locator("a, button", { hasText: "Automated runs" }).first().click();
     await expect(page).toHaveURL(/\/$|\/\?/);
-    await expect(page.locator("a.run-card").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 5_000 });
   });
 
   test("prev/next adjacent-run nav arrows are present (when applicable)", async ({ page }) => {

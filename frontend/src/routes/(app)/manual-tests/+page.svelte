@@ -884,9 +884,9 @@
 			<tbody>
 				{#each visibleTests as t}
 					<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
-					     mirrors the runs-list `a.run-card` pattern — the whole row
-					     is the click target. Native <tr> isn't focusable so we
-					     promote to role="button" + tabindex + onkeydown. The
+					     same `tr.run-row` pattern the runs-list uses — the whole
+					     row is the click target. Native <tr> isn't focusable so
+					     we promote to role="button" + tabindex + onkeydown. The
 					     delete button inside the row stops propagation so clicking
 					     ✕ doesn't also open the detail modal. -->
 					<tr
@@ -1498,7 +1498,7 @@
 	table.tests th, table.tests td { padding: 0.55rem 0.75rem; text-align: left; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
 	table.tests th { background: var(--bg-secondary); color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.04em; }
 
-	/* Row click pattern — mirrors the runs-list `a.run-card`: the
+	/* Row click pattern — same as the runs-list `tr.run-row`: the
 	   whole row is the click target, not just the title cell. The
 	   title is plain text (used to be an `<a href="#">`). */
 	table.tests tbody tr.test-row { cursor: pointer; transition: background 0.1s; }
