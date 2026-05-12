@@ -178,6 +178,20 @@
 		mounted = true;
 	});
 
+	// Preserve pagination + scroll across back/forward navigation so
+	// opening a release detail and hitting back doesn't drop the user
+	// to page 1.
+	export const snapshot = {
+		capture: () => ({
+			visibleCount,
+			scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+		}),
+		restore: (s: { visibleCount: number; scrollY: number }) => {
+			visibleCount = s.visibleCount;
+			queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+		},
+	};
+
 	async function load() {
 		loading = true;
 		error = null;

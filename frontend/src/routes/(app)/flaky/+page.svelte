@@ -121,6 +121,23 @@
     }
   });
 
+  // SvelteKit snapshot — preserve pagination depth + scroll position
+  // across back/forward navigation so opening a flaky-test detail
+  // (or any sub-page) and hitting back doesn't drop the user back
+  // to page 1.
+  export const snapshot = {
+    capture: () => ({
+      visibleCount,
+      expandedIndex,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    }),
+    restore: (s: { visibleCount: number; expandedIndex: number | null; scrollY: number }) => {
+      visibleCount = s.visibleCount;
+      expandedIndex = s.expandedIndex;
+      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    },
+  };
+
   async function reload() {
     loading = true;
     error = null;

@@ -116,6 +116,20 @@
     mounted = true;
   });
 
+  // Preserve pagination + expanded card + scroll across back/forward.
+  export const snapshot = {
+    capture: () => ({
+      visibleCount,
+      expandedIndex,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    }),
+    restore: (s: { visibleCount: number; expandedIndex: number | null; scrollY: number }) => {
+      visibleCount = s.visibleCount;
+      expandedIndex = s.expandedIndex;
+      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    },
+  };
+
   function formatMs(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;

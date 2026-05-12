@@ -438,6 +438,23 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   });
+
+  // Preserve Suites + Audit pagination depth, the active sub-nav
+  // section, and scroll position across back/forward navigation.
+  export const snapshot = {
+    capture: () => ({
+      suitesVisible,
+      auditVisible,
+      activeSection,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    }),
+    restore: (s: { suitesVisible: number; auditVisible: number; activeSection: string; scrollY: number }) => {
+      suitesVisible = s.suitesVisible;
+      auditVisible = s.auditVisible;
+      activeSection = s.activeSection;
+      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    },
+  };
 </script>
 
 <svelte:window onkeydown={handleEsc} />

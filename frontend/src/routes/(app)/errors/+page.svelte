@@ -117,6 +117,21 @@
     }
   });
 
+  // Preserve pagination depth + which fingerprint was selected in the
+  // detail pane + scroll position across back/forward navigation.
+  export const snapshot = {
+    capture: () => ({
+      visibleCount,
+      selectedFingerprint,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    }),
+    restore: (s: { visibleCount: number; selectedFingerprint: string | null; scrollY: number }) => {
+      visibleCount = s.visibleCount;
+      selectedFingerprint = s.selectedFingerprint;
+      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    },
+  };
+
   async function handleAnalyze(fingerprint: string) {
     aiLoading = { ...aiLoading, [fingerprint]: true };
     try {
