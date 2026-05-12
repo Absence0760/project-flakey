@@ -21,6 +21,27 @@
   let test = $state<TestDetail | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  // Backdrop element bound from the template — focused on open so
+  // keyboard users land inside the dialog instead of staying on the
+  // page underneath. Required by WCAG focus-management for modals.
+  let backdropEl = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (testId && backdropEl) backdropEl.focus();
+  });
+
+  // Keyboard activation helper for elements that have onclick but
+  // aren't <button>/<a>. Re-dispatches the synthetic click on Enter
+  // or Space so the existing onclick handler runs unchanged — keeps
+  // the markup DRY (one keydown call per row instead of duplicating
+  // each click handler's body). Used by the gherkin command-log
+  // <li> rows below.
+  function onActivate(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).click();
+    }
+  }
 
   interface SnapshotStep { index: number; commandName: string; commandMessage: string; }
   let snapshotSteps = $state<SnapshotStep[]>([]);
@@ -302,8 +323,33 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if testId}
-  <div class="backdrop" onclick={onclose} role="dialog" aria-modal="true">
-    <div class="debugger" onclick={(e) => e.stopPropagation()}>
+  <!--
+    Click anywhere on the backdrop closes the modal — checked via
+    `e.target === e.currentTarget` so clicks on the inner debugger
+    don't bubble up and trigger close. This replaces the previous
+    `onclick={(e) => e.stopPropagation()}` on the inner div, which
+    Svelte's a11y lint correctly flagged as a non-interactive
+    element with a click handler.
+
+    tabindex="-1" + the bind:this/focus() in $effect makes the
+    dialog focusable so keyboard users get focus moved into the
+    modal on open; Tab then traps within (no formal focus trap yet
+    — that's a follow-up).
+
+    The Escape key closes via the <svelte:window onkeydown> handler
+    above, which is the canonical kbd alternative to clicking the
+    backdrop.
+  -->
+  <div
+    bind:this={backdropEl}
+    class="backdrop"
+    onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}
+    onkeydown={(e) => { if (e.key === "Escape") onclose(); }}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="debugger">
       {#if loading}
         <div class="debugger-loading">Loading...</div>
       {:else if error}
@@ -425,7 +471,31 @@
           </div>
 
           <!-- Drag handle -->
-          <div class="drag-handle" onmousedown={onDragStart} role="separator" aria-orientation="vertical">
+          <!--
+            Window-splitter pattern from WAI-ARIA APG: role="separator"
+            with aria-orientation + aria-valuenow + tabindex + arrow
+            keys (5%-per-keypress) is the explicit interactive-separator
+            pattern. Svelte's lint flags any non-button element with
+            tabindex/onkeydown as "non-interactive", but APG sanctions
+            this exact shape: https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/
+            Without the kbd handler keyboard users had no way to resize.
+          -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <div
+            class="drag-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuenow={Math.round(leftPct)}
+            aria-valuemin="20"
+            aria-valuemax="80"
+            tabindex="0"
+            onmousedown={onDragStart}
+            onkeydown={(e) => {
+              if (e.key === "ArrowLeft") { e.preventDefault(); leftPct = Math.max(20, leftPct - 5); }
+              else if (e.key === "ArrowRight") { e.preventDefault(); leftPct = Math.min(80, leftPct + 5); }
+            }}
+          >
             <div class="drag-line"></div>
           </div>
 
@@ -521,7 +591,8 @@
                         {@const groupSnapIdx = snapshotIdxForCommandGroup(g)}
                         {@const groupHasSnap = hasSnapshot && groupSnapIdx !== null}
                         {#if group.headerIdx !== null}
-                          <li
+                          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                             class="cmd cmd-clickable cmd-gherkin"
                             class:cmd-failed={groupFailed}
                             class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
@@ -549,7 +620,8 @@
                             <span class="cmd-group-count">{group.childIdxs.length}</span>
                           </li>
                         {:else}
-                          <li
+                          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                             class="cmd cmd-clickable cmd-setup"
                             class:cmd-failed={groupFailed}
                             class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
@@ -583,7 +655,8 @@
                             {@const childSnapIdx = snapshotIdxForCommandChild(g, childPos)}
                             {@const childHasSnap = hasSnapshot && childSnapIdx !== null}
                             {#if cmd}
-                              <li
+                              <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                                 class="cmd cmd-child"
                                 class:cmd-failed={cmd.state === "failed"}
                                 class:cmd-no-snap={hasSnapshot && childSnapIdx === null}
@@ -623,7 +696,8 @@
                     </div>
                     <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each test.command_log ?? [] as cmd, i}
-                        <li
+                        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                           class="cmd"
                           class:cmd-failed={cmd.state === "failed"}
                           class:cmd-active={hasSnapshot && activeSnapshotStep === i}
@@ -652,7 +726,8 @@
                       {#each snapshotGroups as group, g}
                         {@const isOpen = !collapsedGroups.has(g)}
                         {#if group.headerIdx !== null}
-                          <li
+                          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                             class="cmd cmd-clickable cmd-gherkin"
                             class:cmd-active={activeSnapshotStep === group.headerIdx}
                             class:cmd-locked={lockedStep === group.headerIdx}
@@ -673,7 +748,8 @@
                             <span class="cmd-group-count">{group.childIdxs.length}</span>
                           </li>
                         {:else}
-                          <li
+                          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                             class="cmd cmd-clickable cmd-setup"
                             onclick={() => toggleGroup(g)}
                           >
@@ -688,7 +764,8 @@
                         {/if}
                         {#if isOpen}
                           {#each group.childIdxs as i}
-                            <li
+                            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
+                          <li role="button" tabindex="0" onkeydown={onActivate}
                               class="cmd cmd-clickable cmd-child"
                               class:cmd-active={activeSnapshotStep === i}
                               class:cmd-locked={lockedStep === i}

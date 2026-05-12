@@ -8,6 +8,15 @@
 
   let { images, index = $bindable(0), open, onclose }: Props = $props();
 
+  // Backdrop ref for programmatic focus when the dialog opens —
+  // gives keyboard users a focus target instead of leaving them on
+  // whatever triggered the open. Required by WCAG for modal dialogs.
+  let backdropEl = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (open && backdropEl) backdropEl.focus();
+  });
+
   let scale = $state(1);
   let panX = $state(0);
   let panY = $state(0);
@@ -108,8 +117,23 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-  <div class="backdrop" onclick={onclose} role="dialog" aria-modal="true">
-    <div class="lightbox" onclick={(e) => e.stopPropagation()}>
+  <!--
+    Same pattern as ErrorModal — backdrop closes on click but only
+    when the click hit the backdrop itself (`target === currentTarget`),
+    not when it bubbled up from the inner lightbox. tabindex + focus()
+    on open puts kbd focus inside the dialog. Escape / arrows / +/- /
+    0 are all handled by the <svelte:window onkeydown> above.
+  -->
+  <div
+    bind:this={backdropEl}
+    class="backdrop"
+    onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}
+    onkeydown={(e) => { if (e.key === "Escape") onclose(); }}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="lightbox">
       <button class="close-btn" onclick={onclose} title="Close (Esc)">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l10 10M13 3L3 13"/></svg>
       </button>
@@ -123,16 +147,33 @@
         </button>
       {/if}
 
-      <!-- Image viewport -->
+      <!--
+        role="application" + tabindex tells assistive tech this is an
+        interactive widget; pointer handlers (pan/zoom via mouse/touch)
+        are the mouse contract. Keyboard contract lives on the window
+        handler above and on this element: +/- zoom, 0 fit, arrows
+        navigate prev/next image, Escape close.
+
+        Svelte's lint warns because role="application" + tabindex on a
+        <div> looks like a non-interactive element being made
+        focusable, but `application` is a documented interactive ARIA
+        role designed for custom widgets that capture keyboard events.
+      -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="viewport"
         class:grabbing={dragging}
         class:zoomable={scale <= 1}
+        role="application"
+        tabindex="0"
+        aria-label="Image viewer. Plus and minus to zoom, 0 to fit, arrows to navigate, Escape to close."
         onwheel={onWheel}
         onpointerdown={onPointerDown}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
         ondblclick={onDblClick}
+        onkeydown={onKeydown}
       >
         <img
           src={images[index]}

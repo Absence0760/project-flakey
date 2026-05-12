@@ -796,18 +796,36 @@
                   </div>
                 </div>
                 {#if test.error_message}
-                  <button class="test-error-bar" onclick={() => modalTestId = test.id}>
+                  <!--
+                    Outer is a div (not button) so the inner copy button
+                    can nest without producing invalid HTML
+                    (button-in-button). role="button" + tabindex="0" +
+                    onkeydown on Enter/Space gives keyboard parity with
+                    the previous <button> element.
+                  -->
+                  <div
+                    class="test-error-bar"
+                    role="button"
+                    tabindex="0"
+                    onclick={() => modalTestId = test.id}
+                    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); modalTestId = test.id; } }}
+                  >
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 10.5v.5"/></svg>
                     <span class="error-text">{test.error_message}</span>
-                    <span class="copy-error-btn" role="button" tabindex="-1" title="Copy error message" onclick={(e) => copyErrorMessage(e, test.id, test.error_message ?? "")}>
+                    <button
+                      class="copy-error-btn"
+                      type="button"
+                      title="Copy error message"
+                      onclick={(e) => copyErrorMessage(e, test.id, test.error_message ?? "")}
+                    >
                       {#if copiedErrorId === test.id}
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
                       {:else}
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
                       {/if}
-                    </span>
+                    </button>
                     <span class="error-action">View details</span>
-                  </button>
+                  </div>
                 {/if}
               </li>
             {/each}
@@ -1421,6 +1439,11 @@
     background: color-mix(in srgb, var(--color-fail) 10%, var(--error-bg));
   }
 
+  .test-error-bar:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: -2px;
+  }
+
   .test-error-bar svg {
     flex-shrink: 0;
     color: var(--error-text);
@@ -1453,9 +1476,14 @@
     flex-shrink: 0; padding: 0.15rem; cursor: pointer; border-radius: 4px;
     display: inline-flex; align-items: center; color: var(--error-text);
     opacity: 0; transition: opacity 0.15s;
+    /* Reset native button chrome — element is now <button> so the
+       inner copy action can sit inside an outer div without invalid
+       button-in-button HTML. */
+    border: none; background: transparent; font: inherit;
   }
   .test-error-bar:hover .copy-error-btn { opacity: 0.7; }
   .copy-error-btn:hover { opacity: 1 !important; background: rgba(128,128,128,0.15); }
+  .copy-error-btn:focus-visible { opacity: 1; outline: 2px solid var(--link); outline-offset: 1px; }
 
   /* Live */
   .live-badge {
