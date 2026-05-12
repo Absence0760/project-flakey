@@ -32,7 +32,11 @@ resource "aws_ecr_repository" "backend" {
   # tag twice) and the ECS task definition is updated out-of-band via
   # register-task-definition with the SHA image URI. Resolves AWS-0031.
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = true
+  # force_delete=false: a terraform destroy will refuse to drop the
+  # repo while it contains images, which is the desired behaviour in
+  # prod (the last few SHA tags are the rollback target). For a
+  # genuine tear-down, empty the repo first or temporarily flip this.
+  force_delete = false
 
   image_scanning_configuration {
     scan_on_push = true
