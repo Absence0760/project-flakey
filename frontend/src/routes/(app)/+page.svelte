@@ -544,7 +544,7 @@
             <td class="col-id"><span class="run-id">#{run.id}</span></td>
             <td class="col-suite">
               <div class="suite-cell">
-                <span class="run-suite">{run.suite_name}</span>
+                <span class="run-suite" title={run.suite_name}>{run.suite_name}</span>
                 <button class="copy-btn" title="Copy suite name" onclick={(e) => copySuite(e, run.suite_name)}>
                   {#if copiedSuite === run.suite_name}
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
@@ -571,18 +571,18 @@
                   <span class="meta-chip mono commit-chip" title={run.commit_sha}>{run.commit_sha.slice(0, 7)}</span>
                 {/if}
                 {#if run.ci_run_id}
-                  <span class="meta-chip mono ci" title="CI run id">{run.ci_run_id}</span>
+                  <span class="meta-chip mono ci" title={run.ci_run_id}>{run.ci_run_id}</span>
                 {/if}
               </div>
             </td>
             <td class="col-branch">
-              {#if run.branch}<span class="meta-chip branch">{run.branch}</span>{:else}<span class="dim">—</span>{/if}
+              {#if run.branch}<span class="meta-chip branch" title={run.branch}>{run.branch}</span>{:else}<span class="dim">—</span>{/if}
             </td>
             <td class="col-env">
-              {#if run.environment}<span class="meta-chip env">{run.environment}</span>{:else}<span class="dim">—</span>{/if}
+              {#if run.environment}<span class="meta-chip env" title={run.environment}>{run.environment}</span>{:else}<span class="dim">—</span>{/if}
             </td>
             <td class="col-reporter">
-              {#if run.reporter}<span class="meta-chip reporter">{run.reporter}</span>{:else}<span class="dim">—</span>{/if}
+              {#if run.reporter}<span class="meta-chip reporter" title={run.reporter}>{run.reporter}</span>{:else}<span class="dim">—</span>{/if}
             </td>
             <td class="col-num stat-pass">{run.passed}</td>
             <td class="col-num" class:stat-fail={run.failed > 0}>{run.failed}</td>
@@ -781,9 +781,15 @@
   /* ── Runs table ─────────────────────────────────────────────────────
      Dense table layout (mirrors /manual-tests). The whole <tr> is the
      click target; pin + compare-check live inside cells with
-     stopPropagation so clicking them doesn't navigate. */
+     stopPropagation so clicking them doesn't navigate.
+
+     `table-layout: fixed` keeps columns in lock-step across rows —
+     without it, a long suite name on one row would push the right
+     side over relative to other rows. With it, column widths come
+     from the <th> widths below and rows align regardless of content. */
   .runs-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -796,6 +802,7 @@
     text-align: left;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
+    overflow: hidden;
   }
   .runs-table th {
     background: var(--bg-secondary);
@@ -814,14 +821,20 @@
     background: color-mix(in srgb, var(--link) 8%, var(--bg));
   }
 
-  .col-status { width: 18px; padding-right: 0; }
-  .col-id { width: 60px; }
-  .col-branch, .col-env, .col-reporter { white-space: nowrap; }
-  .col-num { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
-  .col-duration { width: 80px; white-space: nowrap; }
-  .col-started { width: 140px; white-space: nowrap; }
+  /* Fixed column widths — the Suite column is the only flexible one;
+     it absorbs the remaining width and ellipsis-clips past that. The
+     numeric columns use tabular-nums so digits stay aligned. */
   .col-compare { width: 36px; }
-  .col-actions { width: 36px; text-align: right; padding-left: 0; }
+  .col-status { width: 28px; padding-right: 0; }
+  .col-id { width: 64px; }
+  .col-suite { width: auto; }
+  .col-branch { width: 140px; }
+  .col-env { width: 100px; }
+  .col-reporter { width: 110px; }
+  .col-num { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+  .col-duration { width: 80px; white-space: nowrap; }
+  .col-started { width: 150px; white-space: nowrap; }
+  .col-actions { width: 40px; text-align: right; padding-left: 0; }
 
   .run-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
   .run-status-dot.pass { background: var(--color-pass); }
@@ -830,11 +843,22 @@
   .run-status-dot.live { background: #3b82f6; animation: live-pulse 2s ease-in-out infinite; }
 
   .run-id { font-weight: 700; font-family: monospace; color: var(--text); }
-  .run-suite { font-weight: 500; color: var(--text); }
+  .run-suite {
+    font-weight: 500; color: var(--text);
+    /* Long suite names clip with an ellipsis so the row height stays
+       fixed and the right-hand columns don't shift. Hover tooltip
+       (set via `title` on the <span>) gives the full name on demand. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; flex: 1 1 auto; max-width: 100%;
+  }
   .dim { color: var(--text-muted); }
 
   .suite-cell {
-    display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+    /* No-wrap: every chip stays on one line. Excess content is hidden
+       by the parent <td>'s overflow:hidden — chips with their own
+       max-width get their own ellipsis. */
+    display: flex; align-items: center; gap: 0.45rem;
+    flex-wrap: nowrap; min-width: 0;
   }
   .started-cell { display: flex; gap: 0.4rem; align-items: baseline; font-size: 0.78rem; }
 
@@ -882,8 +906,20 @@
   .meta-chip {
     padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.68rem;
     background: var(--bg-secondary); color: var(--text-secondary);
-    white-space: nowrap;
+    /* Every chip truncates: nowrap + overflow-hidden + ellipsis. The
+       per-chip max-widths below cap each one to a reasonable size; the
+       default keeps small chips small. */
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    vertical-align: middle;
   }
+  /* Per-chip caps — Branch/Env/Reporter live in their own columns so
+     they fill the column width; CI / commit chips sit inline in the
+     suite cell so they get their own narrower caps. */
+  .col-branch .meta-chip.branch,
+  .col-env .meta-chip.env,
+  .col-reporter .meta-chip.reporter { max-width: 100%; }
   .meta-chip.branch { font-weight: 500; }
   .meta-chip.env {
     font-weight: 500;
@@ -894,9 +930,11 @@
   }
   .meta-chip.mono { font-family: monospace; }
   .meta-chip.ci {
-    /* CI run ids can get long — cap width with an ellipsis so they
-       don't blow out the suite cell on a wide monitor. */
-    max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+    max-width: 160px;
+  }
+  .meta-chip.commit-chip {
+    max-width: 80px;
+    color: var(--text-muted);
   }
   .meta-chip.reporter {
     text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
@@ -904,7 +942,6 @@
     background: color-mix(in srgb, var(--text-secondary) 12%, var(--bg-secondary));
     color: var(--text);
   }
-  .commit-chip { color: var(--text-muted); }
 
   .stat-pass { color: var(--color-pass); font-weight: 700; }
   .stat-fail { color: var(--color-fail); font-weight: 700; }

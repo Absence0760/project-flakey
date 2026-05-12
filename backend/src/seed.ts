@@ -28,6 +28,13 @@ const specFiles = [
   "cypress/e2e/payments/refund.feature",
   "cypress/e2e/settings/profile.feature",
   "cypress/e2e/search/filters.feature",
+  // Extra specs added to fan out coverage so /flaky and /errors
+  // naturally exceed 50 candidates (per-page Load-more pagination
+  // is wired and worth exercising in dev).
+  "cypress/e2e/notifications/preferences.feature",
+  "cypress/e2e/api/webhooks.feature",
+  "cypress/e2e/reporting/exports.feature",
+  "cypress/e2e/admin/audit-log.feature",
 ];
 
 const testNames: Record<string, string[]> = {
@@ -75,6 +82,38 @@ const testNames: Record<string, string[]> = {
     "should combine multiple filters",
     "should clear all filters",
     "should show no results message",
+  ],
+  "cypress/e2e/notifications/preferences.feature": [
+    "should mute email notifications",
+    "should toggle in-app push",
+    "should snooze digest for 24h",
+    "should restore default schedule",
+    "should respect per-channel overrides",
+    "should escalate after 3 missed alerts",
+  ],
+  "cypress/e2e/api/webhooks.feature": [
+    "should create webhook with valid url",
+    "should sign payloads with HMAC secret",
+    "should retry on 5xx with backoff",
+    "should deactivate after repeated failure",
+    "should rotate signing secret",
+    "should fan out to multiple targets",
+  ],
+  "cypress/e2e/reporting/exports.feature": [
+    "should export CSV with selected columns",
+    "should respect date range on export",
+    "should email export when ready",
+    "should expire signed URLs after 24h",
+    "should resume partial export",
+    "should reject oversized request",
+  ],
+  "cypress/e2e/admin/audit-log.feature": [
+    "should record role change",
+    "should record api key creation",
+    "should record run deletion",
+    "should filter audit entries by actor",
+    "should paginate audit results",
+    "should export audit log as JSON",
   ],
 };
 
@@ -182,6 +221,10 @@ const sampleCommandLogs = [
   ],
 ];
 
+// Distinct error messages — each one paired with a suite name forms a
+// unique md5 fingerprint on the backend, so the size of this list
+// (× suites) caps how many groups /errors can surface. Kept at 25+
+// so the page naturally exceeds the 50-item pagination threshold.
 const errors = [
   "AssertionError: Timed out retrying after 4000ms: Expected to find element: `[data-testid=\"submit-btn\"]`, but never found it.",
   "CypressError: `cy.click()` failed because this element is `disabled`.",
@@ -191,13 +234,75 @@ const errors = [
   "CypressError: `cy.intercept()` was called with an invalid argument. The route matcher must be a string or object.",
   "TypeError: Cannot read properties of undefined (reading 'id')",
   "AssertionError: expected [] to have a length of 3 but got 0",
+  "CypressError: `cy.visit()` failed trying to load: https://example.invalid/dashboard. The response we received was: 503 Service Unavailable",
+  "TimeoutError: Waiting for selector '[data-testid=\"toast-success\"]' failed: timeout 5000ms exceeded",
+  "AssertionError: expected 'failed' to equal 'passed'",
+  "AssertionError: expected '$0.00' to contain '$80.00'",
+  "Error: net::ERR_CONNECTION_REFUSED at https://example.invalid/api/checkout",
+  "JsonWebTokenError: invalid signature",
+  "AssertionError: expected window history to have length 2, got 3",
+  "CypressError: `cy.type()` requires a valid keyboard event, but received a string with control characters",
+  "TypeError: Cannot read properties of null (reading 'querySelector')",
+  "AssertionError: expected response body to match schema",
+  "Error: ENOTFOUND payments.staging.invalid",
+  "AssertionError: expected localStorage key 'session' to exist",
+  "CypressError: `cy.request()` failed on: 401 Unauthorized — token expired",
+  "AssertionError: expected element to be visible but it was hidden by ancestor display:none",
+  "TypeError: fetch failed: ECONNRESET",
+  "AssertionError: expected promise to fulfill but it was rejected with: BadRequest",
+  "Error: ResizeObserver loop completed with undelivered notifications",
+  "AssertionError: expected '<a>' to have attribute 'href' with value '/dashboard'",
 ];
 
-const flakyTests = new Set([
+// Tests that intentionally flip pass/fail across runs so the /flaky
+// page has signal to surface. The set is wide enough that, combined
+// with multi-suite assignment, /flaky exceeds 50 candidates and
+// pagination is exercised.
+const flakyTests = new Set<string>([
   "should drag and drop widget to reorder",
   "should apply discount code",
   "should combine multiple filters",
   "should handle SSO login flow",
+  "should login with valid credentials",
+  "should show error for invalid password",
+  "should redirect to dashboard after login",
+  "should create account with valid email",
+  "should load all widgets on dashboard",
+  "should persist widget layout after refresh",
+  "should complete checkout with credit card",
+  "should show validation error for expired card",
+  "should calculate tax correctly",
+  "should send confirmation email after purchase",
+  "should process full refund",
+  "should process partial refund",
+  "should update display name",
+  "should upload avatar image",
+  "should change email with verification",
+  "should filter results by date range",
+  "should filter results by category",
+  "should clear all filters",
+  "should mute email notifications",
+  "should toggle in-app push",
+  "should snooze digest for 24h",
+  "should escalate after 3 missed alerts",
+  "should create webhook with valid url",
+  "should sign payloads with HMAC secret",
+  "should retry on 5xx with backoff",
+  "should rotate signing secret",
+  "should fan out to multiple targets",
+  "should export CSV with selected columns",
+  "should respect date range on export",
+  "should email export when ready",
+  "should expire signed URLs after 24h",
+  "should resume partial export",
+  "should record role change",
+  "should record api key creation",
+  "should record run deletion",
+  "should filter audit entries by actor",
+  "should paginate audit results",
+  "should allow admin to create collection",
+  "should restrict read-only user from editing",
+  "should allow delete with correct permissions",
 ]);
 
 // Deterministic Gherkin demo. Drives the ErrorModal's gherkin-grouped

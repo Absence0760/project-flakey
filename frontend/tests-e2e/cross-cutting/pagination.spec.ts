@@ -9,11 +9,10 @@ import { ADMIN_USER } from "../fixtures/users";
  * visible-count covers the entire filtered set, and clicking it
  * appends the next 50 items to the rendered list.
  *
- * The seed creates ~100 entries on /slowest (the only page that
- * naturally exceeds 50). The specs below exercise pagination on
- * /slowest specifically; the other pages depend on data volume,
- * so the regression there is "the button exists in the code path
- * when applicable" rather than "always visible".
+ * The seed produces > 50 entries on /flaky, /errors, and /slowest
+ * (boosted in seed.ts so each of those pages exercises pagination
+ * in dev). Releases + manual-tests can have arbitrary counts; their
+ * Load-more is rendered when applicable but isn't asserted here.
  *
  * Also pins the contract that:
  *   - /manual-tests no longer renders the redundant H1 ("Manual
@@ -82,6 +81,44 @@ test.describe("client-side pagination — Load more button", () => {
       async () => await page.locator(".test-list .test-card").count(),
       { timeout: 5_000 },
     ).toBeLessThanOrEqual(50);
+  });
+});
+
+test.describe("client-side pagination — /flaky and /errors", () => {
+  test.use({ storageState: ADMIN_USER.storageStatePath });
+
+  test("/flaky shows Load more when seed produces > 50 candidates", async ({ page }) => {
+    test.setTimeout(30_000);
+    await page.goto("/flaky");
+    await waitForList(page, ".flaky-list .flaky-card");
+
+    const initial = await page.locator(".flaky-list .flaky-card").count();
+    expect(initial, `initial render shows ${initial} cards; page-size 50 should cap this`)
+      .toBeLessThanOrEqual(50);
+    await expect(page.locator(".load-more-btn"), "Load more must appear with seeded volume > 50").toBeVisible();
+
+    await page.locator(".load-more-btn").click();
+    await expect.poll(
+      async () => await page.locator(".flaky-list .flaky-card").count(),
+      { timeout: 5_000 },
+    ).toBeGreaterThan(initial);
+  });
+
+  test("/errors shows Load more when seed produces > 50 groups", async ({ page }) => {
+    test.setTimeout(30_000);
+    await page.goto("/errors");
+    await waitForList(page, ".error-list .error-card");
+
+    const initial = await page.locator(".error-list .error-card").count();
+    expect(initial, `initial render shows ${initial} cards; page-size 50 should cap this`)
+      .toBeLessThanOrEqual(50);
+    await expect(page.locator(".load-more-btn"), "Load more must appear with seeded volume > 50").toBeVisible();
+
+    await page.locator(".load-more-btn").click();
+    await expect.poll(
+      async () => await page.locator(".error-list .error-card").count(),
+      { timeout: 5_000 },
+    ).toBeGreaterThan(initial);
   });
 });
 
