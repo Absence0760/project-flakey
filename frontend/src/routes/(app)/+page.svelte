@@ -786,13 +786,14 @@
      click target; pin + compare-check live inside cells with
      stopPropagation so clicking them doesn't navigate.
 
-     `table-layout: fixed` keeps columns in lock-step across rows —
-     without it, a long suite name on one row would push the right
-     side over relative to other rows. With it, column widths come
-     from the <th> widths below and rows align regardless of content. */
+     Uses `table-layout: auto` (the browser sizes columns to fit
+     their content). That gives a denser, more natural-looking row
+     than `table-layout: fixed`, and avoids the huge gap that
+     appeared between Suite and Branch when a single flexible Suite
+     column had to absorb all the leftover width on a wide monitor.
+     Long content is still clipped via per-cell max-widths below. */
   .runs-table {
     width: 100%;
-    table-layout: fixed;
     border-collapse: collapse;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -805,7 +806,6 @@
     text-align: left;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
-    overflow: hidden;
   }
   .runs-table th {
     background: var(--bg-secondary);
@@ -824,21 +824,19 @@
     background: color-mix(in srgb, var(--link) 8%, var(--bg));
   }
 
-  /* Fixed column widths — the Suite column is the only flexible one;
-     it absorbs the remaining width and ellipsis-clips past that. The
-     numeric columns use tabular-nums so digits stay aligned. */
+  /* Per-column hints. The numeric columns use tabular-nums so digits
+     line up; nowrap on chip-ish columns prevents wrapping. The Suite
+     column has a max-width via .suite-cell + .run-suite below — the
+     <td> itself uses auto sizing so the row packs tightly. */
   .col-compare { width: 36px; }
   .col-status { width: 28px; padding-right: 0; }
-  .col-id { width: 64px; }
-  .col-state { width: 110px; white-space: nowrap; }
-  .col-suite { width: auto; }
-  .col-branch { width: 140px; }
-  .col-env { width: 100px; }
-  .col-reporter { width: 110px; }
-  .col-num { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
-  .col-duration { width: 80px; white-space: nowrap; }
-  .col-started { width: 150px; white-space: nowrap; }
-  .col-actions { width: 40px; text-align: right; padding-left: 0; }
+  .col-id { white-space: nowrap; }
+  .col-state { white-space: nowrap; }
+  .col-branch, .col-env, .col-reporter { white-space: nowrap; }
+  .col-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .col-duration { white-space: nowrap; }
+  .col-started { white-space: nowrap; }
+  .col-actions { text-align: right; padding-left: 0; }
 
   .run-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
   .run-status-dot.pass { background: var(--color-pass); }
@@ -849,18 +847,18 @@
   .run-id { font-weight: 700; font-family: monospace; color: var(--text); }
   .run-suite {
     font-weight: 500; color: var(--text);
-    /* Long suite names clip with an ellipsis so the row height stays
-       fixed and the right-hand columns don't shift. Hover tooltip
-       (set via `title` on the <span>) gives the full name on demand. */
+    /* Cap the suite name itself; really long names clip with an
+       ellipsis, but ordinary names just sit at their natural width
+       so the row packs tightly without an empty gap before the
+       chips/Branch column. */
+    display: inline-block;
+    max-width: 360px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    min-width: 0; flex: 1 1 auto; max-width: 100%;
+    vertical-align: middle;
   }
   .dim { color: var(--text-muted); }
 
   .suite-cell {
-    /* No-wrap: every chip stays on one line. Excess content is hidden
-       by the parent <td>'s overflow:hidden — chips with their own
-       max-width get their own ellipsis. */
     display: flex; align-items: center; gap: 0.45rem;
     flex-wrap: nowrap; min-width: 0;
   }
@@ -905,20 +903,14 @@
   .meta-chip {
     padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.68rem;
     background: var(--bg-secondary); color: var(--text-secondary);
-    /* Every chip truncates: nowrap + overflow-hidden + ellipsis. The
-       per-chip max-widths below cap each one to a reasonable size; the
-       default keeps small chips small. */
+    /* Nowrap so a chip doesn't break across two lines; the chips
+       that need width caps (CI run id, commit SHA) get them
+       explicitly below. The natural-width column layout means
+       Branch/Env/Reporter chips just sit at their content width. */
     display: inline-block;
-    max-width: 100%;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    white-space: nowrap;
     vertical-align: middle;
   }
-  /* Per-chip caps — Branch/Env/Reporter live in their own columns so
-     they fill the column width; CI / commit chips sit inline in the
-     suite cell so they get their own narrower caps. */
-  .col-branch .meta-chip.branch,
-  .col-env .meta-chip.env,
-  .col-reporter .meta-chip.reporter { max-width: 100%; }
   .meta-chip.branch { font-weight: 500; }
   .meta-chip.env {
     font-weight: 500;

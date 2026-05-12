@@ -225,25 +225,20 @@ test.describe("deep cross-page flows", () => {
     page,
   }) => {
     await page.goto("/flaky");
-    await expect(page.locator("h1")).toBeVisible({ timeout: 10_000 });
-
-    // Wait for the flaky list to land — at least one card must mount
-    // before the click below targets a real element.
-    const firstCard = page.locator(".flaky-card").first();
-    if ((await firstCard.count()) === 0) {
+    // Heatmap layout: each flaky test is a `tr.flaky-row`, click
+    // expands a `tr.flaky-detail-row` below it with the quarantine
+    // button. No more h1; the heatmap rows themselves are the
+    // landing signal.
+    const firstRow = page.locator("tr.flaky-row").first();
+    if ((await firstRow.count()) === 0) {
       test.skip(true, "seed produced no flaky candidates this time");
       return;
     }
-    await expect(firstCard).toBeVisible({ timeout: 5_000 });
-
-    // Expand by clicking the card-header inside the FIRST .flaky-card
-    // — without scoping to .flaky-card.first() the locator could
-    // resolve to multiple .card-header elements (other matched cards).
-    const firstHeader = firstCard.locator(".card-header");
-    await firstHeader.click();
+    await expect(firstRow).toBeVisible({ timeout: 10_000 });
+    await firstRow.click();
 
     // The quarantine button only renders inside the expanded body.
-    const qBtn = firstCard.locator("button.q-btn");
+    const qBtn = page.locator("button.q-btn").first();
     await expect(qBtn).toBeVisible({ timeout: 5_000 });
 
     const wasQuarantined = await qBtn.evaluate(
@@ -259,9 +254,9 @@ test.describe("deep cross-page flows", () => {
 
     // Reload — state must persist server-side.
     await page.reload();
-    const reloadedCard = page.locator(".flaky-card").first();
-    await reloadedCard.locator(".card-header").click();
-    const qBtnReload = reloadedCard.locator("button.q-btn");
+    const reloadedRow = page.locator("tr.flaky-row").first();
+    await reloadedRow.click();
+    const qBtnReload = page.locator("button.q-btn").first();
     await expect(qBtnReload).toBeVisible({ timeout: 5_000 });
     expect(
       await qBtnReload.evaluate((el) => el.classList.contains("quarantined")),

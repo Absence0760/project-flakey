@@ -57,7 +57,9 @@ test.describe("URL state — bookmarkable filters", () => {
 
   test("/flaky?sort=flip_count lands with Flips tab active", async ({ page }) => {
     await page.goto("/flaky?sort=flip_count");
-    await expect(page.locator("h1")).toBeVisible({ timeout: 10_000 });
+    // /flaky no longer renders an <h1> — the sidebar nav + URL label
+    // the page. Wait for the heatmap table to render instead.
+    await expect(page.locator("tr.flaky-row").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".sort-bar .filter-tab", { hasText: "Flips" })).toHaveClass(
       /active/,
     );

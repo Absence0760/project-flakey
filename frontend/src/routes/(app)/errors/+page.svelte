@@ -186,27 +186,26 @@
 </script>
 
 <div class="page">
-  <div class="header">
-    <div>
-      <p class="description">Recurring test failures tracked with status and notes.</p>
-    </div>
-    <div class="filters">
-      <select bind:value={selectedSuite} onchange={onSuiteChange}>
-        <option value="all">All suites</option>
-        {#each suites as suite}
-          <option value={suite}>{suite}</option>
-        {/each}
-      </select>
-      <div class="filter-tabs">
-        <button class="filter-tab" class:active={selectedStatus === "all"} onclick={() => { selectedStatus = "all"; onStatusChange(); }}>
-          All
+  <!-- Description sits on its own line; filters get their own
+       full-width row below so the status tabs aren't pushed far to
+       the right on a wide monitor. -->
+  <p class="description">Recurring test failures tracked with status and notes.</p>
+  <div class="filters">
+    <select bind:value={selectedSuite} onchange={onSuiteChange}>
+      <option value="all">All suites</option>
+      {#each suites as suite}
+        <option value={suite}>{suite}</option>
+      {/each}
+    </select>
+    <div class="filter-tabs">
+      <button class="filter-tab" class:active={selectedStatus === "all"} onclick={() => { selectedStatus = "all"; onStatusChange(); }}>
+        All
+      </button>
+      {#each statuses as s}
+        <button class="filter-tab" class:active={selectedStatus === s.value} onclick={() => { selectedStatus = s.value; onStatusChange(); }}>
+          <span class="dot" style="background: {s.color}"></span> {s.label}
         </button>
-        {#each statuses as s}
-          <button class="filter-tab" class:active={selectedStatus === s.value} onclick={() => { selectedStatus = s.value; onStatusChange(); }}>
-            <span class="dot" style="background: {s.color}"></span> {s.label}
-          </button>
-        {/each}
-      </div>
+      {/each}
     </div>
   </div>
 
@@ -375,12 +374,11 @@
 <style>
   .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
-  .header {
-    display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;
+  .description { margin: 0 0 0.5rem; color: var(--text-secondary); font-size: 0.875rem; }
+  .filters {
+    display: flex; gap: 0.5rem; align-items: center;
+    margin-bottom: 1rem; flex-wrap: wrap;
   }
-  .description { margin: 0.25rem 0 0; color: var(--text-secondary); font-size: 0.875rem; }
-
-  .filters { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
   select {
     padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.85rem;

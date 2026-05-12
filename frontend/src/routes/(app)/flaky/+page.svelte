@@ -153,11 +153,10 @@
 </script>
 
 <div class="page">
+  <!-- No <h1> — sidebar nav + URL already label the page, same as
+       /manual-tests. Subtitle stays as a quick orientation cue. -->
   <div class="header">
-    <div>
-      <h1 class="page-title">Flaky tests</h1>
-      <p class="description">Tests that alternate between passing and failing across recent runs.</p>
-    </div>
+    <p class="description">Tests that alternate between passing and failing across recent runs.</p>
     <div class="filters">
       <select bind:value={selectedSuite} onchange={reload}>
         <option value="all">All suites</option>
@@ -307,10 +306,10 @@
   .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
   .header {
-    display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
   }
-  .page-title { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.25rem; }
-  .description { margin: 0.25rem 0 0; color: var(--text-secondary); font-size: 0.875rem; }
+  .description { margin: 0; color: var(--text-secondary); font-size: 0.875rem; }
 
   .filters { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
   select {
