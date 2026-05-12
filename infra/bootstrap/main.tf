@@ -24,6 +24,26 @@ variable "app_name" {
   default = "flakey"
 }
 
+variable "environment" {
+  description = "Environment suffix used in resource names the deploy role is allowed to touch. Bootstrap is run once per account; if you ever stand up a second env in the same account, re-apply with environment=staging (etc.) to widen the scope."
+  type        = string
+  default     = "production"
+}
+
+# Branches / tags that are allowed to assume the deploy role via the
+# GitHub OIDC trust. deploy.yml fires on `release.published` (any
+# tag) and `workflow_dispatch` (defaults to main on the default
+# branch). Anything else — fork PRs, branch pushes, scheduled runs
+# from feature branches — is denied at the trust level.
+variable "github_deploy_subjects" {
+  description = "List of token.actions.githubusercontent.com:sub patterns the deploy role accepts. Tightens OIDC trust from `repo:*:*` (any ref) to a deploy-only allow-list."
+  type        = list(string)
+  default = [
+    "ref:refs/heads/main",
+    "ref:refs/tags/*",
+  ]
+}
+
 # --- Terraform state backend ---
 
 resource "aws_s3_bucket" "state" {
@@ -172,12 +192,36 @@ resource "aws_iam_role" "github_actions" {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
+        # Tighten OIDC trust to deploy-allowed refs only (default:
+        # main + tags/*). Earlier `repo:${github_repo}:*` allowed any
+        # branch / fork-PR / pull_request_target workflow to assume
+        # the role. Override `github_deploy_subjects` if a second env
+        # ever needs its own ref pattern.
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+          "token.actions.githubusercontent.com:sub" = [
+            for s in var.github_deploy_subjects : "repo:${var.github_repo}:${s}"
+          ]
         }
       }
     }]
   })
+}
+
+# Pre-computed ARNs for resources the deploy role is allowed to
+# touch. Bootstrap cannot reference module outputs (separate TF
+# root), so we mirror the naming convention used by the modules. If
+# `var.app_name` or `var.environment` ever changes, both bootstrap
+# and the matching module need to move together.
+locals {
+  account_id          = data.aws_caller_identity.current.account_id
+  ecr_repo_arn        = "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/${var.app_name}-backend"
+  ecs_cluster_arn     = "arn:aws:ecs:${var.aws_region}:${local.account_id}:cluster/${var.app_name}-${var.environment}"
+  ecs_service_arn     = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${var.app_name}-${var.environment}/${var.app_name}-${var.environment}-backend"
+  ecs_taskdef_family  = "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/${var.app_name}-${var.environment}-backend:*"
+  s3_frontend_arn     = "arn:aws:s3:::${var.app_name}-${var.environment}-frontend"
+  s3_artifacts_arn    = "arn:aws:s3:::${var.app_name}-${var.environment}-artifacts"
+  iam_ecs_exec_arn    = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-execution"
+  iam_ecs_task_arn    = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-task"
 }
 
 resource "aws_iam_role_policy" "github_actions" {
@@ -194,7 +238,9 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = "*"
       },
       {
-        # Minimum ECR permissions for push/pull - no ecr:* wildcard.
+        # ECR push/pull narrowed to the project's single backend repo
+        # — was Resource: "*" before, which allowed pushing to any
+        # ECR repo in the account.
         Effect = "Allow"
         Action = [
           "ecr:BatchCheckLayerAvailability",
@@ -205,42 +251,90 @@ resource "aws_iam_role_policy" "github_actions" {
           "ecr:CompleteLayerUpload",
           "ecr:PutImage",
         ]
-        Resource = "*"
+        Resource = local.ecr_repo_arn
       },
       {
-        # describe + register a new task-definition revision and roll
-        # the service onto it. ListTaskDefinitions/Families is needed
-        # so describe-task-definition by family resolves the latest.
+        # ECS describe + register + roll-deploy narrowed to the
+        # project's cluster, service, and task-definition family.
+        # Was Resource: "*" before — allowed registering task defs
+        # in any cluster in the account.
+        # ListTaskDefinitions and DescribeTaskDefinition are
+        # account-level reads; AWS doesn't support resource-level
+        # scoping for them, so they stay on "*". The mutating actions
+        # (RegisterTaskDefinition, UpdateService) are scoped.
         Effect = "Allow"
         Action = [
-          "ecs:UpdateService",
-          "ecs:DescribeServices",
           "ecs:DescribeTaskDefinition",
-          "ecs:RegisterTaskDefinition",
           "ecs:ListTaskDefinitions",
         ]
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:DeleteObject", "s3:ListBucket", "s3:GetObject"]
-        Resource = "*"
+        Effect = "Allow"
+        Action = [
+          "ecs:UpdateService",
+          "ecs:DescribeServices",
+        ]
+        Resource = local.ecs_service_arn
       },
       {
+        # RegisterTaskDefinition is a Resource-* action by AWS API
+        # design (you're creating a new revision, so the resource
+        # doesn't exist yet) — gate via the `ecs:cluster` condition
+        # instead.
+        Effect   = "Allow"
+        Action   = ["ecs:RegisterTaskDefinition"]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = local.ecs_cluster_arn
+          }
+        }
+      },
+      {
+        # S3 narrowed to the project's frontend + artifacts buckets
+        # — was Resource: "*", allowing PutObject/DeleteObject across
+        # every bucket in the account.
+        Effect = "Allow"
+        Action = ["s3:PutObject", "s3:DeleteObject"]
+        Resource = [
+          "${local.s3_frontend_arn}/*",
+          "${local.s3_artifacts_arn}/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["s3:ListBucket", "s3:GetObject", "s3:GetBucketLocation"]
+        Resource = [
+          local.s3_frontend_arn,
+          "${local.s3_frontend_arn}/*",
+          local.s3_artifacts_arn,
+          "${local.s3_artifacts_arn}/*",
+        ]
+      },
+      {
+        # CloudFront CreateInvalidation doesn't support resource
+        # ARNs that are predictable at bootstrap time (distribution
+        # IDs are AWS-generated post-create), so scope by the
+        # `Project` tag the provider's default_tags adds to every
+        # resource in this account. Was Resource: "*".
         Effect   = "Allow"
         Action   = ["cloudfront:CreateInvalidation"]
         Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/Project" = var.app_name
+          }
+        }
       },
       {
-        # Scope PassRole to ECS task/execution roles only.
-        # The bootstrap module cannot directly reference the ECS module outputs
-        # (separate Terraform root), so we use a naming-convention ARN pattern.
-        # If the app_name or environment variable changes, update these ARNs.
+        # PassRole — already scoped (was the only correctly-scoped
+        # statement in the old policy). Keep tight.
         Effect = "Allow"
         Action = ["iam:PassRole"]
         Resource = [
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.app_name}-production-ecs-execution",
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.app_name}-production-ecs-task",
+          local.iam_ecs_exec_arn,
+          local.iam_ecs_task_arn,
         ]
       }
     ]
