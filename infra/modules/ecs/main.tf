@@ -8,7 +8,7 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# IAM — Execution role (pull images, read secrets)
+# IAM - Execution role (pull images, read secrets)
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.app_name}-${var.environment}-ecs-execution"
 
@@ -41,7 +41,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
   })
 }
 
-# IAM — Task role (S3 access at runtime)
+# IAM - Task role (S3 access at runtime)
 resource "aws_iam_role" "ecs_task" {
   name = "${var.app_name}-${var.environment}-ecs-task"
 
@@ -73,14 +73,25 @@ resource "aws_iam_role_policy" "ecs_task_s3" {
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.app_name}-${var.environment}/backend"
   retention_in_days = 30
+  # CloudWatch Logs are server-side encrypted by default with an
+  # AWS-owned key. Use the AWS-managed key for the account so log data
+  # is protected by a key whose audit trail we own (resolves AWS-0017
+  # without bringing the cost / lifecycle of a CMK).
+  kms_key_id = data.aws_kms_alias.cloudwatch.target_key_arn
+}
+
+data "aws_kms_alias" "cloudwatch" {
+  name = "alias/aws/logs"
 }
 
 # Security groups
 resource "aws_security_group" "alb" {
   name_prefix = "${var.app_name}-${var.environment}-alb-"
+  description = "Internet-facing ALB for the Flakey API; allows 80/443 in from anywhere, forwards to the ECS target group on TCP 3000."
   vpc_id      = var.vpc_id
 
   ingress {
+    description = "Inbound HTTP from the public internet - redirected to HTTPS by aws_lb_listener.http."
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -88,27 +99,41 @@ resource "aws_security_group" "alb" {
   }
 
   ingress {
+    description = "Inbound HTTPS from the public internet - terminated at the ALB, forwarded to ECS over HTTP/3000 inside the VPC."
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Egress is declared as a standalone aws_security_group_rule below so
+  # the ALB SG can reference the ECS SG without a create-time cycle
+  # (ECS SG already references ALB SG for ingress).
 
   tags = { Name = "${var.app_name}-${var.environment}-alb-sg" }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_security_group_rule" "alb_to_ecs_egress" {
+  description              = "ALB to ECS task egress on TCP/3000 (single hop inside the VPC)."
+  type                     = "egress"
+  from_port                = 3000
+  to_port                  = 3000
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.alb.id
+  source_security_group_id = aws_security_group.ecs.id
 }
 
 resource "aws_security_group" "ecs" {
   name_prefix = "${var.app_name}-${var.environment}-ecs-"
+  description = "ECS task security group for the Flakey backend; ingress from the ALB on the container port, narrowed egress for AWS API + DNS only."
   vpc_id      = var.vpc_id
 
   ingress {
+    description     = "From ALB on the container port. ALB SG is the only allowed source."
     from_port       = 3000
     to_port         = 3000
     protocol        = "tcp"
@@ -116,9 +141,38 @@ resource "aws_security_group" "ecs" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Outbound HTTPS for AWS APIs (ECR pull, Secrets Manager, S3, CloudWatch Logs) and any third-party HTTPS the backend needs (Jira, PagerDuty, GitHub, etc.)."
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Outbound DNS so VPC resolver lookups + DoT egress work for the AWS API endpoints above."
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    # Hard-coded 5432 (not var.db_port from the RDS output) to avoid a
+    # cycle: rds depends on ecs_security_group_id, and pulling
+    # db_port back into the ECS SG would close the loop. Postgres is
+    # the only engine here and 5432 is its fixed default.
+    description = "Outbound to RDS Postgres on the private subnet - explicit cidr keeps this VPC-local."
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    description = "Outbound SMTP (587) for transactional email + scheduled reports."
+    from_port   = 587
+    to_port     = 587
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -128,10 +182,14 @@ resource "aws_security_group" "ecs" {
 # ALB
 resource "aws_lb" "main" {
   name               = "${var.app_name}-${var.environment}"
-  internal           = false
+  internal           = false # Internet-facing by design - fronts the public Flakey API.
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
+  # Drop ambiguous / smuggling-prone headers (multiple Content-Length,
+  # whitespace before colons, etc.) before they reach the targets.
+  # Resolves Trivy AWS-0052.
+  drop_invalid_header_fields = true
 
   tags = { Name = "${var.app_name}-${var.environment}-alb" }
 }
@@ -180,7 +238,7 @@ resource "aws_lb_listener" "https" {
   }
 }
 
-# Task definition — secrets via Secrets Manager, not plaintext
+# Task definition - secrets via Secrets Manager, not plaintext
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.app_name}-${var.environment}-backend"
   requires_compatibilities = ["FARGATE"]
@@ -285,6 +343,10 @@ resource "aws_appautoscaling_policy" "backend_cpu" {
 # --- Monitoring & alerts ---
 resource "aws_sns_topic" "alerts" {
   name = "${var.app_name}-${var.environment}-alerts"
+  # AWS-managed SNS key for at-rest encryption - alarm payloads can
+  # carry resource ARNs and account ids, so default-unencrypted is a
+  # gratuitous data-exposure surface. Resolves Trivy AWS-0095.
+  kms_master_key_id = "alias/aws/sns"
 }
 
 resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {

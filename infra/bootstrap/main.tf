@@ -38,7 +38,14 @@ resource "aws_s3_bucket_versioning" "state" {
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
   rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+    # aws:kms with alias/aws/s3 - same rationale as the artifacts /
+    # frontend buckets (resolves Trivy AWS-0132 without bringing the
+    # cost / lifecycle of a CMK).
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = "alias/aws/s3"
+    }
+    bucket_key_enabled = true
   }
 }
 
@@ -59,6 +66,24 @@ resource "aws_dynamodb_table" "locks" {
     name = "LockID"
     type = "S"
   }
+
+  # PITR for the locks table - recovery from accidental delete or a
+  # rogue terraform run; the table is tiny so the cost is negligible.
+  # Resolves Trivy AWS-0024.
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  # AWS-managed DynamoDB key. Resolves Trivy AWS-0025 with the same
+  # cost/audit-trail rationale as the S3 + Secrets Manager defaults.
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = data.aws_kms_alias.dynamodb.target_key_arn
+  }
+}
+
+data "aws_kms_alias" "dynamodb" {
+  name = "alias/aws/dynamodb"
 }
 
 # --- GitHub OIDC ---
@@ -107,7 +132,7 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = "*"
       },
       {
-        # Minimum ECR permissions for push/pull — no ecr:* wildcard.
+        # Minimum ECR permissions for push/pull - no ecr:* wildcard.
         Effect = "Allow"
         Action = [
           "ecr:BatchCheckLayerAvailability",

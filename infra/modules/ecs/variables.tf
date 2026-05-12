@@ -2,6 +2,10 @@ variable "app_name" { type = string }
 variable "environment" { type = string }
 variable "aws_region" { type = string }
 variable "vpc_id" { type = string }
+variable "vpc_cidr" {
+  description = "VPC CIDR — used to confine ECS task egress to the RDS Postgres port to VPC-local traffic only."
+  type        = string
+}
 variable "public_subnet_ids" { type = list(string) }
 variable "private_subnet_ids" { type = list(string) }
 variable "backend_image" { type = string }

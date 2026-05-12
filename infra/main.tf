@@ -48,6 +48,7 @@ module "ecs" {
   environment         = var.environment
   aws_region          = var.aws_region
   vpc_id              = module.networking.vpc_id
+  vpc_cidr            = module.networking.vpc_cidr
   public_subnet_ids   = module.networking.public_subnet_ids
   private_subnet_ids  = module.networking.private_subnet_ids
   backend_image       = "${module.ecr.backend_repository_url}:latest"

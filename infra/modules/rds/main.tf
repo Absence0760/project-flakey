@@ -6,16 +6,18 @@ resource "aws_db_subnet_group" "main" {
 
 resource "aws_security_group" "rds" {
   name_prefix = "${var.app_name}-${var.environment}-rds-"
+  description = "RDS Postgres security group; ingress from the ECS task SG only, no outbound."
   vpc_id      = var.vpc_id
 
   ingress {
+    description     = "Postgres from the ECS task SG (single source)."
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [var.ecs_security_group_id]
   }
 
-  # No egress block — RDS does not initiate outbound connections, so the
+  # No egress block - RDS does not initiate outbound connections, so the
   # implicit deny-all-egress is correct.  (Reviewers: removing the previous
   # 0.0.0.0/0 rule does not affect ECS-to-RDS traffic, which is governed by
   # the ingress rule above.)
@@ -45,6 +47,18 @@ resource "aws_db_instance" "main" {
   storage_encrypted         = true
   multi_az                  = var.rds_multi_az
   publicly_accessible       = false
+  # IAM DB auth lets us issue short-lived auth tokens for break-glass
+  # access without provisioning a long-lived password - see AWS-0176.
+  iam_database_authentication_enabled = true
+  # Performance Insights gives us slow-query and lock-contention
+  # visibility without standing up a separate APM sidecar. AWS-managed
+  # KMS key keeps the cost the same as the default. AWS-0133.
+  performance_insights_enabled    = true
+  performance_insights_kms_key_id = data.aws_kms_alias.rds.target_key_arn
 
   tags = { Name = "${var.app_name}-${var.environment}-db" }
+}
+
+data "aws_kms_alias" "rds" {
+  name = "alias/aws/rds"
 }

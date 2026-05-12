@@ -7,7 +7,15 @@ resource "aws_s3_bucket" "artifacts" {
 resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+    # aws:kms with the account-default S3 KMS key. Beats AES256 (SSE-S3)
+    # because the AWS-managed key has its own audit trail in
+    # CloudTrail; the cost difference at this scale is rounding-error.
+    # Resolves Trivy AWS-0132.
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = "alias/aws/s3"
+    }
+    bucket_key_enabled = true
   }
 }
 
@@ -48,7 +56,26 @@ resource "aws_s3_bucket" "frontend" {
   tags          = { Name = "${var.app_name}-${var.environment}-frontend" }
 }
 
-# Block all direct public access — content is served exclusively via CloudFront OAC.
+# aws:kms encryption for the frontend bucket too. Resolves AWS-0132.
+resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = "alias/aws/s3"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+# Versioning lets us roll back a bad deploy without re-uploading.
+# Resolves Trivy AWS-0090.
+resource "aws_s3_bucket_versioning" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+  versioning_configuration { status = "Enabled" }
+}
+
+# Block all direct public access - content is served exclusively via CloudFront OAC.
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket                  = aws_s3_bucket.frontend.id
   block_public_acls       = true

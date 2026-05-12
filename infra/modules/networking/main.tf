@@ -10,6 +10,56 @@ resource "aws_vpc" "main" {
   tags = { Name = "${var.app_name}-${var.environment}-vpc" }
 }
 
+# VPC Flow Logs - captures REJECT traffic to a CloudWatch log group so
+# unexpected egress / ingress is forensically auditable. Resolves
+# Trivy AWS-0178. REJECT-only keeps the log volume bounded.
+resource "aws_cloudwatch_log_group" "vpc_flow" {
+  name              = "/vpc/${var.app_name}-${var.environment}/flow"
+  retention_in_days = 30
+  kms_key_id        = data.aws_kms_alias.cloudwatch.target_key_arn
+}
+
+data "aws_kms_alias" "cloudwatch" {
+  name = "alias/aws/logs"
+}
+
+resource "aws_iam_role" "vpc_flow" {
+  name = "${var.app_name}-${var.environment}-vpc-flow-logs"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "vpc-flow-logs.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "vpc_flow" {
+  role = aws_iam_role.vpc_flow.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+      ]
+      Resource = "${aws_cloudwatch_log_group.vpc_flow.arn}:*"
+    }]
+  })
+}
+
+resource "aws_flow_log" "main" {
+  iam_role_arn         = aws_iam_role.vpc_flow.arn
+  log_destination      = aws_cloudwatch_log_group.vpc_flow.arn
+  log_destination_type = "cloud-watch-logs"
+  traffic_type         = "REJECT"
+  vpc_id               = aws_vpc.main.id
+}
+
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${var.app_name}-${var.environment}-igw" }
