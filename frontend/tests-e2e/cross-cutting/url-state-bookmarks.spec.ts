@@ -34,7 +34,9 @@ test.describe("URL state — bookmarkable filters", () => {
   test("/?suite=auth-e2e lands with only auth-e2e runs", async ({ page }) => {
     await page.goto("/?suite=auth-e2e");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
-    // Suite select should reflect the filter.
+    // Suite/branch/env dropdowns live inside the "Filters" popover —
+    // open it before reading the <select> value.
+    await page.locator(".filter-trigger").click();
     const select = page.locator(".filters select").first();
     await expect(select).toHaveValue("auth-e2e");
   });
@@ -69,6 +71,9 @@ test.describe("URL state — bookmarkable filters", () => {
     await page.goto("/?suite=auth-e2e&date=all");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".filter-tab", { hasText: "All time" })).toHaveClass(/active/);
+    // Suite/branch/env now live inside a "Filters" popover — open it
+    // before asserting the <select> value reflects the URL state.
+    await page.locator(".filter-trigger").click();
     await expect(page.locator(".filters select").first()).toHaveValue("auth-e2e");
   });
 

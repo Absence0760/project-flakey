@@ -62,6 +62,7 @@
   let saveViewName = $state("");
   let showSaveInput = $state(false);
   let copiedSuite = $state<string | null>(null);
+  let showFilterPopover = $state(false);
 
   // Compare mode
   let compareMode = $state(false);
@@ -154,6 +155,13 @@
     failed: runs.filter((r) => r.failed > 0).length,
     newFailures: runs.filter((r) => (r.new_failures ?? 0) > 0).length,
   });
+
+  // Page-level summary for the tile strip. `dbSummary` is the org's
+  // database totals (always-on). `newFailuresAcrossLoaded` is computed
+  // from rows we've actually fetched — the backend doesn't surface a
+  // new-failure total in /runs/summary, and counting only loaded rows
+  // is good enough for an at-a-glance signal.
+  let newFailuresAcrossLoaded = $derived(allRuns.filter((r) => (r.new_failures ?? 0) > 0).length);
 
   function applyView(view: SavedView) {
     selectedSuite = view.filters.suite ?? "all";
@@ -317,17 +325,13 @@
     return `${Math.floor(days / 30)}mo ago`;
   }
 
-  function specName(path: string): string {
-    return path.replace(/\\/g, "/").split("/").pop() ?? path;
-  }
-
-  function formatTime(iso: string): string {
-    return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  }
-
-  function formatTimestamp(iso: string): string {
+  // Friendly absolute string used as the `title` (tooltip) on every
+  // relative-date label. Mirrors the convention on /releases and
+  // /manual-tests — no raw ISO leaked to the UI.
+  function absoluteDate(iso: string): string {
     return new Date(iso).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
     });
   }
 
@@ -357,70 +361,24 @@
 </script>
 
 <div class="page">
-  <div class="header">
-    <div class="filters">
-      <select bind:value={selectedSuite}>
-        <option value="all">All suites</option>
-        {#each suites as suite}
-          <option value={suite}>{suite}</option>
-        {/each}
-      </select>
-      {#if branches.length > 1}
-        <select bind:value={selectedBranch}>
-          <option value="all">All branches</option>
-          {#each branches as branch}
-            <option value={branch}>{branch}</option>
-          {/each}
-        </select>
-      {/if}
-      {#if environments.length > 0}
-        <select bind:value={selectedEnv}>
-          <option value="all">All environments</option>
-          {#each environments as env}
-            <option value={env}>{env}</option>
-          {/each}
-        </select>
-      {/if}
-      <div class="filter-tabs">
-        {#each [["all", "All time"], ["1h", "Last hour"], ["today", "Today"], ["24h", "24h"], ["7d", "7 days"], ["30d", "30 days"]] as [value, label]}
-          <button class="filter-tab" class:active={selectedDate === value} onclick={() => selectedDate = value}>{label}</button>
-        {/each}
-      </div>
-      <div class="search-box">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-        <input type="text" placeholder="Search runs..." bind:value={searchQuery} />
-      </div>
-    </div>
-    <div class="header-actions">
-      {#if hasActiveFilters}
-        <button class="action-btn" onclick={() => { showSaveInput = !showSaveInput; }}>Save view</button>
-        <button class="action-btn muted" onclick={clearFilters}>Clear</button>
-      {/if}
-      <button class="compare-link" class:active={compareMode} onclick={() => compareMode ? exitCompareMode() : compareMode = true}>
-        {compareMode ? "Cancel compare" : "Compare runs"}
-      </button>
-    </div>
-  </div>
-
-  {#if savedViews.length > 0 || showSaveInput}
-    <div class="views-bar">
-      {#each savedViews as view}
-        <div class="view-pill">
-          <button class="view-pill-btn" onclick={() => applyView(view)}>{view.name}</button>
-          <button class="view-pill-x" onclick={() => removeView(view.id)} title="Delete">&times;</button>
-        </div>
-      {/each}
-      {#if showSaveInput}
-        <form class="save-form" onsubmit={(e) => { e.preventDefault(); saveCurrentView(); }}>
-          <input type="text" bind:value={saveViewName} placeholder="View name..." use:focusOnMount />
-          <button type="submit" class="save-btn">Save</button>
-        </form>
-      {/if}
-    </div>
+  <!-- Summary tile strip — mirrors /releases and /manual-tests. Uses
+       the database-wide totals so the numbers don't jump around when
+       the user filters the list below. -->
+  {#if !loading && dbSummary.total > 0}
+    <section class="summary">
+      <div class="stat"><span class="stat-label">Total runs</span><span class="stat-value">{dbSummary.total}</span></div>
+      <div class="stat pass"><span class="stat-label">Passed</span><span class="stat-value">{dbSummary.passed}</span></div>
+      <div class="stat" class:fail={dbSummary.failed > 0}><span class="stat-label">Failed</span><span class="stat-value">{dbSummary.failed}</span></div>
+      <div class="stat" class:risk={newFailuresAcrossLoaded > 0}><span class="stat-label">New failures</span><span class="stat-value">{newFailuresAcrossLoaded}</span></div>
+    </section>
   {/if}
 
+  <!-- Primary toolbar: status filter tabs on the left, action cluster
+       (compare, save view, clear) on the right. Same layout as
+       /releases and /manual-tests so the page feels like part of one
+       app rather than a one-off layout. -->
   {#if !loading && allRuns.length > 0}
-    <div class="status-tab-row">
+    <div class="toolbar">
       <div class="filter-tabs">
         <button class="filter-tab" class:active={selectedStatus === "all"} onclick={() => selectedStatus = "all"}>
           All <span class="tab-count">{stats.total}</span>
@@ -437,10 +395,112 @@
           </button>
         {/if}
       </div>
-      {#if selectedStatus !== "all"}
-        <span class="status-filtered">showing {runs.length}</span>
-      {/if}
+
+      <div class="toolbar-right">
+        {#if hasActiveFilters}
+          <span class="filter-summary">showing {runs.length}</span>
+          <button class="btn-ghost" onclick={() => { showSaveInput = !showSaveInput; }}>Save view</button>
+          <button class="btn-ghost muted" onclick={clearFilters}>Clear</button>
+        {/if}
+        <button class="btn-ghost" class:active={compareMode} onclick={() => compareMode ? exitCompareMode() : compareMode = true}>
+          {compareMode ? "Cancel compare" : "Compare runs"}
+        </button>
+      </div>
     </div>
+
+    <!-- Secondary filter row: date tabs (most-used) + search + a
+         "Filters" pill that opens a popover for the long-tail
+         dropdowns (suite/branch/env). Keeping the suite <select> in
+         a `.filters` wrapper preserves the e2e-test selector
+         `.filters select` even though the wrapper is now in the
+         popover. -->
+    <div class="filter-row">
+      <div class="filter-tabs date-tabs">
+        {#each [["all", "All time"], ["1h", "Last hour"], ["today", "Today"], ["24h", "24h"], ["7d", "7 days"], ["30d", "30 days"]] as [value, label]}
+          <button class="filter-tab" class:active={selectedDate === value} onclick={() => selectedDate = value}>{label}</button>
+        {/each}
+      </div>
+
+      <div class="filter-row-right">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input type="text" placeholder="Search runs..." bind:value={searchQuery} />
+        </div>
+
+        <!-- Filter popover trigger. Active when any dropdown filter is
+             non-default — gives the user a visible signal that there
+             are filters in play beyond the visible date/search. -->
+        <div class="filter-popover-wrap">
+          <button
+            class="btn-ghost filter-trigger"
+            class:active={selectedSuite !== "all" || selectedBranch !== "all" || selectedEnv !== "all"}
+            onclick={() => showFilterPopover = !showFilterPopover}
+            aria-expanded={showFilterPopover}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12M4 8h8M6 13h4"/></svg>
+            Filters
+            {#if selectedSuite !== "all" || selectedBranch !== "all" || selectedEnv !== "all"}
+              <span class="filter-dot" aria-hidden="true"></span>
+            {/if}
+          </button>
+          {#if showFilterPopover}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="filter-backdrop" onclick={() => showFilterPopover = false}></div>
+            <div class="filter-popover filters">
+              <label class="filter-field">
+                <span class="filter-field-label">Suite</span>
+                <select bind:value={selectedSuite}>
+                  <option value="all">All suites</option>
+                  {#each suites as suite}
+                    <option value={suite}>{suite}</option>
+                  {/each}
+                </select>
+              </label>
+              {#if branches.length > 1}
+                <label class="filter-field">
+                  <span class="filter-field-label">Branch</span>
+                  <select bind:value={selectedBranch}>
+                    <option value="all">All branches</option>
+                    {#each branches as branch}
+                      <option value={branch}>{branch}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
+              {#if environments.length > 0}
+                <label class="filter-field">
+                  <span class="filter-field-label">Environment</span>
+                  <select bind:value={selectedEnv}>
+                    <option value="all">All environments</option>
+                    {#each environments as env}
+                      <option value={env}>{env}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    {#if savedViews.length > 0 || showSaveInput}
+      <div class="views-bar">
+        {#each savedViews as view}
+          <div class="view-pill">
+            <button class="view-pill-btn" onclick={() => applyView(view)}>{view.name}</button>
+            <button class="view-pill-x" onclick={() => removeView(view.id)} title="Delete">&times;</button>
+          </div>
+        {/each}
+        {#if showSaveInput}
+          <form class="save-form" onsubmit={(e) => { e.preventDefault(); saveCurrentView(); }}>
+            <input type="text" bind:value={saveViewName} placeholder="View name..." use:focusOnMount />
+            <button type="submit" class="save-btn">Save</button>
+          </form>
+        {/if}
+      </div>
+    {/if}
   {/if}
 
   {#if loading}
@@ -460,16 +520,19 @@
     </div>
   {:else}
     {#if pinnedRuns.length > 0}
-      <div class="pinned-section">
-        <h3 class="pinned-title">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1">
+      <!-- Pinned band — same structural pattern as the at-risk band
+           on /releases (tinted background + left-edge stripe), but
+           keyed to var(--link) since pinned isn't a risk signal. -->
+      <section class="pinned-band" aria-label="Pinned runs">
+        <header class="pinned-header">
+          <svg class="pinned-icon" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1" aria-hidden="true">
             <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
           </svg>
-          Pinned
-        </h3>
+          <span class="pinned-band-title">{pinnedRuns.length} pinned run{pinnedRuns.length === 1 ? "" : "s"}</span>
+        </header>
         <div class="pinned-list">
           {#each pinnedRuns as pr}
-            <a href="/runs/{pr.id}" class="pinned-card">
+            <a href="/runs/{pr.id}" class="pinned-item" class:fail={pr.failed > 0}>
               <span class="run-status-dot" class:live={liveRunIds.has(pr.id)} class:pass={pr.failed === 0} class:fail={pr.failed > 0}></span>
               <span class="pinned-id">#{pr.id}</span>
               <span class="pinned-suite">{pr.suite_name}</span>
@@ -478,7 +541,8 @@
               {:else}
                 <span class="pass-badge">passed</span>
               {/if}
-              <span class="pinned-time">{timeAgo(pr.created_at)}</span>
+              <span class="pinned-spacer"></span>
+              <span class="pinned-time" title={absoluteDate(pr.created_at)}>{timeAgo(pr.created_at)}</span>
               <button class="pin-btn pinned" title="Unpin" onclick={(e) => togglePin(e, pr.id)}>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.5">
                   <path d="M9.5 2L13 5.5 10 8.5l.5 4.5-2-2-4 4 4-4-2-2L11 5.5z"/>
@@ -487,7 +551,7 @@
             </a>
           {/each}
         </div>
-      </div>
+      </section>
     {/if}
 
     <table class="runs-table">
@@ -592,11 +656,8 @@
             <td class="col-num dim">{run.skipped + run.pending}</td>
             <td class="col-num pass-pct">{passRate(run)}%</td>
             <td class="col-duration">{formatDuration(run.duration_ms)}</td>
-            <td class="col-started" title={formatTimestamp(run.started_at)}>
-              <div class="started-cell">
-                <span>{formatTime(run.started_at)}</span>
-                <span class="dim">{timeAgo(run.started_at)}</span>
-              </div>
+            <td class="col-started" title={absoluteDate(run.started_at)}>
+              {timeAgo(run.started_at)}
             </td>
             <td class="col-actions">
               <button class="pin-btn" class:pinned={pinnedIds.has(run.id)} title={pinnedIds.has(run.id) ? "Unpin" : "Pin for quick access"} onclick={(e) => togglePin(e, run.id)}>
@@ -647,17 +708,67 @@
 <style>
   .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
-  .header {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;
+  /* ── Summary tile strip ─────────────────────────────────────────────
+     Same shape as /releases and /manual-tests. Tiles inherit the
+     page's database-wide totals so the strip stays stable when the
+     user filters the table below. */
+  .summary { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+  .stat {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.6rem 0.9rem;
+    display: flex; flex-direction: column; gap: 0.15rem;
   }
-  .filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .stat-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-size: 1.35rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .stat.pass .stat-value { color: var(--color-pass); }
+  .stat.fail {
+    border-color: color-mix(in srgb, var(--color-fail) 30%, var(--border));
+  }
+  .stat.fail .stat-value { color: var(--color-fail); }
+  .stat.risk {
+    border-color: color-mix(in srgb, #d97706 35%, var(--border));
+    background: color-mix(in srgb, #d97706 5%, var(--bg));
+  }
+  .stat.risk .stat-value { color: #d97706; }
+
+  /* ── Toolbar (status tabs + action cluster) ─────────────────────── */
+  .toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.75rem; margin-bottom: 0.6rem; flex-wrap: wrap;
+  }
+  .toolbar-right { display: flex; gap: 0.4rem; align-items: center; }
+  .filter-summary {
+    font-style: italic; color: var(--text-muted); font-size: 0.78rem;
+    margin-right: 0.2rem;
+  }
+
+  /* Shared ghost-button used for Save view / Clear / Compare runs.
+     Matches the affordance on /releases (.btn-ghost) so action
+     buttons feel consistent across the app. */
+  .btn-ghost {
+    padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text-secondary); font-size: 0.8rem;
+    cursor: pointer; white-space: nowrap; line-height: 1.2;
+    display: inline-flex; align-items: center; gap: 0.35rem;
+  }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+  .btn-ghost.muted { color: var(--text-muted); }
+  .btn-ghost.active {
+    border-color: var(--link); color: var(--link);
+    background: color-mix(in srgb, var(--link) 6%, var(--bg));
+  }
+
+  /* ── Secondary filter row (date tabs + search + filter popover) ── */
+  .filter-row {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.75rem; margin-bottom: 0.8rem; flex-wrap: wrap;
+  }
+  .filter-row-right { display: flex; gap: 0.4rem; align-items: center; }
+
   select {
     padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-size: 0.85rem;
   }
-
-  /* .filter-tabs / .filter-tab base styles live in src/app.css. */
 
   .search-box {
     display: flex; align-items: center; gap: 0.4rem;
@@ -667,29 +778,36 @@
   .search-box:focus-within { border-color: var(--link); }
   .search-box input {
     border: none; background: transparent; outline: none;
-    font-size: 0.8rem; color: var(--text); width: 140px;
+    font-size: 0.8rem; color: var(--text); width: 180px;
   }
   .search-box input::placeholder { color: var(--text-muted); }
 
-  .header-actions {
-    display: flex; gap: 0.4rem; align-items: center;
+  /* Filter popover — collapses three rarely-changed dropdowns
+     (suite / branch / env) into one trigger so the visible toolbar
+     stays uncluttered. A small dot on the trigger indicates that
+     hidden filters are non-default. */
+  .filter-popover-wrap { position: relative; }
+  .filter-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--link); display: inline-block;
   }
-
-  .action-btn {
-    padding: 0.35rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg); color: var(--text-secondary); font-size: 0.78rem;
-    cursor: pointer; white-space: nowrap;
+  .filter-backdrop {
+    position: fixed; inset: 0; z-index: 50;
   }
-  .action-btn:hover { background: var(--bg-hover); color: var(--text); }
-  .action-btn.muted { color: var(--text-muted); }
-
-  .compare-link {
-    padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-secondary); text-decoration: none; font-size: 0.8rem;
-    background: none; cursor: pointer;
+  .filter-popover {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 51;
+    min-width: 240px;
+    display: flex; flex-direction: column; gap: 0.6rem;
+    padding: 0.85rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
   }
-  .compare-link:hover { background: var(--bg-hover); color: var(--text); }
-  .compare-link.active { border-color: var(--link); color: var(--link); }
+  .filter-field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .filter-field-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); font-weight: 600;
+  }
+  .filter-field select { width: 100%; }
 
   .views-bar {
     display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem;
@@ -729,13 +847,10 @@
      (.pass, .fail, .new) tint the COUNT pill only, so the row reads
      like a consistent control row while still surfacing pass/fail
      proportions at a glance. */
-  .status-tab-row {
-    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-  }
   .tab-count {
     display: inline-block;
     margin-left: 0.35rem;
-    padding: 0.05rem 0.4rem;
+    padding: 0 0.35rem;
     border-radius: 8px;
     background: var(--bg-hover, var(--bg-secondary));
     color: var(--text-secondary);
@@ -746,32 +861,47 @@
   .filter-tab.pass .tab-count { background: color-mix(in srgb, var(--color-pass) 18%, transparent); color: var(--color-pass); }
   .filter-tab.fail .tab-count { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
   .filter-tab.new  .tab-count { background: color-mix(in srgb, #d97706 18%, transparent); color: #d97706; }
-  .status-filtered { font-style: italic; color: var(--text-muted); font-size: 0.78rem; }
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }
   .empty { padding: 3rem 0; text-align: center; color: var(--text-secondary); }
   .hint { font-size: 0.875rem; color: var(--text-muted); }
 
-  /* Pinned section */
-  .pinned-section { margin-bottom: 1rem; }
-  .pinned-title {
-    display: flex; align-items: center; gap: 0.35rem;
-    font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
-    margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.03em;
+  /* ── Pinned band ──────────────────────────────────────────────────
+     Same structural pattern as the at-risk band on /releases: tinted
+     background, left-edge stripe, header + list of clickable rows.
+     Keyed to var(--link) (blue) rather than var(--color-fail) (red)
+     because pinned isn't a risk signal — it's the user's own pick. */
+  .pinned-band {
+    background: color-mix(in srgb, var(--link) 5%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--link) 25%, var(--border));
+    border-left: 4px solid var(--link);
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 1rem;
+    display: flex; flex-direction: column; gap: 0.45rem;
   }
-  .pinned-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .pinned-card {
-    display: flex; align-items: center; gap: 0.4rem;
-    padding: 0.35rem 0.6rem; border-radius: 6px;
-    border: 1px solid var(--border); background: var(--bg-secondary);
-    text-decoration: none; color: var(--text); font-size: 0.78rem;
-    transition: border-color 0.15s;
+  .pinned-header { display: flex; align-items: center; gap: 0.4rem; }
+  .pinned-icon { color: var(--link); }
+  .pinned-band-title {
+    font-weight: 600; font-size: 0.82rem; color: var(--text);
   }
-  .pinned-card:hover { border-color: var(--link); }
-  .pinned-id { font-family: monospace; font-weight: 700; font-size: 0.75rem; }
-  .pinned-suite { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pinned-time { color: var(--text-muted); font-size: 0.7rem; }
+  .pinned-list { display: flex; flex-direction: column; gap: 0.3rem; }
+  .pinned-item {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    text-decoration: none; color: var(--text); font-size: 0.82rem;
+    transition: border-color 0.1s;
+  }
+  .pinned-item:hover { border-color: var(--link); }
+  .pinned-item.fail { border-left: 3px solid var(--color-fail); }
+  .pinned-id { font-family: monospace; font-weight: 700; font-size: 0.78rem; }
+  .pinned-suite {
+    max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pinned-spacer { flex: 1; }
+  .pinned-time { color: var(--text-muted); font-size: 0.75rem; }
 
   .pin-btn {
     background: none; border: 1px solid var(--border); padding: 0.3rem; cursor: pointer;
@@ -835,7 +965,7 @@
   .col-branch, .col-env, .col-reporter { white-space: nowrap; }
   .col-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .col-duration { white-space: nowrap; }
-  .col-started { white-space: nowrap; }
+  .col-started { white-space: nowrap; font-size: 0.82rem; color: var(--text-secondary); }
   .col-actions { text-align: right; padding-left: 0; }
 
   .run-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
@@ -862,7 +992,6 @@
     display: flex; align-items: center; gap: 0.45rem;
     flex-wrap: nowrap; min-width: 0;
   }
-  .started-cell { display: flex; gap: 0.4rem; align-items: baseline; font-size: 0.78rem; }
 
   .copy-btn {
     background: none; border: none; padding: 0.1rem; cursor: pointer;

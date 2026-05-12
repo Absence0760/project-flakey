@@ -34,7 +34,13 @@ test.describe("/ runs list", () => {
   });
 
   test("suite filter narrows the list", async ({ page }) => {
+    // Suite/branch/env dropdowns live inside a "Filters" popover now —
+    // open it before reaching the <select>. The popover content uses
+    // the .filters class so the original selector still matches once
+    // it's mounted.
+    await page.locator(".filter-trigger").click();
     const suiteSelect = page.locator(".filters select").first();
+    await expect(suiteSelect).toBeVisible();
     // Pick the second option (the first concrete suite — the first
     // is always "All suites").
     const optionValues = await suiteSelect.locator("option").evaluateAll(
