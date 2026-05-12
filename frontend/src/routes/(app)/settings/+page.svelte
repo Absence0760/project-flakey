@@ -148,6 +148,17 @@
   let editingTemplateId = $state<string | null>(null);
   let templateValue = $state("");
 
+  // Client-side pagination for Suites — keep the section responsive
+  // when an org has dozens of suites accumulated over time. Page size
+  // 25 matches the Audit log default below.
+  const SUITES_PAGE_SIZE = 25;
+  let suitesVisible = $state(SUITES_PAGE_SIZE);
+  const visibleSuites = $derived(suites.slice(0, suitesVisible));
+  const hasMoreSuites = $derived(visibleSuites.length < suites.length);
+  function loadMoreSuites() {
+    suitesVisible = Math.min(suitesVisible + SUITES_PAGE_SIZE, suites.length);
+  }
+
   async function loadSuites() {
     suitesLoading = true;
     const res = await authFetch(`${apiUrl}/suites`);
@@ -297,9 +308,19 @@
 
   async function loadAudit() {
     auditLoading = true;
-    const res = await authFetch(`${apiUrl}/audit?limit=30`);
+    // Pull up to 200 entries; the section paginates 25 at a time
+    // client-side so a huge audit log doesn't slow the page.
+    const res = await authFetch(`${apiUrl}/audit?limit=200`);
     if (res.ok) auditLog = await res.json();
     auditLoading = false;
+  }
+
+  const AUDIT_PAGE_SIZE = 25;
+  let auditVisible = $state(AUDIT_PAGE_SIZE);
+  const visibleAudit = $derived(auditLog.slice(0, auditVisible));
+  const hasMoreAudit = $derived(visibleAudit.length < auditLog.length);
+  function loadMoreAudit() {
+    auditVisible = Math.min(auditVisible + AUDIT_PAGE_SIZE, auditLog.length);
   }
 
   // --- Confirm modal (replaces window.confirm) ---
@@ -629,7 +650,7 @@
               <p class="muted">No suites yet — upload a run to populate this list.</p>
             {:else}
               <div class="list">
-                {#each suites as s}
+                {#each visibleSuites as s}
                   <div class="list-row" class:archived={s.archived}>
                     <div class="list-info">
                       {#if renamingId === s.suite_name}
@@ -662,6 +683,13 @@
                   {/if}
                 {/each}
               </div>
+              {#if hasMoreSuites}
+                <div class="load-more">
+                  <button class="load-more-btn" onclick={loadMoreSuites}>
+                    Load more ({suites.length - visibleSuites.length} more)
+                  </button>
+                </div>
+              {/if}
             {/if}
           </div>
         </section>
@@ -846,7 +874,7 @@
           <header class="section-header">
             <div>
               <h2 class="section-title">Audit log</h2>
-              <p class="section-subtitle">Recent activity in this organization. Last 30 events.</p>
+              <p class="section-subtitle">Recent activity in this organization. Up to 200 events, paginated 25 at a time.</p>
             </div>
           </header>
 
@@ -857,7 +885,7 @@
               <p class="muted">No activity yet.</p>
             {:else}
               <div class="audit-list">
-                {#each auditLog as entry}
+                {#each visibleAudit as entry}
                   <div class="audit-row">
                     <span class="audit-time" title={absoluteDate(entry.created_at)}>{timeAgo(entry.created_at)}</span>
                     <span class="audit-user">{entry.user_name || entry.user_email || "System"}</span>
@@ -866,6 +894,13 @@
                   </div>
                 {/each}
               </div>
+              {#if hasMoreAudit}
+                <div class="load-more">
+                  <button class="load-more-btn" onclick={loadMoreAudit}>
+                    Load more ({auditLog.length - visibleAudit.length} more)
+                  </button>
+                </div>
+              {/if}
             {/if}
           </div>
         </section>
