@@ -1,0 +1,65 @@
+name: OpenSSF Scorecard
+
+# Weekly scorecard analysis — measures branch-protection rules,
+# action-pinning discipline, signed releases, code-review coverage,
+# vulnerability-management posture, etc. Result publishes to the
+# Security tab as SARIF + (optionally) to the public scorecard.dev
+# leaderboard so a security badge can render in the README.
+#
+# Why this instead of a hand-written checklist: the rubric is
+# maintained by the OpenSSF foundation and updates as supply-chain
+# threats evolve. Trying to roll the same coverage by hand drifts
+# the moment a new attack pattern (e.g. action-cache-poisoning) lands.
+#
+# Cost: one ubuntu-latest job per week. Findings are advisory — no
+# CI gate. The reason a Scorecard run drops is almost always
+# actionable (branch protection drifted, an action stopped being
+# pinned, the README's security policy disappeared); treat the
+# weekly notification as a 30-second triage, not a blocker.
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Mondays at 06:00 UTC — same cadence as the other security
+    # sweeps so the security tab has a single weekly tide.
+    - cron: '0 6 * * 1'
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # The bare minimum to (a) upload SARIF to the Security tab,
+      # (b) write to the open-id-connect token used by the
+      # publish_results step. `id-token: write` is what lets the
+      # action verify-publish to scorecard.dev without a long-lived
+      # token.
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish to the public scorecard.dev tracker. Required for
+          # the README badge; the data published is the score itself
+          # (no source code, no secrets), already public-info-derived.
+          publish_results: true
+
+      - name: Upload SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          sarif_file: results.sarif
+          category: scorecard

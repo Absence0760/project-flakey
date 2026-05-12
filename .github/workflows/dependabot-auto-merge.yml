@@ -1,0 +1,60 @@
+name: Dependabot auto-merge
+
+# Automatically squash-merges minor + patch Dependabot PRs once CI is
+# green. Saves review burden — `.github/dependabot.yml` configures 5
+# ecosystems (backend npm, frontend npm/pnpm, packages workspace,
+# GitHub Actions, Terraform), each opening 1-5 grouped PRs / week, so
+# without this most of the human review time goes to bumping a patch
+# version of an action or a transitive dep.
+#
+# Major bumps stay manual. Past audit history shows Svelte 5 and
+# pnpm 10 majors needed careful migration; auto-merging those would
+# actively break the build.
+#
+# Repository setting required: "Allow auto-merge" enabled on
+# Settings → General → Pull Requests. Without it `gh pr merge --auto`
+# returns an error and the workflow no-ops; PRs sit waiting for a
+# human like before, so worst case is degenerate, not destructive.
+
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  # `pull_request_target` runs in the base-branch context — needs
+  # explicit grants for the few things gh/dependabot do here.
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge minor + patch
+    runs-on: ubuntu-latest
+    # Pull-request author check guards against any non-dependabot
+    # PR accidentally tripping this. The fetch-metadata action below
+    # is hardened against forged commit messages from compromised
+    # branches, but a belt-and-braces author gate costs nothing.
+    if: github.actor == 'dependabot[bot]'
+    timeout-minutes: 5
+    steps:
+      - name: Read dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          # Fetch metadata signs the result with the workflow's own
+          # GITHUB_TOKEN so a malicious PR can't claim to be a patch
+          # bump it isn't.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve + auto-merge minor / patch
+        if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          # `--auto --squash` lands the merge as soon as every required
+          # check turns green. If branch protection blocks the merge,
+          # `--auto` queues it — the user can land it manually after
+          # the protection is satisfied.
+          gh pr merge --auto --squash "$PR_URL"

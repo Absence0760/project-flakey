@@ -1,0 +1,66 @@
+name: gitleaks
+
+# Secret-scan every push to main, every PR, and the full history once
+# a week. Catches accidentally-committed AWS keys, sops decryption
+# keys, JWT secrets, GitHub tokens, npm publish tokens, etc. — anything
+# an automated pattern can recognise.
+#
+# Complements existing controls:
+#   - CodeQL (workflows/security.yml) — finds source-level injection
+#     vulns, not secrets.
+#   - Trivy (workflows/security.yml) — scans the built backend Docker
+#     image, not the source tree.
+#   - sops + AWS KMS for encrypted secrets at rest — defends correctly-
+#     stored secrets, doesn't catch a stray paste.
+#   - The audit:secrets skill — manual sweep for server-only secrets
+#     leaking into the SvelteKit client bundle. Different angle (build
+#     output, not git history).
+#
+# What gitleaks adds: regex-matching against the entire working tree
+# AND git history, with a built-in rule set tuned for common token
+# shapes (AWS, GCP, Slack, GitHub, OpenAI, Stripe, npm, etc.).
+#
+# False positives go in `.gitleaks.toml` at the repo root (not yet
+# created — add it on first false hit rather than pre-empt).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly full-history sweep. The push / PR triggers above only
+    # diff against the base, so a secret that landed on a forgotten
+    # branch and got merged via fast-forward could slip through.
+    - cron: '0 6 * * 1'
+
+permissions:
+  # The action POSTs SARIF findings via the same security-events
+  # permission the CodeQL / Trivy jobs use — keeps the Security tab
+  # the single pane of glass.
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # `fetch-depth: 0` is required for the full-history scan
+          # on the scheduled run. Push/PR triggers ignore the depth
+          # because they have access to the base ref via the
+          # workflow event itself.
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is intentionally unset — public-repo free
+          # tier covers everything we need. If we ever go private and
+          # want the upstream-managed dashboard, set the license as a
+          # repo secret and the action will pick it up.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'

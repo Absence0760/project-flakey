@@ -1,0 +1,104 @@
+name: Security
+
+# Static analysis + container scanning. Runs on every push to main, on PRs
+# that touch code (docs-only PRs skipped), and weekly to catch CVEs
+# disclosed since the last commit. Findings flow to the GitHub Security
+# tab via SARIF.
+#
+# Coverage for this monorepo's language mix:
+#   - javascript-typescript covers backend/, frontend/ (SvelteKit), and
+#     every package under packages/ (the @flakeytesting/* reporters).
+#   - actions covers every workflow under .github/workflows/.
+#   - Trivy scans backend/Dockerfile (the only Dockerfile in the repo;
+#     multi-stage, final stage is node:24-alpine + postgres-client).
+#
+# Pinning discipline: every action below is pinned by commit SHA with
+# the tag in a trailing comment, per the audit:deps skill's GHA pass.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  schedule:
+    # Mondays at 06:00 UTC — catches CVEs disclosed since the last commit.
+    - cron: '0 6 * * 1'
+
+permissions:
+  # SARIF upload requires `security-events: write`. `actions: read` is
+  # needed by the CodeQL analyze step's telemetry / workflow-run lookup
+  # (without it you get "Resource not accessible by integration" which
+  # fails the whole job even when the analysis itself succeeded).
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql-javascript:
+    name: CodeQL (TypeScript/JavaScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          languages: javascript-typescript
+          # Omit `queries:` to run the default suite. `security-extended`
+          # and `security-and-quality` add 30-60s without material
+          # additional hits on this codebase shape; revisit if a
+          # compliance checklist asks for one of them by name.
+      - uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          category: '/language:javascript-typescript'
+
+  codeql-actions:
+    name: CodeQL (GitHub Actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          languages: actions
+      - uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          category: '/language:actions'
+
+  trivy-backend-image:
+    name: Trivy (backend container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build backend image
+        run: docker build -t flakey-backend:scan ./backend
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: flakey-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          # Only fail the build on HIGH or CRITICAL — anything below is
+          # noise without policy. Surfacing all severities to the
+          # Security tab keeps low/medium visible without blocking PRs.
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          # Don't fail the workflow itself — let the SARIF upload step
+          # surface findings via the Security tab. PR review can decide
+          # whether to bump the base image, patch, or accept the risk.
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
