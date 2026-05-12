@@ -221,9 +221,21 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+// /health gets its own very-loose limiter. ALB target-group probes hit
+// it every 30s from a small pool of ELB-internal IPs, so the limit
+// has to be high enough that even those probes never trip it. The
+// point isn't to limit legitimate probes — it's to bound an attacker
+// flooding a single IP with /health requests to amplify DB load.
+const healthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.HEALTH_RATE_LIMIT_MAX ?? 600),
+  message: { error: "Health endpoint rate limit exceeded." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Public routes
-app.get("/health", async (_req, res) => {
+app.get("/health", healthLimiter, async (_req, res) => {
   try {
     await pool.query("SELECT 1");
     res.json({ status: "ok" });

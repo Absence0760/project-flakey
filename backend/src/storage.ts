@@ -1,5 +1,6 @@
 import { mkdirSync, renameSync, rmSync, existsSync, readFileSync } from "fs";
-import { join, dirname, resolve, relative } from "path";
+import { tmpdir } from "os";
+import { join, dirname, resolve, sep } from "path";
 import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -8,9 +9,6 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 // enforce a character allow-list because legitimate filenames include
 // spaces, accented Unicode, etc.; the deny-list is sufficient because
 // node's path resolver only escapes a directory via these patterns.
-// CodeQL's js/path-injection rule recognises this gate at the boundary
-// — the relative()-based check inside LocalStorage.put is defense-in-
-// depth, not a sanitizer.
 function assertSafeKey(destKey: string): void {
   if (
     destKey.length === 0 ||
@@ -21,6 +19,43 @@ function assertSafeKey(destKey: string): void {
   ) {
     throw new Error(`unsafe storage key: ${destKey}`);
   }
+}
+
+// Resolve destKey under baseDir and return the absolute path. Throws
+// if the resolved path escapes baseDir. The path.resolve + prefix
+// check pattern is the form CodeQL's js/path-injection rule
+// recognises as a sanitiser (the older relative()-based form wasn't
+// traced through end-to-end).
+function safeJoinUnder(baseDir: string, destKey: string): string {
+  const baseAbs = resolve(baseDir);
+  const destAbs = resolve(baseAbs, destKey);
+  if (destAbs !== baseAbs && !destAbs.startsWith(baseAbs + sep)) {
+    throw new Error(`refusing to write outside storage root: ${destKey}`);
+  }
+  return destAbs;
+}
+
+// Validate that tempPath (multer's randomly-named tmp file) is under a
+// known temp root before fs operations dereference it. multer's
+// disk-storage filename is crypto.randomBytes-derived so it's not
+// actually attacker-controlled, but CodeQL traces it back through the
+// multipart parser and conservatively flags any fs op on it. The
+// explicit prefix check at the storage boundary satisfies the rule
+// AND adds genuine defense-in-depth if a future multer config drift
+// ever lands tempPath outside the expected dir.
+const TEMP_ROOTS = [
+  resolve("uploads", "tmp"),
+  resolve(tmpdir()),
+];
+function safeTempPath(tempPath: string): string {
+  if (tempPath.includes("\0")) {
+    throw new Error(`unsafe temp path (null byte): ${tempPath}`);
+  }
+  const abs = resolve(tempPath);
+  for (const root of TEMP_ROOTS) {
+    if (abs === root || abs.startsWith(root + sep)) return abs;
+  }
+  throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
 }
 
 export interface Storage {
@@ -45,19 +80,10 @@ class LocalStorage implements Storage {
 
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
-    // Defense-in-depth path-traversal guard.  Each upload route that
-    // builds destKey already sanitizes user-controlled segments, but
-    // the storage layer must not assume that — node's `path.join`
-    // resolves `..` and will happily write outside `baseDir` if a
-    // future caller forgets to sanitize.
-    const baseAbs = resolve(this.baseDir);
-    const destAbs = resolve(this.baseDir, destKey);
-    const rel = relative(baseAbs, destAbs);
-    if (rel.startsWith("..") || rel === "" || rel.includes("\0")) {
-      throw new Error(`refusing to write outside storage root: ${destKey}`);
-    }
+    const safeTemp = safeTempPath(tempPath);
+    const destAbs = safeJoinUnder(this.baseDir, destKey);
     mkdirSync(dirname(destAbs), { recursive: true });
-    renameSync(tempPath, destAbs);
+    renameSync(safeTemp, destAbs);
   }
 
   async getUrl(key: string): Promise<string> {
@@ -100,7 +126,8 @@ class S3Storage implements Storage {
 
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
-    const body = readFileSync(tempPath);
+    const safeTemp = safeTempPath(tempPath);
+    const body = readFileSync(safeTemp);
     await this.client.send(new PutObjectCommand({
       Bucket: this.bucket,
       Key: this.key(destKey),
@@ -108,7 +135,7 @@ class S3Storage implements Storage {
       ContentType: guessContentType(destKey),
     }));
     // Clean up temp file
-    try { rmSync(tempPath); } catch { /* ignore */ }
+    try { rmSync(safeTemp); } catch { /* ignore */ }
   }
 
   async getUrl(key: string): Promise<string> {
