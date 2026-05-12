@@ -18,6 +18,7 @@
 
   let selectedSuite = $state("all");
   let runWindow = $state(30);
+  let searchQuery = $state("");
 
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
 
@@ -29,6 +30,7 @@
     set("suite", selectedSuite, "all");
     set("sort", sortBy, "flaky_rate");
     set("window", String(runWindow), "30");
+    set("q", searchQuery, "");
     replaceState(url, {});
   }
   function readUrl() {
@@ -37,28 +39,60 @@
     sortBy = (p.get("sort") as typeof sortBy) ?? "flaky_rate";
     const w = Number(p.get("window"));
     if (w > 0) runWindow = w;
+    searchQuery = p.get("q") ?? "";
   }
   let mounted = $state(false);
-  $effect(() => { selectedSuite; sortBy; runWindow; if (mounted) syncUrl(); });
+  $effect(() => { selectedSuite; sortBy; runWindow; searchQuery; if (mounted) syncUrl(); });
   let expandedIndex = $state<number | null>(null);
+
+  // Filter (search) runs before sorting. Search matches title and
+  // file path — the two strings the user can read on a row.
+  let filtered = $derived(
+    tests.filter((t) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return t.title.toLowerCase().includes(q)
+        || t.full_title.toLowerCase().includes(q)
+        || (t.file_path ?? "").toLowerCase().includes(q)
+        || t.suite_name.toLowerCase().includes(q);
+    })
+  );
+
   let sorted = $derived(
-    [...tests].sort((a, b) => {
+    [...filtered].sort((a, b) => {
       if (sortBy === "last_seen") return new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime();
       return (b as any)[sortBy] - (a as any)[sortBy];
     })
   );
 
+  // High-risk surface — ≥40% flake rate. Pinned at the top in an
+  // "at-risk" band (same pattern as /releases) so the worst offenders
+  // can't be missed by scrolling. Caps the band at 5 to stay compact.
+  let highRisk = $derived(
+    [...tests]
+      .filter((t) => t.flaky_rate >= 40)
+      .sort((a, b) => b.flaky_rate - a.flaky_rate)
+      .slice(0, 5)
+  );
+
+  let stats = $derived({
+    total: tests.length,
+    high: tests.filter((t) => t.flaky_rate >= 40).length,
+    medium: tests.filter((t) => t.flaky_rate >= 20 && t.flaky_rate < 40).length,
+    quarantined: tests.filter((t) => quarantinedSet.has(qKey(t))).length,
+  });
+
   // Client-side pagination — render the first N rows so a very long
   // flaky list doesn't blow the page on first paint. Reset when the
-  // sort/window changes (otherwise the slice is stale relative to
-  // the new ordering).
+  // sort/filter/window changes (otherwise the slice is stale relative
+  // to the new ordering).
   const PAGE_SIZE = 50;
   let visibleCount = $state(PAGE_SIZE);
   const visibleSorted = $derived(sorted.slice(0, visibleCount));
   const hasMoreFlaky = $derived(visibleSorted.length < sorted.length);
 
   $effect(() => {
-    selectedSuite; sortBy; runWindow; // tracked deps
+    selectedSuite; sortBy; runWindow; searchQuery; // tracked deps
     visibleCount = PAGE_SIZE;
   });
 
@@ -110,8 +144,18 @@
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
+    if (days === 1) return "yesterday";
     if (days < 30) return `${days}d ago`;
     return `${Math.floor(days / 30)}mo ago`;
+  }
+
+  // Friendly absolute string used as the `title` (tooltip) on every
+  // relative-date label. Mirrors /runs / /releases convention.
+  function absoluteDate(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
   }
 
   function rateColor(rate: number): string {
@@ -150,11 +194,59 @@
       quarantinedSet = new Set(quarantinedSet);
     }
   }
+
+  function expandRow(test: FlakyTest, i: number) {
+    expandedIndex = expandedIndex === i ? null : i;
+    void test;
+  }
+
+  function scrollToTest(fullTitle: string, suiteName: string) {
+    const key = `${fullTitle}|${suiteName}`;
+    const idx = sorted.findIndex((t) => qKey(t) === key);
+    if (idx === -1) return;
+    // Make sure the row is paginated in.
+    if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
+    expandedIndex = idx;
+    setTimeout(() => {
+      const row = document.querySelectorAll("tr.flaky-row")[idx] as HTMLElement | undefined;
+      row?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 30);
+  }
 </script>
 
 <div class="page">
-  <!-- No <h1> — sidebar nav + URL already label the page, same as
-       /manual-tests. Subtitle stays as a quick orientation cue. -->
+  <!-- Summary tile strip — mirrors /runs / /releases / /manual-tests.
+       Numbers come from the full unfiltered `tests` set so the strip
+       stays stable as the user narrows the table below. -->
+  {#if !loading && tests.length > 0}
+    <section class="summary">
+      <div class="stat">
+        <span class="stat-label">Flaky tests</span>
+        <span class="stat-value">{stats.total}</span>
+        <span class="stat-sub">across {runWindow} runs</span>
+      </div>
+      <div class="stat" class:risk={stats.high > 0}>
+        <span class="stat-label">High risk</span>
+        <span class="stat-value">{stats.high}</span>
+        <span class="stat-sub">≥40% flake rate</span>
+      </div>
+      <div class="stat" class:medium={stats.medium > 0}>
+        <span class="stat-label">Medium</span>
+        <span class="stat-value">{stats.medium}</span>
+        <span class="stat-sub">20–40% flake rate</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Quarantined</span>
+        <span class="stat-value">{stats.quarantined}</span>
+        <span class="stat-sub">skipped by CI</span>
+      </div>
+    </section>
+  {/if}
+
+  <!-- Header: one-line description on the left, run-window tabs +
+       suite filter on the right. The .filters wrapper preserves the
+       `.filters select` and `.filters .filter-tabs` selectors that
+       the e2e specs anchor on. -->
   <div class="header">
     <p class="description">Tests that alternate between passing and failing across recent runs.</p>
     <div class="filters">
@@ -182,17 +274,63 @@
       <p class="hint">Flaky tests appear when a test passes in some runs and fails in others.</p>
     </div>
   {:else}
-    <div class="summary">
-      <span class="summary-count">{tests.length}</span> flaky test{tests.length !== 1 ? "s" : ""} found across {runWindow} recent runs
-    </div>
+    <!-- At-risk band — same structural pattern as the at-risk
+         band on /releases. Surfaces high-rate flakes (≥40%) so they
+         can't be lost mid-list. Hidden when empty. -->
+    {#if highRisk.length > 0}
+      <section class="at-risk-band" aria-label="High-risk flaky tests">
+        <header class="at-risk-header">
+          <svg class="at-risk-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1.5L15 14H1L8 1.5zm0 4.5v4M8 11.5v.5"/>
+          </svg>
+          <span class="at-risk-title">{highRisk.length} high-risk test{highRisk.length === 1 ? "" : "s"} (≥40% flake rate)</span>
+        </header>
+        <div class="at-risk-list">
+          {#each highRisk as t}
+            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+                 same row-as-button pattern used on /releases at-risk band. -->
+            <div
+              role="button"
+              tabindex="0"
+              class="at-risk-item"
+              onclick={() => scrollToTest(t.full_title, t.suite_name)}
+              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
+            >
+              <span class="at-risk-rate">{t.flaky_rate}%</span>
+              <span class="at-risk-suite">{t.suite_name}</span>
+              <span class="at-risk-test" title={t.full_title}>{t.title}</span>
+              <span class="at-risk-spacer"></span>
+              <span class="at-risk-flips">{t.flip_count} flip{t.flip_count === 1 ? "" : "s"}</span>
+              <span class="at-risk-last" title={absoluteDate(t.last_seen)}>{timeAgo(t.last_seen)}</span>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
 
-    <div class="sort-bar">
-      <span class="sort-label">Sort by:</span>
-      <div class="filter-tabs">
-        <button class="filter-tab" class:active={sortBy === "flaky_rate"} onclick={() => sortBy = "flaky_rate"}>Flaky rate</button>
-        <button class="filter-tab" class:active={sortBy === "flip_count"} onclick={() => sortBy = "flip_count"}>Flips</button>
-        <button class="filter-tab" class:active={sortBy === "fail_count"} onclick={() => sortBy = "fail_count"}>Failures</button>
-        <button class="filter-tab" class:active={sortBy === "last_seen"} onclick={() => sortBy = "last_seen"}>Last seen</button>
+    <!-- Toolbar: sort tabs (segmented control) + search box. The
+         outer wrapper keeps the .sort-bar class so the e2e selector
+         `.sort-bar .filter-tab` still resolves; the search box gets
+         packed onto the same row instead of a separate line. -->
+    <div class="sort-bar toolbar">
+      <div class="sort-group">
+        <span class="sort-label">Sort by</span>
+        <div class="filter-tabs">
+          <button class="filter-tab" class:active={sortBy === "flaky_rate"} onclick={() => sortBy = "flaky_rate"}>Flaky rate</button>
+          <button class="filter-tab" class:active={sortBy === "flip_count"} onclick={() => sortBy = "flip_count"}>Flips</button>
+          <button class="filter-tab" class:active={sortBy === "fail_count"} onclick={() => sortBy = "fail_count"}>Failures</button>
+          <button class="filter-tab" class:active={sortBy === "last_seen"} onclick={() => sortBy = "last_seen"}>Last seen</button>
+        </div>
+      </div>
+
+      <div class="toolbar-right">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input type="text" placeholder="Search tests..." bind:value={searchQuery} />
+        </div>
+        {#if searchQuery || selectedSuite !== "all"}
+          <span class="filter-summary">showing {sorted.length} of {tests.length}</span>
+        {/if}
       </div>
     </div>
 
@@ -202,6 +340,12 @@
          look very different, and the eye picks up alternating
          pass/fail (true flakiness) immediately. Clicking a row
          expands AI analysis / quarantine controls / notes inline. -->
+    {#if sorted.length === 0}
+      <div class="empty filtered-empty">
+        <p>No flaky tests match the current filter.</p>
+        <p class="hint">Try clearing the search or widening the run window.</p>
+      </div>
+    {:else}
     <div class="flaky-heatmap">
       <table class="heatmap-table">
         <thead>
@@ -224,7 +368,8 @@
               tabindex="0"
               class="flaky-row"
               class:expanded={expandedIndex === i}
-              onclick={() => expandedIndex = expandedIndex === i ? null : i}
+              class:quarantined-row={quarantinedSet.has(qKey(test))}
+              onclick={() => expandRow(test, i)}
               onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
             >
               <td class="col-test">
@@ -246,7 +391,7 @@
                   {/each}
                 </div>
               </td>
-              <td class="col-last">{timeAgo(test.last_seen)}</td>
+              <td class="col-last" title={absoluteDate(test.last_seen)}>{timeAgo(test.last_seen)}</td>
             </tr>
             {#if expandedIndex === i}
               <tr class="flaky-detail-row">
@@ -261,7 +406,7 @@
                       </button>
                     {/if}
                     <span class="meta-spacer"></span>
-                    <span class="meta-tag">first {timeAgo(test.first_seen)}</span>
+                    <span class="meta-tag" title={absoluteDate(test.first_seen)}>first seen {timeAgo(test.first_seen)}</span>
                   </div>
                   {#if quarantinedSet.has(qKey(test))}
                     <div class="q-banner">This test is quarantined. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code></div>
@@ -299,12 +444,38 @@
         </button>
       </div>
     {/if}
+    {/if}
   {/if}
 </div>
 
 <style>
   .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
+  /* ── Summary tile strip ─────────────────────────────────────────────
+     Same shape as /runs / /releases / /manual-tests. Tiles read from
+     the full `tests` set so the numbers stay stable when the user
+     filters the table below. */
+  .summary { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+  .stat {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.6rem 0.9rem;
+    display: flex; flex-direction: column; gap: 0.1rem;
+  }
+  .stat-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-size: 1.35rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .stat-sub { font-size: 0.7rem; color: var(--text-muted); }
+  .stat.risk {
+    border-color: color-mix(in srgb, var(--color-fail) 35%, var(--border));
+    background: color-mix(in srgb, var(--color-fail) 5%, var(--bg));
+  }
+  .stat.risk .stat-value { color: var(--color-fail); }
+  .stat.medium {
+    border-color: color-mix(in srgb, #dfb317 35%, var(--border));
+    background: color-mix(in srgb, #dfb317 5%, var(--bg));
+  }
+  .stat.medium .stat-value { color: #dfb317; }
+
+  /* ── Header ─────────────────────────────────────────────────────── */
   .header {
     display: flex; justify-content: space-between; align-items: center;
     gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
@@ -317,23 +488,88 @@
     background: var(--bg); color: var(--text); font-size: 0.85rem;
   }
 
+  /* ── At-risk band — pinned high-rate flakes ───────────────────────
+     Same structural pattern as /releases: tinted background, 4px
+     left-edge stripe, header + list of clickable rows. Items
+     scroll-to and expand the matching table row. */
+  .at-risk-band {
+    background: color-mix(in srgb, var(--color-fail) 6%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--color-fail) 25%, var(--border));
+    border-left: 4px solid var(--color-fail);
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 1rem;
+    display: flex; flex-direction: column; gap: 0.45rem;
+  }
+  .at-risk-header { display: flex; align-items: center; gap: 0.4rem; }
+  .at-risk-icon { color: var(--color-fail); }
+  .at-risk-title {
+    font-weight: 600; font-size: 0.82rem; color: var(--text);
+  }
+  .at-risk-list { display: flex; flex-direction: column; gap: 0.3rem; }
+  .at-risk-item {
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.4rem 0.65rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.82rem; cursor: pointer;
+    transition: border-color 0.1s;
+  }
+  .at-risk-item:hover { border-color: var(--color-fail); }
+  .at-risk-item:focus-visible { outline: 2px solid var(--color-fail); outline-offset: -2px; }
+  .at-risk-rate {
+    padding: 0.1rem 0.45rem; border-radius: 10px;
+    background: color-mix(in srgb, var(--color-fail) 18%, transparent);
+    color: var(--color-fail); font-weight: 700; font-size: 0.78rem;
+    font-variant-numeric: tabular-nums; flex-shrink: 0;
+  }
+  .at-risk-suite {
+    padding: 0.1rem 0.45rem; border-radius: 10px;
+    background: var(--bg-secondary); color: var(--text-secondary);
+    font-size: 0.7rem; flex-shrink: 0; max-width: 160px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .at-risk-test {
+    color: var(--text); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  .at-risk-spacer { flex: 1; }
+  .at-risk-flips, .at-risk-last { color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; }
+
+  /* ── Toolbar (sort + search) ──────────────────────────────────────
+     Kept `.sort-bar` class so the e2e selector `.sort-bar .filter-tab`
+     still resolves; folded the prior single-line into a flex toolbar
+     so the search box packs on the same row. */
+  .sort-bar.toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.75rem; margin-bottom: 0.8rem; flex-wrap: wrap;
+  }
+  .sort-group { display: flex; align-items: center; gap: 0.5rem; }
+  .sort-label { font-size: 0.75rem; color: var(--text-muted); }
+  .toolbar-right { display: flex; align-items: center; gap: 0.6rem; }
+  .filter-summary {
+    font-style: italic; color: var(--text-muted); font-size: 0.78rem;
+  }
+  .search-box {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text-muted);
+  }
+  .search-box:focus-within { border-color: var(--link); }
+  .search-box input {
+    border: none; background: transparent; outline: none;
+    font-size: 0.8rem; color: var(--text); width: 200px;
+  }
+  .search-box input::placeholder { color: var(--text-muted); }
+
   /* .filter-tabs / .filter-tab base styles live in src/app.css. */
 
   .status-text { color: var(--text-secondary); }
   .status-text.err { color: var(--color-fail); }
 
   .empty { padding: 3rem 0; text-align: center; color: var(--text-secondary); }
+  .filtered-empty { padding: 2rem 0; }
   .hint { font-size: 0.875rem; color: var(--text-muted); }
-
-  .summary {
-    font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;
-  }
-  .summary-count { font-weight: 700; color: var(--color-fail); font-size: 1rem; }
-
-  .sort-bar {
-    display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
-  }
-  .sort-label { font-size: 0.75rem; color: var(--text-muted); }
 
   /* Heatmap table — fixed layout so timeline cells fill all available
      width and dots stay evenly distributed. Test + Suite columns clip
@@ -369,6 +605,11 @@
   .heatmap-table tbody tr.flaky-row:hover { background: var(--bg-hover); }
   .heatmap-table tbody tr.flaky-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
   .heatmap-table tbody tr.flaky-row.expanded { background: var(--bg-hover); }
+  /* A quarantined row stays visible in the list but reads as "muted"
+     so the eye skips past it during triage. */
+  .heatmap-table tbody tr.flaky-row.quarantined-row .test-title,
+  .heatmap-table tbody tr.flaky-row.quarantined-row .col-flips,
+  .heatmap-table tbody tr.flaky-row.quarantined-row .col-fails { opacity: 0.55; }
 
   /* Column widths — Test takes whatever's left; Timeline gets a wide
      fixed share so dots stay readable; the rest are compact. */
@@ -398,15 +639,17 @@
   .dim { color: var(--text-muted); }
 
   /* Timeline — fills its column. Dots scale to fit so adding more
-     historical runs doesn't break the layout. */
+     historical runs doesn't break the layout. Larger max-width than
+     the original 14px so a 1920-wide viewport with 30 runs actually
+     fills the column instead of leaving 60% whitespace. */
   .timeline {
-    display: flex; gap: 2px; align-items: center; min-width: 0;
+    display: flex; gap: 3px; align-items: center; min-width: 0;
   }
   .timeline-dot {
     flex: 1 1 0;
-    min-width: 6px; max-width: 14px;
-    height: 14px;
-    border-radius: 2px;
+    min-width: 6px; max-width: 22px;
+    height: 16px;
+    border-radius: 3px;
     display: inline-block;
   }
   .timeline-dot.passed  { background: var(--color-pass); }

@@ -16,7 +16,13 @@ test.describe("/flaky — sort + run window", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/flaky");
-    await expect(page.locator("h1")).toBeVisible({ timeout: 10_000 });
+    // /flaky no longer renders an <h1> — the sidebar nav + URL label
+    // the page (same convention as /manual-tests, /errors, /runs).
+    // Wait on the description sentence instead, which IS the de facto
+    // page title.
+    await expect(
+      page.getByText("Tests that alternate between passing and failing across recent runs."),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("sort tabs flip the active state and re-render the list", async ({ page }) => {
@@ -64,7 +70,8 @@ test.describe("/flaky — sort + run window", () => {
     // Wait for the route to settle. We don't assert specific cards
     // since flaky-detection is a derived metric and the seed's
     // distribution shifts with each re-seed. Just confirm the filter
-    // didn't crash the page.
-    await expect(page.locator("h1")).toBeVisible();
+    // didn't crash the page — the suite-select itself still being
+    // visible is a reliable post-load signal.
+    await expect(suiteSelect).toBeVisible();
   });
 });
