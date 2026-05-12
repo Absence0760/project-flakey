@@ -213,6 +213,58 @@ test("fixFilename: invalid UTF-8 falls back to the input verbatim", () => {
   assert.equal(fixFilename("plain.png"), "plain.png");
 });
 
+// ── fixFilename — path-traversal defence ────────────────────────────────
+//
+// fixFilename is the boundary between multer's tmp file and the
+// storage-key path the upload route hands to storage.put(). multer
+// uses file.originalname verbatim from the multipart header, which is
+// attacker-controllable. Two layers of defence (one here, one in
+// storage.assertSafeKey); these tests pin the boundary layer so a
+// future refactor that strips the basename / null-byte handling can't
+// silently regress storage path-traversal safety.
+
+test("fixFilename: strips POSIX directory components from a relative path", () => {
+  assert.equal(fixFilename("../etc/passwd"), "passwd");
+  assert.equal(fixFilename("subdir/inner/leaf.png"), "leaf.png");
+  assert.equal(fixFilename("./relative.png"), "relative.png");
+});
+
+test("fixFilename: strips POSIX directory components from an absolute path", () => {
+  assert.equal(fixFilename("/etc/passwd"), "passwd");
+  assert.equal(fixFilename("/var/log/syslog"), "syslog");
+});
+
+test("fixFilename: strips deep traversal sequences", () => {
+  // After basename() the leaf is `passwd` — the `..` segments are gone.
+  assert.equal(fixFilename("../../../../etc/passwd"), "passwd");
+});
+
+test("fixFilename: normalises Windows-style backslashes to forward slashes before basename", () => {
+  // multer on Windows clients (or odd clients that emit \) would
+  // otherwise hand storage.put a literal `evil\..\..\etc\passwd`
+  // string that node's posix path.basename treats as a single
+  // filename. Replacing \ with / before basename makes the traversal
+  // visible to the parser.
+  assert.equal(fixFilename("evil\\..\\..\\etc\\passwd"), "passwd");
+  assert.equal(fixFilename("C:\\Windows\\System32\\drivers\\etc\\hosts"), "hosts");
+});
+
+test("fixFilename: strips embedded null bytes (truncation-attack defence)", () => {
+  // Some legacy file APIs treat \0 as a string terminator and silently
+  // truncate. Stripping it on the way in removes the ambiguity.
+  assert.equal(fixFilename("clean.png\0.exe"), "clean.png.exe");
+  assert.equal(fixFilename("\0\0\0.png"), ".png");
+});
+
+test("fixFilename: combination of traversal + null byte + Unicode all collapse to a safe leaf", () => {
+  // Latin-1 → UTF-8 re-decode runs first, then basename, then null
+  // strip. Pin the full ordering so a refactor that re-orders the
+  // passes (or drops one) flips the assertion.
+  const real = "résumé\0.pdf";
+  const wireform = "../../tmp/" + Buffer.from(real, "utf-8").toString("latin1");
+  assert.equal(fixFilename(wireform), "résumé.pdf");
+});
+
 // ── normalizeForMatch ───────────────────────────────────────────────────
 
 test("normalizeForMatch: lowercases and strips non-alphanumeric", () => {
