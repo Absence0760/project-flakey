@@ -102,6 +102,16 @@
     return `${Math.floor(days / 30)}mo ago`;
   }
 
+  // Friendly absolute string used as the `title` (tooltip) on every
+  // relative-date label. Mirrors the convention on /runs and /releases —
+  // no raw ISO leaked to the UI.
+  function absoluteDate(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
   let passRateSeries = $derived.by(() => {
     if (!trends) return [];
     return [{
@@ -153,24 +163,100 @@
   });
 
   let totalRuns = $derived(stats ? stats.automated.total_runs + stats.manual.total_runs : 0);
+  let totalFailures = $derived(stats ? stats.automated.total_failed + stats.manual.failed_runs : 0);
+
+  // At-risk: suites whose latest run has failures, or whose failure
+  // count regressed vs the previous run. The dashboard's job is to
+  // surface these first thing — a triage signal at the top.
+  let atRiskSuites = $derived.by(() => {
+    if (!suites.length) return [] as SuiteComparison[];
+    return suites
+      .filter((s) => s.latest.failed > 0 || (s.diff && s.diff.failed > 0))
+      .sort((a, b) => {
+        // Regressions first (failures grew vs previous), then by raw fail count.
+        const regA = a.diff && a.diff.failed > 0 ? a.diff.failed : 0;
+        const regB = b.diff && b.diff.failed > 0 ? b.diff.failed : 0;
+        if (regA !== regB) return regB - regA;
+        return b.latest.failed - a.latest.failed;
+      });
+  });
 </script>
 
 <div class="page">
-  <div class="header">
+  <header class="page-header">
+    <p class="subtitle">Overview of automated and manual test health for your selected window.</p>
     <DateRangePicker from={fromDate} to={toDate} onchange={handleDateChange} />
-  </div>
+  </header>
 
   {#if loading}
-    <p class="status">Loading...</p>
+    <p class="status">Loading…</p>
   {:else if error}
     <p class="status error">{error}</p>
   {:else if stats}
-    <div class="total-runs-card" title="Automated runs + manual tests executed">
-      <span class="total-runs-value">{totalRuns}</span>
-      <span class="total-runs-label">Total runs</span>
-      <span class="total-runs-sub">{stats.automated.total_runs} automated · {stats.manual.total_runs} manual</span>
-    </div>
+    {#if atRiskSuites.length > 0}
+      <!-- At-risk band — pinned at the top so the most actionable
+           regressions never get scrolled past. Same structural pattern
+           as the at-risk band on /releases. -->
+      <section class="risk-band" aria-label="Suites needing attention">
+        <header class="risk-header">
+          <span class="risk-icon" aria-hidden="true">⚠</span>
+          <span class="risk-title">
+            {atRiskSuites.length} suite{atRiskSuites.length === 1 ? "" : "s"} {atRiskSuites.length === 1 ? "needs" : "need"} attention
+          </span>
+        </header>
+        <div class="risk-list">
+          {#each atRiskSuites.slice(0, 5) as s}
+            {@const regressed = s.diff && s.diff.failed > 0}
+            <a
+              href={s.previous ? `/compare?a=${s.previous.id}&b=${s.latest.id}` : `/runs/${s.latest.id}`}
+              class="risk-item"
+              class:regressed
+            >
+              <span class="risk-suite">{s.suite_name}</span>
+              <span class="risk-fail">{s.latest.failed} failed</span>
+              {#if regressed}
+                <span class="risk-delta">+{s.diff!.failed} vs last run</span>
+              {/if}
+              <span class="risk-spacer"></span>
+              <span class="risk-time" title={absoluteDate(s.latest.created_at)}>{timeAgo(s.latest.created_at)}</span>
+            </a>
+          {/each}
+          {#if atRiskSuites.length > 5}
+            <span class="risk-more">+ {atRiskSuites.length - 5} more — see Suite Health below</span>
+          {/if}
+        </div>
+      </section>
+    {/if}
 
+    <!-- KPI strip — the four numbers an oncall scans first thing.
+         Same shape as /runs and /releases summary tiles so the app
+         reads as one product, not a collection of pages. -->
+    <section class="summary" aria-label="Headline metrics">
+      <div class="stat">
+        <span class="stat-label">Total runs</span>
+        <span class="stat-value">{totalRuns}</span>
+        <span class="stat-sub">{stats.automated.total_runs} auto · {stats.manual.total_runs} manual</span>
+      </div>
+      <div class="stat" class:fail={stats.automated.pass_rate < 90}>
+        <span class="stat-label">Automated pass rate</span>
+        <span class="stat-value pass-text">{stats.automated.pass_rate}%</span>
+        <span class="stat-sub">{stats.automated.total_passed.toLocaleString()} / {stats.automated.total_tests.toLocaleString()} tests</span>
+      </div>
+      <div class="stat" class:fail={totalFailures > 0}>
+        <span class="stat-label">Failures</span>
+        <span class="stat-value" class:fail-text={totalFailures > 0}>{totalFailures}</span>
+        <span class="stat-sub">{stats.automated.total_failed} auto · {stats.manual.failed_runs} manual</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Manual pass rate</span>
+        <span class="stat-value pass-text">{stats.manual.pass_rate}%</span>
+        <span class="stat-sub">{stats.manual.executed} executed · {stats.manual.not_run} not run</span>
+      </div>
+    </section>
+
+    <!-- Per-domain detail strip — Automated and Manual side by side,
+         each with their four key counts. Lives below the KPI strip
+         because the user usually wants the headline first. -->
     <div class="metrics-groups">
       <div class="metrics-group">
         <h3 class="metrics-group-title">Automated test runs</h3>
@@ -180,7 +266,7 @@
             <span class="metric-label">Runs</span>
           </div>
           <div class="metric">
-            <span class="metric-value">{stats.automated.total_tests}</span>
+            <span class="metric-value">{stats.automated.total_tests.toLocaleString()}</span>
             <span class="metric-label">Tests</span>
           </div>
           <div class="metric">
@@ -188,7 +274,7 @@
             <span class="metric-label">Pass rate</span>
           </div>
           <div class="metric">
-            <span class="metric-value fail">{stats.automated.total_failed}</span>
+            <span class="metric-value" class:fail={stats.automated.total_failed > 0}>{stats.automated.total_failed}</span>
             <span class="metric-label">Failures</span>
           </div>
         </div>
@@ -210,14 +296,13 @@
             <span class="metric-label">Pass rate</span>
           </div>
           <div class="metric">
-            <span class="metric-value fail">{stats.manual.failed_runs}</span>
+            <span class="metric-value" class:fail={stats.manual.failed_runs > 0}>{stats.manual.failed_runs}</span>
             <span class="metric-label">Failures</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Suite Health -->
     {#if suites.length > 0}
       <section class="section">
         <h2 class="section-title">Suite Health</h2>
@@ -227,7 +312,6 @@
             {@const improving = suite.diff && suite.diff.failed < 0}
             {@const regressing = suite.diff && suite.diff.failed > 0}
             <a href={suite.previous ? `/compare?a=${suite.previous.id}&b=${suite.latest.id}` : `/runs/${suite.latest.id}`} class="suite-card" class:healthy={suite.latest.failed === 0} class:unhealthy={suite.latest.failed > 0}>
-              <!-- Top: name + trend -->
               <div class="sc-top">
                 <h3>{suite.suite_name}</h3>
                 {#if suite.diff}
@@ -243,7 +327,6 @@
                 {/if}
               </div>
 
-              <!-- Pass rate ring + big number -->
               <div class="sc-rate-row">
                 <div class="sc-ring" title="{rate}% pass rate">
                   <svg viewBox="0 0 36 36">
@@ -260,11 +343,10 @@
                       {formatDelta(suite.diff.pass_rate, "%")}
                     </span>
                   {/if}
-                  <span class="sc-time">{timeAgo(suite.latest.created_at)}</span>
+                  <span class="sc-time" title={absoluteDate(suite.latest.created_at)}>{timeAgo(suite.latest.created_at)}</span>
                 </div>
               </div>
 
-              <!-- Mini stats -->
               <div class="sc-stats">
                 <div class="sc-stat">
                   <span class="sc-stat-val">{suite.latest.total}</span>
@@ -300,7 +382,6 @@
                 </div>
               </div>
 
-              <!-- Comparison bar -->
               {#if suite.previous}
                 <div class="sc-compare-bar">
                   <div class="sc-bar-segment pass-seg" style="width: {passRate(suite.latest)}%"></div>
@@ -314,7 +395,6 @@
                 </div>
               {/if}
 
-              <!-- Footer -->
               <div class="sc-footer">
                 {#if suite.previous}
                   <span class="sc-run-label">Run #{suite.latest.id} vs #{suite.previous.id}</span>
@@ -328,66 +408,33 @@
       </section>
     {/if}
 
-    {#if trends}
-      <div class="charts">
-        <section class="chart-card wide">
-          <h2>Pass Rate Over Time</h2>
-          <TrendChart
-            series={passRateSeries}
-            height={220}
-            yMax={100}
-            formatY={(v) => `${v}%`}
-          />
-        </section>
-
-        <section class="chart-card">
-          <h2>Test Volume</h2>
-          <TrendChart
-            series={volumeSeries}
-            height={200}
-            formatY={(v) => String(v)}
-          />
-        </section>
-
-        <section class="chart-card">
-          <h2>Run Duration</h2>
-          <TrendChart
-            series={durationSeries}
-            height={200}
-            formatY={formatMs}
-            formatTooltip={(p) => formatMs(p.value)}
-          />
-        </section>
-
-        <section class="chart-card wide">
-          <h2>Top Failing Tests</h2>
-          <BarChart
-            bars={topFailureBars}
-            formatValue={(v) => `${v}x`}
-          />
-        </section>
-      </div>
-    {/if}
-
+    <!-- Recent activity panels — three columns of "what happened
+         lately" excerpts. Each links out to the dedicated index page
+         so this is a launch pad, not a destination. -->
     <div class="panels">
       <section class="panel">
-        <h2>Recent automated runs</h2>
+        <header class="panel-header">
+          <h2>Recent automated runs</h2>
+          <a class="panel-link" href="/">See all →</a>
+        </header>
         {#if stats.automated.recent_runs.length === 0}
           <p class="empty">No runs yet.</p>
         {:else}
           <ul class="run-list">
-            {#each stats.automated.recent_runs as run}
+            {#each stats.automated.recent_runs.slice(0, 8) as run}
+              {@const rPass = run.failed === 0 && !run.aborted}
               <li>
                 <a href="/runs/{run.id}">
+                  <span class="run-status-dot" class:pass={rPass} class:fail={run.failed > 0} class:aborted={run.aborted}></span>
                   <span class="run-id">#{run.id}</span>
-                  <span class="run-suite">{run.suite_name}</span>
+                  <span class="run-suite" title={run.suite_name}>{run.suite_name}</span>
                   {#if run.aborted}
                     <span class="run-badge aborted" title="Run aborted before completion">ABORTED</span>
                   {/if}
                   <span class="run-result" class:has-failures={run.failed > 0}>
                     {run.passed}/{run.total}
                   </span>
-                  <span class="run-time">{timeAgo(run.created_at)}</span>
+                  <span class="run-time" title={absoluteDate(run.created_at)}>{timeAgo(run.created_at)}</span>
                 </a>
               </li>
             {/each}
@@ -396,18 +443,21 @@
       </section>
 
       <section class="panel">
-        <h2>Recent manual results</h2>
+        <header class="panel-header">
+          <h2>Recent manual results</h2>
+          <a class="panel-link" href="/manual-tests">See all →</a>
+        </header>
         {#if stats.manual.recent_results.length === 0}
           <p class="empty">No manual test activity in this range.</p>
         {:else}
           <ul class="run-list">
-            {#each stats.manual.recent_results as r}
+            {#each stats.manual.recent_results.slice(0, 8) as r}
               <li>
                 <a href="/manual-tests">
-                  <span class="run-suite">{r.title}</span>
+                  <span class="run-suite" title={r.title}>{r.title}</span>
                   <span class="run-badge status-{r.status}">{r.status.replace('_', ' ')}</span>
                   {#if r.last_run_at}
-                    <span class="run-time">{timeAgo(r.last_run_at)}</span>
+                    <span class="run-time" title={absoluteDate(r.last_run_at)}>{timeAgo(r.last_run_at)}</span>
                   {/if}
                 </a>
               </li>
@@ -417,28 +467,35 @@
       </section>
 
       <section class="panel">
-        <h2>Recent failures</h2>
+        <header class="panel-header">
+          <h2>Recent failures</h2>
+          <a class="panel-link" href="/errors">See all →</a>
+        </header>
         {#if stats.automated.recent_failures.length === 0 && stats.manual.recent_failures.length === 0}
           <p class="empty">No failures. Nice!</p>
         {:else}
           <ul class="failure-list">
-            {#each stats.automated.recent_failures as failure}
+            {#each stats.automated.recent_failures.slice(0, 6) as failure}
               <li>
                 <a href="/runs/{failure.run_id}">
-                  <span class="failure-type auto">auto</span>
-                  <span class="failure-test">{failure.test_title}</span>
-                  <span class="failure-error">{failure.error_message}</span>
+                  <div class="failure-head">
+                    <span class="failure-type auto">auto</span>
+                    <span class="failure-test" title={failure.test_title}>{failure.test_title}</span>
+                  </div>
+                  <span class="failure-error" title={failure.error_message}>{failure.error_message}</span>
                   <span class="failure-spec">{failure.file_path}</span>
                 </a>
               </li>
             {/each}
-            {#each stats.manual.recent_failures as mf}
+            {#each stats.manual.recent_failures.slice(0, 4) as mf}
               <li>
                 <a href="/manual-tests">
-                  <span class="failure-type manual">manual</span>
-                  <span class="failure-test">{mf.title}</span>
+                  <div class="failure-head">
+                    <span class="failure-type manual">manual</span>
+                    <span class="failure-test" title={mf.title}>{mf.title}</span>
+                  </div>
                   {#if mf.last_run_notes}
-                    <span class="failure-error">{mf.last_run_notes}</span>
+                    <span class="failure-error" title={mf.last_run_notes}>{mf.last_run_notes}</span>
                   {/if}
                   {#if mf.suite_name}
                     <span class="failure-spec">{mf.suite_name}</span>
@@ -450,6 +507,50 @@
         {/if}
       </section>
     </div>
+
+    {#if trends}
+      <section class="section">
+        <h2 class="section-title">Trends</h2>
+        <div class="charts">
+          <section class="chart-card">
+            <h2>Pass Rate Over Time</h2>
+            <TrendChart
+              series={passRateSeries}
+              height={180}
+              yMax={100}
+              formatY={(v) => `${v}%`}
+            />
+          </section>
+
+          <section class="chart-card">
+            <h2>Test Volume</h2>
+            <TrendChart
+              series={volumeSeries}
+              height={180}
+              formatY={(v) => String(v)}
+            />
+          </section>
+
+          <section class="chart-card">
+            <h2>Run Duration</h2>
+            <TrendChart
+              series={durationSeries}
+              height={180}
+              formatY={formatMs}
+              formatTooltip={(p) => formatMs(p.value)}
+            />
+          </section>
+
+          <section class="chart-card wide">
+            <h2>Top Failing Tests</h2>
+            <BarChart
+              bars={topFailureBars}
+              formatValue={(v) => `${v}x`}
+            />
+          </section>
+        </div>
+      </section>
+    {/if}
   {/if}
 </div>
 
@@ -460,51 +561,108 @@
     padding: 1.5rem 2rem;
   }
 
-  .header {
+  /* Header: subtitle anchored left, date picker right. Mirrors the
+     /releases convention — no h1, sidebar already labels the page. */
+  .page-header {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    margin-bottom: 1.5rem;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin: 0;
   }
 
   .status { color: var(--text-secondary); }
   .status.error { color: var(--color-fail); }
 
-  .total-runs-card {
+  /* ── At-risk band ────────────────────────────────────────────────── */
+  .risk-band {
+    background: color-mix(in srgb, var(--color-fail) 6%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--color-fail) 35%, var(--border));
+    border-left: 4px solid var(--color-fail);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
+    gap: 0.5rem;
+  }
+  .risk-header { display: flex; align-items: center; gap: 0.5rem; }
+  .risk-icon { font-size: 1rem; }
+  .risk-title { font-weight: 600; font-size: 0.85rem; color: var(--text); }
+  .risk-list { display: flex; flex-direction: column; gap: 0.35rem; }
+  .risk-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.45rem 0.65rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; text-decoration: none; color: var(--text);
+    font-size: 0.82rem;
+    transition: border-color 0.1s;
+  }
+  .risk-item:hover { border-color: var(--color-fail); background: color-mix(in srgb, var(--color-fail) 4%, var(--bg)); }
+  .risk-item.regressed { border-left: 3px solid var(--color-fail); }
+  .risk-suite { font-weight: 600; }
+  .risk-fail {
+    font-size: 0.72rem; font-weight: 700;
+    padding: 0.1rem 0.45rem; border-radius: 10px;
+    background: color-mix(in srgb, var(--color-fail) 15%, transparent);
+    color: var(--color-fail);
+  }
+  .risk-delta {
+    font-size: 0.72rem; font-weight: 600;
+    color: var(--color-fail);
+  }
+  .risk-spacer { flex: 1; }
+  .risk-time { font-size: 0.75rem; color: var(--text-muted); }
+  .risk-more {
+    font-size: 0.75rem; color: var(--text-muted); padding: 0.25rem 0.65rem;
+  }
+
+  /* ── KPI strip ───────────────────────────────────────────────────── */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 900px) {
+    .summary { grid-template-columns: repeat(2, 1fr); }
+  }
+  .stat {
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.25rem;
-    background: var(--bg-secondary, transparent);
+    padding: 0.7rem 0.95rem;
+    display: flex; flex-direction: column; gap: 0.15rem;
+  }
+  .stat-label {
+    font-size: 0.68rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+  }
+  .stat-value {
+    font-size: 1.5rem; font-weight: 700; color: var(--text);
+    font-variant-numeric: tabular-nums; line-height: 1.15;
+  }
+  .stat-value.pass-text { color: var(--color-pass); }
+  .stat-value.fail-text { color: var(--color-fail); }
+  .stat-sub {
+    font-size: 0.72rem; color: var(--text-muted);
+    margin-top: 0.1rem;
+  }
+  .stat.fail {
+    border-color: color-mix(in srgb, var(--color-fail) 30%, var(--border));
   }
 
-  .total-runs-value {
-    font-size: 2rem;
-    font-weight: 700;
-    line-height: 1.1;
-  }
-
-  .total-runs-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    text-transform: uppercase;
-  }
-
-  .total-runs-sub {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-top: 0.15rem;
-  }
-
+  /* ── Per-domain detail strip (Automated + Manual) ───────────────── */
   .metrics-groups {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    gap: 1rem;
     margin-bottom: 2rem;
   }
 
@@ -514,7 +672,7 @@
 
   .metrics-group-title {
     margin: 0 0 0.5rem;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 600;
     letter-spacing: 0.05em;
     color: var(--text-muted);
@@ -524,37 +682,47 @@
   .metrics {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .metric {
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.25rem;
+    border-radius: 6px;
+    padding: 0.65rem 0.8rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.15rem;
+    background: var(--bg);
   }
 
   .metric-value {
-    font-size: 1.75rem;
+    font-size: 1.15rem;
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
 
   .metric-value.pass { color: var(--color-pass); }
   .metric-value.fail { color: var(--color-fail); }
 
   .metric-label {
-    font-size: 0.8rem;
+    font-size: 0.68rem;
     color: var(--text-muted);
     text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   /* Section */
   .section { margin-bottom: 2rem; }
-  .section-title { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
+  .section-title {
+    margin: 0 0 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
 
-  /* Suite Health Cards */
+  /* ── Suite Health Cards ──────────────────────────────────────────── */
   .suite-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -564,11 +732,11 @@
   .suite-card {
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 1rem 1.15rem;
+    padding: 0.85rem 1rem;
     background: var(--bg);
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.65rem;
     text-decoration: none;
     color: var(--text);
     transition: all 0.2s;
@@ -592,8 +760,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     flex-shrink: 0;
   }
@@ -606,8 +774,8 @@
 
   .sc-ring {
     position: relative;
-    width: 52px;
-    height: 52px;
+    width: 48px;
+    height: 48px;
     flex-shrink: 0;
   }
   .sc-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
@@ -622,7 +790,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 700;
   }
 
@@ -639,7 +807,7 @@
     gap: 0.25rem;
   }
   .sc-stat { display: flex; flex-direction: column; align-items: center; gap: 0.05rem; }
-  .sc-stat-val { font-size: 0.85rem; font-weight: 700; }
+  .sc-stat-val { font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .sc-stat-val.pass { color: var(--color-pass); }
   .sc-stat-val.fail { color: var(--color-fail); }
   .sc-stat-val.skip { color: var(--color-skip); }
@@ -668,25 +836,32 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
   }
   .sc-run-label { font-weight: 500; }
-  .sc-vs { font-style: italic; }
 
+  /* ── Trend charts ────────────────────────────────────────────────── */
   .charts {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 2rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+
+  @media (max-width: 1200px) {
+    .charts { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 700px) {
+    .charts { grid-template-columns: 1fr; }
   }
 
   .chart-card {
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 1rem 1.25rem;
+    padding: 0.85rem 1rem;
     min-width: 0;
     overflow: hidden;
+    background: var(--bg);
   }
 
   .chart-card.wide {
@@ -694,16 +869,20 @@
   }
 
   .chart-card h2 {
-    margin: 0 0 0.75rem;
-    font-size: 0.85rem;
+    margin: 0 0 0.6rem;
+    font-size: 0.78rem;
     font-weight: 600;
     color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
+  /* ── Recent activity panels ──────────────────────────────────────── */
   .panels {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
   }
 
   @media (max-width: 1200px) {
@@ -717,18 +896,43 @@
   .panel {
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 1.25rem;
+    padding: 0.85rem 1rem;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    min-height: 240px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 
   .panel h2 {
-    margin: 0 0 1rem;
-    font-size: 0.95rem;
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
+
+  .panel-link {
+    font-size: 0.72rem;
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .panel-link:hover { text-decoration: underline; }
 
   .empty {
     color: var(--text-muted);
-    font-size: 0.875rem;
+    font-size: 0.825rem;
     margin: 0;
+    padding: 0.5rem 0;
   }
 
   .run-list, .failure-list {
@@ -737,20 +941,18 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    max-height: 360px;
-    overflow-y: auto;
-    gap: 0.25rem;
+    gap: 0.15rem;
   }
 
   .run-list a {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.55rem;
     padding: 0.4rem 0.5rem;
     border-radius: 4px;
     text-decoration: none;
     color: var(--text);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     transition: background 0.1s;
   }
 
@@ -758,21 +960,39 @@
     background: var(--bg-hover);
   }
 
+  .run-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .run-status-dot.pass { background: var(--color-pass); }
+  .run-status-dot.fail { background: var(--color-fail); }
+  .run-status-dot.aborted { background: #dfb317; }
+
   .run-id {
     color: var(--link);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     min-width: 2.5rem;
   }
 
   .run-suite {
     flex: 1;
     color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .run-result {
     font-family: monospace;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--color-pass);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
   }
 
   .run-result.has-failures {
@@ -780,13 +1000,13 @@
   }
 
   .run-badge {
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    margin-right: 0.4rem;
     text-transform: uppercase;
+    flex-shrink: 0;
   }
 
   .run-badge.aborted,
@@ -817,14 +1037,13 @@
 
   .failure-type {
     display: inline-block;
-    font-size: 0.6rem;
+    font-size: 0.58rem;
     font-weight: 700;
     letter-spacing: 0.05em;
     padding: 0.05rem 0.35rem;
     border-radius: 3px;
     text-transform: uppercase;
-    margin-right: 0.4rem;
-    vertical-align: middle;
+    flex-shrink: 0;
   }
 
   .failure-type.auto {
@@ -839,15 +1058,14 @@
 
   .run-time {
     color: var(--text-muted);
-    font-size: 0.8rem;
-    min-width: 4rem;
-    text-align: right;
+    font-size: 0.75rem;
+    flex-shrink: 0;
   }
 
   .failure-list a {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.2rem;
     padding: 0.5rem;
     border-radius: 4px;
     text-decoration: none;
@@ -860,16 +1078,27 @@
   }
 
   .failure-list li + li {
-    border-top: 1px solid var(--border-light);
+    border-top: 1px solid var(--border);
+  }
+
+  .failure-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
 
   .failure-test {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
   .failure-error {
-    font-size: 0.8rem;
+    font-size: 0.76rem;
     color: var(--color-fail);
     white-space: nowrap;
     overflow: hidden;
@@ -877,8 +1106,11 @@
   }
 
   .failure-spec {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
     font-family: monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

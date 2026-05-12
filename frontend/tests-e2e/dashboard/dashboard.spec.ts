@@ -19,18 +19,18 @@ test.describe("/dashboard", () => {
     await page.goto("/dashboard");
   });
 
-  test("renders the Total runs card with both automated + manual sub-counts", async ({
+  test("renders the Total runs KPI tile with both automated + manual sub-counts", async ({
     page,
   }) => {
-    // The total-runs card is the headline number. With seed data,
-    // automated.total_runs ≥ 50 and manual.total_runs > 0, so we
-    // assert on the structural elements rather than exact counts —
-    // those drift with seed changes.
-    const card = page.locator(".total-runs-card");
-    await expect(card).toBeVisible({ timeout: 10_000 });
-    await expect(card.locator(".total-runs-label")).toHaveText("Total runs");
-    await expect(card.locator(".total-runs-sub")).toContainText("automated");
-    await expect(card.locator(".total-runs-sub")).toContainText("manual");
+    // The Total runs tile leads the KPI strip — it's the headline
+    // number. With seed data, automated.total_runs ≥ 50 and
+    // manual.total_runs > 0, so we assert on the structural elements
+    // rather than exact counts (those drift with seed changes).
+    const tile = page.locator(".summary .stat").filter({ hasText: "Total runs" }).first();
+    await expect(tile).toBeVisible({ timeout: 10_000 });
+    await expect(tile.locator(".stat-label")).toHaveText("Total runs");
+    await expect(tile.locator(".stat-sub")).toContainText("auto");
+    await expect(tile.locator(".stat-sub")).toContainText("manual");
   });
 
   test("renders both metric groups (Automated test runs + Manual tests)", async ({ page }) => {
@@ -86,8 +86,9 @@ test.describe("/dashboard", () => {
     await page.goto("/dashboard?from=2026-04-01&to=2026-05-01");
 
     // Wait for stats to load — dashboard's loadStats() reads the URL
-    // first and uses those params.
-    await expect(page.locator(".total-runs-card")).toBeVisible({ timeout: 10_000 });
+    // first and uses those params. The KPI summary strip is the
+    // first thing to render once `stats` resolves.
+    await expect(page.locator(".summary").first()).toBeVisible({ timeout: 10_000 });
 
     // The URL must still carry the params we set — readUrl() shouldn't
     // overwrite them, and syncUrl() shouldn't re-emit defaults.
