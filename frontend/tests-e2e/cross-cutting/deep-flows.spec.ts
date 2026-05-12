@@ -201,10 +201,12 @@ test.describe("deep cross-page flows", () => {
     page,
   }) => {
     await page.goto("/errors");
-    // The page lazy-loads the error groups; wait for at least one to render.
-    const firstError = page.locator(".error-header").first();
+    // Master/detail layout: the list lives in `aside.error-list` with
+    // `button.error-item` rows, and the first error auto-selects on
+    // load so the right pane has content immediately. The "View
+    // latest failure" button sits in the detail pane's header.
+    const firstError = page.locator("button.error-item").first();
     await expect(firstError).toBeVisible({ timeout: 10_000 });
-    await firstError.click();
 
     // The expanded error has a "View latest failure" button that
     // opens the ErrorModal on `latest_test_id`.

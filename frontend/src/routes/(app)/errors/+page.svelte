@@ -37,10 +37,15 @@
   let mounted = $state(false);
   $effect(() => { selectedSuite; selectedStatus; if (mounted) syncUrl(); });
 
-  // Expanded error detail
-  let expandedFingerprint = $state<string | null>(null);
+  // Selected error — drives the right-hand detail pane (master /
+  // detail split). Auto-selects the first error on load so the right
+  // pane is never empty when the list isn't.
+  let selectedFingerprint = $state<string | null>(null);
   let affectedTests = $state<AffectedTest[]>([]);
   let testsLoading = $state(false);
+  const selectedError = $derived(
+    errors.find((e) => e.fingerprint === selectedFingerprint) ?? null
+  );
 
   // Client-side pagination (page size 50). Reset when filters
   // change so a stale slice doesn't outlive the underlying set.
@@ -130,12 +135,9 @@
   function onSuiteChange() { applyFilters(); }
   function onStatusChange() { applyFilters(); }
 
-  async function toggleExpand(err: ErrorGroup) {
-    if (expandedFingerprint === err.fingerprint) {
-      expandedFingerprint = null;
-      return;
-    }
-    expandedFingerprint = err.fingerprint;
+  async function selectError(err: ErrorGroup) {
+    if (selectedFingerprint === err.fingerprint) return;
+    selectedFingerprint = err.fingerprint;
     affectedTests = [];
     testsLoading = true;
     try {
@@ -143,6 +145,19 @@
     } catch { /* ignore */ }
     testsLoading = false;
   }
+
+  // After errors load, pick the first one so the right pane has
+  // content immediately. Don't fight the user's choice once they've
+  // clicked something else.
+  $effect(() => {
+    if (errors.length === 0) {
+      selectedFingerprint = null;
+      return;
+    }
+    if (selectedFingerprint === null || !errors.some((e) => e.fingerprint === selectedFingerprint)) {
+      selectError(errors[0]);
+    }
+  });
 
   async function changeStatus(err: ErrorGroup, status: string) {
     try {
@@ -211,143 +226,147 @@
       </p>
     </div>
   {:else}
-    <div class="error-list">
-      {#each visibleErrors as err}
-        <div class="error-card" class:expanded={expandedFingerprint === err.fingerprint}>
-          <button class="error-header" onclick={() => toggleExpand(err)}>
-            <div class="error-main">
-              <span class="error-count">{err.occurrence_count}x</span>
-              <div class="error-info">
-                <div class="error-title-row">
-                  <span class="error-message-primary">{err.error_message}</span>
-                  <span class="status-badge" style="background: {statusInfo(err.status).color}">{statusInfo(err.status).label}</span>
-                </div>
-                <span class="error-tests-summary">{err.affected_tests} test{err.affected_tests !== 1 ? "s" : ""} affected</span>
-              </div>
-            </div>
-            <div class="error-meta">
-              <span class="meta-item" title="Affected runs">{err.affected_runs} run{err.affected_runs !== 1 ? "s" : ""}</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-item">{err.suite_name}</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-item" title="First seen {formatDate(err.first_seen)}">first {timeAgo(err.first_seen)}</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-item" title="Last seen {formatDate(err.last_seen)}">last {timeAgo(err.last_seen)}</span>
-              {#if err.note_count > 0}
-                <span class="meta-sep">·</span>
-                <span class="meta-item notes-count">{err.note_count} note{err.note_count !== 1 ? "s" : ""}</span>
-              {/if}
-            </div>
+    <!-- Master / detail split: compact list on the left, full inspector
+         on the right. The list stays scrollable; the detail pane
+         renders the selected fingerprint's full context (status,
+         affected tests, AI, notes) without forcing the user to scroll
+         back to the list each time they want to triage another error. -->
+    <div class="split">
+      <aside class="error-list">
+        {#each visibleErrors as err}
+          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+               row-as-button pattern, same as runs list. -->
+          <button
+            class="error-item"
+            class:active={selectedFingerprint === err.fingerprint}
+            onclick={() => selectError(err)}
+          >
+            <span class="status-dot" style="background: {statusInfo(err.status).color}"></span>
+            <span class="error-count">{err.occurrence_count}x</span>
+            <span class="error-msg" title={err.error_message}>{err.error_message}</span>
+            <span class="error-tail">
+              <span class="error-suite">{err.suite_name}</span>
+              <span class="error-tests">{err.affected_tests}t</span>
+              {#if err.note_count > 0}<span class="notes-count" title="{err.note_count} notes">{err.note_count}n</span>{/if}
+            </span>
           </button>
+        {/each}
+        {#if hasMoreErrors}
+          <div class="load-more">
+            <button class="load-more-btn" onclick={loadMoreErrors}>
+              Load more ({errors.length - visibleErrors.length} more)
+            </button>
+          </div>
+        {/if}
+      </aside>
 
-          {#if expandedFingerprint === err.fingerprint}
-            <div class="error-detail">
-              <div class="detail-row">
-                <div class="detail-section">
-                  <h4>Status</h4>
-                  <div class="status-controls">
-                    {#each statuses as s}
-                      <button
-                        class="status-btn"
-                        class:active={err.status === s.value}
-                        style="--status-color: {s.color}"
-                        onclick={() => changeStatus(err, s.value)}
-                      >{s.label}</button>
-                    {/each}
-                  </div>
-                </div>
-                <div class="detail-section">
-                  <h4>Details</h4>
-                  <div class="detail-facts">
-                    <span>Occurrences: <strong>{err.occurrence_count}</strong></span>
-                    <span>Affected runs: <strong>{err.affected_runs}</strong></span>
-                    <span>First seen: <strong>{formatDate(err.first_seen)}</strong></span>
-                    <span>Last seen: <strong>{formatDate(err.last_seen)}</strong></span>
-                    <span>Files: <strong>{err.file_paths.join(", ")}</strong></span>
-                  </div>
-                </div>
-                <button class="btn-view" onclick={() => { if (err.latest_test_id) modalTestId = err.latest_test_id; }}>
-                  View latest failure
-                </button>
+      <section class="detail-pane">
+        {#if !selectedError}
+          <p class="muted">Pick an error from the list to inspect it.</p>
+        {:else}
+          {@const err = selectedError}
+          <header class="detail-header">
+            <span class="status-badge" style="background: {statusInfo(err.status).color}">{statusInfo(err.status).label}</span>
+            <span class="detail-count">{err.occurrence_count}x</span>
+            <button class="btn-view" onclick={() => { if (err.latest_test_id) modalTestId = err.latest_test_id; }}>View latest failure</button>
+          </header>
+          <pre class="detail-error">{err.error_message}</pre>
+
+          <div class="detail-row">
+            <div class="detail-section">
+              <h4>Status</h4>
+              <div class="status-controls">
+                {#each statuses as s}
+                  <button
+                    class="status-btn"
+                    class:active={err.status === s.value}
+                    style="--status-color: {s.color}"
+                    onclick={() => changeStatus(err, s.value)}
+                  >{s.label}</button>
+                {/each}
               </div>
+            </div>
+            <div class="detail-section">
+              <h4>Details</h4>
+              <div class="detail-facts">
+                <span>Occurrences: <strong>{err.occurrence_count}</strong></span>
+                <span>Affected runs: <strong>{err.affected_runs}</strong></span>
+                <span>First seen: <strong>{formatDate(err.first_seen)}</strong></span>
+                <span>Last seen: <strong>{formatDate(err.last_seen)}</strong></span>
+                <span>Suite: <strong>{err.suite_name}</strong></span>
+                <span>Files: <strong>{err.file_paths.join(", ")}</strong></span>
+              </div>
+            </div>
+          </div>
 
-              {#if aiEnabled}
-                <div class="ai-section">
-                  {#if aiResults[err.fingerprint]}
-                    {@const ai = aiResults[err.fingerprint]}
-                    <div class="ai-result">
-                      <div class="ai-header">
-                        <span class="ai-badge">{classificationLabels[ai.classification] ?? ai.classification}</span>
-                        <span class="ai-confidence">{Math.round(ai.confidence * 100)}% confidence</span>
-                      </div>
-                      <p class="ai-summary">{ai.summary}</p>
-                      <p class="ai-fix"><strong>Suggestion:</strong> {ai.suggested_fix}</p>
-                    </div>
-                  {:else}
-                    <button class="btn-analyze" onclick={() => handleAnalyze(err.fingerprint)} disabled={aiLoading[err.fingerprint]}>
-                      {aiLoading[err.fingerprint] ? "Analyzing..." : "Analyze with AI"}
-                    </button>
-                  {/if}
-
-                  {#if similarResults[err.fingerprint]}
-                    {@const similar = similarResults[err.fingerprint]}
-                    {#if similar.length > 0}
-                      <div class="similar-section">
-                        <h4>Similar Failures ({similar.length})</h4>
-                        {#each similar as s}
-                          <div class="similar-item">
-                            <span class="similar-msg">{s.error_message.slice(0, 120)}{s.error_message.length > 120 ? "..." : ""}</span>
-                            <span class="similar-meta">
-                              {s.suite_name} · {s.occurrence_count}x · {Math.round(s.similarity * 100)}% similar
-                              <span class="status-badge mini" style="background: {statusInfo(s.status).color}">{statusInfo(s.status).label}</span>
-                            </span>
-                          </div>
-                        {/each}
-                      </div>
-                    {/if}
-                  {:else}
-                    <button class="btn-similar" onclick={() => handleFindSimilar(err.fingerprint)} disabled={similarLoading[err.fingerprint]}>
-                      {similarLoading[err.fingerprint] ? "Searching..." : "Find similar failures"}
-                    </button>
-                  {/if}
+          {#if aiEnabled}
+            <div class="ai-section">
+              {#if aiResults[err.fingerprint]}
+                {@const ai = aiResults[err.fingerprint]}
+                <div class="ai-result">
+                  <div class="ai-header">
+                    <span class="ai-badge">{classificationLabels[ai.classification] ?? ai.classification}</span>
+                    <span class="ai-confidence">{Math.round(ai.confidence * 100)}% confidence</span>
+                  </div>
+                  <p class="ai-summary">{ai.summary}</p>
+                  <p class="ai-fix"><strong>Suggestion:</strong> {ai.suggested_fix}</p>
                 </div>
+              {:else}
+                <button class="btn-analyze" onclick={() => handleAnalyze(err.fingerprint)} disabled={aiLoading[err.fingerprint]}>
+                  {aiLoading[err.fingerprint] ? "Analyzing..." : "Analyze with AI"}
+                </button>
               {/if}
 
-              <div class="affected-tests-section">
-                <h4>Affected Tests ({affectedTests.length})</h4>
-                {#if testsLoading}
-                  <p class="muted">Loading...</p>
-                {:else if affectedTests.length === 0}
-                  <p class="muted">No tests found.</p>
-                {:else}
-                  <div class="affected-tests-list">
-                    {#each affectedTests as at}
-                      <button class="affected-test" onclick={() => { modalTestId = at.latest_test_id; }}>
-                        <span class="at-title">{at.full_title}</span>
-                        <span class="at-meta">
-                          <span class="at-file">{at.file_path}</span>
-                          <span class="at-count">{at.occurrence_count}x</span>
-                          <span class="at-time">{timeAgo(at.last_seen)}</span>
+              {#if similarResults[err.fingerprint]}
+                {@const similar = similarResults[err.fingerprint]}
+                {#if similar.length > 0}
+                  <div class="similar-section">
+                    <h4>Similar Failures ({similar.length})</h4>
+                    {#each similar as s}
+                      <div class="similar-item">
+                        <span class="similar-msg">{s.error_message.slice(0, 120)}{s.error_message.length > 120 ? "..." : ""}</span>
+                        <span class="similar-meta">
+                          {s.suite_name} · {s.occurrence_count}x · {Math.round(s.similarity * 100)}% similar
+                          <span class="status-badge mini" style="background: {statusInfo(s.status).color}">{statusInfo(s.status).label}</span>
                         </span>
-                      </button>
+                      </div>
                     {/each}
                   </div>
                 {/if}
-              </div>
-
-              <NotesPanel targetType="error" targetKey={err.fingerprint} />
+              {:else}
+                <button class="btn-similar" onclick={() => handleFindSimilar(err.fingerprint)} disabled={similarLoading[err.fingerprint]}>
+                  {similarLoading[err.fingerprint] ? "Searching..." : "Find similar failures"}
+                </button>
+              {/if}
             </div>
           {/if}
-        </div>
-      {/each}
+
+          <div class="affected-tests-section">
+            <h4>Affected Tests ({affectedTests.length})</h4>
+            {#if testsLoading}
+              <p class="muted">Loading...</p>
+            {:else if affectedTests.length === 0}
+              <p class="muted">No tests found.</p>
+            {:else}
+              <div class="affected-tests-list">
+                {#each affectedTests as at}
+                  <button class="affected-test" onclick={() => { modalTestId = at.latest_test_id; }}>
+                    <span class="at-title">{at.full_title}</span>
+                    <span class="at-meta">
+                      <span class="at-file">{at.file_path}</span>
+                      <span class="at-count">{at.occurrence_count}x</span>
+                      <span class="at-time">{timeAgo(at.last_seen)}</span>
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <NotesPanel targetType="error" targetKey={err.fingerprint} />
+        {/if}
+      </section>
     </div>
-    {#if hasMoreErrors}
-      <div class="load-more">
-        <button class="load-more-btn" onclick={loadMoreErrors}>
-          Load more ({errors.length - visibleErrors.length} more)
-        </button>
-      </div>
-    {/if}
   {/if}
 </div>
 
@@ -381,47 +400,93 @@
   .empty { padding: 3rem 0; text-align: center; color: var(--text-secondary); }
   .hint { font-size: 0.875rem; color: var(--text-muted); }
 
-  .error-list { display: flex; flex-direction: column; gap: 0.5rem; }
-
-  .error-card {
+  /* Master / detail split — list on the left, inspector on the right.
+     Sticky right pane so it keeps the selected error visible while
+     the user scrolls a long list. */
+  .split {
+    display: grid;
+    grid-template-columns: minmax(380px, 36%) 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+  .error-list {
+    display: flex; flex-direction: column;
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    overflow: hidden; transition: border-color 0.1s;
+    overflow: hidden;
   }
-  .error-card:hover, .error-card.expanded { border-color: color-mix(in srgb, var(--color-fail) 50%, var(--border)); }
-
-  .error-header {
-    display: flex; flex-direction: column; gap: 0.4rem; width: 100%; padding: 0.75rem 1rem;
-    cursor: pointer; text-align: left; color: var(--text); font: inherit; background: none; border: none;
+  .error-item {
+    display: grid;
+    grid-template-columns: 10px 36px 1fr auto;
+    gap: 0.5rem; align-items: center;
+    padding: 0.55rem 0.75rem;
+    background: var(--bg); border: none; border-bottom: 1px solid var(--border);
+    text-align: left; font: inherit; color: var(--text); cursor: pointer;
+    width: 100%;
+    transition: background 0.1s;
   }
-
-  .error-main { display: flex; align-items: flex-start; gap: 0.75rem; }
-  .error-count {
-    font-weight: 700; font-size: 0.85rem; color: var(--color-fail); min-width: 2.5rem;
-    padding-top: 0.1rem; text-align: right;
+  .error-item:last-of-type { border-bottom: none; }
+  .error-item:hover { background: var(--bg-hover); }
+  .error-item.active {
+    background: color-mix(in srgb, var(--link) 12%, var(--bg));
+    box-shadow: inset 3px 0 0 var(--link);
   }
-  .error-info { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
-  .error-title-row { display: flex; align-items: center; gap: 0.5rem; }
-  .error-message-primary {
-    font-weight: 500; font-size: 0.85rem; color: var(--color-fail);
+  .error-item .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .error-item .error-count {
+    font-family: monospace; font-weight: 700; font-size: 0.8rem;
+    color: var(--color-fail); text-align: right;
+  }
+  .error-item .error-msg {
+    font-size: 0.82rem; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
   }
-  .error-tests-summary { font-size: 0.78rem; color: var(--text-secondary); }
+  .error-tail {
+    display: flex; gap: 0.4rem; align-items: center;
+    font-size: 0.7rem; color: var(--text-muted);
+  }
+  .error-suite {
+    padding: 0.05rem 0.4rem; border-radius: 8px;
+    background: var(--bg-secondary);
+  }
+  .error-tests { font-variant-numeric: tabular-nums; }
+  .notes-count { color: var(--link); }
 
+  /* Right-pane inspector */
+  .detail-pane {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem 1.25rem;
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 8rem);
+    overflow-y: auto;
+  }
+  .detail-header {
+    display: flex; gap: 0.6rem; align-items: center;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-light);
+    margin-bottom: 0.75rem;
+  }
+  .detail-count { font-family: monospace; font-weight: 700; color: var(--color-fail); }
+  .detail-error {
+    background: color-mix(in srgb, var(--color-fail) 5%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--color-fail) 20%, var(--border));
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    font-family: monospace; font-size: 0.8rem;
+    color: var(--text);
+    white-space: pre-wrap; word-break: break-word;
+    margin: 0 0 0.75rem;
+    max-height: 12rem; overflow-y: auto;
+  }
   .status-badge {
     padding: 0.15rem 0.45rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     color: #fff; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.02em;
   }
 
-  .error-meta {
-    display: flex; gap: 0.35rem; padding-left: 3.25rem;
-    font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap;
-  }
-  .meta-sep { color: var(--border); }
-  .notes-count { color: var(--link); }
-
-  /* Expanded detail */
-  .error-detail {
-    border-top: 1px solid var(--border); padding: 1rem; background: var(--bg-secondary);
+  /* Stack columns on narrow viewports — sticky becomes irrelevant
+     when the list pushes the detail pane below it on mobile. */
+  @media (max-width: 1024px) {
+    .split { grid-template-columns: 1fr; }
+    .detail-pane { position: static; max-height: none; }
   }
   .detail-row {
     display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1rem;

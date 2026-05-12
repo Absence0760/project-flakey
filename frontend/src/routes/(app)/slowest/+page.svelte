@@ -147,40 +147,43 @@
       <p class="hint">Tests need at least 2 passing runs to appear here.</p>
     </div>
   {:else}
+    <!-- Horizontal ranked bars — each row's bar fills its proportional
+         share of the slowest test in the visible set, so the eye picks
+         out the worst offenders without needing to read numbers.
+         Sparkline sits at the right to surface recent-run trend at a
+         glance; the precise avg + range numbers sit above the bar. -->
     <div class="test-list">
       {#each visibleSorted as test, i}
         <div class="test-card" class:expanded={expandedIndex === i}>
           <button class="test-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
             <span class="rank">#{i + 1}</span>
             <div class="test-info">
-              <span class="test-title">{test.title}</span>
-              <span class="test-meta">
-                <span class="mono">{test.file_path}</span>
+              <div class="title-row">
+                <span class="test-title">{test.title}</span>
                 {#if selectedSuite === "all"}
                   <span class="suite-badge">{test.suite_name}</span>
                 {/if}
+                <span class="trend-value" style="color: {trendColor(test.trend_pct)}">{trendLabel(test.trend_pct)}</span>
+              </div>
+              <div class="bar-row">
+                <div class="duration-bar-track">
+                  <div class="duration-bar-fill" style="width: {(test.avg_duration_ms / maxDuration) * 100}%"></div>
+                  <div class="duration-bar-max" style="left: {(test.max_duration_ms / maxDuration) * 100}%" title="max {formatMs(test.max_duration_ms)}"></div>
+                </div>
+                <div class="bar-stats">
+                  <span class="dur-avg">{formatMs(test.avg_duration_ms)}</span>
+                  <span class="dur-range">{formatMs(test.min_duration_ms)}–{formatMs(test.max_duration_ms)}</span>
+                </div>
+              </div>
+              <span class="test-meta">
+                <span class="mono">{test.file_path}</span>
               </span>
             </div>
 
-            <div class="spark">
+            <div class="spark" title="Recent durations">
               {#each test.duration_history.slice(-20) as dur}
-                <div class="spark-bar" style="height: {sparkHeight(dur, test.max_duration_ms)}px"></div>
+                <div class="spark-bar" class:hot={dur > test.p95_ms} style="height: {sparkHeight(dur, test.max_duration_ms)}px"></div>
               {/each}
-            </div>
-
-            <div class="trend-col">
-              <span class="trend-value" style="color: {trendColor(test.trend_pct)}">{trendLabel(test.trend_pct)}</span>
-            </div>
-
-            <div class="duration-col">
-              <div class="duration-bar-track">
-                <div class="duration-bar-range" style="left: {(test.min_duration_ms / maxDuration) * 100}%; width: {((test.max_duration_ms - test.min_duration_ms) / maxDuration) * 100}%"></div>
-                <div class="duration-bar-avg" style="left: {(test.avg_duration_ms / maxDuration) * 100}%"></div>
-              </div>
-              <div class="duration-values">
-                <span class="dur-avg">{formatMs(test.avg_duration_ms)}</span>
-                <span class="dur-range">{formatMs(test.min_duration_ms)} – {formatMs(test.max_duration_ms)}</span>
-              </div>
             </div>
           </button>
 
@@ -285,50 +288,86 @@
   .test-card:hover, .test-card.expanded { border-color: color-mix(in srgb, var(--color-skip) 60%, var(--border)); }
 
   .test-header {
-    display: flex; align-items: center; gap: 0.75rem; width: 100%;
-    padding: 0.65rem 1rem; cursor: pointer; text-align: left; color: var(--text);
+    display: flex; align-items: stretch; gap: 0.85rem; width: 100%;
+    padding: 0.7rem 1rem; cursor: pointer; text-align: left; color: var(--text);
     font: inherit; background: none; border: none;
   }
 
   .rank {
-    font-family: monospace; font-size: 0.75rem; color: var(--text-muted);
-    min-width: 2rem; text-align: right; flex-shrink: 0;
+    font-family: monospace; font-size: 0.78rem; font-weight: 700;
+    color: var(--text-muted);
+    min-width: 2.5rem; text-align: right; flex-shrink: 0;
+    align-self: center;
   }
 
-  .test-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
-  .test-title { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .test-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted); }
-  .mono { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  .test-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+
+  /* Title + suite + trend on the first line */
+  .title-row { display: flex; align-items: baseline; gap: 0.6rem; }
+  .test-title {
+    font-size: 0.88rem; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1 1 auto; min-width: 0;
+  }
   .suite-badge {
-    padding: 0.1rem 0.4rem; border-radius: 10px; font-size: 0.65rem;
+    padding: 0.1rem 0.45rem; border-radius: 10px; font-size: 0.65rem;
     background: var(--bg-secondary); color: var(--text-secondary);
+    flex-shrink: 0;
   }
+  .trend-value { font-size: 0.75rem; font-weight: 700; flex-shrink: 0; min-width: 56px; text-align: right; }
 
-  /* Sparkline */
-  .spark { display: flex; align-items: flex-end; gap: 1px; height: 24px; flex-shrink: 0; }
-  .spark-bar { width: 3px; background: var(--color-skip); border-radius: 1px 1px 0 0; }
-
-  /* Trend */
-  .trend-col { width: 50px; flex-shrink: 0; text-align: right; }
-  .trend-value { font-size: 0.75rem; font-weight: 700; }
-
-  /* Duration bar */
-  .duration-col { width: 180px; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  /* Full-width duration bar — the visual centerpiece. Bar fills the
+     available row width so a 12s vs 6s test is obvious at a glance
+     without reading numbers. Numeric stats sit immediately to the
+     right at a fixed width. */
+  .bar-row { display: flex; align-items: center; gap: 0.6rem; }
   .duration-bar-track {
-    height: 6px; background: var(--border-light); border-radius: 3px;
-    overflow: hidden; position: relative;
+    flex: 1 1 auto;
+    height: 10px;
+    background: var(--bg-secondary);
+    border-radius: 5px; overflow: hidden; position: relative;
+    border: 1px solid var(--border-light);
   }
-  .duration-bar-range {
-    position: absolute; height: 100%; background: color-mix(in srgb, var(--color-skip) 40%, transparent);
-    border-radius: 3px;
+  .duration-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--color-skip) 30%, transparent) 0%,
+      color-mix(in srgb, var(--color-skip) 75%, transparent) 100%);
+    border-radius: 4px 0 0 4px;
+    transition: width 0.25s ease-out;
   }
-  .duration-bar-avg {
-    position: absolute; width: 2px; height: 100%; background: var(--color-skip); border-radius: 1px;
+  /* Max-duration tick mark sits on top of the bar so the user can
+     see the spread between avg and max without an extra row. */
+  .duration-bar-max {
+    position: absolute; top: -2px;
+    width: 2px; height: calc(100% + 4px);
+    background: var(--color-fail);
     transform: translateX(-1px);
+    opacity: 0.6;
   }
-  .duration-values { display: flex; justify-content: space-between; align-items: baseline; }
-  .dur-avg { font-family: monospace; font-size: 0.82rem; font-weight: 600; color: var(--text); }
-  .dur-range { font-family: monospace; font-size: 0.68rem; color: var(--text-muted); }
+  .bar-stats {
+    display: flex; flex-direction: column; align-items: flex-end;
+    flex-shrink: 0; min-width: 130px;
+    line-height: 1.1;
+  }
+  .dur-avg { font-family: monospace; font-size: 0.95rem; font-weight: 700; color: var(--text); }
+  .dur-range { font-family: monospace; font-size: 0.7rem; color: var(--text-muted); }
+
+  /* File path on a faded second line */
+  .test-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted); }
+  .mono { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+  /* Sparkline at the right edge — taller now to balance the bigger
+     bar; bars above P95 turn red to surface regression visually. */
+  .spark {
+    display: flex; align-items: flex-end; gap: 2px;
+    height: 32px; flex-shrink: 0;
+    align-self: center;
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--border-light);
+  }
+  .spark-bar { width: 4px; background: var(--color-skip); border-radius: 1px 1px 0 0; opacity: 0.7; }
+  .spark-bar.hot { background: var(--color-fail); opacity: 0.85; }
 
   /* Expanded detail */
   .test-detail { border-top: 1px solid var(--border); padding: 1rem; background: var(--bg-secondary); }

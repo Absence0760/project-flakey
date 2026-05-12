@@ -197,74 +197,101 @@
       </div>
     </div>
 
-    <div class="flaky-list">
-      {#each visibleSorted as test, i}
-        <div class="flaky-card" class:expanded={expandedIndex === i}>
-          <button class="card-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
-          <div class="card-top">
-            <div class="rate-ring" style="--rate: {test.flaky_rate}; --rate-color: {rateColor(test.flaky_rate)}">
-              <span class="rate-value">{test.flaky_rate}%</span>
-            </div>
-            <div class="card-info">
-              <span class="card-title">{test.title}</span>
-              <span class="card-spec">{test.file_path}</span>
-            </div>
-            <div class="card-stats">
-              <span class="stat"><strong>{test.flip_count}</strong> flips</span>
-              <span class="stat"><strong>{test.fail_count}</strong>/{test.total_runs} failed</span>
-              <span class="stat">{test.suite_name}</span>
-            </div>
-          </div>
-
-          <div class="card-bottom">
-            <div class="timeline">
-              {#each test.timeline as status, i}
-                <span
-                  class="timeline-dot {status}"
-                  title="Run #{test.run_ids[i]}: {status}"
-                ></span>
-              {/each}
-            </div>
-            <div class="card-meta">
-              <span>first {timeAgo(test.first_seen)}</span>
-              <span>last {timeAgo(test.last_seen)}</span>
-            </div>
-          </div>
-          </button>
-
-          {#if expandedIndex === i}
-            <div class="card-detail">
-              <div class="detail-actions">
-                <button class="q-btn" class:quarantined={quarantinedSet.has(qKey(test))} onclick={() => toggleQuarantine(test)}>
-                  {quarantinedSet.has(qKey(test)) ? "Unquarantine" : "Quarantine"}
-                </button>
-                {#if aiEnabled && !aiResults[qKey(test)]}
-                  <button class="analyze-btn" onclick={() => handleAnalyzeFlaky(test)} disabled={aiLoading[qKey(test)]}>
-                    {aiLoading[qKey(test)] ? "Analyzing..." : "Analyze with AI"}
-                  </button>
-                {/if}
-              </div>
-              {#if quarantinedSet.has(qKey(test))}
-                <div class="q-banner">This test is quarantined. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code></div>
-              {/if}
-              {#if aiResults[qKey(test)]}
-                {@const ai = aiResults[qKey(test)]}
-                <div class="ai-result">
-                  <div class="ai-header">
-                    <span class="ai-severity" class:high={ai.severity === "high"} class:medium={ai.severity === "medium"}>{ai.severity} severity</span>
-                    {#if ai.shouldQuarantine}
-                      <span class="ai-rec">Quarantine recommended</span>
-                    {/if}
-                  </div>
-                  <p class="ai-text"><strong>Root cause:</strong> {ai.rootCause}</p>
-                  <p class="ai-text"><strong>Suggestion:</strong> {ai.stabilizationSuggestion}</p>
+    <!-- Heatmap-style table — each row is a flaky test, each cell in
+         the timeline column is one recent run. Pattern jumps out at
+         a glance: clustered failures vs. randomly-scattered failures
+         look very different, and the eye picks up alternating
+         pass/fail (true flakiness) immediately. Clicking a row
+         expands AI analysis / quarantine controls / notes inline. -->
+    <div class="flaky-heatmap">
+      <table class="heatmap-table">
+        <thead>
+          <tr>
+            <th class="col-test">Test</th>
+            <th class="col-suite">Suite</th>
+            <th class="col-rate">Rate</th>
+            <th class="col-flips">Flips</th>
+            <th class="col-fails">Fails</th>
+            <th class="col-timeline">Timeline (latest →)</th>
+            <th class="col-last">Last</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each visibleSorted as test, i}
+            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+                 same row-as-button pattern used on /manual-tests + runs list. -->
+            <tr
+              role="button"
+              tabindex="0"
+              class="flaky-row"
+              class:expanded={expandedIndex === i}
+              onclick={() => expandedIndex = expandedIndex === i ? null : i}
+              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
+            >
+              <td class="col-test">
+                <div class="test-cell">
+                  <span class="test-title" title={test.title}>{test.title}</span>
+                  <span class="test-spec" title={test.file_path}>{test.file_path}</span>
                 </div>
-              {/if}
-              <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
-            </div>
-          {/if}
-        </div>
-      {/each}
+              </td>
+              <td class="col-suite"><span class="suite-chip">{test.suite_name}</span></td>
+              <td class="col-rate">
+                <span class="rate-pill" style="background: color-mix(in srgb, {rateColor(test.flaky_rate)} 18%, transparent); color: {rateColor(test.flaky_rate)};">{test.flaky_rate}%</span>
+              </td>
+              <td class="col-flips"><strong>{test.flip_count}</strong></td>
+              <td class="col-fails"><strong>{test.fail_count}</strong><span class="dim">/{test.total_runs}</span></td>
+              <td class="col-timeline">
+                <div class="timeline">
+                  {#each test.timeline as status, ti}
+                    <span class="timeline-dot {status}" title="Run #{test.run_ids[ti]}: {status}"></span>
+                  {/each}
+                </div>
+              </td>
+              <td class="col-last">{timeAgo(test.last_seen)}</td>
+            </tr>
+            {#if expandedIndex === i}
+              <tr class="flaky-detail-row">
+                <td colspan="7" class="flaky-detail">
+                  <div class="detail-actions">
+                    <button class="q-btn" class:quarantined={quarantinedSet.has(qKey(test))} onclick={() => toggleQuarantine(test)}>
+                      {quarantinedSet.has(qKey(test)) ? "Unquarantine" : "Quarantine"}
+                    </button>
+                    {#if aiEnabled && !aiResults[qKey(test)]}
+                      <button class="analyze-btn" onclick={() => handleAnalyzeFlaky(test)} disabled={aiLoading[qKey(test)]}>
+                        {aiLoading[qKey(test)] ? "Analyzing..." : "Analyze with AI"}
+                      </button>
+                    {/if}
+                    <span class="meta-spacer"></span>
+                    <span class="meta-tag">first {timeAgo(test.first_seen)}</span>
+                  </div>
+                  {#if quarantinedSet.has(qKey(test))}
+                    <div class="q-banner">This test is quarantined. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code></div>
+                  {/if}
+                  {#if aiResults[qKey(test)]}
+                    {@const ai = aiResults[qKey(test)]}
+                    <div class="ai-result">
+                      <div class="ai-header">
+                        <span class="ai-severity" class:high={ai.severity === "high"} class:medium={ai.severity === "medium"}>{ai.severity} severity</span>
+                        {#if ai.shouldQuarantine}
+                          <span class="ai-rec">Quarantine recommended</span>
+                        {/if}
+                      </div>
+                      <p class="ai-text"><strong>Root cause:</strong> {ai.rootCause}</p>
+                      <p class="ai-text"><strong>Suggestion:</strong> {ai.stabilizationSuggestion}</p>
+                    </div>
+                  {/if}
+                  <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
+                </td>
+              </tr>
+            {/if}
+          {/each}
+        </tbody>
+      </table>
+      <div class="heatmap-legend">
+        <span><span class="timeline-dot passed"></span> pass</span>
+        <span><span class="timeline-dot failed"></span> fail</span>
+        <span><span class="timeline-dot skipped"></span> skip</span>
+      </div>
     </div>
     {#if hasMoreFlaky}
       <div class="load-more">
@@ -309,64 +336,102 @@
   }
   .sort-label { font-size: 0.75rem; color: var(--text-muted); }
 
-  .flaky-list { display: flex; flex-direction: column; gap: 0.5rem; }
-
-  .flaky-card {
-    border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg); transition: border-color 0.1s; overflow: hidden;
+  /* Heatmap table — fixed layout so timeline cells fill all available
+     width and dots stay evenly distributed. Test + Suite columns clip
+     long content with an ellipsis. */
+  .flaky-heatmap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
   }
-  .flaky-card:hover, .flaky-card.expanded { border-color: color-mix(in srgb, var(--color-skip) 60%, var(--border)); }
-
-  .card-header {
-    display: block; width: 100%; padding: 0.75rem 1rem; cursor: pointer;
-    text-align: left; color: var(--text); font: inherit; background: none; border: none;
+  .heatmap-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.85rem;
   }
-
-  .card-detail {
-    border-top: 1px solid var(--border); padding: 0.75rem 1rem; background: var(--bg-secondary);
+  .heatmap-table th, .heatmap-table td {
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    vertical-align: middle;
   }
-
-  .card-top { display: flex; align-items: center; gap: 0.75rem; }
-
-  .rate-ring {
-    width: 3rem; height: 3rem; border-radius: 50%; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: conic-gradient(var(--rate-color) calc(var(--rate) * 1%), var(--border) 0);
-    position: relative;
+  .heatmap-table th {
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-weight: 600; text-transform: uppercase;
+    font-size: 0.68rem; letter-spacing: 0.04em;
+    white-space: nowrap;
   }
-  .rate-ring::before {
-    content: ""; position: absolute;
-    width: 2.2rem; height: 2.2rem; border-radius: 50%; background: var(--bg);
+  .heatmap-table tbody tr:last-child td { border-bottom: none; }
+  .heatmap-table tbody tr.flaky-row { cursor: pointer; transition: background 0.1s; }
+  .heatmap-table tbody tr.flaky-row:hover { background: var(--bg-hover); }
+  .heatmap-table tbody tr.flaky-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+  .heatmap-table tbody tr.flaky-row.expanded { background: var(--bg-hover); }
+
+  /* Column widths — Test takes whatever's left; Timeline gets a wide
+     fixed share so dots stay readable; the rest are compact. */
+  .col-test     { width: 28%; }
+  .col-suite    { width: 130px; }
+  .col-rate     { width: 80px; text-align: center; }
+  .col-flips    { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+  .col-fails    { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+  .col-timeline { width: auto; }
+  .col-last     { width: 100px; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
+
+  .test-cell { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .test-title { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .test-spec  { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .suite-chip {
+    padding: 0.1rem 0.45rem; border-radius: 10px; font-size: 0.7rem;
+    background: var(--bg-secondary); color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: inline-block; max-width: 100%;
   }
-  .rate-value {
-    position: relative; z-index: 1;
-    font-size: 0.65rem; font-weight: 700; color: var(--text);
+  .rate-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem; border-radius: 10px;
+    font-weight: 700; font-size: 0.78rem; font-variant-numeric: tabular-nums;
   }
+  .dim { color: var(--text-muted); }
 
-  .card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-  .card-title { font-weight: 500; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-spec { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .card-stats { display: flex; flex-direction: column; gap: 0.1rem; flex-shrink: 0; text-align: right; }
-  .stat { font-size: 0.75rem; color: var(--text-secondary); }
-  .stat strong { color: var(--text); }
-
-  .card-bottom {
-    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-    margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-light);
+  /* Timeline — fills its column. Dots scale to fit so adding more
+     historical runs doesn't break the layout. */
+  .timeline {
+    display: flex; gap: 2px; align-items: center; min-width: 0;
   }
-
-  .timeline { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
   .timeline-dot {
-    width: 10px; height: 10px; border-radius: 2px;
+    flex: 1 1 0;
+    min-width: 6px; max-width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    display: inline-block;
   }
-  .timeline-dot.passed { background: var(--color-pass); }
-  .timeline-dot.failed { background: var(--color-fail); }
+  .timeline-dot.passed  { background: var(--color-pass); }
+  .timeline-dot.failed  { background: var(--color-fail); }
   .timeline-dot.skipped { background: var(--color-skip); }
 
-  .card-meta { display: flex; gap: 0.75rem; font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
+  .heatmap-legend {
+    display: flex; gap: 1rem; padding: 0.4rem 0.75rem;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem; color: var(--text-muted);
+  }
+  .heatmap-legend .timeline-dot { width: 10px; height: 10px; flex: 0 0 auto; margin-right: 0.25rem; vertical-align: middle; }
 
-  .detail-actions { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+  /* Expanded detail row spans full width and looks like a panel
+     below the parent row, not another table row. */
+  .flaky-detail-row td.flaky-detail {
+    padding: 0.75rem 1rem 1rem;
+    background: color-mix(in srgb, var(--link) 4%, var(--bg-secondary));
+    border-top: 1px dashed var(--border);
+  }
+  .detail-actions { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+  .meta-spacer { flex: 1; }
+  .meta-tag { font-size: 0.72rem; color: var(--text-muted); }
 
   .q-btn, .analyze-btn {
     padding: 0.3rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;

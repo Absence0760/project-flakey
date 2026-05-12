@@ -90,16 +90,18 @@ test.describe("client-side pagination — /flaky and /errors", () => {
   test("/flaky shows Load more when seed produces > 50 candidates", async ({ page }) => {
     test.setTimeout(30_000);
     await page.goto("/flaky");
-    await waitForList(page, ".flaky-list .flaky-card");
+    // Heatmap-table rows live under `tr.flaky-row` after the
+    // 2026-05-12 redesign — earlier card-grid markup is gone.
+    await waitForList(page, "tr.flaky-row");
 
-    const initial = await page.locator(".flaky-list .flaky-card").count();
-    expect(initial, `initial render shows ${initial} cards; page-size 50 should cap this`)
+    const initial = await page.locator("tr.flaky-row").count();
+    expect(initial, `initial render shows ${initial} rows; page-size 50 should cap this`)
       .toBeLessThanOrEqual(50);
     await expect(page.locator(".load-more-btn"), "Load more must appear with seeded volume > 50").toBeVisible();
 
     await page.locator(".load-more-btn").click();
     await expect.poll(
-      async () => await page.locator(".flaky-list .flaky-card").count(),
+      async () => await page.locator("tr.flaky-row").count(),
       { timeout: 5_000 },
     ).toBeGreaterThan(initial);
   });
@@ -107,16 +109,18 @@ test.describe("client-side pagination — /flaky and /errors", () => {
   test("/errors shows Load more when seed produces > 50 groups", async ({ page }) => {
     test.setTimeout(30_000);
     await page.goto("/errors");
-    await waitForList(page, ".error-list .error-card");
+    // Master/detail layout — the list lives in `aside.error-list`
+    // with `button.error-item` rows after the 2026-05-12 redesign.
+    await waitForList(page, "button.error-item");
 
-    const initial = await page.locator(".error-list .error-card").count();
-    expect(initial, `initial render shows ${initial} cards; page-size 50 should cap this`)
+    const initial = await page.locator("button.error-item").count();
+    expect(initial, `initial render shows ${initial} items; page-size 50 should cap this`)
       .toBeLessThanOrEqual(50);
     await expect(page.locator(".load-more-btn"), "Load more must appear with seeded volume > 50").toBeVisible();
 
     await page.locator(".load-more-btn").click();
     await expect.poll(
-      async () => await page.locator(".error-list .error-card").count(),
+      async () => await page.locator("button.error-item").count(),
       { timeout: 5_000 },
     ).toBeGreaterThan(initial);
   });
