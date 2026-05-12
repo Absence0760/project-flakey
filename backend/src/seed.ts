@@ -385,12 +385,22 @@ async function seed() {
     const demoId = demo.rows[0].id;
     const viewerId = viewer.rows[0].id;
 
-    // Seed orgs
+    // Seed orgs.
+    //
+    // retention_days = NULL explicitly disables the retention cleanup
+    // job (src/retention.ts) for the seeded orgs. The default value
+    // for new orgs is 7 (migration 021); the seed deliberately writes
+    // runs whose created_at is spread up to 540 days back so the
+    // dashboard's date-range filtering can be exercised in dev / e2e.
+    // Without this override, the retention job fires 10s after the
+    // backend boots and silently deletes every run older than 7 days
+    // — wiping ~70% of the seed and breaking the e2e specs that look
+    // for seeded Playwright / JUnit runs (the SSO redirect lookups).
     const org1 = await client.query(
-      "INSERT INTO organizations (name, slug) VALUES ('Acme Corp', 'acme') RETURNING id"
+      "INSERT INTO organizations (name, slug, retention_days) VALUES ('Acme Corp', 'acme', NULL) RETURNING id"
     );
     const org2 = await client.query(
-      "INSERT INTO organizations (name, slug) VALUES ('Demo Team', 'demo-team') RETURNING id"
+      "INSERT INTO organizations (name, slug, retention_days) VALUES ('Demo Team', 'demo-team', NULL) RETURNING id"
     );
     const orgId = org1.rows[0].id;
     const org2Id = org2.rows[0].id;
