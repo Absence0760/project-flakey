@@ -9,6 +9,13 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 // enforce a character allow-list because legitimate filenames include
 // spaces, accented Unicode, etc.; the deny-list is sufficient because
 // node's path resolver only escapes a directory via these patterns.
+//
+// NOTE: this is defense-in-depth on top of the inline resolve+prefix
+// sanitisation in each put() method. CodeQL's js/path-injection rule
+// only traces sanitisation when the resolve+startsWith pattern sits
+// inline at the filesystem call site — values flowing through a
+// helper function boundary aren't recognised as sanitised by the
+// data-flow library. Hence the inline duplication below.
 function assertSafeKey(destKey: string): void {
   if (
     destKey.length === 0 ||
@@ -21,42 +28,13 @@ function assertSafeKey(destKey: string): void {
   }
 }
 
-// Resolve destKey under baseDir and return the absolute path. Throws
-// if the resolved path escapes baseDir. The path.resolve + prefix
-// check pattern is the form CodeQL's js/path-injection rule
-// recognises as a sanitiser (the older relative()-based form wasn't
-// traced through end-to-end).
-function safeJoinUnder(baseDir: string, destKey: string): string {
-  const baseAbs = resolve(baseDir);
-  const destAbs = resolve(baseAbs, destKey);
-  if (destAbs !== baseAbs && !destAbs.startsWith(baseAbs + sep)) {
-    throw new Error(`refusing to write outside storage root: ${destKey}`);
-  }
-  return destAbs;
-}
-
-// Validate that tempPath (multer's randomly-named tmp file) is under a
-// known temp root before fs operations dereference it. multer's
-// disk-storage filename is crypto.randomBytes-derived so it's not
-// actually attacker-controlled, but CodeQL traces it back through the
-// multipart parser and conservatively flags any fs op on it. The
-// explicit prefix check at the storage boundary satisfies the rule
-// AND adds genuine defense-in-depth if a future multer config drift
-// ever lands tempPath outside the expected dir.
+// Pre-resolved tmp roots that multer files are allowed to live under.
+// One for the multer disk-storage dest the upload routes configure
+// (`uploads/tmp/<random>`), one for the OS tmpdir the unit tests use.
 const TEMP_ROOTS = [
   resolve("uploads", "tmp"),
   resolve(tmpdir()),
 ];
-function safeTempPath(tempPath: string): string {
-  if (tempPath.includes("\0")) {
-    throw new Error(`unsafe temp path (null byte): ${tempPath}`);
-  }
-  const abs = resolve(tempPath);
-  for (const root of TEMP_ROOTS) {
-    if (abs === root || abs.startsWith(root + sep)) return abs;
-  }
-  throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
-}
 
 export interface Storage {
   /** Move a file from a local temp path to its final storage location. */
@@ -80,10 +58,35 @@ class LocalStorage implements Storage {
 
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
-    const safeTemp = safeTempPath(tempPath);
-    const destAbs = safeJoinUnder(this.baseDir, destKey);
+
+    // INLINE sanitisation — CodeQL js/path-injection requires the
+    // resolve + startsWith pattern at the filesystem call site, not
+    // via a helper function. assertSafeKey above is defense-in-depth.
+
+    // Sanitise destKey: resolve under baseDir, refuse anything outside.
+    const baseAbs = resolve(this.baseDir);
+    const destAbs = resolve(baseAbs, destKey);
+    if (destAbs !== baseAbs && !destAbs.startsWith(baseAbs + sep)) {
+      throw new Error(`refusing to write outside storage root: ${destKey}`);
+    }
+
+    // Sanitise tempPath: resolve, refuse anything outside the known
+    // tmp roots (multer dest or os.tmpdir()). multer's filename is
+    // crypto.randomBytes so this is mostly defense-in-depth.
+    if (tempPath.includes("\0")) {
+      throw new Error(`unsafe temp path (null byte): ${tempPath}`);
+    }
+    const tempAbs = resolve(tempPath);
+    let tempOk = false;
+    for (const root of TEMP_ROOTS) {
+      if (tempAbs === root || tempAbs.startsWith(root + sep)) { tempOk = true; break; }
+    }
+    if (!tempOk) {
+      throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
+    }
+
     mkdirSync(dirname(destAbs), { recursive: true });
-    renameSync(safeTemp, destAbs);
+    renameSync(tempAbs, destAbs);
   }
 
   async getUrl(key: string): Promise<string> {
@@ -126,8 +129,22 @@ class S3Storage implements Storage {
 
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
-    const safeTemp = safeTempPath(tempPath);
-    const body = readFileSync(safeTemp);
+
+    // INLINE sanitisation on tempPath — see the LocalStorage.put
+    // comment for why this can't live in a helper.
+    if (tempPath.includes("\0")) {
+      throw new Error(`unsafe temp path (null byte): ${tempPath}`);
+    }
+    const tempAbs = resolve(tempPath);
+    let tempOk = false;
+    for (const root of TEMP_ROOTS) {
+      if (tempAbs === root || tempAbs.startsWith(root + sep)) { tempOk = true; break; }
+    }
+    if (!tempOk) {
+      throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
+    }
+
+    const body = readFileSync(tempAbs);
     await this.client.send(new PutObjectCommand({
       Bucket: this.bucket,
       Key: this.key(destKey),
@@ -135,7 +152,7 @@ class S3Storage implements Storage {
       ContentType: guessContentType(destKey),
     }));
     // Clean up temp file
-    try { rmSync(safeTemp); } catch { /* ignore */ }
+    try { rmSync(tempAbs); } catch { /* ignore */ }
   }
 
   async getUrl(key: string): Promise<string> {
