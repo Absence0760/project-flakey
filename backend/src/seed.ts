@@ -930,6 +930,40 @@ async function seed() {
     }
     console.log("Seeded 3 JUnit runs with metadata (classname, error_type, stdout/stderr, properties, hostname).");
 
+    // Bulk synthetic suite-coverage runs — push the suites count
+    // (derived from `runs.suite_name`) above the 25/page threshold so
+    // /settings#suites pagination is exercised in dev. One small run
+    // per new suite name is enough; the suites endpoint groups by
+    // name + run_count, not test depth.
+    const bulkSuiteNames = [
+      "smoke-checkout", "smoke-cart", "perf-api", "perf-uploads",
+      "regression-billing", "regression-search", "regression-notifications",
+      "i18n-en", "i18n-fr", "i18n-ja", "i18n-rtl",
+      "mobile-ios", "mobile-android",
+      "integration-stripe", "integration-segment", "integration-twilio",
+      "edge-empty-state", "edge-network-loss", "edge-large-payload",
+      "browser-firefox", "browser-safari", "browser-edge",
+      "load-light", "load-heavy",
+    ];
+    for (let i = 0; i < bulkSuiteNames.length; i++) {
+      const sn = bulkSuiteNames[i];
+      const startedAt = new Date(now - (i + 30) * DAY_MS);
+      const dur = randomInt(8000, 35000);
+      const finishedAt = new Date(startedAt.getTime() + dur);
+      await client.query(
+        `INSERT INTO runs
+          (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at,
+           total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [
+          sn, "main", Math.random().toString(16).slice(2, 10), `bulk-${i + 1}`, "mochawesome",
+          startedAt.toISOString(), finishedAt.toISOString(),
+          5, 5, 0, 0, 0, dur, startedAt.toISOString(), orgId,
+        ]
+      );
+    }
+    console.log(`Seeded ${bulkSuiteNames.length} bulk-suite-coverage runs (pagination coverage).`);
+
     // Log date distribution for verification
     const counts = { today: 0, yesterday: 0, week: 0, month: 0, sixMonths: 0, older: 0 };
     const res = await client.query("SELECT created_at FROM runs ORDER BY created_at DESC");
@@ -1051,6 +1085,68 @@ async function seed() {
     }
     console.log(`Seeded ${manualTests.length} manual tests.`);
 
+    // Bulk fill — push the manual_tests count above the page-size
+    // threshold (50) so client-side pagination is exercised in dev.
+    // Generated tests share the same shape as the hand-curated ones
+    // but with templated titles + randomized status/priority/suite
+    // mixes, so they don't visually clutter the headline-curated 5.
+    const bulkSuites = ["regression", "smoke", "auth", "billing", "a11y", "checkout", "admin", "reporting"];
+    const bulkPriorities = ["low", "medium", "high", "critical"] as const;
+    const bulkStatuses = ["passed", "failed", "blocked", "skipped", "not_run"] as const;
+    const bulkVerbs = ["Verify", "Confirm", "Validate", "Check", "Audit", "Ensure", "Inspect", "Probe"];
+    const bulkSubjects = [
+      "session timeout warning", "password reset link expiry", "OAuth callback handling",
+      "CSV export column ordering", "report scheduling timezone", "permissions matrix",
+      "search relevance ranking", "tag filter persistence", "infinite scroll on activity",
+      "image upload retries on flaky network", "currency formatting in invoices",
+      "tax recalculation on cart update", "shipping estimate edge cases",
+      "screen reader on filter dropdowns", "keyboard-only navigation of modal",
+      "color-contrast on alert banners", "browser back button after deep link",
+      "form autosave on tab close", "drag handle on settings reorder",
+      "concurrent edits on shared workspace", "rate-limit headers on bursty traffic",
+      "soft-delete and restore on archived runs", "graceful degrade with JS disabled",
+      "internationalised pluralisation", "right-to-left layout for Arabic",
+      "long-content overflow inside cards", "emoji rendering in test names",
+      "responsive layout below 360px", "high-DPI asset selection",
+      "service-worker cache invalidation", "feature flag rollout sticky-bucketing",
+      "cross-org reachability of public badge", "audit-log entry idempotency",
+      "duplicate-submission of slow forms", "websocket reconnect after sleep",
+      "snapshot diff on minor whitespace changes", "PDF export of long table",
+      "invoice email delivery on bounce", "calendar export ICS round-trip",
+      "Mark-as-read sync across tabs",
+    ];
+    let bulkAdded = 0;
+    for (let i = 0; i < 60; i++) {
+      const verb = pick(bulkVerbs);
+      const subject = pick(bulkSubjects);
+      const title = `${verb} ${subject}`;
+      const suite = pick(bulkSuites);
+      const priority = pick(bulkPriorities);
+      const status = pick(bulkStatuses);
+      const lastRunAt = status === "not_run" ? null : new Date(now - randomInt(1, 90) * DAY_MS);
+      const inserted = await client.query(
+        `INSERT INTO manual_tests
+          (org_id, suite_name, title, priority, status, steps, expected_result, created_by, last_run_at, last_run_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING id`,
+        [
+          orgId, suite, title, priority, status,
+          JSON.stringify([{ action: "Set up the scenario" }, { action: "Trigger the change" }, { action: "Observe the result" }]),
+          "Observed outcome matches expectation",
+          adminId, lastRunAt, status === "not_run" ? null : adminId,
+        ]
+      );
+      if (lastRunAt) {
+        await client.query(
+          `INSERT INTO manual_test_runs (org_id, manual_test_id, status, run_by, run_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [orgId, inserted.rows[0].id, status, adminId, lastRunAt]
+        );
+      }
+      bulkAdded++;
+    }
+    console.log(`Seeded ${bulkAdded} bulk manual tests (pagination coverage).`);
+
     // Release with checklist
     const releaseResult = await client.query(
       `INSERT INTO releases (org_id, version, name, status, target_date, description, created_by)
@@ -1141,6 +1237,68 @@ async function seed() {
       );
     }
     console.log(`Seeded shipped release v2.3.0 with ${shippedChecklist.length} checked items.`);
+
+    // Bulk fill — push releases above the page-size threshold (50)
+    // so /releases pagination is exercised in dev. The hand-curated
+    // hero releases above (v2.3.0 / v2.4.0 / v2.5.0) keep the
+    // headline state-coverage; these supplement with a long tail of
+    // historical and upcoming versions across all 5 statuses.
+    const bulkReleaseStatuses = [
+      // Past — most are released
+      ...Array(20).fill("released"),
+      // Recent — mix of signed_off + cancelled
+      ...Array(8).fill("signed_off"),
+      ...Array(4).fill("cancelled"),
+      // Active backlog — drafts + in-progress
+      ...Array(12).fill("draft"),
+      ...Array(8).fill("in_progress"),
+    ] as const;
+    let bulkReleaseCount = 0;
+    for (let i = 0; i < bulkReleaseStatuses.length; i++) {
+      const status = bulkReleaseStatuses[i];
+      // Versions march backward (older first), so the released ones
+      // sit in the past and drafts sit in the future.
+      const isPast = status === "released" || status === "signed_off" || status === "cancelled";
+      const major = 1;
+      const minor = Math.floor(i / 4);
+      const patch = i % 4;
+      const version = `v${major}.${minor}.${patch}-bulk${i}`;
+      const offsetDays = isPast ? -randomInt(15, 540) : randomInt(7, 90);
+      const targetDate = new Date(now + offsetDays * DAY_MS);
+      const createdAt = isPast ? new Date(now + (offsetDays - 21) * DAY_MS) : new Date(now - randomInt(0, 14) * DAY_MS);
+      const signedOffAt = (status === "signed_off" || status === "released") ? new Date(targetDate.getTime() - randomInt(0, 3) * DAY_MS) : null;
+      const res = await client.query(
+        `INSERT INTO releases (org_id, version, name, status, target_date, description, created_by, created_at, signed_off_at, signed_off_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING id`,
+        [
+          orgId, version, `Cycle ${minor} drop ${patch}`, status,
+          targetDate.toISOString().slice(0, 10),
+          `Bulk-seeded ${status.replace("_", " ")} release for pagination coverage.`,
+          adminId, createdAt.toISOString(),
+          signedOffAt?.toISOString() ?? null,
+          signedOffAt ? adminId : null,
+        ]
+      );
+      // Add a tiny checklist (3 items, status-dependent checked count)
+      // so the progress bar isn't always empty.
+      const items: Array<[string, boolean, boolean]> = [
+        ["Release notes drafted", true, status !== "draft"],
+        ["Critical tests passing", true, status === "signed_off" || status === "released"],
+        ["Stakeholders notified", false, status === "released"],
+      ];
+      for (let j = 0; j < items.length; j++) {
+        const [label, required, checked] = items[j];
+        await client.query(
+          `INSERT INTO release_checklist_items
+            (org_id, release_id, label, required, checked, checked_by, checked_at, position)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [orgId, res.rows[0].id, label, required, checked, checked ? adminId : null, checked ? createdAt : null, j]
+        );
+      }
+      bulkReleaseCount++;
+    }
+    console.log(`Seeded ${bulkReleaseCount} bulk releases (pagination coverage).`);
 
     // ── Manual test groups + more manual tests ──────────────────────────
     const groups = [
@@ -1459,6 +1617,56 @@ async function seed() {
       [orgId, demoInviteToken, adminId],
     );
     console.log(`Seeded 1 pending org invite (token: ${demoInviteToken}).`);
+
+    // Bulk fill — synthetic audit_log entries so the /settings#audit-log
+    // section exceeds the 25/page threshold and shows the Load more
+    // button in dev. Real-world audit entries get created by user
+    // actions through the routes, but the seed inserts directly into
+    // the tables which bypasses logAudit().
+    const auditActions: Array<[string, string, string]> = [
+      ["run.delete",      "run",          "1023"],
+      ["api_key.create",  "api_key",      "ci-pipeline"],
+      ["api_key.revoke",  "api_key",      "old-laptop"],
+      ["member.invite",   "user",         "alex@example.com"],
+      ["member.role",     "user",         "demo@example.com"],
+      ["member.remove",   "user",         "intern@example.com"],
+      ["webhook.create",  "webhook",      "Slack #releases"],
+      ["webhook.pause",   "webhook",      "Teams alerts"],
+      ["webhook.delete",  "webhook",      "Old Discord hook"],
+      ["suite.archive",   "suite",        "legacy-mocha-suite"],
+      ["suite.unarchive", "suite",        "billing-smoke"],
+      ["suite.rename",    "suite",        "auth-old → auth-e2e"],
+      ["error.status",    "error_group", "abc123def"],
+      ["error.status",    "error_group", "deadbeef99"],
+      ["release.signoff", "release",     "v2.3.0"],
+      ["release.cancel",  "release",     "v2.5.0-rc1"],
+      ["quarantine.add",  "test",        "should drag and drop widget to reorder"],
+      ["quarantine.remove","test",       "should apply discount code"],
+      ["retention.update","retention",   "30 days"],
+      ["scheduled_report.create","scheduled_report", "Weekly digest"],
+      ["scheduled_report.delete","scheduled_report", "Daily summary"],
+      ["integration.jira.connect","integration","JIRA"],
+      ["integration.jira.disconnect","integration","JIRA"],
+      ["integration.pagerduty.connect","integration","PagerDuty"],
+      ["coverage.update","coverage","threshold=80"],
+      ["manual_test.create","manual_test","Verify checkout flow"],
+      ["manual_test.delete","manual_test","Old smoke test"],
+      ["manual_test_group.create","manual_test_group","Checkout Flow"],
+      ["release.checklist.add","release","v2.4.0"],
+      ["release.linked_run.add","release","v2.4.0 → run #842"],
+    ];
+    for (let i = 0; i < auditActions.length; i++) {
+      const [action, target_type, target_id] = auditActions[i];
+      // Spread over the last 30 days, oldest first so the "Load more"
+      // section reveals an actual chronological history when expanded.
+      const createdAt = new Date(now - (auditActions.length - i) * (DAY_MS / 4));
+      await client.query(
+        `INSERT INTO audit_log (org_id, user_id, action, target_type, target_id, detail, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [orgId, adminId, action, target_type, target_id, JSON.stringify({ seed: true }), createdAt.toISOString()]
+      );
+    }
+    console.log(`Seeded ${auditActions.length} audit_log entries (pagination coverage).`);
   } finally {
     client.release();
     await pool.end();
