@@ -1,7 +1,77 @@
+# Centralised access-log destination for both S3 server-access logs
+# and CloudFront standard logs. Kept in this module so the lifecycle
+# is colocated with the buckets it logs. ACL ownership is required for
+# S3 server-access logging; CloudFront writes via the legacy log
+# delivery service (`awslogsdelivery` canonical user).
+resource "aws_s3_bucket" "logs" {
+  bucket        = "${var.app_name}-${var.environment}-logs"
+  force_destroy = false
+  tags          = { Name = "${var.app_name}-${var.environment}-logs" }
+}
+
+resource "aws_s3_bucket_ownership_controls" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  rule {
+    # BucketOwnerPreferred lets CloudFront / S3 logging deliver objects
+    # under the bucket owner's account. Required for the log-delivery
+    # ACL grants that CloudFront uses (otherwise objects land under the
+    # delivery service principal and are unreadable).
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "logs" {
+  depends_on = [aws_s3_bucket_ownership_controls.logs]
+  bucket     = aws_s3_bucket.logs.id
+  acl        = "log-delivery-write"
+}
+
+resource "aws_s3_bucket_public_access_block" "logs" {
+  bucket                  = aws_s3_bucket.logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  rule {
+    # SSE-S3 (AES256) rather than aws:kms — the S3 server-access-log
+    # delivery service can't write to a bucket that's encrypted with a
+    # customer-managed or aws:kms key. AES256 is still encrypted at
+    # rest. CloudFront log delivery has the same constraint.
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  rule {
+    id     = "expire-logs"
+    status = "Enabled"
+    # 90 days covers a typical security-investigation window; beyond
+    # that the storage cost grows faster than the audit value.
+    expiration { days = 90 }
+    # Filter applies the rule to all objects in the bucket without
+    # imposing a prefix constraint.
+    filter {}
+  }
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket        = "${var.app_name}-${var.environment}-artifacts"
   force_destroy = false
   tags          = { Name = "${var.app_name}-${var.environment}-artifacts" }
+}
+
+# Resolves Trivy AWS-0089 for the artifacts bucket.
+resource "aws_s3_bucket_logging" "artifacts" {
+  bucket        = aws_s3_bucket.artifacts.id
+  target_bucket = aws_s3_bucket.logs.id
+  target_prefix = "s3-access/artifacts/"
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
@@ -54,6 +124,13 @@ resource "aws_s3_bucket" "frontend" {
   bucket        = "${var.app_name}-${var.environment}-frontend"
   force_destroy = true
   tags          = { Name = "${var.app_name}-${var.environment}-frontend" }
+}
+
+# Resolves Trivy AWS-0089 for the frontend bucket.
+resource "aws_s3_bucket_logging" "frontend" {
+  bucket        = aws_s3_bucket.frontend.id
+  target_bucket = aws_s3_bucket.logs.id
+  target_prefix = "s3-access/frontend/"
 }
 
 # aws:kms encryption for the frontend bucket too. Resolves AWS-0132.
@@ -179,6 +256,15 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
   web_acl_id          = aws_wafv2_web_acl.frontend.arn
+
+  # CloudFront standard access logs — written to the same logs bucket
+  # under a cloudfront/ prefix so the access-log lifecycle policy
+  # covers it too. Resolves Trivy AWS-0010.
+  logging_config {
+    bucket          = aws_s3_bucket.logs.bucket_domain_name
+    prefix          = "cloudfront/"
+    include_cookies = false
+  }
 
   origin {
     # Use the regional S3 domain (not the website endpoint) for OAC.

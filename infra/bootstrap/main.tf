@@ -57,6 +57,63 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
+# State-bucket access logs land in a sibling logs bucket. The state
+# bucket only sees terraform apply traffic, so this is mostly an
+# audit trail rather than a high-volume firehose. Resolves AWS-0089.
+resource "aws_s3_bucket" "state_logs" {
+  bucket        = "${var.app_name}-terraform-state-logs"
+  force_destroy = false
+}
+
+resource "aws_s3_bucket_ownership_controls" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "state_logs" {
+  depends_on = [aws_s3_bucket_ownership_controls.state_logs]
+  bucket     = aws_s3_bucket.state_logs.id
+  acl        = "log-delivery-write"
+}
+
+resource "aws_s3_bucket_public_access_block" "state_logs" {
+  bucket                  = aws_s3_bucket.state_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+  rule {
+    # AES256, not aws:kms — see the matching note in modules/s3/main.tf
+    # on aws_s3_bucket.logs: server-access-log delivery doesn't support
+    # aws:kms-encrypted destinations.
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+  rule {
+    id     = "expire-logs"
+    status = "Enabled"
+    expiration { days = 90 }
+    filter {}
+  }
+}
+
+resource "aws_s3_bucket_logging" "state" {
+  bucket        = aws_s3_bucket.state.id
+  target_bucket = aws_s3_bucket.state_logs.id
+  target_prefix = "s3-access/state/"
+}
+
 resource "aws_dynamodb_table" "locks" {
   name         = "${var.app_name}-terraform-locks"
   billing_mode = "PAY_PER_REQUEST"
