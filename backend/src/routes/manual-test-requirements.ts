@@ -34,7 +34,7 @@ export function inferProvider(refUrl: string | undefined): string {
   const host = parsed.hostname.toLowerCase();
   const path = parsed.pathname.toLowerCase();
   if (host === "atlassian.net" || host.endsWith(".atlassian.net")) return "jira";
-  if (path.startsWith("/jira/") || path.includes("/jira/")) return "jira";
+  if (path.includes("/jira/")) return "jira";
   if (host === "github.com" || host.endsWith(".github.com")) return "github";
   if (host === "linear.app" || host.endsWith(".linear.app")) return "linear";
   return "other";
