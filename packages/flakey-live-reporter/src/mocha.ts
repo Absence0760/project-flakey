@@ -71,6 +71,13 @@ interface MochaLiveConfig {
    */
   environment?: string;
   /**
+   * When true, prints `[flakey-live] Live run started: #N` and
+   * `[flakey-live] Run #N complete — N passed` to stdout. Default
+   * false — keeps CI logs quiet by design; errors still print.
+   * `FLAKEY_VERBOSE=1` in the environment is honoured as a fallback.
+   */
+  verbose?: boolean;
+  /**
    * When true (default), register() installs its own `on("after:run", ...)`
    * handler. When false (used by setupFlakey to work around Cypress 15's
    * "only last after:run handler runs" behavior), register() skips that
@@ -89,6 +96,10 @@ export function register(
   const suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
 
   if (!url || !apiKey) return;
+
+  // Default-off success log. FLAKEY_VERBOSE=1 env override keeps the
+  // CI flow toggleable without code changes.
+  const verbose = config.verbose === true || process.env.FLAKEY_VERBOSE === "1";
 
   // Make credentials visible to sibling plugins (e.g. cypress-snapshots streaming).
   process.env.FLAKEY_API_URL = url;
@@ -155,7 +166,9 @@ export function register(
                   writeFileSync(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
                 } catch { /* ignore — the tmpdir path may still work */ }
               } catch { /* ignore */ }
-              console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+              if (verbose) {
+                console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+              }
             }
           } catch (err) {
             console.error("[flakey-live] Failed to start live run:", err);
@@ -215,7 +228,7 @@ export function register(
     }
     try { unlinkSync(join(FLAKEY_BASE_DIR, "latest-run-id")); } catch { /* ignore */ }
     try { unlinkSync(join(FLAKEY_HOME_DIR, "latest-run-id")); } catch { /* ignore */ }
-    if (runId) {
+    if (runId && verbose) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;
       const total = results?.totalTests ?? 0;

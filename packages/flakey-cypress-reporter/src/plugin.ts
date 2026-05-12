@@ -130,6 +130,14 @@ interface FlakeyReporterOptions {
   videosDir?: string;
   snapshotsDir?: string;
   /**
+   * When true, prints `[flakey] Uploaded run #N (...) → url` after the
+   * end-of-run batch upload. Default is false — keeps CI logs quiet by
+   * design; errors (upload failures, missing config) still print.
+   * `FLAKEY_VERBOSE=1` in the environment is honoured as a fallback so
+   * CI users don't have to edit cypress.config.ts.
+   */
+  verbose?: boolean;
+  /**
    * When true (default), flakeyReporter installs its own `on("after:run")`
    * handler. When false (used by setupFlakey to chain live-reporter +
    * flakeyReporter in one combined handler), returns the after:run work
@@ -153,7 +161,8 @@ export function flakeyReporter(
   // Merge explicit arg over config.reporterOptions so setupFlakey can pass
   // just `{ installAfterRun: false }` without clobbering the config-level
   // url/apiKey/suite.
-  const opts = { ...(config.reporterOptions ?? {}), ...(options ?? {}) } as Record<string, string>;
+  const rawOpts = { ...(config.reporterOptions ?? {}), ...(options ?? {}) } as Record<string, unknown>;
+  const opts = rawOpts as Record<string, string>;
   if (!opts?.url || !opts?.apiKey) {
     console.warn("  [flakey] Missing url or apiKey — pass them as the third arg to flakeyReporter(on, config, options) or set config.reporterOptions");
     return;
@@ -161,6 +170,9 @@ export function flakeyReporter(
 
   const url = opts.url.replace(/\/$/, "");
   const apiKey = opts.apiKey;
+  // Default-off success log. FLAKEY_VERBOSE=1 env override mirrors
+  // the option for CI users who don't want to touch cypress.config.ts.
+  const verbose = rawOpts.verbose === true || process.env.FLAKEY_VERBOSE === "1";
   const suite = opts.suite ?? "default";
   const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
   const commitSha = opts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "";
@@ -371,7 +383,9 @@ export function flakeyReporter(
       }
 
       const result = await res.json() as { id: number };
-      console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${url}`);
+      if (verbose) {
+        console.log(`\n  [flakey] Uploaded run #${result.id} (${total} tests, ${failed} failed) → ${url}`);
+      }
     } catch (err: any) {
       console.error(`\n  [flakey] Failed to upload: ${err.message}`);
     }
@@ -384,7 +398,7 @@ export function flakeyReporter(
   return afterRunHandler;
 }
 
-interface SetupFlakeyOptions {
+export interface SetupFlakeyOptions {
   snapshots?: boolean;
   live?: boolean;
   /**
@@ -422,10 +436,15 @@ export async function setupFlakey(
       const environment =
         opts.reporterOptions?.environment ?? fromReporterOpts.environment
           ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? cypEnv;
+      // Pass the consumer's verbose setting through so the live
+      // reporter's start + complete logs are gated identically to
+      // the main reporter's upload log.
+      const rawVerbose = opts.reporterOptions?.verbose ?? (fromReporterOpts as Record<string, unknown>).verbose;
+      const verbose = rawVerbose === true;
       // installAfterRun was added in @flakeytesting/live-reporter 0.6.0; older
       // versions ignore it and install their own after:run (which collides on
       // Cypress 15 but is harmless on earlier versions).
-      liveAfterRun = register(on, { url, apiKey, suite, environment, installAfterRun: false }) ?? undefined;
+      liveAfterRun = register(on, { url, apiKey, suite, environment, verbose, installAfterRun: false }) ?? undefined;
     } catch {
       // @flakeytesting/live-reporter not installed — skip
     }
@@ -435,7 +454,11 @@ export async function setupFlakey(
     try {
       // @ts-ignore — optional peer dependency
       const { flakeySnapshots } = await import("@flakeytesting/cypress-snapshots/plugin");
-      flakeySnapshots(on, config);
+      // Pass verbose through so the per-bundle Streamed/Saved logs
+      // share one toggle with the rest of the flakey output.
+      const fromReporterOpts = (config.reporterOptions ?? {}) as Record<string, unknown>;
+      const rawVerbose = opts.reporterOptions?.verbose ?? fromReporterOpts.verbose;
+      flakeySnapshots(on, config, { verbose: rawVerbose === true });
     } catch {
       // @flakeytesting/cypress-snapshots not installed — skip
     }

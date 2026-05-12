@@ -21,6 +21,12 @@ interface PlaywrightReporterConfig {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  /**
+   * When true, prints `[flakey-live] Live run started: #N` and
+   * `[flakey-live] Run #N complete` to stdout. Default false — keeps
+   * CI logs quiet; errors still print. `FLAKEY_VERBOSE=1` env honoured.
+   */
+  verbose?: boolean;
 }
 
 export default class PlaywrightLiveReporter {
@@ -31,6 +37,7 @@ export default class PlaywrightLiveReporter {
   private suite: string;
   private config: PlaywrightReporterConfig;
   private runId: number;
+  private verbose: boolean;
 
   constructor(config: PlaywrightReporterConfig = {}) {
     this.url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
@@ -38,6 +45,7 @@ export default class PlaywrightLiveReporter {
     this.suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
     this.config = config;
     this.runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
+    this.verbose = config.verbose === true || process.env.FLAKEY_VERBOSE === "1";
   }
 
   async onBegin(_config: unknown, suite: { allTests: () => Array<unknown> }) {
@@ -65,7 +73,9 @@ export default class PlaywrightLiveReporter {
           if (data.ci_run_id) {
             process.env.CI_RUN_ID = data.ci_run_id;
           }
-          console.log(`[flakey-live] Live run started: #${this.runId} (ci_run_id: ${data.ci_run_id})`);
+          if (this.verbose) {
+            console.log(`[flakey-live] Live run started: #${this.runId} (ci_run_id: ${data.ci_run_id})`);
+          }
         }
       } catch (err) {
         console.error("[flakey-live] Failed to start live run:", err);
@@ -114,7 +124,7 @@ export default class PlaywrightLiveReporter {
     this.client?.stop();
     this.teardownShutdown?.();
     this.teardownShutdown = null;
-    if (this.runId) {
+    if (this.runId && this.verbose) {
       console.log(`[flakey-live] Run #${this.runId} complete`);
     }
   }

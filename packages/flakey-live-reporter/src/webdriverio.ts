@@ -21,6 +21,12 @@ interface WdioLiveConfig {
   branch?: string;
   commitSha?: string;
   ciRunId?: string;
+  /**
+   * When true, prints `[flakey-live] Live run started: #N` and
+   * `[flakey-live] Run #N complete` to stdout. Default false — keeps
+   * CI logs quiet; errors still print. `FLAKEY_VERBOSE=1` env honoured.
+   */
+  verbose?: boolean;
 }
 
 export default class WebdriverIOLiveReporter {
@@ -31,6 +37,7 @@ export default class WebdriverIOLiveReporter {
   private suite: string;
   private config: WdioLiveConfig;
   private runId: number;
+  private verbose: boolean;
 
   constructor(config: WdioLiveConfig = {}) {
     this.url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
@@ -38,6 +45,7 @@ export default class WebdriverIOLiveReporter {
     this.suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
     this.config = config;
     this.runId = config.runId ?? (Number(process.env.FLAKEY_LIVE_RUN_ID) || 0);
+    this.verbose = config.verbose === true || process.env.FLAKEY_VERBOSE === "1";
   }
 
   async onRunnerStart() {
@@ -64,7 +72,9 @@ export default class WebdriverIOLiveReporter {
           if (data.ci_run_id) {
             process.env.CI_RUN_ID = data.ci_run_id;
           }
-          console.log(`[flakey-live] Live run started: #${this.runId}`);
+          if (this.verbose) {
+            console.log(`[flakey-live] Live run started: #${this.runId}`);
+          }
         }
       } catch (err) {
         console.error("[flakey-live] Failed to start live run:", err);
@@ -120,7 +130,7 @@ export default class WebdriverIOLiveReporter {
     this.client?.stop();
     this.teardownShutdown?.();
     this.teardownShutdown = null;
-    if (this.runId) {
+    if (this.runId && this.verbose) {
       console.log(`[flakey-live] Run #${this.runId} complete`);
     }
   }

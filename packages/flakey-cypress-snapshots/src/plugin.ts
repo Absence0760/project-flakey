@@ -56,6 +56,12 @@ interface FlakeySnapshotOptions {
    * even if every step is near `maxHtmlBytes`. Default: 64 MB.
    */
   maxBundleBytes?: number;
+  /**
+   * When true, prints `[flakey-snapshots] Streamed/Saved N steps → ...`
+   * per saved bundle. Default false — quiet by design. Errors still
+   * print. `FLAKEY_VERBOSE=1` env honoured as a fallback.
+   */
+  verbose?: boolean;
 }
 
 export function flakeySnapshots(
@@ -67,6 +73,7 @@ export function flakeySnapshots(
   const enabled = options?.enabled ?? true;
   const maxHtmlBytes = options?.maxHtmlBytes ?? 2 * 1024 * 1024;
   const maxBundleBytes = options?.maxBundleBytes ?? 64 * 1024 * 1024;
+  const verbose = options?.verbose === true || process.env.FLAKEY_VERBOSE === "1";
 
   // Signal to the support file whether snapshots are enabled
   config.env = config.env || {};
@@ -103,15 +110,19 @@ export function flakeySnapshots(
         const streamed = await maybeStreamUpload(filePath, compressed, bundle);
         if (streamed) {
           try { unlinkSync(filePath); } catch { /* ignore */ }
-          console.log(
-            `  [flakey-snapshots] Streamed ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
-          );
+          if (verbose) {
+            console.log(
+              `  [flakey-snapshots] Streamed ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
+            );
+          }
           return { saved: true, streamed: true, size: compressed.length };
         }
 
-        console.log(
-          `  [flakey-snapshots] Saved ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
-        );
+        if (verbose) {
+          console.log(
+            `  [flakey-snapshots] Saved ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
+          );
+        }
 
         return { saved: true, path: filePath, size: compressed.length };
       } catch (err) {
