@@ -1101,6 +1101,7 @@
 
   <Lightbox
     images={screenshotUrls}
+    paths={test?.screenshot_paths ?? []}
     bind:index={lightboxIndex}
     open={lightboxOpen}
     onclose={() => lightboxOpen = false}
