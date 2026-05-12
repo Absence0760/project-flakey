@@ -129,3 +129,96 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
+
+# ─── VPC endpoints ─────────────────────────────────────────────────────
+#
+# Route AWS-API traffic from the ECS tasks privately to the AWS
+# backbone instead of out through the NAT gateway and back in over the
+# public internet. Three wins:
+#
+#   1. Latency (NAT GW + public hop is replaced by a private ENI hop).
+#   2. NAT data-processing cost ($0.045/GB) drops for the AWS-API
+#      portion of the traffic; ECR image pulls in particular are the
+#      biggest line item on this stack.
+#   3. Surface area: the ECS SG's 443 egress no longer has to reach
+#      every AWS-region IP block for these services. The residual 443
+#      egress is the third-party webhook / GitHub / Jira / PagerDuty
+#      traffic that has to stay open (tenant-configured destinations).
+#
+# S3 is a Gateway endpoint — free, attached to the private route
+# table directly. The others are Interface endpoints — they create
+# ENIs in each private subnet ($0.01/AZ/hr per endpoint, ~$7/AZ/month
+# at usage, plus $0.01/GB through them which is cheaper than NAT).
+
+# A dedicated SG for the interface endpoints. Ingress is scoped to the
+# VPC CIDR rather than the ECS SG (avoids a cross-module cycle — the
+# ECS SG isn't visible to the networking module). HTTPS only.
+resource "aws_security_group" "vpc_endpoints" {
+  name_prefix = "${var.app_name}-${var.environment}-vpce-"
+  description = "Allow HTTPS from inside the VPC to the AWS API VPC endpoints."
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "TLS from anything in the VPC (ECS tasks, RDS clients, etc.)."
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  egress {
+    description = "Replies on ephemeral ports back into the VPC."
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  tags = { Name = "${var.app_name}-${var.environment}-vpce-sg" }
+}
+
+# S3 Gateway endpoint — attached to the private route table, free.
+# ECS tasks reach S3 via this path automatically (the AWS SDK resolves
+# the regional endpoint and the route table sends it via the gateway).
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id]
+
+  tags = { Name = "${var.app_name}-${var.environment}-s3-endpoint" }
+}
+
+# Interface endpoints — one ENI per AZ in the private subnets,
+# private_dns_enabled so the standard AWS API hostnames (e.g.
+# secretsmanager.${region}.amazonaws.com) resolve to the endpoint
+# rather than the public AWS IPs. Without that flag the SDK still
+# hits the public IPs over the NAT path.
+locals {
+  interface_endpoints = toset([
+    # ECR pull path: both api + dkr endpoints are required for
+    # `docker pull <accountId>.dkr.ecr.${region}.amazonaws.com/<image>`
+    # to succeed without leaving the VPC.
+    "ecr.api",
+    "ecr.dkr",
+    # Backend reads JWT_SECRET + DB_PASSWORD on container start.
+    "secretsmanager",
+    # awslogs log driver streams stdout/stderr to CloudWatch.
+    "logs",
+    # IAM auth for RDS (when iam_database_authentication_enabled fires
+    # the connect path) uses STS to generate the auth token.
+    "sts",
+  ])
+}
+
+resource "aws_vpc_endpoint" "interface" {
+  for_each            = local.interface_endpoints
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.${each.key}"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+
+  tags = { Name = "${var.app_name}-${var.environment}-${replace(each.key, ".", "-")}-endpoint" }
+}
