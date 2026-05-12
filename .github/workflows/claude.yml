@@ -10,6 +10,12 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Restrictive top-level default; the claude job re-grants the writes
+# it actually needs at the job level. Resolves Scorecard
+# TokenPermissionsID 'no topLevel permission defined'.
+permissions:
+  contents: read
+
 jobs:
   claude:
     if: |

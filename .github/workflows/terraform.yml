@@ -39,17 +39,14 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  # `pull-requests: write` lets us post the `terraform validate`
-  # summary as a PR comment if we ever wire one up (today the only
-  # output is the workflow log + the Security tab).
-  pull-requests: write
 
 jobs:
   fmt-validate:
     name: fmt + validate (${{ matrix.stack }})
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +83,9 @@ jobs:
     name: Trivy IaC scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

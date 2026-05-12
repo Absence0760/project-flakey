@@ -20,16 +20,21 @@ on:
   pull_request_target:
     branches: [main]
 
+# Restrictive top-level default; the auto-merge job re-grants the writes
+# it actually needs at the job level. Resolves Scorecard
+# TokenPermissionsID 'topLevel contents permission set to write'.
 permissions:
-  # `pull_request_target` runs in the base-branch context — needs
-  # explicit grants for the few things gh/dependabot do here.
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
     name: Auto-merge minor + patch
     runs-on: ubuntu-latest
+    permissions:
+      # `pull_request_target` runs in the base-branch context — needs
+      # explicit grants for the few things gh/dependabot do here.
+      contents: write
+      pull-requests: write
     # Pull-request author check guards against any non-dependabot
     # PR accidentally tripping this. The fetch-metadata action below
     # is hardened against forged commit messages from compromised

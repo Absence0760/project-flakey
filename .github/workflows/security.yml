@@ -31,19 +31,22 @@ on:
     - cron: '0 6 * * 1'
 
 permissions:
-  # SARIF upload requires `security-events: write`. `actions: read` is
-  # needed by the CodeQL analyze step's telemetry / workflow-run lookup
-  # (without it you get "Resource not accessible by integration" which
-  # fails the whole job even when the analysis itself succeeded).
   contents: read
-  security-events: write
-  actions: read
 
 jobs:
   codeql-javascript:
     name: CodeQL (TypeScript/JavaScript)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      # SARIF upload requires `security-events: write`. `actions: read`
+      # is needed by the CodeQL analyze step's telemetry / workflow-run
+      # lookup (without it you get "Resource not accessible by
+      # integration" which fails the whole job even when analysis
+      # succeeded).
+      contents: read
+      security-events: write
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
@@ -61,6 +64,10 @@ jobs:
     name: CodeQL (GitHub Actions)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
@@ -74,6 +81,9 @@ jobs:
     name: Trivy (backend container)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

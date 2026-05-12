@@ -14,6 +14,12 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Restrictive top-level default; the audit job re-grants the writes
+# it actually needs at the job level. Resolves Scorecard
+# TokenPermissionsID 'no topLevel permission defined'.
+permissions:
+  contents: read
+
 # Don't run on draft PRs (saves spend until the author opens for review).
 # `ready_for_review` re-triggers when a draft is promoted.
 concurrency:
