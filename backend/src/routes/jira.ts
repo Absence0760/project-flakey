@@ -3,6 +3,7 @@ import pool, { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { createIssueForFingerprint, createJiraIssue } from "../integrations/jira.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
+import { validateWebhookUrl } from "./webhooks.js";
 
 const router = Router();
 
@@ -31,6 +32,21 @@ router.patch("/settings", async (req, res) => {
       return;
     }
     const { base_url, email, api_token, project_key, issue_type, auto_create } = req.body;
+
+    // Same SSRF gate as POST /webhooks: base_url is dispatched to via
+    // fetch() in jira.ts and integrations/jira.ts, so a tenant admin
+    // pointing it at IMDS would otherwise be the same attack surface.
+    // Non-empty base_url values go through validateWebhookUrl; clearing
+    // it (base_url === null / "") falls through to the existing null
+    // path so unsetting the field still works.
+    if (typeof base_url === "string" && base_url.trim() !== "") {
+      const urlCheck = validateWebhookUrl(base_url);
+      if (!urlCheck.ok) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
+    }
+
     const sets: string[] = [];
     const params: unknown[] = [];
     let i = 1;
