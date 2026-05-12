@@ -31,10 +31,11 @@ function assertSafeKey(destKey: string): void {
 // Pre-resolved tmp roots that multer files are allowed to live under.
 // One for the multer disk-storage dest the upload routes configure
 // (`uploads/tmp/<random>`), one for the OS tmpdir the unit tests use.
-const TEMP_ROOTS = [
-  resolve("uploads", "tmp"),
-  resolve(tmpdir()),
-];
+// Kept as separate constants (not an array iterated by a loop) so the
+// startsWith checks below are inline conditionals that CodeQL's
+// js/path-injection data-flow library can trace through end-to-end.
+const TEMP_ROOT_UPLOADS = resolve("uploads", "tmp") + sep;
+const TEMP_ROOT_OS = resolve(tmpdir()) + sep;
 
 export interface Storage {
   /** Move a file from a local temp path to its final storage location. */
@@ -73,15 +74,13 @@ class LocalStorage implements Storage {
     // Sanitise tempPath: resolve, refuse anything outside the known
     // tmp roots (multer dest or os.tmpdir()). multer's filename is
     // crypto.randomBytes so this is mostly defense-in-depth.
+    // Two inline startsWith checks (not a loop) so CodeQL's
+    // js/path-injection data-flow library traces the sanitisation.
     if (tempPath.includes("\0")) {
       throw new Error(`unsafe temp path (null byte): ${tempPath}`);
     }
     const tempAbs = resolve(tempPath);
-    let tempOk = false;
-    for (const root of TEMP_ROOTS) {
-      if (tempAbs === root || tempAbs.startsWith(root + sep)) { tempOk = true; break; }
-    }
-    if (!tempOk) {
+    if (!tempAbs.startsWith(TEMP_ROOT_UPLOADS) && !tempAbs.startsWith(TEMP_ROOT_OS)) {
       throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
     }
 
@@ -131,16 +130,14 @@ class S3Storage implements Storage {
     assertSafeKey(destKey);
 
     // INLINE sanitisation on tempPath — see the LocalStorage.put
-    // comment for why this can't live in a helper.
+    // comment for why this can't live in a helper. Two inline
+    // startsWith checks (not a loop) so CodeQL's js/path-injection
+    // data-flow library traces the sanitisation.
     if (tempPath.includes("\0")) {
       throw new Error(`unsafe temp path (null byte): ${tempPath}`);
     }
     const tempAbs = resolve(tempPath);
-    let tempOk = false;
-    for (const root of TEMP_ROOTS) {
-      if (tempAbs === root || tempAbs.startsWith(root + sep)) { tempOk = true; break; }
-    }
-    if (!tempOk) {
+    if (!tempAbs.startsWith(TEMP_ROOT_UPLOADS) && !tempAbs.startsWith(TEMP_ROOT_OS)) {
       throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
     }
 
