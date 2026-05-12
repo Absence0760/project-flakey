@@ -256,6 +256,15 @@ resource "aws_ecs_task_definition" "backend" {
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
+  # Graviton (ARM64) Fargate is ~20% cheaper for Node workloads. The
+  # deploy pipeline pushes a linux/arm64 image to match (see
+  # deploy.yml's docker buildx invocation). Flip to X86_64 via
+  # var.cpu_architecture if some native dependency loses ARM support.
+  runtime_platform {
+    cpu_architecture        = var.cpu_architecture
+    operating_system_family = "LINUX"
+  }
+
   lifecycle {
     ignore_changes = [container_definitions]
   }

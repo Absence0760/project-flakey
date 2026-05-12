@@ -23,3 +23,8 @@ variable "alert_email" {
   description = "Email address to receive CloudWatch alarm notifications via SNS."
   type        = string
 }
+variable "cpu_architecture" {
+  description = "Fargate runtime CPU architecture. ARM64 (Graviton) is ~20% cheaper for Node workloads; requires the deploy pipeline to push linux/arm64 images."
+  type        = string
+  default     = "ARM64"
+}

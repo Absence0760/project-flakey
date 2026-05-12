@@ -51,15 +51,34 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@fa648b43de3d4d023bcb3f89ed6940096949c419 # v2
 
-      - name: Build and push SHA-tagged image
+      - name: Set up Docker Buildx (cross-arch builder)
+        # buildx is the standard path to producing ARM64 images on an
+        # x86_64 runner. node:24-alpine ships both architectures, so
+        # the cross-compile is a no-op in the base layer; only the
+        # node_modules install layer has to run under QEMU.
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set up QEMU for cross-arch emulation
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          platforms: arm64
+
+      - name: Build and push SHA-tagged image (linux/arm64)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           # IMMUTABLE repo: push only the per-SHA tag, never `:latest`.
           # The task-definition revision below pins the service to this
           # exact digest, so there's no need for a floating tag.
-          docker build -t $REGISTRY/$ECR_BACKEND:${{ github.sha }} ./backend
-          docker push $REGISTRY/$ECR_BACKEND:${{ github.sha }}
+          # --platform linux/arm64 matches the Fargate task definition's
+          # runtime_platform.cpu_architecture = ARM64 (Graviton). If
+          # the Terraform flips back to X86_64, change this to
+          # linux/amd64 in lockstep.
+          docker buildx build \
+            --platform linux/arm64 \
+            --tag $REGISTRY/$ECR_BACKEND:${{ github.sha }} \
+            --push \
+            ./backend
 
       - name: Deploy to ECS (new task-definition revision with SHA image)
         env:
