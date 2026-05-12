@@ -50,15 +50,17 @@ resource "aws_db_instance" "main" {
   # IAM DB auth lets us issue short-lived auth tokens for break-glass
   # access without provisioning a long-lived password - see AWS-0176.
   iam_database_authentication_enabled = true
-  # Performance Insights gives us slow-query and lock-contention
-  # visibility without standing up a separate APM sidecar. AWS-managed
-  # KMS key keeps the cost the same as the default. AWS-0133.
-  performance_insights_enabled    = true
-  performance_insights_kms_key_id = data.aws_kms_alias.rds.target_key_arn
+  # Performance Insights — cost-gated (~$7/mo on small instances).
+  # When off, AWS-0133 (Trivy "missing Performance Insights") fires
+  # again. Re-enable per-env via var.enable_performance_insights when
+  # slow-query / lock-contention investigation is a regular need.
+  performance_insights_enabled    = var.enable_performance_insights
+  performance_insights_kms_key_id = var.enable_performance_insights ? data.aws_kms_alias.rds[0].target_key_arn : null
 
   tags = { Name = "${var.app_name}-${var.environment}-db" }
 }
 
 data "aws_kms_alias" "rds" {
-  name = "alias/aws/rds"
+  count = var.enable_performance_insights ? 1 : 0
+  name  = "alias/aws/rds"
 }

@@ -13,3 +13,8 @@ variable "rds_multi_az" {
   type        = bool
   default     = true
 }
+variable "enable_performance_insights" {
+  description = "Enable RDS Performance Insights with the AWS-managed RDS KMS key. ~$7/mo on a small instance."
+  type        = bool
+  default     = false
+}

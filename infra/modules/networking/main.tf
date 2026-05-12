@@ -13,18 +13,26 @@ resource "aws_vpc" "main" {
 # VPC Flow Logs - captures REJECT traffic to a CloudWatch log group so
 # unexpected egress / ingress is forensically auditable. Resolves
 # Trivy AWS-0178. REJECT-only keeps the log volume bounded.
+#
+# Cost-gated: ~$5-15/mo at low volume on top of the CloudWatch log
+# group + KMS API charges. Off by default; flip via
+# var.enable_flow_logs when a security-investigation cadence
+# justifies it.
 resource "aws_cloudwatch_log_group" "vpc_flow" {
+  count             = var.enable_flow_logs ? 1 : 0
   name              = "/vpc/${var.app_name}-${var.environment}/flow"
   retention_in_days = 30
-  kms_key_id        = data.aws_kms_alias.cloudwatch.target_key_arn
+  kms_key_id        = data.aws_kms_alias.cloudwatch[0].target_key_arn
 }
 
 data "aws_kms_alias" "cloudwatch" {
-  name = "alias/aws/logs"
+  count = var.enable_flow_logs ? 1 : 0
+  name  = "alias/aws/logs"
 }
 
 resource "aws_iam_role" "vpc_flow" {
-  name = "${var.app_name}-${var.environment}-vpc-flow-logs"
+  count = var.enable_flow_logs ? 1 : 0
+  name  = "${var.app_name}-${var.environment}-vpc-flow-logs"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -36,7 +44,8 @@ resource "aws_iam_role" "vpc_flow" {
 }
 
 resource "aws_iam_role_policy" "vpc_flow" {
-  role = aws_iam_role.vpc_flow.id
+  count = var.enable_flow_logs ? 1 : 0
+  role  = aws_iam_role.vpc_flow[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -47,14 +56,15 @@ resource "aws_iam_role_policy" "vpc_flow" {
         "logs:DescribeLogGroups",
         "logs:DescribeLogStreams",
       ]
-      Resource = "${aws_cloudwatch_log_group.vpc_flow.arn}:*"
+      Resource = "${aws_cloudwatch_log_group.vpc_flow[0].arn}:*"
     }]
   })
 }
 
 resource "aws_flow_log" "main" {
-  iam_role_arn         = aws_iam_role.vpc_flow.arn
-  log_destination      = aws_cloudwatch_log_group.vpc_flow.arn
+  count                = var.enable_flow_logs ? 1 : 0
+  iam_role_arn         = aws_iam_role.vpc_flow[0].arn
+  log_destination      = aws_cloudwatch_log_group.vpc_flow[0].arn
   log_destination_type = "cloud-watch-logs"
   traffic_type         = "REJECT"
   vpc_id               = aws_vpc.main.id
@@ -150,10 +160,11 @@ resource "aws_route_table_association" "private" {
 # ENIs in each private subnet ($0.01/AZ/hr per endpoint, ~$7/AZ/month
 # at usage, plus $0.01/GB through them which is cheaper than NAT).
 
-# A dedicated SG for the interface endpoints. Ingress is scoped to the
-# VPC CIDR rather than the ECS SG (avoids a cross-module cycle — the
-# ECS SG isn't visible to the networking module). HTTPS only.
+# Cost-gated: 5 Interface endpoints × 2 AZs = ~$72/mo, net win only
+# when NAT data charges exceed ~1.5 TB/mo of AWS-API traffic. Off by
+# default; flip via var.enable_vpc_endpoints when traffic justifies.
 resource "aws_security_group" "vpc_endpoints" {
+  count       = var.enable_vpc_endpoints ? 1 : 0
   name_prefix = "${var.app_name}-${var.environment}-vpce-"
   description = "Allow HTTPS from inside the VPC to the AWS API VPC endpoints."
   vpc_id      = aws_vpc.main.id
@@ -177,10 +188,12 @@ resource "aws_security_group" "vpc_endpoints" {
   tags = { Name = "${var.app_name}-${var.environment}-vpce-sg" }
 }
 
-# S3 Gateway endpoint — attached to the private route table, free.
-# ECS tasks reach S3 via this path automatically (the AWS SDK resolves
-# the regional endpoint and the route table sends it via the gateway).
+# S3 Gateway endpoint — free. Gated alongside the Interface endpoints
+# (it's nominally free, but on its own the gateway endpoint without
+# interface endpoints for the other services makes the bill split
+# confusing; toggle them together).
 resource "aws_vpc_endpoint" "s3" {
+  count             = var.enable_vpc_endpoints ? 1 : 0
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
@@ -189,13 +202,8 @@ resource "aws_vpc_endpoint" "s3" {
   tags = { Name = "${var.app_name}-${var.environment}-s3-endpoint" }
 }
 
-# Interface endpoints — one ENI per AZ in the private subnets,
-# private_dns_enabled so the standard AWS API hostnames (e.g.
-# secretsmanager.${region}.amazonaws.com) resolve to the endpoint
-# rather than the public AWS IPs. Without that flag the SDK still
-# hits the public IPs over the NAT path.
 locals {
-  interface_endpoints = toset([
+  interface_endpoints = var.enable_vpc_endpoints ? toset([
     # ECR pull path: both api + dkr endpoints are required for
     # `docker pull <accountId>.dkr.ecr.${region}.amazonaws.com/<image>`
     # to succeed without leaving the VPC.
@@ -208,7 +216,7 @@ locals {
     # IAM auth for RDS (when iam_database_authentication_enabled fires
     # the connect path) uses STS to generate the auth token.
     "sts",
-  ])
+  ]) : toset([])
 }
 
 resource "aws_vpc_endpoint" "interface" {
@@ -217,7 +225,7 @@ resource "aws_vpc_endpoint" "interface" {
   service_name        = "com.amazonaws.${var.aws_region}.${each.key}"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
   private_dns_enabled = true
 
   tags = { Name = "${var.app_name}-${var.environment}-${replace(each.key, ".", "-")}-endpoint" }

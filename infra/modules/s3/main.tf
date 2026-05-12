@@ -129,8 +129,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 
 # --- Frontend static hosting ---
 resource "aws_s3_bucket" "frontend" {
-  bucket        = "${var.app_name}-${var.environment}-frontend"
-  force_destroy = true
+  bucket = "${var.app_name}-${var.environment}-frontend"
+  # force_destroy=false matches the artifacts bucket. A terraform
+  # destroy will refuse to drop the bucket while it contains the
+  # built frontend, which is the desired behaviour in prod. Empty
+  # the bucket manually or flip this temporarily for a tear-down.
+  force_destroy = false
   tags          = { Name = "${var.app_name}-${var.environment}-frontend" }
 }
 
@@ -202,8 +206,15 @@ resource "aws_s3_bucket_policy" "frontend" {
 # (where CloudFront reads its ACLs) regardless of the rest of the
 # stack's region. Two AWS-managed rule groups give us OWASP common +
 # known-bad-input coverage at the CloudFront edge before traffic ever
-# reaches the ALB. Resolves Trivy AWS-0011.
+# reaches the ALB. Resolves Trivy AWS-0011 when enabled.
+#
+# Cost-gated: $5/mo per web ACL + $1/mo per managed rule group +
+# $0.60 per million inspected requests. Off by default — the bulk of
+# the dashboard's surface is auth-gated, so the WAF mostly defends
+# the /badge/* + /login routes. Flip on via var.enable_waf when the
+# app starts serving meaningful public traffic.
 resource "aws_wafv2_web_acl" "frontend" {
+  count       = var.enable_waf ? 1 : 0
   provider    = aws.us_east_1
   name        = "${var.app_name}-${var.environment}-frontend"
   scope       = "CLOUDFRONT"
@@ -263,7 +274,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
-  web_acl_id          = aws_wafv2_web_acl.frontend.arn
+  # Attach the WAF only when var.enable_waf is on; otherwise leave
+  # web_acl_id null so the distribution doesn't reference a count=0
+  # resource. one() returns null for an empty list.
+  web_acl_id = one(aws_wafv2_web_acl.frontend[*].arn)
 
   # CloudFront standard access logs — written to the same logs bucket
   # under a cloudfront/ prefix so the access-log lifecycle policy

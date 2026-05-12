@@ -1,8 +1,10 @@
 module "networking" {
-  source      = "./modules/networking"
-  app_name    = var.app_name
-  environment = var.environment
-  aws_region  = var.aws_region
+  source               = "./modules/networking"
+  app_name             = var.app_name
+  environment          = var.environment
+  aws_region           = var.aws_region
+  enable_vpc_endpoints = var.enable_vpc_endpoints
+  enable_flow_logs     = var.enable_flow_logs
 }
 
 module "ecr" {
@@ -21,6 +23,7 @@ module "s3" {
   source      = "./modules/s3"
   app_name    = var.app_name
   environment = var.environment
+  enable_waf  = var.enable_waf
   # CloudFront WAFv2 must be created in us-east-1; pass the aliased
   # provider in via the `aws.us_east_1` configuration alias the module
   # declares in its required_providers block.
@@ -31,14 +34,15 @@ module "s3" {
 }
 
 module "rds" {
-  source                = "./modules/rds"
-  app_name              = var.app_name
-  environment           = var.environment
-  vpc_id                = module.networking.vpc_id
-  private_subnet_ids    = module.networking.private_subnet_ids
-  db_instance_class     = var.db_instance_class
-  db_password           = module.secrets.db_password
-  ecs_security_group_id = module.ecs.ecs_security_group_id
+  source                      = "./modules/rds"
+  app_name                    = var.app_name
+  environment                 = var.environment
+  vpc_id                      = module.networking.vpc_id
+  private_subnet_ids          = module.networking.private_subnet_ids
+  db_instance_class           = var.db_instance_class
+  db_password                 = module.secrets.db_password
+  ecs_security_group_id       = module.ecs.ecs_security_group_id
+  enable_performance_insights = var.enable_performance_insights
 }
 
 module "budget" {
@@ -70,4 +74,5 @@ module "ecs" {
   allow_registration  = var.allow_registration
   acm_certificate_arn = var.acm_certificate_arn
   alert_email         = var.budget_alert_email
+  cpu_architecture    = var.cpu_architecture
 }
