@@ -507,6 +507,8 @@
                 </button>
                 {#if liveRunIds.has(run.id)}
                   <span class="live-badge">LIVE</span>
+                {:else if run.aborted}
+                  <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
                 {:else if run.failed > 0}
                   <span class="fail-badge">{run.failed} failed</span>
                   {#if run.new_failures > 0}
@@ -514,6 +516,9 @@
                   {/if}
                 {:else}
                   <span class="pass-badge">passed</span>
+                {/if}
+                {#if run.skipped > 0}
+                  <span class="skip-badge" title="{run.skipped} test(s) skipped">{run.skipped} skipped</span>
                 {/if}
               </div>
               {#if run.spec_files && run.spec_files.length > 0}
@@ -527,6 +532,9 @@
                 </div>
               {/if}
               <div class="card-meta">
+                {#if run.reporter}
+                  <span class="meta-chip reporter" title="Reporter / framework">{run.reporter}</span>
+                {/if}
                 {#if run.branch}
                   <span class="meta-chip branch">{run.branch}</span>
                 {/if}
@@ -535,6 +543,9 @@
                 {/if}
                 {#if run.commit_sha}
                   <span class="meta-chip mono">{run.commit_sha.slice(0, 7)}</span>
+                {/if}
+                {#if run.ci_run_id}
+                  <span class="meta-chip mono ci" title="CI run id">{run.ci_run_id}</span>
                 {/if}
                 <span>{formatDuration(run.duration_ms)}</span>
                 <span class="meta-time" title={formatTimestamp(run.started_at)}>{formatTime(run.started_at)} · {timeAgo(run.started_at)}</span>
@@ -778,6 +789,16 @@
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: color-mix(in srgb, var(--color-pass) 15%, transparent); color: var(--color-pass);
   }
+  .aborted-badge {
+    padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
+    background: var(--bg-secondary); color: var(--text-muted); border: 1px dashed var(--border);
+    text-transform: lowercase; letter-spacing: 0.02em;
+  }
+  .skip-badge {
+    padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
+    background: color-mix(in srgb, var(--color-skip, #d29922) 14%, transparent);
+    color: var(--color-skip, #d29922);
+  }
   .live-badge {
     padding: 0.1rem 0.45rem; border-radius: 8px; font-size: 0.6rem; font-weight: 700;
     background: var(--color-fail); color: #fff; letter-spacing: 0.05em;
@@ -814,6 +835,17 @@
     color: var(--text-primary);
   }
   .meta-chip.mono { font-family: monospace; }
+  .meta-chip.ci {
+    /* CI run ids can get long — cap width with an ellipsis so they
+       don't blow out the meta row on a wide monitor. */
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .meta-chip.reporter {
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+    font-size: 0.65rem;
+    background: color-mix(in srgb, var(--text-secondary) 12%, var(--bg-secondary));
+    color: var(--text);
+  }
   .meta-time { margin-left: auto; }
 
   .card-right { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
