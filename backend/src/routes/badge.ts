@@ -4,7 +4,15 @@ import pool, { tenantQuery } from "../db.js";
 const router = Router();
 
 export function escapeXml(str: string): string {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Quotes too — escapeXml is interpolated into XML attribute values
+  // (e.g. aria-label="..."), so an unescaped " or ' would break out
+  // of the attribute. CodeQL js/incomplete-html-attribute-sanitization.
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 export function makeBadge(label: string, message: string, color: string): string {

@@ -325,7 +325,7 @@ test("POST /orgs/invites/:token/accept accepts even when invite email casing dif
   // address" because the comparison was strict !==.  Fix: lowercase both
   // sides at compare time.
   const lowerEmail = `mixedcase+${Date.now()}@test.local`;
-  const upperEmail = lowerEmail.replace("@", "@").toUpperCase(); // "MIXEDCASE+..@TEST.LOCAL"
+  const upperEmail = lowerEmail.toUpperCase(); // "MIXEDCASE+..@TEST.LOCAL"
 
   // Recipient registers with lowercase.
   const reg = await fetch(`${BASE}/auth/register`, {

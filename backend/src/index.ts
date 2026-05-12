@@ -75,13 +75,18 @@ app.use(helmet({
     },
   },
 }));
+// CORS: use the same whitelist callback in every environment.
+// Previously dev used `origin: true`, which reflects the request
+// Origin and (combined with credentials: true) allows any site to
+// make credentialed XHRs against a dev API — also flagged by CodeQL
+// js/cors-permissive-configuration. The default ALLOWED_ORIGINS
+// includes the two localhost ports the dev frontend uses, so this
+// stays transparent for normal dev flow.
 app.use(cors({
-  origin: IS_PROD
-    ? (origin, callback) => {
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
-        else callback(new Error("CORS not allowed"));
-      }
-    : true, // Allow all in development
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+    else callback(new Error("CORS not allowed"));
+  },
   credentials: true,
 }));
 

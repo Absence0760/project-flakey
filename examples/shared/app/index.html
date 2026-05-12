@@ -246,6 +246,17 @@
       }
     });
 
+    // Escape user input before splicing into innerHTML template
+    // literals. Tiny helper so the demo page stays self-contained.
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
     // --- Todos ---
     let todos = [];
     let currentFilter = 'all';
@@ -259,7 +270,7 @@
       list.innerHTML = filtered.map((t, i) => `
         <li class="todo-item ${t.done ? 'done' : ''}" data-testid="todo-item-${t.id}">
           <input type="checkbox" ${t.done ? 'checked' : ''} data-id="${t.id}" data-testid="todo-check-${t.id}" />
-          <span data-testid="todo-text-${t.id}">${t.text}</span>
+          <span data-testid="todo-text-${t.id}">${escapeHtml(t.text)}</span>
           <button class="delete-btn" data-id="${t.id}" data-testid="todo-delete-${t.id}">&times;</button>
         </li>
       `).join('');
@@ -323,12 +334,12 @@
         return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
       });
       document.getElementById('users-body').innerHTML = sorted.map(u => `
-        <tr data-testid="user-row-${u.email}">
-          <td>${u.name}</td>
-          <td>${u.email}</td>
-          <td>${u.role}</td>
+        <tr data-testid="user-row-${escapeHtml(u.email)}">
+          <td>${escapeHtml(u.name)}</td>
+          <td>${escapeHtml(u.email)}</td>
+          <td>${escapeHtml(u.role)}</td>
           <td><span class="status-badge ${u.active ? 'active' : 'inactive'}">${u.active ? 'Active' : 'Inactive'}</span></td>
-          <td><button class="delete-user" data-name="${u.name}" data-testid="delete-${u.email}">Delete</button></td>
+          <td><button class="delete-user" data-name="${escapeHtml(u.name)}" data-testid="delete-${escapeHtml(u.email)}">Delete</button></td>
         </tr>
       `).join('');
     }
@@ -376,7 +387,7 @@
 
       const result = document.getElementById('form-result');
       result.style.display = 'block';
-      result.innerHTML = `<strong>Created:</strong> ${name} (${category || 'uncategorized'}, ${priority}${urgent ? ', URGENT' : ''})`;
+      result.innerHTML = `<strong>Created:</strong> ${escapeHtml(name)} (${escapeHtml(category || 'uncategorized')}, ${escapeHtml(priority)}${urgent ? ', URGENT' : ''})`;
       notify('Item created successfully');
     });
 

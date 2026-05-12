@@ -256,8 +256,11 @@ export async function fetchIssuesForVersion(
   versionName: string,
   limit = 25
 ): Promise<JiraIssueSummary[]> {
-  // Escape double quotes in the version name for JQL safety.
-  const safeName = versionName.replace(/"/g, '\\"');
+  // Escape backslashes then double quotes for JQL safety. Order matters:
+  // doing quotes first leaves the introduced \" vulnerable to a later
+  // \-escape pass, so do \ first. CodeQL js/incomplete-sanitization
+  // flagged the prior single-pass form.
+  const safeName = versionName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const jql = `project = "${cfg.projectKey}" AND fixVersion = "${safeName}" ORDER BY resolution ASC, updated DESC`;
   const res = await fetch(`${cfg.baseUrl}/rest/api/2/search`, {
     method: "POST",

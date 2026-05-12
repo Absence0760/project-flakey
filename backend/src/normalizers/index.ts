@@ -20,9 +20,12 @@ export function normalize(
   raw: unknown,
   meta: NormalizedRun["meta"]
 ): NormalizedRun {
-  const parser = parsers[reporter];
-  if (!parser) {
+  // hasOwn guard: a plain `parsers[reporter]` lookup would also pick up
+  // inherited Object.prototype members (toString, hasOwnProperty, etc.)
+  // and dispatch to them. CodeQL js/unvalidated-dynamic-method-call
+  // flagged the broader pattern; the own-property check tightens it.
+  if (!Object.hasOwn(parsers, reporter)) {
     throw new Error(`Unsupported reporter: ${reporter}. Supported: ${Object.keys(parsers).join(", ")}`);
   }
-  return parser(raw, meta);
+  return parsers[reporter](raw, meta);
 }
