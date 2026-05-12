@@ -331,7 +331,7 @@
 <ErrorModal testId={modalTestId} onclose={() => modalTestId = null} />
 
 <style>
-  .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
+  .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
   .header {
     display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;

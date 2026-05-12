@@ -270,7 +270,7 @@
 </div>
 
 <style>
-  .page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
+  .page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 
   .muted { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
   .error-msg { color: var(--color-fail); font-size: 0.85rem; }

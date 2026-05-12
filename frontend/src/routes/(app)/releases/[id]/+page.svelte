@@ -1935,7 +1935,7 @@
 </div>
 
 <style>
-	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
+	.page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
 	.back:hover { color: var(--text); }
 	.release-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 0.75rem 0 1.5rem; gap: 1rem; }

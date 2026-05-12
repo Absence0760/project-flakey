@@ -1237,7 +1237,7 @@
 </div>
 
 <style>
-	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
+	.page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
 	.subtitle { color: var(--text-muted); font-size: 0.9rem; }
 	.summary { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }

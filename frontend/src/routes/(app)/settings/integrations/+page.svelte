@@ -279,7 +279,7 @@
 </div>
 
 <style>
-	.page { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem; }
+	.page { max-width: 1920px; margin: 0 auto; padding: 1.5rem 2rem; }
 	.back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
 	h1 { margin: 0.5rem 0 1.25rem; }
 	section { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
