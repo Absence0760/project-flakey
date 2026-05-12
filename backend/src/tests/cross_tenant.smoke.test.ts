@@ -793,7 +793,11 @@ test("Jira settings are isolated across orgs (no plaintext, no cross-read)", asy
   assert.equal(getB.status, 200);
   const dataB = await getB.text();
   assert.ok(!dataB.includes("TOKEN-A-EXFIL-CANARY"), "RLS leak: org B saw org A's Jira token in plaintext");
-  assert.ok(!dataB.includes("a.atlassian.net"), "RLS leak: org B saw org A's base_url");
+  // Match the exact URL form we wrote, not a bare host substring — a stray
+  // "a.atlassian.net" could appear elsewhere as a non-leak; the literal
+  // base_url value with scheme prefix is the actual canary.
+  // (CodeQL js/incomplete-url-substring-sanitization).
+  assert.ok(!dataB.includes("https://a.atlassian.net"), "RLS leak: org B saw org A's base_url");
   // B should see has_api_token=false (its own settings have no token).
   const parsedB = JSON.parse(dataB) as { has_api_token: boolean };
   assert.equal(parsedB.has_api_token, false, "org B's Jira settings polluted by org A's");

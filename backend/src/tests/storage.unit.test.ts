@@ -76,7 +76,7 @@ test("LocalStorage.put rejects destKey with traversal segments (..)", async () =
 
   await assert.rejects(
     () => s.put(tmp, "../escape.txt"),
-    /storage root|outside/i,
+    /unsafe storage key|storage root|outside/i,
     "destKey containing `..` must be rejected by the storage layer"
   );
 
@@ -93,7 +93,7 @@ test("LocalStorage.put rejects deeply traversal destKeys (../../...)", async () 
 
   await assert.rejects(
     () => s.put(tmp, "../../../tmp/escape.txt"),
-    /storage root|outside/i,
+    /unsafe storage key|storage root|outside/i,
     "deep traversal must also be rejected"
   );
 
@@ -109,7 +109,7 @@ test("LocalStorage.put rejects null bytes in destKey", async () => {
 
   await assert.rejects(
     () => s.put(tmp, "runs/1/snapshots/foo\0/escape.txt"),
-    /storage root|outside|\\0/i,
+    /unsafe storage key|storage root|outside|\\0/i,
     "null byte in destKey must be rejected"
   );
 

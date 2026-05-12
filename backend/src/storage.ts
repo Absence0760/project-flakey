@@ -3,6 +3,26 @@ import { join, dirname, resolve, relative } from "path";
 import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+// Reject the four path-traversal primitives at the storage boundary:
+// `..` segments, backslashes, null bytes, and a leading `/`. We don't
+// enforce a character allow-list because legitimate filenames include
+// spaces, accented Unicode, etc.; the deny-list is sufficient because
+// node's path resolver only escapes a directory via these patterns.
+// CodeQL's js/path-injection rule recognises this gate at the boundary
+// — the relative()-based check inside LocalStorage.put is defense-in-
+// depth, not a sanitizer.
+function assertSafeKey(destKey: string): void {
+  if (
+    destKey.length === 0 ||
+    destKey.startsWith("/") ||
+    destKey.includes("\\") ||
+    destKey.includes("\0") ||
+    destKey.split("/").some((seg) => seg === "..")
+  ) {
+    throw new Error(`unsafe storage key: ${destKey}`);
+  }
+}
+
 export interface Storage {
   /** Move a file from a local temp path to its final storage location. */
   put(tempPath: string, destKey: string): Promise<void>;
@@ -24,6 +44,7 @@ class LocalStorage implements Storage {
   }
 
   async put(tempPath: string, destKey: string): Promise<void> {
+    assertSafeKey(destKey);
     // Defense-in-depth path-traversal guard.  Each upload route that
     // builds destKey already sanitizes user-controlled segments, but
     // the storage layer must not assume that — node's `path.join`
@@ -78,6 +99,7 @@ class S3Storage implements Storage {
   }
 
   async put(tempPath: string, destKey: string): Promise<void> {
+    assertSafeKey(destKey);
     const body = readFileSync(tempPath);
     await this.client.send(new PutObjectCommand({
       Bucket: this.bucket,

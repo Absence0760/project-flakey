@@ -17,12 +17,26 @@ const PROVIDERS = ["jira", "github", "linear", "other"];
 
 // Heuristically guess the provider from a pasted URL so users don't have
 // to choose it. Falls back to 'other'.
+//
+// Match against the parsed hostname rather than substring-on-href so a
+// link like https://evil.atlassian.net.attacker.com/foo doesn't get
+// classified as Jira (CodeQL js/incomplete-url-substring-sanitization).
+// Self-hosted Jira often lives at /jira/ on a customer-owned host, so
+// the pathname check is a separate conditional from the hostname check.
 export function inferProvider(refUrl: string | undefined): string {
   if (!refUrl) return "other";
-  const url = refUrl.toLowerCase();
-  if (url.includes("atlassian.net") || url.includes("/jira/")) return "jira";
-  if (url.includes("github.com")) return "github";
-  if (url.includes("linear.app")) return "linear";
+  let parsed: URL;
+  try {
+    parsed = new URL(refUrl);
+  } catch {
+    return "other";
+  }
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  if (host === "atlassian.net" || host.endsWith(".atlassian.net")) return "jira";
+  if (path.startsWith("/jira/") || path.includes("/jira/")) return "jira";
+  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (host === "linear.app" || host.endsWith(".linear.app")) return "linear";
   return "other";
 }
 

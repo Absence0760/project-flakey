@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { join } from "path";
+import { basename, join } from "path";
 import { rmSync } from "fs";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
@@ -248,16 +248,26 @@ router.post("/", uploadFields, async (req, res) => {
 });
 
 export function fixFilename(name: string): string {
-  // Multer decodes the multipart filename header as Latin-1, but browsers
-  // send UTF-8.  Re-interpret the Latin-1 bytes as UTF-8 to recover the
-  // original characters (e.g. checkmarks, accented letters).
+  // Two passes:
+  //   1. Multer decodes the multipart filename header as Latin-1, but
+  //      browsers send UTF-8.  Re-interpret the Latin-1 bytes as UTF-8
+  //      to recover the original characters (e.g. checkmarks, accents).
+  //   2. Strip any directory components and \0 / \\ path-traversal
+  //      tricks before the name is joined into a storage key. The
+  //      LocalStorage put() has a defense-in-depth `relative()` guard
+  //      too, but CodeQL js/path-injection only trusts a sanitization
+  //      step that's visible at the boundary — and either way, we don't
+  //      want an upload named "../../etc/passwd" reaching the storage
+  //      layer at all.
+  let decoded: string;
   try {
     const buf = Buffer.from(name, "latin1");
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(buf);
-    return decoded;
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(buf);
   } catch {
-    return name;
+    decoded = name;
   }
+  // posix basename + win32 backslash strip + null-byte strip.
+  return basename(decoded.replace(/\\/g, "/")).replace(/\0/g, "");
 }
 
 export function normalizeForMatch(str: string): string {

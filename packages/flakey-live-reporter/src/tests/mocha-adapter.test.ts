@@ -245,7 +245,11 @@ test("FLAKEY_API_URL / FLAKEY_API_KEY env vars work without explicit config", as
     await handlers.get("before:run")!();
     await handlers.get("after:run")!({ totalFailed: 0 });
 
-    assert.ok(fetchMock.calls.find((c) => c.url.startsWith(URL)),
+    // startsWith(URL) without the path separator would also match
+    // https://api.example.com.attacker.com/... — pin the trailing slash
+    // so an env-injected look-alike host doesn't satisfy the assertion.
+    // (CodeQL js/incomplete-url-substring-sanitization).
+    assert.ok(fetchMock.calls.find((c) => c.url.startsWith(URL + "/")),
       "fetch should hit the URL provided via env");
   } finally {
     delete process.env.FLAKEY_API_URL;

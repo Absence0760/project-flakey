@@ -77,7 +77,17 @@ const RISK_TO_SEVERITY = {
 };
 
 function stripHtml(s) {
-  return typeof s === "string" ? s.replace(/<[^>]*>/g, "").trim() : null;
+  if (typeof s !== "string") return null;
+  // Loop until stable so a nested form like <scr<script>ipt> doesn't
+  // collapse to <script> after a single pass. CodeQL
+  // js/incomplete-multi-character-sanitization.
+  let prev;
+  let cur = s;
+  do {
+    prev = cur;
+    cur = cur.replace(/<[^>]*>/g, "");
+  } while (cur !== prev);
+  return cur.trim();
 }
 
 function extractFindings(raw) {

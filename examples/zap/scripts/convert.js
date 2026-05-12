@@ -37,8 +37,8 @@ for (const site of sites) {
   for (const alert of alerts) {
     const risk = Number(alert.riskcode) || 0;
     const name = alert.name || alert.alert || "Unknown alert";
-    const desc = alert.desc?.replace(/<[^>]*>/g, "") || "";
-    const solution = alert.solution?.replace(/<[^>]*>/g, "") || "";
+    const desc = stripHtml(alert.desc);
+    const solution = stripHtml(alert.solution);
     const instances = alert.instances?.length ?? 0;
     const riskLabel = RISK_LABELS[risk] || "Unknown";
     const classname = `zap.${riskLabel.toLowerCase()}`;
@@ -82,4 +82,18 @@ function esc(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// Loop until stable so a nested form like <scr<script>ipt> doesn't
+// collapse to <script> after a single pass. CodeQL
+// js/incomplete-multi-character-sanitization.
+function stripHtml(s) {
+  if (!s) return "";
+  let prev;
+  let cur = String(s);
+  do {
+    prev = cur;
+    cur = cur.replace(/<[^>]*>/g, "");
+  } while (cur !== prev);
+  return cur;
 }
