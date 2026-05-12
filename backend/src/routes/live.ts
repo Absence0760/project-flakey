@@ -19,6 +19,59 @@ router.get("/active", (req, res) => {
 });
 
 /**
+ * GET /live/stream — org-scoped SSE for active-run-set deltas.
+ *
+ * Replaces the dashboard's 5 s /live/active polling loop (roadmap
+ * Phase 12 / issue #41). On connect the server sends a `snapshot`
+ * event with the current active-run ids for the caller's org, then
+ * streams `active.add` / `active.remove` deltas as runs enter or
+ * leave the active set.
+ *
+ * Auth: same token-via-query mechanism as /live/:runId/stream — the
+ * router-prefix middleware in index.ts promotes ?token=... to a
+ * Bearer header before requireAuth runs. EventSource on the browser
+ * side can't set headers, hence the query-param fallback.
+ *
+ * Tenancy: getActiveRunIds(orgId) filters by runMeta orgId, and
+ * subscribeOrg keys its emitter on orgId, so a subscriber for org A
+ * never receives deltas for runs in org B.
+ */
+router.get("/stream", (req, res) => {
+  const orgId = req.user!.orgId;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+  });
+
+  // Initial snapshot so the client can render in-progress runs
+  // immediately on connect / reconnect, then react to deltas.
+  res.write(`data: ${JSON.stringify({
+    type: "snapshot",
+    runs: liveEvents.getActiveRunIds(orgId),
+  })}\n\n`);
+
+  const unsubscribe = liveEvents.subscribeOrg(orgId, (delta) => {
+    res.write(`data: ${JSON.stringify(delta)}\n\n`);
+  });
+
+  // Keep-alive every 15 s (matches the per-run /live/:runId/stream
+  // cadence). Comment-only line so proxies and EventSource itself
+  // ignore it but the TCP connection stays warm.
+  const keepAlive = setInterval(() => {
+    res.write(": ping\n\n");
+  }, 15000);
+
+  req.on("close", () => {
+    unsubscribe();
+    clearInterval(keepAlive);
+  });
+});
+
+/**
  * POST /live/start — create (or resume) a placeholder run for live tracking, returns the run ID.
  * Body: { suite, branch?, commitSha?, ciRunId? }
  *

@@ -3,7 +3,7 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
-  import { authFetch } from "$lib/auth";
+  import { getAuth } from "$lib/auth";
   import { API_URL } from "$lib/config";
 
   function focusOnMount(node: HTMLElement) {
@@ -17,7 +17,8 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let liveRunIds = $state<Set<number>>(new Set());
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let liveStream: EventSource | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
   let selectedEnv = $state("all");
@@ -203,28 +204,70 @@
     searchQuery = "";
   }
 
-  async function pollLiveRuns() {
+  async function refreshRuns() {
     try {
-      const res = await authFetch(`${API_URL}/live/active`);
-      if (res.ok) {
-        const data = await res.json() as { runs: number[] };
-        const newSet = new Set(data.runs);
-        // Refetch the runs list on ANY change to the active set:
-        //   - additions: a fresh /live/start run that needs to show
-        //     up while it's still in progress (issue #41).
-        //   - removals: a run that just finished, so its terminal
-        //     stats land before the LIVE badge drops.
-        const changed = newSet.size !== liveRunIds.size
-          || [...newSet].some((id) => !liveRunIds.has(id));
-        if (changed) {
-          const refreshed = await fetchRunsWithSummary(0, allRuns.length || 50);
-          allRuns = refreshed.runs;
-          dbSummary = refreshed.summary;
-          hasMore = refreshed.hasMore;
-        }
-        liveRunIds = newSet;
-      }
+      const refreshed = await fetchRunsWithSummary(0, allRuns.length || 50);
+      allRuns = refreshed.runs;
+      dbSummary = refreshed.summary;
+      hasMore = refreshed.hasMore;
     } catch { /* ignore */ }
+  }
+
+  // Org-scoped SSE replaces the prior 5 s /live/active poll. The
+  // backend sends a `snapshot` on connect, then `active.add` /
+  // `active.remove` deltas as runs enter or leave the active set.
+  // EventSource auto-reconnects on transient network drops, but on
+  // hard errors (auth, server-side close) we back off and retry
+  // explicitly to avoid a tight reconnect loop.
+  function connectLiveStream() {
+    if (liveStream) return;
+    const token = getAuth().token;
+    if (!token) return;
+
+    const es = new EventSource(`${API_URL}/live/stream?token=${token}`);
+    liveStream = es;
+
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data) as
+          | { type: "snapshot"; runs: number[] }
+          | { type: "active.add"; runId: number }
+          | { type: "active.remove"; runId: number };
+
+        if (msg.type === "snapshot") {
+          const newSet = new Set(msg.runs);
+          // On reconnect the snapshot may differ from current state —
+          // refetch so terminal stats / new rows show up. On first
+          // connect (post-onMount fetch) newSet usually equals the
+          // empty initial state, so this is a no-op.
+          const changed = newSet.size !== liveRunIds.size
+            || [...newSet].some((id) => !liveRunIds.has(id));
+          liveRunIds = newSet;
+          if (changed) void refreshRuns();
+        } else if (msg.type === "active.add") {
+          if (liveRunIds.has(msg.runId)) return;
+          liveRunIds = new Set([...liveRunIds, msg.runId]);
+          void refreshRuns();
+        } else if (msg.type === "active.remove") {
+          if (!liveRunIds.has(msg.runId)) return;
+          const next = new Set(liveRunIds);
+          next.delete(msg.runId);
+          liveRunIds = next;
+          void refreshRuns();
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.onerror = () => {
+      es.close();
+      liveStream = null;
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connectLiveStream();
+        }, 5000);
+      }
+    };
   }
 
   onMount(async () => {
@@ -239,8 +282,7 @@
       dbSummary = runsData.summary;
       hasMore = runsData.hasMore;
       savedViews = views;
-      await pollLiveRuns();
-      pollTimer = setInterval(pollLiveRuns, 5000);
+      connectLiveStream();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load runs";
     } finally {
@@ -250,7 +292,8 @@
   });
 
   onDestroy(() => {
-    if (pollTimer) clearInterval(pollTimer);
+    if (liveStream) { liveStream.close(); liveStream = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   });
 
   function formatDuration(ms: number): string {

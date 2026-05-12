@@ -12,6 +12,16 @@ export interface LiveTestEvent {
   stats?: { total: number; passed: number; failed: number; skipped: number };
 }
 
+/**
+ * Org-scoped delta emitted on GET /live/stream when a run enters or
+ * leaves the active set. Replaces the dashboard's /live/active poll
+ * (roadmap Phase 12) so the runs list reacts within milliseconds.
+ */
+export interface ActiveRunsDelta {
+  type: "active.add" | "active.remove";
+  runId: number;
+}
+
 interface RunMeta {
   orgId: number;
   lastEventAt: number;
@@ -22,6 +32,10 @@ class LiveEventBus {
   private timeouts = new Map<number, ReturnType<typeof setTimeout>>();
   private activeRuns = new Set<number>();
   private runMeta = new Map<number, RunMeta>();
+  // Org-scoped emitters for active-set deltas. Created lazily on first
+  // subscriber; kept idle (not deleted) when the last listener leaves
+  // since EventEmitters with zero listeners are essentially free.
+  private orgEmitters = new Map<number, EventEmitter>();
 
   /** Register a run with its org ID so stale detection can work. Call when run.started. */
   registerRun(runId: number, orgId: number): void {
@@ -46,6 +60,9 @@ class LiveEventBus {
    *      delete sees `getEmitter` create a fresh one with no history).
    */
   unregister(runId: number): void {
+    // removeActive() must fire BEFORE runMeta is cleared so the delta
+    // can carry the correct orgId to /live/stream subscribers.
+    this.removeActive(runId);
     const emitter = this.emitters.get(runId);
     if (emitter) {
       emitter.removeAllListeners();
@@ -56,7 +73,6 @@ class LiveEventBus {
       clearTimeout(timeout);
       this.timeouts.delete(runId);
     }
-    this.activeRuns.delete(runId);
     this.runMeta.delete(runId);
   }
 
@@ -91,21 +107,21 @@ class LiveEventBus {
 
     // Mark as active on first event, remove on run.finished / run.aborted
     if (event.type === "run.started") {
-      this.activeRuns.add(runId);
+      this.addActive(runId);
     }
 
     const emitter = this.emitters.get(runId);
     if (!emitter) {
       // Auto-create emitter so events aren't lost if stream connects after first event
       const newEmitter = this.getEmitter(runId);
-      this.activeRuns.add(runId);
+      this.addActive(runId);
       newEmitter.emit("event", event);
     } else {
       emitter.emit("event", event);
     }
 
     if (event.type === "run.finished" || event.type === "run.aborted") {
-      this.activeRuns.delete(runId);
+      this.removeActive(runId);
       // Clean up emitter shortly after finish (give subscribers time to get the event)
       setTimeout(() => {
         this.emitters.get(runId)?.removeAllListeners();
@@ -152,14 +168,64 @@ class LiveEventBus {
     return result;
   }
 
+  /**
+   * Subscribe to active-set deltas for one org. Returns an unsubscribe
+   * function. Used by the /live/stream SSE handler — the dashboard
+   * subscribes once per session instead of polling /live/active every
+   * 5 s (roadmap Phase 12).
+   *
+   * The org emitter is created lazily on first subscriber and kept
+   * alive while listeners are attached; on disconnect we just `.off`
+   * the listener. The idle emitter object stays in the map until the
+   * process restarts — one EventEmitter per active org, trivial.
+   */
+  subscribeOrg(orgId: number, listener: (delta: ActiveRunsDelta) => void): () => void {
+    let emitter = this.orgEmitters.get(orgId);
+    if (!emitter) {
+      emitter = new EventEmitter();
+      emitter.setMaxListeners(100);
+      this.orgEmitters.set(orgId, emitter);
+    }
+    emitter.on("delta", listener);
+    return () => emitter!.off("delta", listener);
+  }
+
+  /**
+   * Add a run to the active set and notify the org subscribers.
+   * Idempotent — a duplicate run.started won't re-emit. Skips the
+   * notification if runMeta is missing (no orgId known) — that only
+   * happens via the auto-create-emitter path for an event without a
+   * preceding registerRun, which is itself unusual.
+   */
+  private addActive(runId: number): void {
+    if (this.activeRuns.has(runId)) return;
+    this.activeRuns.add(runId);
+    const orgId = this.runMeta.get(runId)?.orgId;
+    if (orgId !== undefined) {
+      this.orgEmitters.get(orgId)?.emit("delta", { type: "active.add", runId });
+    }
+  }
+
+  /** Remove a run from the active set and notify the org subscribers. */
+  private removeActive(runId: number): void {
+    if (!this.activeRuns.has(runId)) return;
+    this.activeRuns.delete(runId);
+    const orgId = this.runMeta.get(runId)?.orgId;
+    if (orgId !== undefined) {
+      this.orgEmitters.get(orgId)?.emit("delta", { type: "active.remove", runId });
+    }
+  }
+
   private resetTimeout(runId: number): void {
     const existing = this.timeouts.get(runId);
     if (existing) clearTimeout(existing);
     this.timeouts.set(runId, setTimeout(() => {
+      // removeActive() must fire BEFORE runMeta is cleared so the
+      // delta can carry the correct orgId to /live/stream subscribers.
+      this.removeActive(runId);
       this.emitters.get(runId)?.removeAllListeners();
       this.emitters.delete(runId);
       this.timeouts.delete(runId);
-      this.activeRuns.delete(runId);
       this.runMeta.delete(runId);
     }, 30 * 60 * 1000)); // 30 minutes
   }

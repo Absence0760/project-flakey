@@ -122,7 +122,7 @@
 
 ## Phase 12 — Realtime dashboard UX
 
-- [ ] Replace dashboard `/live/active` polling with an org-scoped SSE subscription. The backend already exposes per-run SSE at `/live/:runId/stream`; adding `/live/stream` (org-scoped active-set events) would let the runs list react within milliseconds of `/live/start` instead of waiting up to 5 s for the next poll cycle. Closes the visible-latency gap in issue #41 that the polling-based fix can't shrink further.
+- [x] Replace dashboard `/live/active` polling with an org-scoped SSE subscription. Backend exposes `GET /live/stream` — sends an initial `snapshot` event with the active-run ids for the caller's org, then streams `active.add` / `active.remove` deltas as runs enter / leave the set. Dashboard (`+page.svelte`) subscribes once on mount and refetches the runs list on each delta instead of polling every 5 s. Closes the visible-latency gap from issue #41.
 
 ## What this will not do (by design)
 
