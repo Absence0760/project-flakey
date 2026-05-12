@@ -318,8 +318,10 @@ test.describe("upload bughunt — status filter consistency", () => {
     // The UI loads /runs/<id>?status=failed; the page's auto-filter
     // also lands on `failed` whenever failed > 0.
     await page.goto(`/runs/${runId}?status=failed`);
+    // Detail page header lands the run id in the meta-row chip
+    // (the polished layout dropped the redundant <h1>Run #N</h1>).
     await expect(
-      page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+      page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
     ).toBeVisible({ timeout: POLL_TIMEOUT });
 
     // Wait for the spec section to mount.

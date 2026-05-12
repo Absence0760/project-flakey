@@ -10,6 +10,10 @@
   import { API_URL } from "$lib/config";
 
   let run = $state<RunDetail | null>(null);
+  // Previous run (for the "new failures since previous run" band).
+  // null while loading; remains null when there is no prev run, or the
+  // fetch failed — both cases collapse to an empty band, no UI break.
+  let prevRun = $state<RunDetail | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let modalTestId = $state<number | null>(null);
@@ -196,6 +200,14 @@
           const terminated = liveEvents.some(e => e.type === "run.finished" || e.type === "run.aborted");
           if (!terminated) connectLive(id);
         }
+
+        // Fire-and-forget prev-run fetch so we can surface "new
+        // failures since previous run" — the most important triage
+        // signal on this page. Failures here just leave the band
+        // hidden; never block the main render.
+        if (run.prev_id) {
+          fetchRun(run.prev_id).then(r => { prevRun = r; }).catch(() => {});
+        }
       }
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load run";
@@ -222,7 +234,7 @@
     return `${mins}m ${secs}s`;
   }
 
-  function formatTimestamp(iso: string): string {
+  function absoluteDate(iso: string): string {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, {
       month: "short", day: "numeric", year: "numeric",
@@ -402,6 +414,45 @@
     return Math.round((r.passed / r.total) * 100);
   }
 
+  // Tests in the previous run that were already failing — used to
+  // distinguish "new" failures (regressions) from "still failing"
+  // ones. Keyed by full_title (the same field the backend uses to
+  // diff between runs for the runs-list `new_failures` count).
+  let prevFailedTitles = $derived.by(() => {
+    if (!prevRun) return new Set<string>();
+    const set = new Set<string>();
+    for (const spec of prevRun.specs) {
+      for (const t of spec.tests) {
+        if (t.status === "failed") set.add(t.full_title || t.title);
+      }
+    }
+    return set;
+  });
+
+  // Failures in the current run that were NOT failing in the previous
+  // run — the regressions a triager wants to look at first.
+  // [{ spec, test }] so the band can link straight to the ErrorModal.
+  let newFailures = $derived.by(() => {
+    if (!run) return [] as Array<{ spec: Spec; test: Spec["tests"][number] }>;
+    // No prev run means every failure is technically "new" — but the
+    // band's purpose is to highlight regressions vs the previous run.
+    // Skip rendering the band in that case (prevRun stays null).
+    if (!prevRun) return [];
+    const out: Array<{ spec: Spec; test: Spec["tests"][number] }> = [];
+    for (const spec of run.specs) {
+      for (const test of spec.tests) {
+        if (test.status !== "failed") continue;
+        const key = test.full_title || test.title;
+        if (!prevFailedTitles.has(key)) out.push({ spec, test });
+      }
+    }
+    return out;
+  });
+
+  // Lookup by test id — used to badge "NEW" inline on the test rows
+  // without re-running the title-diff for every render.
+  let newFailureIds = $derived(new Set(newFailures.map((n) => n.test.id)));
+
   let filteredSpecs = $derived.by(() => {
     if (!run) return [];
     const q = searchQuery.toLowerCase();
@@ -496,7 +547,14 @@
       <div class="header-top">
         <div class="header-left">
           <div class="title-row">
-            <h1>Run #{run.id}</h1>
+            <h2 class="run-suite-title" title={run.suite_name}>{run.suite_name}</h2>
+            <button class="copy-btn copy-suite-btn" title="Copy suite name" onclick={copySuite}>
+              {#if copiedSuite}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
+              {/if}
+            </button>
             {#if !isLive}
               <span class="run-status-badge" class:all-pass={run.failed === 0} class:has-fail={run.failed > 0}>
                 {run.failed === 0 ? "Passed" : `${run.failed} Failed`}
@@ -534,16 +592,9 @@
             </button>
           </div>
           <div class="meta-row">
-            <span class="meta-item" title="Suite">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/></svg>
-              {run.suite_name}
-              <button class="copy-btn" title="Copy suite name" onclick={copySuite}>
-                {#if copiedSuite}
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
-                {:else}
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
-                {/if}
-              </button>
+            <span class="meta-item" title="Run id">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h6l2 2v10H4z"/><path d="M10 2v2h2"/></svg>
+              #{run.id}
             </span>
             <span class="meta-item" title="Branch">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="12" r="1.5"/><path d="M5 5.5v5M11 5.5c0 3-6 3-6 5"/></svg>
@@ -563,7 +614,7 @@
             {/if}
             <span class="meta-item" title="Started">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2"/></svg>
-              <span title={formatTimestamp(run.started_at)}>{timeAgo(run.started_at)}</span>
+              <span title={absoluteDate(run.started_at)}>{timeAgo(run.started_at)}</span>
             </span>
             <span class="meta-item" title="Duration">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2h4M8 2v3M3.5 6l1-1M12.5 6l-1-1"/><circle cx="8" cy="9.5" r="4.5"/></svg>
@@ -600,20 +651,66 @@
         <div class="stat-divider"></div>
         <div class="stat-item">
           <span class="stat-num fail">{run.failed}</span>
-          <span class="stat-label">Failed</span>
+          <span class="stat-label">
+            Failed
+            {#if newFailures.length > 0}
+              <span class="stat-delta">+{newFailures.length} new</span>
+            {/if}
+          </span>
         </div>
         <div class="stat-divider"></div>
         <div class="stat-item">
           <span class="stat-num skip">{filterCounts.skipped}</span>
           <span class="stat-label">Skipped</span>
         </div>
-        <div class="stat-divider"></div>
-        <div class="stat-item">
-          <span class="stat-num">{run.specs.length}</span>
-          <span class="stat-label">Specs</span>
-        </div>
       </div>
     </header>
+
+    <!-- New failures since previous run — the canonical "needs
+         attention" signal for a triager. Hidden when prev run hasn't
+         loaded yet OR when there are no regressions vs the prev run.
+         Each row clicks straight into the ErrorModal, same as the
+         per-test error bar. -->
+    {#if newFailures.length > 0}
+      <section class="at-risk-band">
+        <header class="at-risk-header">
+          <span class="at-risk-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1l7 13H1z"/><path d="M8 6v4M8 12v0.5"/></svg>
+          </span>
+          <h3 class="at-risk-title">
+            {newFailures.length} new failure{newFailures.length === 1 ? "" : "s"} since
+            {#if run.prev_id}
+              <a class="at-risk-prev-link" href="/runs/{run.prev_id}">run #{run.prev_id}</a>
+            {:else}
+              the previous run
+            {/if}
+          </h3>
+          <span class="at-risk-sub">Passed last run, failing now — start triage here.</span>
+        </header>
+        <ul class="at-risk-list">
+          {#each newFailures as { spec, test }}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: mirrors /manual-tests row click pattern -->
+            <li
+              class="at-risk-row"
+              role="button"
+              tabindex="0"
+              onclick={() => modalTestId = test.id}
+              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); modalTestId = test.id; } }}
+            >
+              <span class="at-risk-dot"></span>
+              <span class="at-risk-test">{test.title}</span>
+              <span class="at-risk-spec mono">{spec.file_path || spec.title}</span>
+              {#if test.error_message}
+                <span class="at-risk-err mono">{test.error_message.slice(0, 140)}</span>
+              {/if}
+              <span class="at-risk-action">View</span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     <!-- Run notes -->
     <div class="run-notes">
@@ -763,6 +860,9 @@
                   <button class="test-name clickable" onclick={() => modalTestId = test.id}>
                     {test.title}
                   </button>
+                  {#if newFailureIds.has(test.id)}
+                    <span class="new-fail-pill" title="Passed in run #{run?.prev_id} — new failure">NEW</span>
+                  {/if}
                   <button class="copy-btn test-copy" title="Copy test name" onclick={(e) => copyTestName(e, test.id, test.full_title || test.title)}>
                     {#if copiedTestId === test.id}
                       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>
@@ -911,9 +1011,21 @@
     margin-bottom: 0.75rem;
   }
 
-  h1 {
+  .run-suite-title {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text);
+    max-width: 60ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .copy-suite-btn {
+    /* Pull the copy icon tight to the title so the visual unit is
+       (title + copy) rather than (title) (gap) (copy). */
+    margin-left: -0.25rem;
   }
 
   .run-status-badge {
@@ -1064,6 +1176,22 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.03em;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .stat-delta {
+    /* The "+N new" delta sits next to the "Failed" label so the
+       regression count is visible without leaving the KPI row. Tinted
+       so it reads as a warning, not chrome. */
+    padding: 0.1rem 0.4rem;
+    border-radius: 10px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: color-mix(in srgb, var(--color-fail) 15%, transparent);
+    color: var(--color-fail);
   }
 
   .stat-divider {
@@ -1075,6 +1203,131 @@
   .run-notes {
     margin-bottom: 1rem; padding: 0.75rem 1rem;
     border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  }
+
+  /* At-risk band — mirrors the /releases at-risk pinned band. Tinted
+     red, left-edge stripe, hidden when the regression set is empty. */
+  .at-risk-band {
+    margin-bottom: 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-fail) 30%, var(--border));
+    border-left: 4px solid var(--color-fail);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-fail) 6%, var(--bg));
+    overflow: hidden;
+  }
+
+  .at-risk-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.7rem 1rem 0.55rem;
+    flex-wrap: wrap;
+  }
+
+  .at-risk-icon {
+    color: var(--color-fail);
+    display: inline-flex;
+    align-self: center;
+  }
+
+  .at-risk-title {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--color-fail);
+  }
+
+  .at-risk-prev-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .at-risk-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .at-risk-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid color-mix(in srgb, var(--color-fail) 25%, var(--border));
+  }
+
+  .at-risk-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 2fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.45rem 1rem;
+    cursor: pointer;
+    border-top: 1px solid color-mix(in srgb, var(--color-fail) 15%, var(--border-light));
+    transition: background 0.1s;
+  }
+  .at-risk-row:first-child { border-top: none; }
+  .at-risk-row:hover { background: color-mix(in srgb, var(--color-fail) 10%, transparent); }
+  .at-risk-row:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+
+  .at-risk-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-fail);
+    flex-shrink: 0;
+  }
+
+  .at-risk-test {
+    font-size: 0.82rem;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .at-risk-spec {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .at-risk-err {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--color-fail);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .at-risk-action {
+    font-size: 0.7rem;
+    color: var(--link);
+    opacity: 0;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .at-risk-row:hover .at-risk-action { opacity: 1; }
+
+  /* Inline NEW pill on test rows that are regressions vs prev run.
+     Mirrors the /runs list `new-fail-badge` so the signal is
+     consistent across views. */
+  .new-fail-pill {
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    background: color-mix(in srgb, var(--color-fail) 18%, transparent);
+    color: var(--color-fail);
+    border: 1px solid color-mix(in srgb, var(--color-fail) 35%, transparent);
+    flex-shrink: 0;
   }
 
   /* Toolbar */

@@ -97,8 +97,10 @@ test.describe("live run flow (real-time test progress)", () => {
     // 2) Navigate the user. The route opens the SSE, sees a "connected"
     //    sentinel from the server, and flips isLive=true.
     await page.goto(`/runs/${runId}`);
+    // Detail page header lands the run id in the meta-row chip
+    // (the polished layout dropped the redundant <h1>Run #N</h1>).
     await expect(
-      page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+      page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
     ).toBeVisible({ timeout: 10_000 });
 
     const liveBadge = page.locator(".live-badge");

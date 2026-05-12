@@ -48,16 +48,22 @@ async function openGherkinRun(page: import("@playwright/test").Page): Promise<nu
   expect(runId, "seed should have created the e2e-cucumber gherkin demo run").toBeTruthy();
 
   await page.goto(`/runs/${runId}`);
-  await expect(page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) })).toBeVisible({
-    timeout: 10_000,
-  });
+  // The polished detail header lands the run id as a meta-row chip,
+  // not an <h1>. Wait on that chip as evidence of load.
+  await expect(
+    page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
+  ).toBeVisible({ timeout: 10_000 });
   return runId as number;
 }
 
 async function openErrorModal(page: import("@playwright/test").Page): Promise<void> {
-  // The single failed test renders as a clickable .test-name button.
-  // ErrorModal opens via `modalTestId = test.id` in the runs/[id] route.
-  const testButton = page.getByRole("button", {
+  // The single failed test renders as a clickable .test-name button
+  // inside the spec list. The polished detail page also surfaces the
+  // same test inside the at-risk-band as <li role="button"> when it's
+  // a regression vs the prev run — scope the locator to the spec
+  // list so we don't match both. ErrorModal opens via
+  // `modalTestId = test.id` in the runs/[id] route.
+  const testButton = page.locator(".test-list").getByRole("button", {
     name: "Login with valid credentials (Gherkin demo)",
   });
   await expect(testButton).toBeVisible({ timeout: 5_000 });

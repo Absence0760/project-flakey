@@ -86,8 +86,10 @@ async function openModalForTest(
   // are filtered out of the rendered tree entirely. We still have to
   // manually expand passing spec sections (Feature 2 collapses them).
   await page.goto(`/runs/${runId}?status=all`);
+  // The polished detail header lands the run id as a meta-row chip,
+  // not an <h1>. Wait on that chip as evidence of load.
   await expect(
-    page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+    page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
   ).toBeVisible({ timeout: 10_000 });
 
   const testButton = page.getByRole("button", { name: testTitle, exact: true });

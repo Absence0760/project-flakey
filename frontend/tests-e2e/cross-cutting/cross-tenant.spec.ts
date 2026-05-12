@@ -72,12 +72,13 @@ test.describe("multi-tenant isolation", () => {
       // The fetchRun() promise rejects on a 404; the page renders the
       // error branch. Either:
       //   - the loading shell stays mounted with an error message, OR
-      //   - the page shows nothing of value (no h1 "Run #1", no specs)
-      // The Critical regression we're catching: demo seeing "Run #1"
+      //   - the page shows nothing of value (no .run-header, no specs)
+      // The Critical regression we're catching: demo seeing Run #1
       // with Acme's actual specs and stats. So the inverse assertion
-      // is the right contract.
-      const heading = page.getByRole("heading", { name: /^Run #1\s/ });
-      await expect(heading).toHaveCount(0, { timeout: 10_000 });
+      // is the right contract — the polished header card (.run-header)
+      // would be the visual evidence of a leak, so its absence is the
+      // strongest cross-tenant fence we can write here.
+      await expect(page.locator(".run-header")).toHaveCount(0, { timeout: 10_000 });
 
       // The error pane should appear. Source: src/routes/(app)/runs/[id]/+page.svelte:464.
       await expect(page.locator(".status-msg.error")).toBeVisible({ timeout: 10_000 });

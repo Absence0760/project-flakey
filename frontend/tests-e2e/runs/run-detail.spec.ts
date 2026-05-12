@@ -26,7 +26,7 @@ test.describe("/runs/<id>", () => {
   // but the route's behaviour is invariant to the actual id. We
   // navigate via the runs list to capture the real first id rather
   // than hard-coding.
-  test("shows the right id in <h1> and renders at least one spec section", async ({ page }) => {
+  test("shows the right id in the header and renders at least one spec section", async ({ page }) => {
     // Find a run that has ≥1 spec via the API. The first card on /
     // can be a side-effect of other specs (e.g. live-run tests
     // create runs with synthetic suites that may have 0 or few
@@ -47,9 +47,14 @@ test.describe("/runs/<id>", () => {
     const href = `/runs/${runId}`;
     await page.goto(href);
 
-    // Header card lands with the run id.
-    const heading = page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) });
-    await expect(heading).toBeVisible({ timeout: 10_000 });
+    // Header card lands with the run id. The detail page leads with
+    // the suite name (no redundant Run #N <h1> — the breadcrumb and
+    // the meta-row chip both carry the id). Both signals are
+    // user-visible — assert on the meta-row chip since it lives
+    // inside the polished `.run-header` card the rest of this spec
+    // already targets.
+    const idChip = page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) });
+    await expect(idChip.first()).toBeVisible({ timeout: 10_000 });
 
     // The status badge is either "Passed" or "<n> Failed" — both
     // count as evidence the run loaded and rendered. Live runs get

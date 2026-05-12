@@ -74,8 +74,10 @@ async function openErrorModalOnTest(
   testTitle: string,
 ): Promise<void> {
   await page.goto(`/runs/${runId}?status=all`);
+  // Detail page header lands the run id in the meta-row chip
+  // (the polished layout dropped the redundant <h1>Run #N</h1>).
   await expect(
-    page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+    page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
   ).toBeVisible({ timeout: 10_000 });
   const btn = page.getByRole("button", { name: testTitle, exact: true });
   if (!(await btn.first().isVisible().catch(() => false))) {
@@ -159,8 +161,10 @@ test.describe("deep cross-page flows", () => {
     await runALink.click();
 
     await expect(page).toHaveURL(new RegExp(`/runs/${a}(\\?.*)?$`));
+    // Detail page header lands the run id in the meta-row chip
+    // (the polished layout dropped the redundant <h1>Run #N</h1>).
     await expect(
-      page.getByRole("heading", { name: new RegExp(`^Run #${a}\\s*$`) }),
+      page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${a}\\s*$`) }).first(),
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -192,8 +196,10 @@ test.describe("deep cross-page flows", () => {
 
     await firstLink.click();
     await expect(page).toHaveURL(new RegExp(`/runs/${expectedRunId}(\\?.*)?$`));
+    // Detail page header lands the run id in the meta-row chip
+    // (the polished layout dropped the redundant <h1>Run #N</h1>).
     await expect(
-      page.getByRole("heading", { name: new RegExp(`^Run #${expectedRunId}\\s*$`) }),
+      page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${expectedRunId}\\s*$`) }).first(),
     ).toBeVisible({ timeout: 10_000 });
   });
 

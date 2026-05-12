@@ -69,8 +69,10 @@ async function bootstrap(
   const token = await getToken(page);
   const runId = await startLive(page, token, `${suite}-${Date.now().toString(36)}`);
   await page.goto(`/runs/${runId}`);
+  // Detail page header lands the run id in the meta-row chip
+  // (the polished layout dropped the redundant <h1>Run #N</h1>).
   await expect(
-    page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+    page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
   ).toBeVisible({ timeout: POLL_TIMEOUT });
   await expect(page.locator(".live-badge")).toBeVisible({ timeout: POLL_TIMEOUT });
   return { token, runId };

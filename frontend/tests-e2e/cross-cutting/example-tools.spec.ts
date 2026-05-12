@@ -158,8 +158,10 @@ test.describe("examples — Selenium upload via mochawesome JSON", () => {
 
     // Dashboard renders it.
     await page.goto(`/runs/${runId}`);
+    // Detail page header lands the run id in the meta-row chip
+    // (the polished layout dropped the redundant <h1>Run #N</h1>).
     await expect(
-      page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+      page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
     ).toBeVisible({ timeout: POLL_TIMEOUT });
     await expect(page.locator(".spec-section").first()).toBeVisible({ timeout: POLL_TIMEOUT });
     // 1 failed → status filter auto-lands on `failed`. Just confirm

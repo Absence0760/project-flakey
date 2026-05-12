@@ -20,8 +20,12 @@ async function gotoFirstRun(page: Page): Promise<number> {
   const runIdAttr = await firstRow.getAttribute("data-run-id");
   const runId = Number(runIdAttr!);
   await page.goto(`/runs/${runId}?status=all`);
+  // The detail page header lands the run id as a meta-row chip
+  // (the polished layout dropped the redundant <h1>Run #N</h1>
+  // — the breadcrumb already carries the id). Wait for that chip
+  // as evidence the run loaded.
   await expect(
-    page.getByRole("heading", { name: new RegExp(`^Run #${runId}\\s*$`) }),
+    page.locator(".run-header .meta-item", { hasText: new RegExp(`^\\s*#${runId}\\s*$`) }).first(),
   ).toBeVisible({ timeout: 10_000 });
   return runId;
 }
