@@ -29,7 +29,7 @@ test.describe("manual-test requirements CRUD", () => {
     // open the detail modal (it has an enabled run + the standard
     // 3-step template, and never shifts in the table).
     await page
-      .locator("table.tests tbody tr td a", {
+      .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
       })
       .first()
@@ -91,7 +91,7 @@ test.describe("manual-test requirements CRUD", () => {
     await expect(page.locator("table.tests")).toBeVisible({ timeout: 10_000 });
 
     await page
-      .locator("table.tests tbody tr td a", {
+      .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
       })
       .first()

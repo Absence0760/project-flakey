@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { replaceState } from '$app/navigation';
 	import { authFetch, getAuth } from '$lib/auth';
 	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
 	import { API_URL } from '$lib/config';
@@ -71,6 +73,43 @@
 	let filterSuite = $state<string>('all');
 	let filterGroup = $state<string>('all');
 	let filterFlakyOnly = $state(false);
+	let searchQuery = $state('');
+
+	// URL state sync — mirrors /flaky / /runs / /slowest / /errors so
+	// filter views are bookmarkable. `mounted` gate prevents the first
+	// $effect tick from clobbering URL params before readUrl() runs.
+	let mounted = $state(false);
+
+	function syncUrl() {
+		const url = new URL(window.location.href);
+		const set = (k: string, v: string, def: string) => {
+			if (v !== def) url.searchParams.set(k, v);
+			else url.searchParams.delete(k);
+		};
+		set('status', filterStatus, 'all');
+		set('suite', filterSuite, 'all');
+		set('group', filterGroup, 'all');
+		set('flaky', filterFlakyOnly ? '1' : '0', '0');
+		set('q', searchQuery, '');
+		replaceState(url, {});
+	}
+
+	function readUrl() {
+		const p = $page.url.searchParams;
+		const s = p.get('status');
+		if (s === 'all' || s === 'not_run' || s === 'passed' || s === 'failed' || s === 'blocked' || s === 'skipped') {
+			filterStatus = s;
+		}
+		filterSuite = p.get('suite') ?? 'all';
+		filterGroup = p.get('group') ?? 'all';
+		filterFlakyOnly = p.get('flaky') === '1';
+		searchQuery = p.get('q') ?? '';
+	}
+
+	$effect(() => {
+		filterStatus; filterSuite; filterGroup; filterFlakyOnly; searchQuery; // tracked
+		if (mounted) syncUrl();
+	});
 
 	const isAdmin = $derived(getAuth().user?.orgRole !== 'viewer');
 
@@ -105,13 +144,59 @@
 	});
 
 	const filteredTests = $derived.by(() => {
+		const q = searchQuery.trim().toLowerCase();
 		return tests.filter(t => {
 			if (filterSuite !== 'all' && t.suite_name !== filterSuite) return false;
 			if (filterStatus !== 'all' && t.status !== filterStatus) return false;
 			if (filterFlakyOnly && !t.is_flaky) return false;
 			if (!matchesGroup(t)) return false;
+			if (q) {
+				const hay =
+					t.title.toLowerCase() + ' ' +
+					(t.description ?? '').toLowerCase() + ' ' +
+					(t.suite_name ?? '').toLowerCase() + ' ' +
+					(t.group_name ?? '').toLowerCase() + ' ' +
+					(t.tags ?? []).join(' ').toLowerCase() + ' ' +
+					(t.source_file ?? '').toLowerCase();
+				if (!hay.includes(q)) return false;
+			}
 			return true;
 		});
+	});
+
+	// At-risk band — surfaces tests that need attention before the user
+	// scrolls. Three triggers, in priority order:
+	//   1. critical-priority + never run
+	//   2. ≥5 runs and pass_rate < 50%
+	//   3. flaky AND last status was failed
+	// Same structural pattern as the at-risk bands on /flaky and /releases.
+	// Hidden when empty. Capped at 5 so the band stays compact.
+	type AtRiskReason = 'critical-not-run' | 'low-pass-rate' | 'flaky-failing';
+	interface AtRiskItem { t: ManualTest; reason: AtRiskReason; label: string; }
+	const atRiskItems = $derived.by<AtRiskItem[]>(() => {
+		const items: AtRiskItem[] = [];
+		for (const t of tests) {
+			if (t.priority === 'critical' && t.status === 'not_run') {
+				items.push({ t, reason: 'critical-not-run', label: 'critical · not run' });
+			} else if (t.total_runs >= 5 && t.pass_rate !== null && t.pass_rate < 0.5) {
+				items.push({ t, reason: 'low-pass-rate', label: `${Math.round(t.pass_rate * 100)}% pass` });
+			} else if (t.is_flaky && t.status === 'failed') {
+				items.push({ t, reason: 'flaky-failing', label: 'flaky · failing' });
+			}
+		}
+		// Critical-not-run first, then low-pass-rate (lowest first), then flaky-failing.
+		const rank: Record<AtRiskReason, number> = {
+			'critical-not-run': 0, 'low-pass-rate': 1, 'flaky-failing': 2,
+		};
+		items.sort((a, b) => {
+			const r = rank[a.reason] - rank[b.reason];
+			if (r !== 0) return r;
+			if (a.reason === 'low-pass-rate') {
+				return (a.t.pass_rate ?? 1) - (b.t.pass_rate ?? 1);
+			}
+			return 0;
+		});
+		return items.slice(0, 5);
 	});
 
 	// Client-side pagination — render the first N rows of the filtered
@@ -124,9 +209,34 @@
 	const hasMoreTests = $derived(visibleTests.length < filteredTests.length);
 
 	$effect(() => {
-		filterSuite; filterStatus; filterFlakyOnly; filterGroup; // tracked deps
+		filterSuite; filterStatus; filterFlakyOnly; filterGroup; searchQuery; // tracked deps
 		visibleCount = PAGE_SIZE;
 	});
+
+	// ── Friendly relative dates ──────────────────────────────────────
+	// Lifted from /flaky — keeps the table from leaking raw locale
+	// strings like "07/05/2026, 11:01:34". Tooltip carries the
+	// absolute form so the precise timestamp stays one hover away.
+	function timeAgo(iso: string | null): string {
+		if (!iso) return '—';
+		const diff = Date.now() - new Date(iso).getTime();
+		const mins = Math.floor(diff / 60000);
+		if (mins < 1) return 'just now';
+		if (mins < 60) return `${mins}m ago`;
+		const hrs = Math.floor(mins / 60);
+		if (hrs < 24) return `${hrs}h ago`;
+		const days = Math.floor(hrs / 24);
+		if (days === 1) return 'yesterday';
+		if (days < 30) return `${days}d ago`;
+		return `${Math.floor(days / 30)}mo ago`;
+	}
+	function absoluteDate(iso: string | null): string {
+		if (!iso) return '';
+		return new Date(iso).toLocaleString(undefined, {
+			year: 'numeric', month: 'short', day: 'numeric',
+			hour: '2-digit', minute: '2-digit',
+		});
+	}
 
 	function loadMoreTests() {
 		visibleCount = Math.min(visibleCount + PAGE_SIZE, filteredTests.length);
@@ -302,7 +412,11 @@
 		}
 	}
 
-	onMount(load);
+	onMount(async () => {
+		readUrl();
+		await load();
+		mounted = true;
+	});
 
 	async function load() {
 		loading = true;
@@ -667,6 +781,42 @@
 		</section>
 	{/if}
 
+	{#if atRiskItems.length > 0}
+		<section class="at-risk-band" aria-label="Tests needing attention">
+			<header class="at-risk-header">
+				<svg class="at-risk-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+					<path d="M8 1.5L15 14H1L8 1.5zm0 4.5v4M8 11.5v.5"/>
+				</svg>
+				<span class="at-risk-title">
+					{atRiskItems.length} test{atRiskItems.length === 1 ? '' : 's'} need attention
+				</span>
+			</header>
+			<div class="at-risk-list">
+				{#each atRiskItems as item}
+					<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
+					     mirrors /flaky + /releases at-risk row click pattern. -->
+					<div
+						role="button"
+						tabindex="0"
+						class="at-risk-item at-risk-{item.reason}"
+						onclick={() => openTest(item.t.id)}
+						onkeydown={onRowActivate}
+					>
+						<span class="at-risk-reason">{item.label}</span>
+						{#if item.t.suite_name}
+							<span class="at-risk-suite">{item.t.suite_name}</span>
+						{/if}
+						<span class="at-risk-test" title={item.t.title}>{item.t.title}</span>
+						<span class="at-risk-spacer"></span>
+						{#if item.t.last_run_at}
+							<span class="at-risk-last" title={absoluteDate(item.t.last_run_at)}>{timeAgo(item.t.last_run_at)}</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</section>
+	{/if}
+
 	{#if showCreate}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -832,28 +982,46 @@
 			</button>
 		</div>
 
-		<div class="suite-filter">
-			<label for="suite-select">Suite</label>
-			<select id="suite-select" bind:value={filterSuite}>
-				<option value="all">All suites</option>
-				{#each suites as s}
-					<option value={s}>{s}</option>
-				{/each}
-			</select>
-			<label for="group-select">Group</label>
-			<select id="group-select" bind:value={filterGroup}>
-				<option value="all">All groups</option>
-				<option value="none">— Ungrouped —</option>
-				{#each groups as g}
-					<option value={String(g.id)}>{g.name} ({g.test_count})</option>
-				{/each}
-			</select>
-			{#if flakyCount > 0}
-				<label class="flaky-toggle">
-					<input type="checkbox" bind:checked={filterFlakyOnly} />
-					Flaky only ({flakyCount})
-				</label>
-			{/if}
+		<div class="toolbar-right">
+			<div class="search-box">
+				<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+					<circle cx="7" cy="7" r="4.5"/>
+					<path d="M10.5 10.5L14 14"/>
+				</svg>
+				<input
+					type="text"
+					placeholder="Search title, tag, suite…"
+					aria-label="Search manual tests"
+					bind:value={searchQuery}
+				/>
+				{#if searchQuery}
+					<button class="search-clear" aria-label="Clear search" onclick={() => (searchQuery = '')}>✕</button>
+				{/if}
+			</div>
+
+			<div class="suite-filter">
+				<label for="suite-select">Suite</label>
+				<select id="suite-select" bind:value={filterSuite}>
+					<option value="all">All suites</option>
+					{#each suites as s}
+						<option value={s}>{s}</option>
+					{/each}
+				</select>
+				<label for="group-select">Group</label>
+				<select id="group-select" bind:value={filterGroup}>
+					<option value="all">All groups</option>
+					<option value="none">— Ungrouped —</option>
+					{#each groups as g}
+						<option value={String(g.id)}>{g.name} ({g.test_count})</option>
+					{/each}
+				</select>
+				{#if flakyCount > 0}
+					<label class="flaky-toggle">
+						<input type="checkbox" bind:checked={filterFlakyOnly} />
+						Flaky only ({flakyCount})
+					</label>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -897,8 +1065,20 @@
 						onkeydown={onRowActivate}
 					>
 						<td>
-							<span class="test-title">{t.title}</span>
-							{#if t.is_flaky}<span class="badge flaky" title="Mixed pass/fail across sessions">flaky</span>{/if}
+							<div class="title-cell">
+								<span class="test-title">{t.title}</span>
+								{#if t.is_flaky}<span class="badge flaky" title="Mixed pass/fail across sessions">flaky</span>{/if}
+							</div>
+							{#if t.tags && t.tags.length > 0}
+								<div class="tag-row">
+									{#each t.tags.slice(0, 3) as tag}
+										<span class="tag-chip">{tag}</span>
+									{/each}
+									{#if t.tags.length > 3}
+										<span class="tag-chip tag-more" title={t.tags.slice(3).join(', ')}>+{t.tags.length - 3}</span>
+									{/if}
+								</div>
+							{/if}
 						</td>
 						<td>{t.suite_name ?? '—'}</td>
 						<td>{t.group_name ?? '—'}</td>
@@ -953,9 +1133,15 @@
 						</td>
 						<td>
 							{#if t.source === 'cucumber'}
-								{t.auto_last_run_at ? new Date(t.auto_last_run_at).toLocaleString() : '—'}
+								{#if t.auto_last_run_at}
+									<span title={absoluteDate(t.auto_last_run_at)}>{timeAgo(t.auto_last_run_at)}</span>
+								{:else}
+									<span class="dim">—</span>
+								{/if}
+							{:else if t.last_run_at}
+								<span title={absoluteDate(t.last_run_at)}>{timeAgo(t.last_run_at)}</span>
 							{:else}
-								{t.last_run_at ? new Date(t.last_run_at).toLocaleString() : '—'}
+								<span class="dim">—</span>
 							{/if}
 						</td>
 						<td><button class="btn-ghost" onclick={(e) => { e.stopPropagation(); deleteTest(t.id); }}>✕</button></td>
@@ -1098,7 +1284,7 @@
 						<div class="auto-banner-status">
 							{autoStatusLabel(selected.auto_last_status)}
 							{#if selected.auto_last_run_at}
-								· {new Date(selected.auto_last_run_at).toLocaleString()}
+								· <span title={absoluteDate(selected.auto_last_run_at)}>{timeAgo(selected.auto_last_run_at)}</span>
 							{/if}
 						</div>
 					</div>
@@ -1236,7 +1422,7 @@
 				{#if selected.last_run_at && !runMode}
 					<p class="dim">
 						Last run: <span class={statusClass(selected.status)}>{selected.status.replace('_', ' ')}</span>
-						by {selected.last_run_by_email ?? '—'} at {new Date(selected.last_run_at).toLocaleString()}
+						by {selected.last_run_by_email ?? '—'} <span title={absoluteDate(selected.last_run_at)}>{timeAgo(selected.last_run_at)}</span>
 					</p>
 				{/if}
 
@@ -1461,6 +1647,43 @@
 		margin-bottom: 0.75rem;
 		flex-wrap: wrap;
 	}
+	.toolbar-right {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+	/* Search box — same look as /flaky / /runs / /errors / /slowest. */
+	.search-box {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.35rem 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--text-muted);
+	}
+	.search-box:focus-within { border-color: var(--link); }
+	.search-box input {
+		border: none;
+		background: transparent;
+		outline: none;
+		font-size: 0.8rem;
+		color: var(--text);
+		width: 220px;
+	}
+	.search-box input::placeholder { color: var(--text-muted); }
+	.search-clear {
+		background: transparent;
+		border: none;
+		padding: 0;
+		font-size: 0.85rem;
+		color: var(--text-muted);
+		cursor: pointer;
+		line-height: 1;
+	}
+	.search-clear:hover { color: var(--text); }
 	/* .filter-tabs / .filter-tab base styles live in src/app.css. */
 	.tab-count {
 		font-size: 0.7rem;
@@ -1731,4 +1954,81 @@
 		align-items: center;
 	}
 	.add-req input { padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 0.85rem; }
+
+	/* ── At-risk band ────────────────────────────────────────────────
+	   Same structural pattern as /flaky and /releases — tinted bg +
+	   4px left-edge stripe + clickable mini-rows. Hidden when empty. */
+	.at-risk-band {
+		background: color-mix(in srgb, var(--color-fail) 6%, var(--bg));
+		border: 1px solid color-mix(in srgb, var(--color-fail) 25%, var(--border));
+		border-left: 4px solid var(--color-fail);
+		border-radius: 8px;
+		padding: 0.65rem 0.85rem;
+		margin-bottom: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+	.at-risk-header { display: flex; align-items: center; gap: 0.4rem; }
+	.at-risk-icon { color: var(--color-fail); }
+	.at-risk-title { font-weight: 600; font-size: 0.82rem; color: var(--text); }
+	.at-risk-list { display: flex; flex-direction: column; gap: 0.3rem; }
+	.at-risk-item {
+		display: flex; align-items: center; gap: 0.7rem;
+		padding: 0.4rem 0.65rem;
+		background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+		font-size: 0.82rem; cursor: pointer;
+		transition: border-color 0.1s;
+	}
+	.at-risk-item:hover { border-color: var(--color-fail); }
+	.at-risk-item:focus-visible { outline: 2px solid var(--color-fail); outline-offset: -2px; }
+	.at-risk-reason {
+		padding: 0.1rem 0.45rem; border-radius: 10px;
+		background: color-mix(in srgb, var(--color-fail) 18%, transparent);
+		color: var(--color-fail); font-weight: 700; font-size: 0.72rem;
+		text-transform: uppercase; letter-spacing: 0.04em;
+		flex-shrink: 0;
+	}
+	.at-risk-item.at-risk-low-pass-rate .at-risk-reason {
+		background: color-mix(in srgb, #dfb317 18%, transparent);
+		color: #92400e;
+	}
+	.at-risk-item.at-risk-flaky-failing .at-risk-reason {
+		background: #fef3c7;
+		color: #92400e;
+	}
+	.at-risk-suite {
+		padding: 0.1rem 0.45rem; border-radius: 10px;
+		background: var(--bg-secondary); color: var(--text-secondary);
+		font-size: 0.7rem; flex-shrink: 0; max-width: 160px;
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	}
+	.at-risk-test {
+		color: var(--text); font-weight: 500;
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		min-width: 0;
+	}
+	.at-risk-spacer { flex: 1; }
+	.at-risk-last { color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; }
+
+	/* ── Title cell tags ─────────────────────────────────────────────
+	   Tag chips appear inline below the title. Useful triage signal at
+	   the row level; previously they were only visible inside the
+	   detail modal. Capped at 3 with a +N overflow chip. */
+	.title-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+	.tag-row {
+		display: flex; flex-wrap: wrap; gap: 0.25rem;
+		margin-top: 0.25rem;
+	}
+	.tag-chip {
+		font-size: 0.65rem;
+		padding: 0.05rem 0.4rem;
+		border-radius: 3px;
+		background: var(--bg-secondary);
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		font-weight: 500;
+		text-transform: lowercase;
+	}
+	.tag-chip.tag-more { color: var(--text-muted); cursor: help; }
 </style>

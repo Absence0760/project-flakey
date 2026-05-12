@@ -36,7 +36,7 @@ test.describe("manual-test step-by-step runner", () => {
     // manual-test-requirements spec, so we know it's stable across
     // re-seeds.
     await page
-      .locator("table.tests tbody tr td a", {
+      .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
       })
       .first()
@@ -74,8 +74,8 @@ test.describe("manual-test step-by-step runner", () => {
     // Modal closes; the row in the main table reflects the new status.
     await expect(modal).toBeHidden({ timeout: 5_000 });
     const row = page
-      .locator("table.tests tbody tr")
-      .filter({ has: page.locator('td a', { hasText: "Verify PDF export of run report" }) });
+      .locator("table.tests tbody tr.test-row", { hasText: "Verify PDF export of run report" })
+      .first();
     await expect(row.locator(".status-pill, .status, td", { hasText: /passed/i }).first())
       .toBeVisible({ timeout: 5_000 });
   });
@@ -87,7 +87,7 @@ test.describe("manual-test step-by-step runner", () => {
     await expect(page.locator("table.tests")).toBeVisible({ timeout: 10_000 });
 
     await page
-      .locator("table.tests tbody tr td a", {
+      .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
       })
       .first()
@@ -109,8 +109,8 @@ test.describe("manual-test step-by-step runner", () => {
     // status cell should reflect the new "blocked" status.
     await expect(modal).toBeHidden({ timeout: 5_000 });
     const row = page
-      .locator("table.tests tbody tr")
-      .filter({ has: page.locator('td a', { hasText: "Verify PDF export of run report" }) });
+      .locator("table.tests tbody tr.test-row", { hasText: "Verify PDF export of run report" })
+      .first();
     await expect(row.locator("td", { hasText: /blocked/i }).first()).toBeVisible({
       timeout: 5_000,
     });

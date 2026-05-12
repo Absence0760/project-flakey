@@ -27,7 +27,10 @@ test.describe("/manual-tests", () => {
   });
 
   test("renders header + summary stats + status filter tabs", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Manual tests" })).toBeVisible();
+    // The /manual-tests page intentionally has no <h1> — the sidebar
+    // nav + URL are the page label. Assert on the subtitle (mounted
+    // in the page header) instead.
+    await expect(page.locator(".page-header .subtitle")).toBeVisible();
 
     // Summary strip — 5 stats: Total / Passed / Failed / Blocked / Not run.
     const stats = page.locator(".summary .stat");
@@ -101,13 +104,13 @@ test.describe("/manual-tests", () => {
     // order the first row may be that empty-stepped one. The seed's
     // "Verify PDF export of run report" exists from the start with
     // the standard 3-step template.
-    const seededLink = page
-      .locator("table.tests tbody tr td a", {
+    const seededRow = page
+      .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
       })
       .first();
-    await expect(seededLink).toBeVisible();
-    await seededLink.click();
+    await expect(seededRow).toBeVisible();
+    await seededRow.click();
 
     // Modal opens with the test title as h2.
     const modal = page.locator(".modal").last();
