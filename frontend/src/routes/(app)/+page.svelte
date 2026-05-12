@@ -498,6 +498,7 @@
           {/if}
           <th class="col-status" aria-label="Status"></th>
           <th class="col-id">#</th>
+          <th class="col-state">State</th>
           <th class="col-suite">Suite</th>
           <th class="col-branch">Branch</th>
           <th class="col-env">Env</th>
@@ -542,6 +543,23 @@
               <span class="run-status-dot" class:live={liveRunIds.has(run.id)} class:pass={run.failed === 0 && !run.aborted} class:fail={run.failed > 0} class:aborted={run.aborted}></span>
             </td>
             <td class="col-id"><span class="run-id">#{run.id}</span></td>
+            <td class="col-state">
+              <!-- Dedicated badge column so the primary state (LIVE /
+                   aborted / passed / failed) aligns visually across
+                   rows, regardless of how long the suite name is. -->
+              {#if liveRunIds.has(run.id)}
+                <span class="live-badge">LIVE</span>
+              {:else if run.aborted}
+                <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
+              {:else if run.failed > 0}
+                <span class="fail-badge">failed</span>
+                {#if run.new_failures > 0}
+                  <span class="new-fail-badge" title="{run.new_failures} test(s) that were not failing in the previous run">{run.new_failures} new</span>
+                {/if}
+              {:else}
+                <span class="pass-badge">passed</span>
+              {/if}
+            </td>
             <td class="col-suite">
               <div class="suite-cell">
                 <span class="run-suite" title={run.suite_name}>{run.suite_name}</span>
@@ -552,21 +570,6 @@
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
                   {/if}
                 </button>
-                {#if liveRunIds.has(run.id)}
-                  <span class="live-badge">LIVE</span>
-                {:else if run.aborted}
-                  <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
-                {:else if run.failed > 0}
-                  <span class="fail-badge">{run.failed} failed</span>
-                  {#if run.new_failures > 0}
-                    <span class="new-fail-badge" title="{run.new_failures} test(s) that were not failing in the previous run">{run.new_failures} new</span>
-                  {/if}
-                {:else}
-                  <span class="pass-badge">passed</span>
-                {/if}
-                {#if run.skipped > 0}
-                  <span class="skip-badge" title="{run.skipped} test(s) skipped">{run.skipped} skipped</span>
-                {/if}
                 {#if run.commit_sha}
                   <span class="meta-chip mono commit-chip" title={run.commit_sha}>{run.commit_sha.slice(0, 7)}</span>
                 {/if}
@@ -798,7 +801,7 @@
     font-size: 0.85rem;
   }
   .runs-table th, .runs-table td {
-    padding: 0.5rem 0.65rem;
+    padding: 0.55rem 0.75rem;
     text-align: left;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
@@ -827,6 +830,7 @@
   .col-compare { width: 36px; }
   .col-status { width: 28px; padding-right: 0; }
   .col-id { width: 64px; }
+  .col-state { width: 110px; white-space: nowrap; }
   .col-suite { width: auto; }
   .col-branch { width: 140px; }
   .col-env { width: 100px; }
@@ -887,11 +891,6 @@
     padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
     background: var(--bg-secondary); color: var(--text-muted); border: 1px dashed var(--border);
     text-transform: lowercase; letter-spacing: 0.02em;
-  }
-  .skip-badge {
-    padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; font-weight: 600;
-    background: color-mix(in srgb, var(--color-skip, #d29922) 14%, transparent);
-    color: var(--color-skip, #d29922);
   }
   .live-badge {
     padding: 0.1rem 0.45rem; border-radius: 8px; font-size: 0.6rem; font-weight: 700;
