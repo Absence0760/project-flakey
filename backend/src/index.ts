@@ -41,6 +41,8 @@ import { getStorage } from "./storage.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
 const IS_PROD = process.env.NODE_ENV === "production";
+// Lowercase alias kept for the rate-limit blocks below; same boolean.
+const isProd = IS_PROD;
 if (IS_PROD && !process.env.JWT_SECRET) {
   console.error("FATAL: JWT_SECRET environment variable is required in production.");
   process.exit(1);
@@ -133,8 +135,20 @@ const promoteUploadToken: express.RequestHandler = (req, _res, next) => {
   next();
 };
 
+// Per-IP rate limiter on artifact serving — high cap (a release page
+// renders dozens of screenshots) but bounds an enumeration sweep.
+// Declared inline because /uploads is mounted before the global limiter
+// and we want a tighter cap here regardless of mode.
+const artifactLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.ARTIFACT_RATE_LIMIT_MAX ?? (isProd ? 3000 : 100000)),
+  message: { error: "Artifact rate limit exceeded. Try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 if (STORAGE_MODE === "s3") {
-  app.get("/uploads/*", promoteUploadToken, requireAuth, requireRunOwnership, async (req, res) => {
+  app.get("/uploads/*", artifactLimiter, promoteUploadToken, requireAuth, requireRunOwnership, async (req, res) => {
     try {
       const key = req.path.replace(/^\/uploads\//, "");
       const url = await getStorage().getUrl(key);
@@ -146,6 +160,7 @@ if (STORAGE_MODE === "s3") {
 } else {
   app.use(
     "/uploads",
+    artifactLimiter,
     promoteUploadToken,
     requireAuth,
     requireRunOwnership,
@@ -157,17 +172,47 @@ if (STORAGE_MODE === "s3") {
   );
 }
 
-// Fix 3: Rate limiting on auth endpoints
-// In production, throttle to 20 attempts per 15 min per IP — the
-// abuse-deterrence default. In development the same rate cripples
-// any rapid iteration (e.g. e2e suites and the dev's own login
-// retries during feature work), so the cap is loosened. Override
-// either side via AUTH_RATE_LIMIT_MAX if you need a non-default.
-const isProd = process.env.NODE_ENV === "production";
+// Fix 3: Rate limiting.
+//
+// Three tiers, all mounted at the app level so every downstream router
+// is covered without per-route boilerplate (also satisfies CodeQL's
+// js/missing-rate-limiting rule across the whole API surface):
+//
+//   - authLimiter   — per-IP throttle on the unauth'd auth endpoints
+//                     (login / register / password reset). Lowest cap;
+//                     this is the primary credential-stuffing defence.
+//   - uploadLimiter — per-IP cap on /runs/upload, which writes large
+//                     files to disk or S3. Tighter than the global
+//                     limiter because each request is expensive.
+//   - globalLimiter — wide safety net on every other authenticated
+//                     route. Cap is high enough that normal interactive
+//                     use never trips it; intent is to bound a runaway
+//                     script or an account compromise from generating
+//                     unbounded load. /health is explicitly excluded
+//                     so a load balancer's health probes don't count
+//                     against the bucket.
+//
+// All caps loosen in non-production to keep e2e suites + iterative
+// dev work unblocked. Overrides via AUTH_RATE_LIMIT_MAX /
+// UPLOAD_RATE_LIMIT_MAX / API_RATE_LIMIT_MAX.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? (isProd ? 20 : 500)),
   message: { error: "Too many attempts. Try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.UPLOAD_RATE_LIMIT_MAX ?? (isProd ? 200 : 5000)),
+  message: { error: "Upload rate limit exceeded. Try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.API_RATE_LIMIT_MAX ?? (isProd ? 1500 : 50000)),
+  message: { error: "API rate limit exceeded. Try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -181,6 +226,12 @@ app.get("/health", async (_req, res) => {
     res.status(503).json({ status: "degraded", error: "database unreachable" });
   }
 });
+
+// Global rate limiter — applied to every route below this point.
+// /health above is intentionally outside the bucket so load-balancer
+// probes don't count against it.
+app.use(globalLimiter);
+
 // Rate limit only unauthenticated auth endpoints (login, register, password reset)
 app.use("/auth/login", authLimiter);
 app.use("/auth/register", authLimiter);
@@ -196,7 +247,7 @@ app.use("/suites", requireAuth, suitesRouter);
 app.use("/webhooks", requireAuth, webhooksRouter);
 app.use("/audit", requireAuth, auditRouter);
 app.use("/compare", requireAuth, compareRouter);
-app.use("/runs/upload", requireAuth, uploadsRouter);
+app.use("/runs/upload", uploadLimiter, requireAuth, uploadsRouter);
 app.use("/runs", requireAuth, runsRouter);
 app.use("/errors", requireAuth, errorsRouter);
 app.use("/flaky", requireAuth, flakyRouter);
