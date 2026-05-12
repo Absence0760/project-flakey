@@ -450,7 +450,7 @@ router.delete("/api-keys/:id", requireAuth, async (req, res) => {
       req.user!.id,
       "auth.api_key.delete",
       "api_key",
-      req.params.id,
+      String(req.params.id),
       { prefix: result.rows[0].key_prefix },
     );
     res.json({ deleted: true });

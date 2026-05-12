@@ -35,6 +35,6 @@
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4"
+    "typescript": "^6.0.3"
   }
 }
