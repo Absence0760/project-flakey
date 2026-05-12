@@ -51,22 +51,46 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@fa648b43de3d4d023bcb3f89ed6940096949c419 # v2
 
-      - name: Build and push
+      - name: Build and push SHA-tagged image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          docker build -t $REGISTRY/$ECR_BACKEND:${{ github.sha }} \
-                        -t $REGISTRY/$ECR_BACKEND:latest \
-                        ./backend
-          docker push $REGISTRY/$ECR_BACKEND --all-tags
+          # IMMUTABLE repo: push only the per-SHA tag, never `:latest`.
+          # The task-definition revision below pins the service to this
+          # exact digest, so there's no need for a floating tag.
+          docker build -t $REGISTRY/$ECR_BACKEND:${{ github.sha }} ./backend
+          docker push $REGISTRY/$ECR_BACKEND:${{ github.sha }}
 
-      - name: Deploy to ECS
+      - name: Deploy to ECS (new task-definition revision with SHA image)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TASK_FAMILY: flakey-production-backend
         run: |
+          # Fetch the current task definition, swap the backend image URI
+          # to the SHA-tagged digest, register the result as a new
+          # revision, then point the service at it. ECS does the rolling
+          # restart; --wait below blocks the workflow until it's stable.
+          set -euo pipefail
+          NEW_IMAGE="$REGISTRY/$ECR_BACKEND:${{ github.sha }}"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --region "$AWS_REGION" \
+            --query 'taskDefinition' \
+          | jq --arg img "$NEW_IMAGE" '
+              .containerDefinitions[0].image = $img
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy)
+            ' > /tmp/td.json
+          NEW_TD=$(aws ecs register-task-definition \
+            --region "$AWS_REGION" \
+            --cli-input-json file:///tmp/td.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE_BACKEND \
-            --force-new-deployment \
-            --region $AWS_REGION
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE_BACKEND" \
+            --task-definition "$NEW_TD" \
+            --region "$AWS_REGION"
 
       - name: Wait for deployment
         run: |

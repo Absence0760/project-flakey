@@ -146,8 +146,17 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["ecs:UpdateService", "ecs:DescribeServices"]
+        # describe + register a new task-definition revision and roll
+        # the service onto it. ListTaskDefinitions/Families is needed
+        # so describe-task-definition by family resolves the latest.
+        Effect = "Allow"
+        Action = [
+          "ecs:UpdateService",
+          "ecs:DescribeServices",
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition",
+          "ecs:ListTaskDefinitions",
+        ]
         Resource = "*"
       },
       {

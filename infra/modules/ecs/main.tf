@@ -239,6 +239,14 @@ resource "aws_lb_listener" "https" {
 }
 
 # Task definition - secrets via Secrets Manager, not plaintext
+#
+# The image tag here is the bootstrap value used when Terraform first
+# creates the task definition. deploy.yml registers a NEW task
+# definition revision on every release (with the per-SHA image URI) and
+# tells ECS to roll the service onto it. The lifecycle.ignore_changes
+# below stops `terraform apply` from clobbering whichever revision
+# deploy.yml most recently rolled to, so the two control planes don't
+# fight over container_definitions.
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.app_name}-${var.environment}-backend"
   requires_compatibilities = ["FARGATE"]
@@ -247,6 +255,10 @@ resource "aws_ecs_task_definition" "backend" {
   memory                   = 1024
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
+
+  lifecycle {
+    ignore_changes = [container_definitions]
+  }
 
   container_definitions = jsonencode([{
     name      = "backend"

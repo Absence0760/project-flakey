@@ -1,11 +1,11 @@
 resource "aws_ecr_repository" "backend" {
   name = "${var.app_name}-backend"
-  # MUTABLE because deploy.yml pushes a per-SHA tag AND retags `:latest`
-  # on every release; switching to IMMUTABLE would block the second
-  # `:latest` push. Trivy AWS-0031 is dismissed with this rationale -
-  # tag overwrite by a release pipeline is the deploy contract here,
-  # not an attack surface (the GitHub OIDC role gates who can push).
-  image_tag_mutability = "MUTABLE"
+  # IMMUTABLE prevents a compromised OIDC role from overwriting an
+  # already-deployed image digest under an existing tag. deploy.yml is
+  # paired with this: it pushes a single per-SHA tag (never the same
+  # tag twice) and the ECS task definition is updated out-of-band via
+  # register-task-definition with the SHA image URI. Resolves AWS-0031.
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {
