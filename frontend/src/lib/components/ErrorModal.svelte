@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { authFetch } from "$lib/auth";
-  import { toastInfo } from "$lib/toast";
+  import { toast as toastSuccess, toastInfo } from "$lib/toast";
   import {
     snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
     snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
@@ -260,6 +260,83 @@
     return `${days}d ago`;
   }
 
+  function absoluteDate(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  // Build a best-effort rerun command for the failed test. We don't
+  // know the test runner up-front, so prefer Playwright (--grep) when
+  // metadata.error_type or file extension hints at it; fall back to
+  // a generic `<runner> "<title>" <file>` line. Users edit one token.
+  function rerunCommand(t: TestDetail): string {
+    const file = t.file_path ?? "";
+    const title = t.full_title ?? t.title ?? "";
+    if (/\.feature$/.test(file)) return `cypress run --spec ${file}`;
+    if (/\.cy\.[jt]sx?$/.test(file)) return `cypress run --spec ${file}`;
+    if (/\.spec\.[jt]sx?$/.test(file)) return `npx playwright test ${file} -g ${JSON.stringify(title)}`;
+    if (/\.test\.[jt]sx?$/.test(file)) return `npx vitest run ${file} -t ${JSON.stringify(title)}`;
+    if (/\.py$/.test(file)) return `pytest ${file} -k ${JSON.stringify(title)}`;
+    if (/\.java$/.test(file)) return `mvn test -Dtest=${title.replace(/\s+/g, "")}`;
+    if (/\.rb$/.test(file)) return `rspec ${file} -e ${JSON.stringify(title)}`;
+    if (/\.go$/.test(file)) return `go test ./... -run ${JSON.stringify(title.replace(/\s+/g, "_"))}`;
+    return `# rerun ${file} :: ${title}`;
+  }
+
+  // Recently-copied marker: short-lived $state per button so the
+  // copy-btn check icon flashes only on the just-clicked button. Map
+  // key is a short tag ("error", "stack", "rerun", "md").
+  let copiedKey = $state<string | null>(null);
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashCopied(key: string) {
+    copiedKey = key;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { copiedKey = null; copiedTimer = null; }, 1400);
+  }
+  async function copyText(text: string, key: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      flashCopied(key);
+      toastSuccess(`${label} copied`);
+    } catch {
+      toastInfo("Clipboard unavailable");
+    }
+  }
+  function copyError() {
+    if (!test?.error_message) return;
+    copyText(test.error_message, "error", "Error message");
+  }
+  function copyStack() {
+    if (!test?.error_stack) return;
+    copyText(test.error_stack, "stack", "Stack trace");
+  }
+  function copyRerun() {
+    if (!test) return;
+    copyText(rerunCommand(test), "rerun", "Rerun command");
+  }
+  function copyMarkdown() {
+    if (!test) return;
+    const lines = [
+      `### ${test.full_title}`,
+      ``,
+      `- **Status:** ${test.status}`,
+      `- **Spec:** \`${test.file_path}\``,
+      `- **Duration:** ${formatDuration(test.duration_ms)}`,
+      `- **Run:** #${test.run_id}`,
+      ``,
+    ];
+    if (test.error_message) {
+      lines.push("**Error:**", "```", test.error_message, "```", "");
+    }
+    if (test.error_stack) {
+      lines.push("**Stack:**", "```", test.error_stack, "```", "");
+    }
+    lines.push("**Rerun:**", "```sh", rerunCommand(test), "```");
+    copyText(lines.join("\n"), "md", "Markdown report");
+  }
+
   let screenshotUrls = $derived(
     (test?.screenshot_paths ?? []).map((p) =>
       // artifactSrc encodes the path and appends ?token= so the new
@@ -356,42 +433,49 @@
         <div class="debugger-error">{error}</div>
       {:else if test}
         <!-- Top bar -->
-        <header class="topbar">
+        <header class="topbar status-{test.status}">
           <div class="topbar-left">
             <span class="badge {test.status}">{test.status.toUpperCase()}</span>
-            <h2>{test.title}</h2>
+            <h2 class="topbar-title" title={test.full_title}>{test.title}</h2>
           </div>
           <div class="topbar-right">
             {#if test.failed_total > 0}
-              <div class="nav-group">
+              <div class="nav-group" title="Use ← / → to step through failures">
                 <button
                   class="nav-arrow"
                   disabled={!test.prev_failed_id}
                   onclick={() => navigate(test?.prev_failed_id ?? null)}
-                  title="Previous failure"
+                  title="Previous failure (←)"
+                  aria-label="Previous failure"
                 >&#8249;</button>
                 <span class="nav-label">{test.failed_index}/{test.failed_total}</span>
                 <button
                   class="nav-arrow"
                   disabled={!test.next_failed_id}
                   onclick={() => navigate(test?.next_failed_id ?? null)}
-                  title="Next failure"
+                  title="Next failure (→)"
+                  aria-label="Next failure"
                 >&#8250;</button>
               </div>
             {/if}
-            <button class="close-btn" onclick={onclose}>&#10005;</button>
+            <button class="close-btn" onclick={onclose} title="Close (Esc)" aria-label="Close">&#10005;</button>
           </div>
         </header>
 
-        <!-- Info strip -->
+        <!-- Info strip: file:line, duration, run link, tags, annotations -->
         <div class="info-strip">
-          <span class="info-item mono">{test.file_path}{#if meta?.location}:{meta.location.line}{/if}</span>
-          <span class="info-sep">|</span>
-          <span class="info-item">{formatDuration(test.duration_ms)}</span>
-          <span class="info-sep">|</span>
-          <a href="/runs/{test.run_id}" class="info-link" onclick={onclose}>Run #{test.run_id}</a>
+          <span class="info-chip mono" title={test.file_path}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 2h6l4 4v8H3z"/><path d="M9 2v4h4"/></svg>
+            {test.file_path}{#if meta?.location}:{meta.location.line}{/if}
+          </span>
+          <span class="info-chip" title="Duration">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="9" r="5"/><path d="M8 6v3l2 1"/><path d="M6 1h4"/></svg>
+            {formatDuration(test.duration_ms)}
+          </span>
+          <a href="/runs/{test.run_id}" class="info-chip info-chip-link" onclick={onclose} title="Open run #{test.run_id}">
+            Run #{test.run_id}
+          </a>
           {#if meta?.tags?.length}
-            <span class="info-sep">|</span>
             {#each meta.tags as tag}
               <span class="tag-pill">{tag}</span>
             {/each}
@@ -401,6 +485,26 @@
               <span class="annotation-pill {ann.type}" title={ann.description ?? ""}>{ann.type}</span>
             {/each}
           {/if}
+          <div class="info-strip-actions">
+            <button class="copy-btn" onclick={copyRerun} title="Copy rerun command for this test">
+              {#if copiedKey === "rerun"}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                Copied
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><polyline points="4,4 4,1 12,1 12,9 9,9"/><rect x="1" y="4" width="9" height="11"/></svg>
+                Rerun
+              {/if}
+            </button>
+            <button class="copy-btn" onclick={copyMarkdown} title="Copy a Markdown summary of this failure">
+              {#if copiedKey === "md"}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                Copied
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><polyline points="4,4 4,1 12,1 12,9 9,9"/><rect x="1" y="4" width="9" height="11"/></svg>
+                Markdown
+              {/if}
+            </button>
+          </div>
         </div>
 
         <!-- Split panes -->
@@ -501,6 +605,61 @@
 
           <!-- RIGHT: Debug tools -->
           <div class="pane pane-right" style:width="calc({100 - leftPct}% - 3px)">
+            {#if test.error_message}
+              <!--
+                Persistent error block. The error message is THE answer
+                this modal exists to show — it should never be hidden
+                behind a tab. Lives above .pane-tabs so it's visible
+                regardless of which tab is selected. The Info tab below
+                still shows test metadata, just no longer duplicates the
+                error block. e2e selector contract: `.error-msg` lives
+                under `.error-block` (was `.info-panel .error-msg`).
+              -->
+              <div class="error-block">
+                <div class="error-block-head">
+                  <span class="error-label">Error</span>
+                  <div class="error-block-actions">
+                    <button class="copy-btn" onclick={copyError} title="Copy error message">
+                      {#if copiedKey === "error"}
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                        Copied
+                      {:else}
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><polyline points="4,4 4,1 12,1 12,9 9,9"/><rect x="1" y="4" width="9" height="11"/></svg>
+                        Copy
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+                <pre class="error-msg">{test.error_message}</pre>
+                {#if test.error_stack}
+                  <div class="error-block-stack">
+                    <button class="stack-toggle" onclick={() => stackExpanded = !stackExpanded} aria-expanded={stackExpanded}>
+                      <span class="toggle-icon" aria-hidden="true">{stackExpanded ? "▾" : "▸"}</span>
+                      Stack trace
+                    </button>
+                    {#if stackExpanded}
+                      <button class="copy-btn copy-btn-inline" onclick={copyStack} title="Copy stack trace">
+                        {#if copiedKey === "stack"}
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                          Copied
+                        {:else}
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><polyline points="4,4 4,1 12,1 12,9 9,9"/><rect x="1" y="4" width="9" height="11"/></svg>
+                          Copy stack
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
+                  {#if stackExpanded}
+                    <pre class="stack-trace">{test.error_stack}</pre>
+                  {/if}
+                {/if}
+                {#if meta?.error_snippet}
+                  <div class="error-label error-label-snippet">Code snippet</div>
+                  <pre class="code-snippet">{meta.error_snippet}</pre>
+                {/if}
+              </div>
+            {/if}
+
             <div class="pane-tabs">
               <button class="pane-tab" class:active={rightTab === "info"} onclick={() => rightTab = "info"}>
                 Info
@@ -552,27 +711,21 @@
                     </div>
                   </div>
 
-                  {#if test.error_message}
-                    <div class="info-error-section">
-                      <div class="error-label">Error</div>
-                      <pre class="error-msg">{test.error_message}</pre>
-
-                      {#if test.error_stack}
-                        <button class="stack-toggle" onclick={() => stackExpanded = !stackExpanded}>
-                          <span class="toggle-icon">{stackExpanded ? "&#9660;" : "&#9654;"}</span>
-                          Stack Trace
-                        </button>
-                        {#if stackExpanded}
-                          <pre class="stack-trace">{test.error_stack}</pre>
+                  <div class="info-rerun">
+                    <div class="info-rerun-head">
+                      <span class="error-label">Rerun this test</span>
+                      <button class="copy-btn copy-btn-inline" onclick={copyRerun} title="Copy rerun command">
+                        {#if copiedKey === "rerun"}
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                          Copied
+                        {:else}
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><polyline points="4,4 4,1 12,1 12,9 9,9"/><rect x="1" y="4" width="9" height="11"/></svg>
+                          Copy
                         {/if}
-                      {/if}
-
-                      {#if meta?.error_snippet}
-                        <div class="error-label">Code Snippet</div>
-                        <pre class="code-snippet">{meta.error_snippet}</pre>
-                      {/if}
+                      </button>
                     </div>
-                  {/if}
+                    <pre class="rerun-cmd">{rerunCommand(test)}</pre>
+                  </div>
                 </div>
 
               {:else if rightTab === "commands"}
@@ -916,7 +1069,7 @@
                             <div class="history-top">
                               <span class="history-status {entry.status}">{entry.status}</span>
                               <span class="history-dur">{formatDuration(entry.duration_ms)}</span>
-                              <span class="history-time">{timeAgo(entry.created_at)}</span>
+                              <span class="history-time" title={absoluteDate(entry.created_at)}>{timeAgo(entry.created_at)}</span>
                             </div>
                             <div class="history-bottom">
                               <span class="history-run">Run #{entry.run_id}</span>
@@ -1006,6 +1159,29 @@
     border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
     flex-shrink: 0;
+    position: relative;
+  }
+
+  /* Status accent stripe — 4px left edge tinted by run status. Mirrors
+     the .releases status-accent pattern so the modal's identity at a
+     glance matches the rest of the app. */
+  .topbar::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--color-skip);
+  }
+  .topbar.status-failed::before { background: var(--color-fail); }
+  .topbar.status-passed::before { background: var(--color-pass); }
+  .topbar.status-skipped::before, .topbar.status-pending::before { background: var(--color-skip); }
+
+  .topbar-title {
+    margin: 0;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .topbar-left {
@@ -1096,26 +1272,76 @@
     color: var(--text);
   }
 
-  /* Info strip */
+  /* Info strip — wraps chips with subtle borders so each fact is its
+     own scannable unit; copy actions live at the right edge. */
   .info-strip {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 1.25rem;
+    gap: 0.45rem;
+    padding: 0.5rem 1.25rem;
     border-bottom: 1px solid var(--border);
     font-size: 0.75rem;
     color: var(--text-muted);
     background: var(--bg);
     flex-shrink: 0;
+    flex-wrap: wrap;
   }
 
-  .info-item { white-space: nowrap; }
-  .info-sep { opacity: 0.4; }
-  .info-link {
+  .info-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    max-width: 60ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .info-chip svg { flex-shrink: 0; opacity: 0.7; }
+  .info-chip-link {
     color: var(--link);
     text-decoration: none;
+    border-color: color-mix(in srgb, var(--link) 35%, var(--border));
+    background: color-mix(in srgb, var(--link) 8%, var(--bg-secondary));
   }
-  .info-link:hover { text-decoration: underline; }
+  .info-chip-link:hover { background: color-mix(in srgb, var(--link) 14%, var(--bg-secondary)); }
+
+  .info-strip-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+  .copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+    border-color: var(--link);
+  }
+  .copy-btn-inline {
+    padding: 0.15rem 0.45rem;
+    font-size: 0.68rem;
+  }
+
   .mono { font-family: monospace; }
 
   /* Split layout */
@@ -1359,12 +1585,67 @@
   .info-status.failed { color: var(--color-fail); }
   .info-status.skipped, .info-status.pending { color: var(--color-skip); }
 
-  .info-error-section {
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
+  /* Lifted error block — sits above .pane-tabs in the right pane so
+     the error message is always visible regardless of which tab the
+     user is on. Tinted background + left accent stripe matches the
+     project's status-fail accent pattern. */
+  .error-block {
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--color-fail) 5%, var(--bg));
+    padding: 0.65rem 0.85rem 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    border-left: 3px solid var(--color-fail);
+    max-height: 38vh;
+    overflow-y: auto;
+  }
+  .error-block-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .error-block-actions {
+    display: flex;
+    gap: 0.35rem;
+  }
+  .error-block-stack {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .error-label-snippet {
+    margin-top: 0.4rem;
+  }
+
+  /* Rerun panel inside the Info tab — shows the rerun command
+     verbatim so the user can read + edit before copying. */
+  .info-rerun {
+    border-top: 1px solid var(--border);
+    padding-top: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .info-rerun-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .rerun-cmd {
+    margin: 0;
+    padding: 0.65rem 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.78rem;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
   }
 
   .error-label {
@@ -1418,14 +1699,6 @@
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.6;
-  }
-
-  .error-details {
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
   }
 
   .detail-row {

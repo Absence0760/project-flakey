@@ -120,7 +120,7 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
 
     // Info tab is the default for tests without snapshots, but the
     // gherkin test has a snapshot so leftTab defaults to "snapshot"
-    // and rightTab still defaults to "info" (per ErrorModal:174).
+    // and rightTab still defaults to "commands". Click into Info.
     await page.locator(".pane-tab", { hasText: /^Info$/ }).click();
     await expect(page.locator(".info-panel")).toBeVisible({ timeout: 2_000 });
 
@@ -131,8 +131,11 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
       "failed",
     );
 
-    // Error section shows the error message verbatim from seed.
-    await expect(page.locator(".info-panel .error-msg")).toContainText(
+    // The error block was lifted out of the Info tab into a persistent
+    // band above .pane-tabs (so the error is always visible regardless
+    // of which tab is selected). Selector is now `.error-block
+    // .error-msg`, not `.info-panel .error-msg`.
+    await expect(page.locator(".error-block .error-msg")).toContainText(
       "expected URL to include /dashboard",
     );
   });
