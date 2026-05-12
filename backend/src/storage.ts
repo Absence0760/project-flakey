@@ -19,6 +19,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 function assertSafeKey(destKey: string): void {
   if (
     destKey.length === 0 ||
+    destKey === "." ||
     destKey.startsWith("/") ||
     destKey.includes("\\") ||
     destKey.includes("\0") ||
@@ -60,32 +61,45 @@ class LocalStorage implements Storage {
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
 
-    // INLINE sanitisation — CodeQL js/path-injection requires the
-    // resolve + startsWith pattern at the filesystem call site, not
-    // via a helper function. assertSafeKey above is defense-in-depth.
+    // INLINE sanitisation — CodeQL's js/path-injection rule recognises
+    // `x.startsWith(safePrefix) === true` as a barrier guard for `x`.
+    // For it to mark the downstream `fs` sink as sanitised, the sink
+    // call must be dominated by the `startsWith` truthy branch — i.e.
+    // the sink lives INSIDE `if (x.startsWith(safe)) { ... }`, not
+    // after an `if (!x.startsWith(safe)) throw`. Compound boolean
+    // guards and helper-function indirection both break that match.
+    // The seemingly redundant duplication below is the price of
+    // satisfying that data-flow shape.
 
     // Sanitise destKey: resolve under baseDir, refuse anything outside.
+    // assertSafeKey rejects empty / "." / leading "/" / "\" / "\0" /
+    // ".." segments, so destAbs can never equal baseAbs and a single
+    // startsWith check suffices.
     const baseAbs = resolve(this.baseDir);
     const destAbs = resolve(baseAbs, destKey);
-    if (destAbs !== baseAbs && !destAbs.startsWith(baseAbs + sep)) {
+    if (!destAbs.startsWith(baseAbs + sep)) {
       throw new Error(`refusing to write outside storage root: ${destKey}`);
     }
 
-    // Sanitise tempPath: resolve, refuse anything outside the known
-    // tmp roots (multer dest or os.tmpdir()). multer's filename is
-    // crypto.randomBytes so this is mostly defense-in-depth.
-    // Two inline startsWith checks (not a loop) so CodeQL's
-    // js/path-injection data-flow library traces the sanitisation.
+    // Sanitise tempPath: resolve, then dispatch to the sink only
+    // INSIDE a branch that proved the resolved path is under one of
+    // the two whitelisted tmp roots (multer dest or os.tmpdir()).
     if (tempPath.includes("\0")) {
       throw new Error(`unsafe temp path (null byte): ${tempPath}`);
     }
     const tempAbs = resolve(tempPath);
-    if (!tempAbs.startsWith(TEMP_ROOT_UPLOADS) && !tempAbs.startsWith(TEMP_ROOT_OS)) {
-      throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
-    }
 
-    mkdirSync(dirname(destAbs), { recursive: true });
-    renameSync(tempAbs, destAbs);
+    if (tempAbs.startsWith(TEMP_ROOT_UPLOADS)) {
+      mkdirSync(dirname(destAbs), { recursive: true });
+      renameSync(tempAbs, destAbs);
+      return;
+    }
+    if (tempAbs.startsWith(TEMP_ROOT_OS)) {
+      mkdirSync(dirname(destAbs), { recursive: true });
+      renameSync(tempAbs, destAbs);
+      return;
+    }
+    throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
   }
 
   async getUrl(key: string): Promise<string> {
@@ -129,27 +143,38 @@ class S3Storage implements Storage {
   async put(tempPath: string, destKey: string): Promise<void> {
     assertSafeKey(destKey);
 
-    // INLINE sanitisation on tempPath — see the LocalStorage.put
-    // comment for why this can't live in a helper. Two inline
-    // startsWith checks (not a loop) so CodeQL's js/path-injection
-    // data-flow library traces the sanitisation.
+    // INLINE sanitisation — see LocalStorage.put for the rationale.
+    // The fs sinks (readFileSync, rmSync) sit INSIDE the truthy branch
+    // of each `startsWith` so CodeQL's js/path-injection barrier-guard
+    // recognises them as sanitised.
     if (tempPath.includes("\0")) {
       throw new Error(`unsafe temp path (null byte): ${tempPath}`);
     }
     const tempAbs = resolve(tempPath);
-    if (!tempAbs.startsWith(TEMP_ROOT_UPLOADS) && !tempAbs.startsWith(TEMP_ROOT_OS)) {
-      throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
-    }
 
-    const body = readFileSync(tempAbs);
-    await this.client.send(new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: this.key(destKey),
-      Body: body,
-      ContentType: guessContentType(destKey),
-    }));
-    // Clean up temp file
-    try { rmSync(tempAbs); } catch { /* ignore */ }
+    if (tempAbs.startsWith(TEMP_ROOT_UPLOADS)) {
+      const body = readFileSync(tempAbs);
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: this.key(destKey),
+        Body: body,
+        ContentType: guessContentType(destKey),
+      }));
+      try { rmSync(tempAbs); } catch { /* ignore */ }
+      return;
+    }
+    if (tempAbs.startsWith(TEMP_ROOT_OS)) {
+      const body = readFileSync(tempAbs);
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: this.key(destKey),
+        Body: body,
+        ContentType: guessContentType(destKey),
+      }));
+      try { rmSync(tempAbs); } catch { /* ignore */ }
+      return;
+    }
+    throw new Error(`refusing to read from outside known temp roots: ${tempPath}`);
   }
 
   async getUrl(key: string): Promise<string> {
