@@ -24,14 +24,39 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 async function openRunWithFailures(page: Page): Promise<void> {
+  // Find a run with at least one failed test whose `error_message`
+  // is populated. `.test-error-bar` only renders when the test has
+  // an error_message, so picking the first `.fail-badge` card is
+  // fragile — cucumber-style runs can report failure at the spec
+  // level without per-test rows.
   await page.goto("/");
   await page.locator("a.run-card").first().waitFor({ timeout: 15_000 });
-  // The seed creates many failing runs; pick the first card that
-  // shows the `.fail-badge` (rendered for `failed > 0`) so the
-  // ErrorModal trigger (".test-error-bar") exists on the detail page.
-  const failingCard = page.locator("a.run-card").filter({ has: page.locator(".fail-badge") }).first();
-  await failingCard.click({ timeout: 10_000 });
-  await page.waitForURL(/\/runs\/\d+/, { timeout: 10_000 });
+  const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
+  if (!token) throw new Error("no auth token in localStorage");
+
+  const runsRes = await page.request.get("http://localhost:3000/runs?limit=200", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { runs } = (await runsRes.json()) as { runs: { id: number; failed: number }[] };
+  const candidates = runs.filter((r) => r.failed > 0).map((r) => r.id);
+
+  for (const id of candidates) {
+    const detailRes = await page.request.get(`http://localhost:3000/runs/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const detail = (await detailRes.json()) as {
+      specs?: { tests?: { error_message?: string | null }[] }[];
+    };
+    const hasErrorMessage = (detail.specs ?? []).some((s) =>
+      (s.tests ?? []).some((t) => typeof t.error_message === "string" && t.error_message.length > 0),
+    );
+    if (hasErrorMessage) {
+      await page.goto(`/runs/${id}`);
+      await page.locator(".test-error-bar").first().waitFor({ timeout: 10_000 });
+      return;
+    }
+  }
+  throw new Error("No failing run with a test that has error_message found");
 }
 
 test.describe("keyboard a11y — runs/[id] error bar", () => {

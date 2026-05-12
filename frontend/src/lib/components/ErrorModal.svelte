@@ -972,7 +972,11 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     width: 100%;
-    max-width: 1200px;
+    /* Was 1200px — left ~1300 px of dead space inside the backdrop
+       on a 2K monitor when the snapshot + command panes both need
+       width. 1800 px matches the .page cap pattern and gives each
+       pane ~900 px before the splitter eats some. */
+    max-width: 1800px;
     height: 85vh;
     display: flex;
     flex-direction: column;
