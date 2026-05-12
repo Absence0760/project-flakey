@@ -834,14 +834,7 @@
   .pass-pct { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); min-width: 2.5rem; text-align: right; }
 
   /* Load more */
-  .load-more { display: flex; justify-content: center; padding: 1rem 0; }
-  .load-more-btn {
-    padding: 0.5rem 1.5rem; border: 1px solid var(--border); border-radius: 6px;
-    background: none; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .load-more-btn:hover:not(:disabled) { background: var(--bg-secondary); color: var(--text); }
-  .load-more-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* .load-more / .load-more-btn base styles live in src/app.css. */
 
   /* Compare mode */
   .compare-check {

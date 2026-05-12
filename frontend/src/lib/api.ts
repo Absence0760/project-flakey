@@ -314,8 +314,11 @@ export async function fetchFlakyTests(filters?: { suite?: string; runs?: number 
   const params = new URLSearchParams();
   if (filters?.suite) params.set("suite", filters.suite);
   if (filters?.runs) params.set("runs", String(filters.runs));
+  // Ask for the backend's maximum so the client has room to paginate.
+  // Backend caps at 200 (src/routes/flaky.ts).
+  params.set("limit", "200");
   const qs = params.toString();
-  const res = await authFetch(`${API_URL}/flaky${qs ? `?${qs}` : ""}`);
+  const res = await authFetch(`${API_URL}/flaky?${qs}`);
   if (!res.ok) throw new Error(`Failed to fetch flaky tests: ${res.status}`);
   return res.json();
 }
@@ -433,8 +436,12 @@ export interface SlowestTest {
 }
 
 export async function fetchSlowestTests(suite?: string): Promise<SlowestTest[]> {
-  const qs = suite ? `?suite=${encodeURIComponent(suite)}` : "";
-  const res = await authFetch(`${API_URL}/tests/slowest/list${qs}`);
+  const params = new URLSearchParams();
+  if (suite) params.set("suite", suite);
+  // Ask for the backend's maximum so the client has room to paginate.
+  // Backend caps at 100 (src/routes/tests.ts).
+  params.set("limit", "100");
+  const res = await authFetch(`${API_URL}/tests/slowest/list?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to fetch slowest tests: ${res.status}`);
   return res.json();
 }

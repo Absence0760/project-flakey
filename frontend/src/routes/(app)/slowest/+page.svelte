@@ -39,6 +39,22 @@
     sorted.length > 0 ? Math.max(...sorted.map((t) => t.max_duration_ms)) : 1
   );
 
+  // Client-side pagination (page size 50). Reset when sort/suite
+  // changes so the slice always reflects the current ordering.
+  const PAGE_SIZE = 50;
+  let visibleCount = $state(PAGE_SIZE);
+  const visibleSorted = $derived(sorted.slice(0, visibleCount));
+  const hasMoreSlowest = $derived(visibleSorted.length < sorted.length);
+
+  $effect(() => {
+    selectedSuite; sortBy; // tracked deps
+    visibleCount = PAGE_SIZE;
+  });
+
+  function loadMoreSlowest() {
+    visibleCount = Math.min(visibleCount + PAGE_SIZE, sorted.length);
+  }
+
   async function load() {
     loading = true;
     error = null;
@@ -132,7 +148,7 @@
     </div>
   {:else}
     <div class="test-list">
-      {#each sorted as test, i}
+      {#each visibleSorted as test, i}
         <div class="test-card" class:expanded={expandedIndex === i}>
           <button class="test-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
             <span class="rank">#{i + 1}</span>
@@ -225,6 +241,13 @@
         </div>
       {/each}
     </div>
+    {#if hasMoreSlowest}
+      <div class="load-more">
+        <button class="load-more-btn" onclick={loadMoreSlowest}>
+          Load more ({sorted.length - visibleSorted.length} more)
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 

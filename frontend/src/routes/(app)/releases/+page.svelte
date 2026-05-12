@@ -25,6 +25,18 @@
 	let showCreate = $state(false);
 	let error = $state<string | null>(null);
 
+	// Client-side pagination (page size 50). Defensive — only kicks
+	// in if a team has more than 50 releases. No filter resets needed
+	// since the page has no filters.
+	const PAGE_SIZE = 50;
+	let visibleCount = $state(PAGE_SIZE);
+	const visibleReleases = $derived(releases.slice(0, visibleCount));
+	const hasMoreReleases = $derived(visibleReleases.length < releases.length);
+
+	function loadMoreReleases() {
+		visibleCount = Math.min(visibleCount + PAGE_SIZE, releases.length);
+	}
+
 	let newVersion = $state('');
 	let newName = $state('');
 	let newTargetDate = $state('');
@@ -112,7 +124,7 @@
 		<p class="empty">No releases yet. Create one to get started with a default sign-off checklist.</p>
 	{:else}
 		<div class="release-grid">
-			{#each releases as r}
+			{#each visibleReleases as r}
 				<a class="release-card" href={`/releases/${r.id}`}>
 					<div class="release-top">
 						<span class="version">{r.version}</span>
@@ -138,6 +150,13 @@
 				</a>
 			{/each}
 		</div>
+		{#if hasMoreReleases}
+			<div class="load-more">
+				<button class="load-more-btn" onclick={loadMoreReleases}>
+					Load more ({releases.length - visibleReleases.length} more)
+				</button>
+			</div>
+		{/if}
 	{/if}
 </div>
 

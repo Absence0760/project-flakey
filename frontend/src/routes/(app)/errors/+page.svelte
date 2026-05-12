@@ -42,6 +42,22 @@
   let affectedTests = $state<AffectedTest[]>([]);
   let testsLoading = $state(false);
 
+  // Client-side pagination (page size 50). Reset when filters
+  // change so a stale slice doesn't outlive the underlying set.
+  const PAGE_SIZE = 50;
+  let visibleCount = $state(PAGE_SIZE);
+  const visibleErrors = $derived(errors.slice(0, visibleCount));
+  const hasMoreErrors = $derived(visibleErrors.length < errors.length);
+
+  $effect(() => {
+    selectedSuite; selectedStatus; // tracked deps
+    visibleCount = PAGE_SIZE;
+  });
+
+  function loadMoreErrors() {
+    visibleCount = Math.min(visibleCount + PAGE_SIZE, errors.length);
+  }
+
   const statuses = [
     { value: "open", label: "Open", color: "var(--color-fail)" },
     { value: "investigating", label: "Investigating", color: "var(--link)" },
@@ -196,7 +212,7 @@
     </div>
   {:else}
     <div class="error-list">
-      {#each errors as err}
+      {#each visibleErrors as err}
         <div class="error-card" class:expanded={expandedFingerprint === err.fingerprint}>
           <button class="error-header" onclick={() => toggleExpand(err)}>
             <div class="error-main">
@@ -325,6 +341,13 @@
         </div>
       {/each}
     </div>
+    {#if hasMoreErrors}
+      <div class="load-more">
+        <button class="load-more-btn" onclick={loadMoreErrors}>
+          Load more ({errors.length - visibleErrors.length} more)
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 

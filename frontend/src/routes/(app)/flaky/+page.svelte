@@ -48,6 +48,24 @@
     })
   );
 
+  // Client-side pagination — render the first N rows so a very long
+  // flaky list doesn't blow the page on first paint. Reset when the
+  // sort/window changes (otherwise the slice is stale relative to
+  // the new ordering).
+  const PAGE_SIZE = 50;
+  let visibleCount = $state(PAGE_SIZE);
+  const visibleSorted = $derived(sorted.slice(0, visibleCount));
+  const hasMoreFlaky = $derived(visibleSorted.length < sorted.length);
+
+  $effect(() => {
+    selectedSuite; sortBy; runWindow; // tracked deps
+    visibleCount = PAGE_SIZE;
+  });
+
+  function loadMoreFlaky() {
+    visibleCount = Math.min(visibleCount + PAGE_SIZE, sorted.length);
+  }
+
   onMount(async () => {
     readUrl();
     try {
@@ -180,7 +198,7 @@
     </div>
 
     <div class="flaky-list">
-      {#each sorted as test, i}
+      {#each visibleSorted as test, i}
         <div class="flaky-card" class:expanded={expandedIndex === i}>
           <button class="card-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
           <div class="card-top">
@@ -248,6 +266,13 @@
         </div>
       {/each}
     </div>
+    {#if hasMoreFlaky}
+      <div class="load-more">
+        <button class="load-more-btn" onclick={loadMoreFlaky}>
+          Load more ({sorted.length - visibleSorted.length} more)
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 

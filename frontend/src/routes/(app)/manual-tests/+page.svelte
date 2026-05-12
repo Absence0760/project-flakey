@@ -114,6 +114,24 @@
 		});
 	});
 
+	// Client-side pagination — render the first N rows of the filtered
+	// result so a very long list doesn't render hundreds of <tr> all
+	// at once. Filters reset the slice (otherwise switching from
+	// "all" → "failed" could leave a stale "showing 50 of 12" state).
+	const PAGE_SIZE = 50;
+	let visibleCount = $state(PAGE_SIZE);
+	const visibleTests = $derived(filteredTests.slice(0, visibleCount));
+	const hasMoreTests = $derived(visibleTests.length < filteredTests.length);
+
+	$effect(() => {
+		filterSuite; filterStatus; filterFlakyOnly; filterGroup; // tracked deps
+		visibleCount = PAGE_SIZE;
+	});
+
+	function loadMoreTests() {
+		visibleCount = Math.min(visibleCount + PAGE_SIZE, filteredTests.length);
+	}
+
 	const flakyCount = $derived(tests.filter(t => t.is_flaky).length);
 
 	interface StepRow {
@@ -610,11 +628,11 @@
 <svelte:window onkeydown={handleEsc} />
 
 <div class="page">
+	<!-- No <h1> — the sidebar nav already labels this page, and
+	     /manual-tests in the URL is its own anchor. Subtitle moves
+	     under the actions row so the header is just an action bar. -->
 	<header class="page-header">
-		<div>
-			<h1>Manual tests</h1>
-			<p class="subtitle">Manage and execute manual regression tests alongside your automated suite.</p>
-		</div>
+		<p class="subtitle">Manage and execute manual regression tests alongside your automated suite.</p>
 		<div class="header-actions">
 			{#if isAdmin}
 				<button class="btn-ghost" onclick={openGroups}>⛿ Manage groups</button>
@@ -864,7 +882,7 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each filteredTests as t}
+				{#each visibleTests as t}
 					<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
 					     mirrors the runs-list `a.run-card` pattern — the whole row
 					     is the click target. Native <tr> isn't focusable so we
@@ -945,6 +963,13 @@
 				{/each}
 			</tbody>
 		</table>
+		{#if hasMoreTests}
+			<div class="load-more">
+				<button class="load-more-btn" onclick={loadMoreTests}>
+					Load more ({filteredTests.length - visibleTests.length} more)
+				</button>
+			</div>
+		{/if}
 	{/if}
 
 	{#if showGroups}
