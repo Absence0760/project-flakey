@@ -1247,10 +1247,11 @@
 	.stat.pass .stat-value { color: var(--color-pass, #16a34a); }
 	.stat.fail .stat-value { color: var(--color-fail, #dc2626); }
 	/* ── Xray-style create modal ─────────────────────────────────────── */
-	/* Override the generic .modal (600px) with a wider, taller layout */
+	/* Wider, taller layout than the generic .modal so the steps table
+	   can show all 4 columns without horizontal crowding on big screens. */
 	.modal.create-modal {
-		width: min(1100px, 95vw);
-		max-width: 1100px;
+		width: min(1800px, 95vw);
+		max-width: 1800px;
 		height: min(850px, 92vh);
 		max-height: 92vh;
 		padding: 0;
@@ -1388,8 +1389,15 @@
 	.hint { font-size: 0.75rem; color: var(--text-muted); margin: 0.5rem 0 0; }
 	.hint strong { color: var(--text-secondary); }
 	.actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-	.btn-primary { background: var(--link, #2563eb); color: #fff; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
-	.btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+	/* Primary and ghost share padding + line-height so they line up
+	   at the same height in the header — the visual hierarchy comes
+	   from background/border/color, not size. The explicit
+	   line-height: 1.2 normalises the box for unicode glyphs like
+	   ⛿ that have larger natural ascent than ASCII characters; the
+	   "Manage groups" button (⛿ ...) previously rendered ~12 px
+	   taller than its siblings without it. */
+	.btn-primary { background: var(--link, #2563eb); color: #fff; border: 1px solid var(--link, #2563eb); padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; line-height: 1.2; }
+	.btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; line-height: 1.2; }
 	.toolbar {
 		display: flex;
 		justify-content: space-between;
@@ -1479,7 +1487,11 @@
 		border: 1px solid var(--border);
 		border-radius: 10px;
 		padding: 1.5rem 1.75rem;
-		width: min(1100px, 95vw);
+		/* Bumped from 1100px so the detail / create modals (steps table,
+		   runner, data column) use the available width on big monitors.
+		   Confirm + groups modals override this with their own narrower
+		   caps below. */
+		width: min(1800px, 95vw);
 		max-height: 92vh;
 		overflow-y: auto;
 		display: flex;
