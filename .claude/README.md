@@ -22,8 +22,9 @@ Use these on the diff you're about to commit. They're cheaper and more focused t
 |---|---|---|
 | **`/check`** | Right before committing a non-trivial change. Spawns `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel, aggregates a single advisory report. Single pass — no fix-and-re-review loop. The user picks which gaps to land. | ~1x review cost |
 | **`/safe-edit <task>`** | Implementing a security-sensitive, schema, live-flow, or reporter-package change you want a second pair of eyes on before commit. Coder → `code-reviewer` round 1 → fix → round 2 → ready-to-commit handoff. Hard cap at 2 review cycles. | ~2-3x edit cost |
+| **`/polish-ui <target>`** | An index page or component whose layout doesn't fit the data — flat card list when it should be master/detail, missing filter tabs / URL state / friendly dates, drifting alignment, raw ISO leaks, redundant h1. Delegates to `ui-polisher` which audits, picks an archetype (table / master-detail / heatmap / bars / cards), edits, and verifies with `pnpm check` + screenshots + e2e. Does not commit. | ~2-3x edit cost (screenshot + e2e re-run + agent context) |
 
-Skip both on typos, comment-only edits, dep-version bumps, or any < ~10-line diff that touches no invariant — just edit those directly.
+Skip all three on typos, comment-only edits, dep-version bumps, or any < ~10-line diff that touches no invariant — just edit those directly.
 
 ## Audit commands
 
@@ -134,6 +135,10 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 
 [`.claude/agents/doc-hygiene-checker.md`](agents/doc-hygiene-checker.md) — invoked by `/check`. Surveys the project's doc set (`README.md`, `docs/architecture.md`, `docs/overview.md`, `docs/run-locally.md`, `docs/roadmap.md`, root + per-app + per-package `CLAUDE.md`) against the diff and reports which docs need updating. Reports only — does not edit docs.
 
+### `ui-polisher`
+
+[`.claude/agents/ui-polisher.md`](agents/ui-polisher.md) — invoked by `/polish-ui`. Edits one page or component to the project's UI quality bar (the same bar set by `/manual-tests`, `/`, `/flaky`, `/slowest`, `/errors`, `/releases`). Bakes in the design language: data-archetype → layout (table / master-detail / heatmap / bars / cards), natural-width tables, status accent stripes, at-risk pinned bands, `relativeDate()` everywhere, modal create flows, URL-bookmarkable filters, Svelte 5 runes only. Captures before/after screenshots via Playwright, type-checks with `pnpm check`, and updates any e2e selectors the redesign moves. Edits files; never commits.
+
 ---
 
 ## Conventions
@@ -163,6 +168,7 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 |---|---|
 | About to commit any non-trivial change | `/check` |
 | Implementing a security-sensitive / schema / live-flow / reporter-package change | `/safe-edit <task>` (also produces a clean status by the time you'd run `/check`, so don't double up) |
+| An index page or modal that doesn't use real estate, leaks ISO dates, or lacks the project's filter / sort / search / URL-state pattern | `/polish-ui <route or component>` |
 | Periodic broad sweep over the whole repo against one trust boundary | `/audit/<name>` |
 | Pre-release confidence pass | `/audit/all` |
 | Typo / comment / single-line dep bump | none — just commit |
