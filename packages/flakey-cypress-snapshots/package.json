@@ -4,7 +4,6 @@
   "description": "Cypress plugin that captures DOM snapshots at each command step for Flakey",
   "type": "module",
   "main": "dist/plugin.js",
-  "types": "plugin.d.ts",
   "exports": {
     "./plugin": {
       "types": "./plugin.d.ts",

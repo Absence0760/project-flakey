@@ -48,6 +48,7 @@ beforeEach(() => {
     "COMMIT_SHA", "GITHUB_SHA", "BITBUCKET_COMMIT",
     "CI_RUN_ID", "GITHUB_RUN_ID", "BITBUCKET_BUILD_NUMBER",
     "FLAKEY_RELEASE",
+    "FLAKEY_ENV", "TEST_ENV",
   ]) delete process.env[k];
 });
 afterEach(() => {
@@ -320,6 +321,54 @@ test("FLAKEY_RELEASE env populates run.meta.release; absent → field omitted", 
     assert.equal(payload.meta.release, "v9.9.9");
   } finally {
     delete process.env.FLAKEY_RELEASE;
+  }
+});
+
+test("FLAKEY_ENV / TEST_ENV env populate run.meta.environment; absent → field omitted", async () => {
+  // No env → omitted entirely.
+  {
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.environment, undefined);
+  }
+
+  // FLAKEY_ENV → forwarded.
+  process.env.FLAKEY_ENV = "qa";
+  fetchMock = makeFetchMock();
+  globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+  try {
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.environment, "qa");
+  } finally {
+    delete process.env.FLAKEY_ENV;
+  }
+
+  // config.environment wins over env.
+  process.env.FLAKEY_ENV = "qa";
+  fetchMock = makeFetchMock();
+  globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+  try {
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE, environment: "stage" });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.environment, "stage");
+  } finally {
+    delete process.env.FLAKEY_ENV;
   }
 });
 

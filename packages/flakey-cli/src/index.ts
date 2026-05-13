@@ -13,6 +13,7 @@ interface UploadOptions {
   commitSha: string;
   ciRunId: string;
   release: string;
+  environment: string;
   reporter: string;
   screenshotsDir: string;
   videosDir: string;
@@ -35,10 +36,15 @@ function parseArgs(): UploadOptions {
   return {
     reportDir: resolve(opts["report-dir"] ?? "cypress/reports"),
     suiteName: opts["suite"] ?? "default",
-    branch: opts["branch"] ?? process.env.BRANCH ?? "",
-    commitSha: opts["commit"] ?? process.env.COMMIT_SHA ?? "",
-    ciRunId: opts["ci-run-id"] ?? process.env.CI_RUN_ID ?? "",
+    // Env-var resolution chains aligned with the reporter packages.
+    // GHA / Bitbucket fallbacks cover the common-CI default vars so a
+    // user who runs `flakey-upload` from GitHub Actions without
+    // setting BRANCH/COMMIT_SHA/CI_RUN_ID still gets meaningful values.
+    branch: opts["branch"] ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
+    commitSha: opts["commit"] ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
+    ciRunId: opts["ci-run-id"] ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
     release: opts["release"] ?? process.env.FLAKEY_RELEASE ?? "",
+    environment: opts["environment"] ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? "",
     reporter: opts["reporter"] ?? "mochawesome",
     screenshotsDir: resolve(opts["screenshots-dir"] ?? "cypress/screenshots"),
     videosDir: resolve(opts["videos-dir"] ?? "cypress/videos"),
@@ -121,6 +127,7 @@ async function upload(opts: UploadOptions): Promise<void> {
       finished_at: "",
       reporter: opts.reporter,
       ...(opts.release ? { release: opts.release } : {}),
+      ...(opts.environment ? { environment: opts.environment } : {}),
     },
     raw,
   };

@@ -149,6 +149,9 @@ export default class FlakeyWdioReporter extends WDIOReporter {
         ...(this.flakeyOpts.release || process.env.FLAKEY_RELEASE
           ? { release: (this.flakeyOpts.release ?? process.env.FLAKEY_RELEASE)! }
           : {}),
+        ...(this.flakeyOpts.environment || process.env.FLAKEY_ENV || process.env.TEST_ENV
+          ? { environment: (this.flakeyOpts.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV)! }
+          : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,

@@ -11,6 +11,13 @@ export interface ReporterOptions {
    * will upsert the release by (org_id, version) and link the run into it.
    */
   release?: string;
+  /**
+   * Target environment label (e.g. "qa", "stage", "prod"). Falls back to
+   * `process.env.FLAKEY_ENV` then `process.env.TEST_ENV` in each reporter.
+   * Stored on `runs.environment` (NOT NULL DEFAULT '' — migration 033) so
+   * the dashboard can group runs by env.
+   */
+  environment?: string;
   screenshotsDir?: string;
   videosDir?: string;
   snapshotsDir?: string;
@@ -27,6 +34,8 @@ export interface NormalizedRun {
     reporter: string;
     /** Release version — see ReporterOptions.release. Optional. */
     release?: string;
+    /** Target environment label — see ReporterOptions.environment. Optional. */
+    environment?: string;
   };
   stats: {
     total: number;

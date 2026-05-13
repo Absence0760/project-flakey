@@ -200,6 +200,9 @@ export default class FlakeyPlaywrightReporter {
         ...(this.options.release || process.env.FLAKEY_RELEASE
           ? { release: (this.options.release ?? process.env.FLAKEY_RELEASE)! }
           : {}),
+        ...(this.options.environment || process.env.FLAKEY_ENV || process.env.TEST_ENV
+          ? { environment: (this.options.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV)! }
+          : {}),
       },
       stats: { total, passed, failed, skipped, pending: 0, duration_ms: duration },
       specs,

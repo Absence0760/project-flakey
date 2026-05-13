@@ -49,6 +49,7 @@ beforeEach(() => {
     "COMMIT_SHA", "GITHUB_SHA", "BITBUCKET_COMMIT",
     "CI_RUN_ID", "GITHUB_RUN_ID", "BITBUCKET_BUILD_NUMBER",
     "FLAKEY_RELEASE",
+    "FLAKEY_ENV", "TEST_ENV",
   ]) delete process.env[k];
 });
 afterEach(() => {
@@ -316,6 +317,41 @@ test("release option / FLAKEY_RELEASE env adds run.meta.release; absent → fiel
     assert.equal(payload.meta.release, "v1.2.3");
   } finally {
     delete process.env.FLAKEY_RELEASE;
+  }
+});
+
+test("FLAKEY_ENV / TEST_ENV env populate run.meta.environment; absent → field omitted", async () => {
+  // No env → omitted entirely.
+  {
+    const r = new FlakeyWdioReporter({
+      url: URL, apiKey: API_KEY, suite: SUITE,
+      logFile: "/tmp/wdio.log",
+    });
+    r.onRunnerStart(runnerStats());
+    r.onSuiteStart(suiteStats("a.spec.js", "A"));
+    r.onTestPass(testStats("x", "A > x", 1));
+    await r.onRunnerEnd(runnerStats());
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.environment, undefined);
+  }
+
+  // FLAKEY_ENV → forwarded.
+  process.env.FLAKEY_ENV = "qa";
+  fetchMock = makeFetchMock();
+  globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+  try {
+    const r = new FlakeyWdioReporter({
+      url: URL, apiKey: API_KEY, suite: SUITE,
+      logFile: "/tmp/wdio.log",
+    });
+    r.onRunnerStart(runnerStats());
+    r.onSuiteStart(suiteStats("a.spec.js", "A"));
+    r.onTestPass(testStats("x", "A > x", 1));
+    await r.onRunnerEnd(runnerStats());
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.environment, "qa");
+  } finally {
+    delete process.env.FLAKEY_ENV;
   }
 });
 
