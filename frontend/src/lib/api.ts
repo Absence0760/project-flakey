@@ -46,7 +46,10 @@ export interface Run {
   spec_files: string[] | null;
   new_failures: number;
   aborted?: boolean;
-  environment?: string;
+  // `runs.environment` is `NOT NULL DEFAULT ''` (migration 033) so the
+  // backend always returns a string here, never null/undefined. Empty
+  // string means "no environment label set".
+  environment: string;
 }
 
 export async function fetchEnvironments(): Promise<string[]> {

@@ -1,8 +1,21 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import pool from "../db.js";
 import { decryptSecret } from "../crypto.js";
 
 const router = Router();
+
+// All connectivity probes are admin/owner-only — they read org secrets
+// (git tokens), trigger outbound calls to integrations, and send
+// transactional mail. Viewer/contributor roles shouldn't be able to
+// fan out org-credentialled requests.
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const role = req.user?.orgRole;
+  if (role !== "owner" && role !== "admin") {
+    res.status(403).json({ error: "Admin or owner role required" });
+    return;
+  }
+  next();
+});
 
 // POST /connectivity/database — test database connection
 router.post("/database", async (_req, res) => {

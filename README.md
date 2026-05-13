@@ -335,8 +335,8 @@ after-script:
 | `CORS_ORIGINS` | `http://localhost:7778` | Allowed origins (comma-separated) |
 | `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
 | `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
-| `NODE_ENV` | — | Set `production` to enforce JWT_SECRET and strict CORS |
-| `FLAKEY_ENCRYPTION_KEY` | — | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Unset = plaintext passthrough (local dev). |
+| `NODE_ENV` | — | Set `production` to refuse boot without JWT_SECRET and FLAKEY_ENCRYPTION_KEY. CORS_ORIGINS still applies the same allow-list in any env — there's no looser dev-only fallback. |
+| `FLAKEY_ENCRYPTION_KEY` | _(required in production)_ | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Unset = plaintext passthrough (local dev only — backend refuses to start in production). |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | — | SMTP settings for scheduled-report email delivery and auth verification/reset |
 
 ### Frontend

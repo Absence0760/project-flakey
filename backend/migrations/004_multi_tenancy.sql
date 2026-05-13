@@ -59,7 +59,20 @@ ALTER TABLE api_keys ALTER COLUMN org_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_runs_org ON runs(org_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_org ON api_keys(org_id);
 
--- 7. Security definer function for API key lookup (bypasses RLS)
+-- 7. Security definer function for API key lookup (bypasses RLS).
+--
+-- requireAuth (backend/src/auth.ts) calls this BEFORE app.current_org_id
+-- is set — at request entry the caller has supplied a `fk_<prefix>...`
+-- bearer but we don't yet know which org it belongs to. The function is
+-- SECURITY DEFINER so it runs with the schema owner's RLS-exempt
+-- privileges and returns the org_id, which the request handler then
+-- pins into `app.current_org_id` for all subsequent tenantQuery() calls
+-- in that request.
+--
+-- The lookup is keyed on `key_prefix` only (a deterministic prefix of
+-- the bearer); the row's `key_hash` is then bcrypt-compared against
+-- the full bearer in JS. That keeps the SQL bypass narrow: this
+-- function reveals which prefixes exist, not which bearers are valid.
 CREATE OR REPLACE FUNCTION lookup_api_key(p_prefix TEXT)
 RETURNS TABLE(key_id INT, key_hash TEXT, user_id INT, email TEXT, name TEXT, user_role TEXT, org_id INT)
 LANGUAGE sql SECURITY DEFINER

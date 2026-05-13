@@ -195,7 +195,13 @@ jobs:
           DB_USER: flakey_app
           DB_PASSWORD: flakey_app
           DB_NAME: flakey
-          JWT_SECRET: ci-e2e-test-secret
+          # Pull from a repo secret when one is set, fall back to a
+          # static placeholder for forked-PR / fresh-clone runs that
+          # can't read repo secrets. Either way the value is throwaway
+          # — JWT_SECRET only needs to be unique-per-environment, not
+          # cryptographically strong, when there's no production data
+          # to defend.
+          JWT_SECRET: ${{ secrets.CI_JWT_SECRET || 'ci-e2e-test-secret' }}
           ALLOW_REGISTRATION: "true"
           NODE_ENV: test
           CORS_ORIGINS: http://localhost:7778
