@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../db.js";
-import { tenantQuery } from "../db.js";
+import { tenantQuery, userScopedQuery } from "../db.js";
 import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 import { logAudit } from "../audit.js";
@@ -266,7 +266,10 @@ router.post("/refresh", async (req, res) => {
     // natural exp (max 7d) so the upgrade doesn't sign out every
     // active user on deploy.
     if (typeof payload.jti === "string") {
-      const revoked = await pool.query(
+      // userScopedQuery sets app.current_user_id so the
+      // revoked_refresh_tokens RLS policy (migration 040) admits the row.
+      const revoked = await userScopedQuery(
+        Number(payload.id),
         "SELECT 1 FROM revoked_refresh_tokens WHERE jti = $1",
         [payload.jti],
       );
@@ -297,7 +300,8 @@ router.post("/refresh", async (req, res) => {
     // refreshes first, the attacker's subsequent /auth/refresh
     // 401s — self-detection of the compromise.
     if (typeof payload.jti === "string") {
-      await pool.query(
+      await userScopedQuery(
+        Number(payload.id),
         "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
         [payload.jti, payload.id],
       );
@@ -335,7 +339,8 @@ router.post("/logout", async (req, res) => {
         process.env.JWT_SECRET ?? "flakey-dev-secret-change-me",
       ) as any;
       if (payload.type === "refresh" && typeof payload.jti === "string") {
-        await pool.query(
+        await userScopedQuery(
+          Number(payload.id),
           "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
           [payload.jti, payload.id],
         );

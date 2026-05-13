@@ -35,6 +35,37 @@ export async function tenantQuery(
 }
 
 /**
+ * Run a query scoped to a user via RLS. Used for tables (currently
+ * `revoked_refresh_tokens`) that are per-user rather than per-org —
+ * the auth flow doesn't have an org context yet at /auth/refresh /
+ * /auth/logout time, so tenantQuery doesn't apply, but we still want
+ * RLS to enforce that a query for one user can't read another user's
+ * rows.
+ *
+ * Same shape as tenantQuery: wraps in a transaction so set_config is
+ * scoped and cannot leak to other pool users.
+ */
+export async function userScopedQuery(
+  userId: number,
+  text: string,
+  params?: unknown[]
+): Promise<pg.QueryResult> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_user_id', $1::text, true)", [String(userId)]);
+    const result = await client.query(text, params);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Run multiple queries in a single transaction scoped to an organization.
  */
 export async function tenantTransaction(
