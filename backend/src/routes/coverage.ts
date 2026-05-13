@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool, { tenantQuery } from "../db.js";
+import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 
 const router = Router();
@@ -74,7 +74,8 @@ router.post("/", async (req, res) => {
 
     // PR gating: check coverage threshold and post a commit status
     try {
-      const orgRow = await pool.query(
+      const orgRow = await tenantQuery(
+        req.user!.orgId,
         "SELECT coverage_threshold, coverage_gate_enabled FROM organizations WHERE id = $1",
         [req.user!.orgId]
       );
@@ -159,7 +160,8 @@ router.get("/trend", async (req, res) => {
 // GET /coverage/settings  — gating configuration
 router.get("/settings", async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await tenantQuery(
+      req.user!.orgId,
       "SELECT coverage_threshold, coverage_gate_enabled FROM organizations WHERE id = $1",
       [req.user!.orgId]
     );
@@ -197,7 +199,7 @@ router.patch("/settings", async (req, res) => {
       return;
     }
     params.push(req.user!.orgId);
-    await pool.query(`UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
+    await tenantQuery(req.user!.orgId, `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
     await logAudit(req.user!.orgId, req.user!.id, "coverage.settings.update", "settings", "coverage");
     res.json({ updated: true });
   } catch (err) {

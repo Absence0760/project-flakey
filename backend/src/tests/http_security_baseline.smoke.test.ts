@@ -57,11 +57,16 @@ before(async () => {
       DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "http-baseline-test-secret",
+      // Required by the production-mode boot guard (added in
+      // backend/src/index.ts). Throwaway value — this test only
+      // exercises HTTP headers, never reads/writes encrypted secrets.
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
       ALLOW_REGISTRATION: "true",
       // Run in NODE_ENV=production so CORS enforces the origin
       // allowlist (in development cors is permissive) and the
       // cookie flags pick up Secure + SameSite=Strict. Requires
-      // JWT_SECRET set, which the spawn env already supplies.
+      // JWT_SECRET + FLAKEY_ENCRYPTION_KEY set, which the spawn env
+      // already supplies.
       NODE_ENV: "production",
       CORS_ORIGINS: "https://frontend.example.com",
       AUTH_RATE_LIMIT_MAX: "500",

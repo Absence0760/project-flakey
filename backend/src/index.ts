@@ -292,6 +292,7 @@ app.use("/auth/register", authLimiter);
 app.use("/auth/forgot-password", authLimiter);
 app.use("/auth/reset-password", authLimiter);
 app.use("/auth/resend-verification", authLimiter);
+app.use("/auth/verify-email", authLimiter);
 app.use("/auth/refresh", authLimiter);
 app.use("/auth/logout", authLimiter);
 app.use("/auth", authRouter);

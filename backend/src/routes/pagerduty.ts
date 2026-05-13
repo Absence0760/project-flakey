@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool from "../db.js";
+import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { triggerPagerDutyEvent } from "../integrations/pagerduty.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
@@ -9,7 +9,8 @@ const router = Router();
 // GET /pagerduty/settings
 router.get("/settings", async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await tenantQuery(
+      req.user!.orgId,
       `SELECT pagerduty_integration_key IS NOT NULL AS has_key,
               pagerduty_severity, pagerduty_auto_trigger
        FROM organizations WHERE id = $1`,
@@ -54,7 +55,7 @@ router.patch("/settings", async (req, res) => {
     }
 
     params.push(req.user!.orgId);
-    await pool.query(`UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
+    await tenantQuery(req.user!.orgId, `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
     await logAudit(req.user!.orgId, req.user!.id, "pagerduty.settings.update", "settings", "pagerduty");
     res.json({ updated: true });
   } catch (err) {
@@ -70,7 +71,8 @@ router.post("/test", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const result = await pool.query(
+    const result = await tenantQuery(
+      req.user!.orgId,
       "SELECT pagerduty_integration_key, pagerduty_severity FROM organizations WHERE id = $1",
       [req.user!.orgId]
     );

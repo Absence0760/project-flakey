@@ -60,6 +60,10 @@ router.post("/email", async (req, res) => {
 router.post("/git", async (req, res) => {
   try {
     const orgId = req.user!.orgId;
+    // organizations has no RLS — `WHERE id = $1` bound to req.user!.orgId
+    // is the sole tenant boundary. Router-level admin/owner check above
+    // narrows callers further. Kept on pool.query (not tenantQuery)
+    // because there's no RLS gate to set up; same pattern as auth.ts.
     const result = await pool.query(
       "SELECT git_provider, git_token, git_repo, git_base_url FROM organizations WHERE id = $1",
       [orgId]

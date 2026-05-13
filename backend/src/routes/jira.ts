@@ -1,5 +1,5 @@
 import { Router } from "express";
-import pool, { tenantQuery } from "../db.js";
+import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { createIssueForFingerprint, createJiraIssue } from "../integrations/jira.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
@@ -10,7 +10,8 @@ const router = Router();
 // GET /jira/settings
 router.get("/settings", async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await tenantQuery(
+      req.user!.orgId,
       `SELECT jira_base_url, jira_email, jira_project_key, jira_issue_type,
               jira_auto_create,
               jira_api_token IS NOT NULL AS has_api_token
@@ -65,7 +66,7 @@ router.patch("/settings", async (req, res) => {
     }
 
     params.push(req.user!.orgId);
-    await pool.query(`UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
+    await tenantQuery(req.user!.orgId, `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
     await logAudit(req.user!.orgId, req.user!.id, "jira.settings.update", "settings", "jira");
     res.json({ updated: true });
   } catch (err) {
@@ -77,7 +78,8 @@ router.patch("/settings", async (req, res) => {
 // POST /jira/test — verify credentials by hitting /myself
 router.post("/test", async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await tenantQuery(
+      req.user!.orgId,
       `SELECT jira_base_url, jira_email, jira_api_token FROM organizations WHERE id = $1`,
       [req.user!.orgId]
     );
@@ -93,7 +95,12 @@ router.post("/test", async (req, res) => {
     });
     res.json({ ok: resp.ok, status: resp.status });
   } catch (err) {
-    res.json({ ok: false, status: 0, error: (err as Error).message });
+    // Surface a fixed error string to the client. The original error
+    // can include decryptSecret failures that embed ciphertext, or
+    // fetch errors that leak the configured base_url path. Logged
+    // server-side for diagnosis.
+    console.error("POST /jira/test error:", err);
+    res.json({ ok: false, status: 0, error: "Jira test failed" });
   }
 });
 
@@ -110,7 +117,8 @@ router.post("/issues", async (req, res) => {
       return;
     }
 
-    const cfg = await pool.query(
+    const cfg = await tenantQuery(
+      req.user!.orgId,
       `SELECT jira_base_url, jira_email, jira_api_token, jira_project_key, jira_issue_type
        FROM organizations WHERE id = $1`,
       [req.user!.orgId]

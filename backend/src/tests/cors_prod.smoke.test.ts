@@ -64,6 +64,10 @@ before(async () => {
       DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "cors-prod-test-secret",
+      // Required by the production-mode boot guard (added in
+      // backend/src/index.ts). Throwaway value — this test only
+      // exercises CORS, never reads/writes encrypted secrets.
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
       NODE_ENV: "production",
       // The unit under test.
       CORS_ORIGINS: ALLOWED,

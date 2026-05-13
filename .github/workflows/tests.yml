@@ -195,17 +195,16 @@ jobs:
           DB_USER: flakey_app
           DB_PASSWORD: flakey_app
           DB_NAME: flakey
-          # Pull from a repo secret when one is set, fall back to a
-          # static placeholder for forked-PR / fresh-clone runs that
-          # can't read repo secrets. Either way the value is throwaway
-          # — JWT_SECRET only needs to be unique-per-environment, not
-          # cryptographically strong, when there's no production data
-          # to defend.
-          JWT_SECRET: ${{ secrets.CI_JWT_SECRET || 'ci-e2e-test-secret' }}
           ALLOW_REGISTRATION: "true"
           NODE_ENV: test
           CORS_ORIGINS: http://localhost:7778
+        # Generate the JWT signing key in-job. Repo secrets aren't
+        # available on forked PRs, and a static fallback would let a
+        # forked-PR author predict the CI backend's signing key. A
+        # fresh `openssl rand` each run keeps the CI backend
+        # unforgeable without depending on a repo secret existing.
         run: |
+          export JWT_SECRET="$(openssl rand -hex 32)"
           npx tsx src/index.ts > /tmp/backend.log 2>&1 &
           echo $! > /tmp/backend.pid
           for i in $(seq 1 30); do
