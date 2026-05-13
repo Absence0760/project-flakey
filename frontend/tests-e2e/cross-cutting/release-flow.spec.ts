@@ -109,11 +109,21 @@ test.describe("release-flow E2E (admin happy path)", () => {
     // linkManualTests, which remounts the {#if loading}/{:else if
     // release} branch — the <details> collapses to its initial
     // closed state. So we re-open it after the action to assert.
+    //
+    // Two notes on the selectors below:
+    //   * Click `.summary-left` rather than the whole `<summary>` —
+    //     the summary's right side now holds two button-spans
+    //     (`+ Add by group`, `+ Link tests`) with `stopPropagation`,
+    //     and a centre-of-element click can land on the wrong span,
+    //     opening the group picker without toggling the <details>.
+    //   * The linked-tests-panel now renders TWO `.picker` divs
+    //     (group picker + manual-test picker) — scope the locator
+    //     to the manual-test picker by its heading text.
     const testsSection = page.locator(".linked-tests-panel details");
-    await testsSection.locator("summary").click();
+    await testsSection.locator(".summary-left").click();
     await testsSection.locator(".btn-ghost", { hasText: /Link tests/ }).click();
 
-    const testPicker = testsSection.locator(".picker");
+    const testPicker = testsSection.locator(".picker", { hasText: "Pick manual tests" });
     await expect(testPicker).toBeVisible({ timeout: 5_000 });
     await testPicker.locator(".picker-row").first().locator('input[type="checkbox"]').check();
     await testPicker.getByRole("button", { name: /Link selected/ }).click();
@@ -123,7 +133,7 @@ test.describe("release-flow E2E (admin happy path)", () => {
     await expect(testPicker).toBeHidden({ timeout: 5_000 });
     const testsSectionReopened = page.locator(".linked-tests-panel details");
     if ((await testsSectionReopened.evaluate((el: HTMLDetailsElement) => el.open)) === false) {
-      await testsSectionReopened.locator("summary").click();
+      await testsSectionReopened.locator(".summary-left").click();
     }
     await expect(testsSectionReopened.locator(".link-list li").first()).toBeVisible({
       timeout: 5_000,
