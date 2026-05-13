@@ -208,6 +208,7 @@
 				<a href="#features">Features</a>
 				<a href="#compare">Compare</a>
 				<a href="#how-it-works">How it works</a>
+				<a href="https://github.com/Absence0760/project-flakey#self-host" rel="noopener" target="_blank">Self-host ↗</a>
 				<a href="/login" class="topnav-cta" onclick={go('/login')}>Sign in →</a>
 			</nav>
 		</header>
@@ -225,6 +226,19 @@
 					{#if showRegister}
 						<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
 					{/if}
+					<a
+						href="https://github.com/Absence0760/project-flakey#self-host"
+						rel="noopener"
+						target="_blank"
+						class="btn ghost"
+					>
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+							<path d="M5 7l3-3 3 3M8 4v8" />
+						</svg>
+						Self-host
+						<span class="external-arrow">↗</span>
+					</a>
 				</div>
 				{#if registrationOpen === false}
 					<div class="invite-only-note" data-test="invite-only-note">

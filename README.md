@@ -361,18 +361,40 @@ after-script:
 | `FLAKEY_API_URL` | `http://localhost:3000` | Backend API URL |
 | `FLAKEY_API_KEY` | — | API key for authentication |
 
-## Deployment
+<a id="self-host"></a>
+## Self-host
 
-Deploy to AWS with Terraform (ECS Fargate + RDS + S3/CloudFront):
+Flakey is MIT-licensed and the entire stack — backend, frontend, reporters, infra — is in this repo. Two supported paths:
+
+### Local / single-VM (Docker Compose)
+
+```bash
+git clone https://github.com/Absence0760/project-flakey.git
+cd project-flakey
+pnpm install
+pnpm db:up                       # start Postgres in Docker
+cp backend/.env.example backend/.env    # edit JWT_SECRET, FLAKEY_ENCRYPTION_KEY at minimum
+pnpm dev                         # backend :3000, frontend :7778
+```
+
+The dev defaults run everything on one machine. Generate real secrets with `openssl rand -hex 32`; `JWT_SECRET` and `FLAKEY_ENCRYPTION_KEY` are required in production (the backend refuses to boot without them when `NODE_ENV=production`). See [docs/run-locally.md](docs/run-locally.md).
+
+### AWS (ECS Fargate + RDS + S3/CloudFront)
 
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars
+# Edit every <placeholder> — terraform refuses to plan otherwise.
+# At minimum: app_name, aws_region, acm_certificate_arn,
+# csp_connect_src (your API origin), budget_alert_email.
 terraform init && terraform apply
 ```
 
-See [infra/README.md](infra/README.md) for full setup guide and cost breakdown (~$72/month).
+Nothing in the stack hard-codes the upstream domain — every value is a Terraform variable. See [infra/README.md](infra/README.md) for the self-hoster checklist, the full setup walkthrough, and a cost breakdown (~$72/month for the default `db.t4g.micro` + minimal-traffic profile).
+
+## Deployment
+
+Same Terraform stack — see Self-host above.
 
 **CI/CD pipelines** (GitHub Actions):
 - `deploy.yml` — builds and deploys backend (Docker → ECS) and frontend (static → S3/CloudFront) on GitHub release publish (tag `app@*`) or manual dispatch

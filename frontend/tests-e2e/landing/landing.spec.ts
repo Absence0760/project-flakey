@@ -55,6 +55,19 @@ test.describe("/ landing page — unauthenticated", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
+  test("'Self-host' CTA links out to the GitHub README anchor (no client-side nav)", async ({ page }) => {
+    // The Self-host CTA points at the upstream repo's README#self-host
+    // section. We don't click it (target=_blank + external) — just
+    // assert the link is present and well-formed so a future copy
+    // edit that drops it surfaces in CI.
+    await page.goto("/");
+    const cta = page.getByRole("link", { name: /^Self-host/ }).first();
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute("href", /github\.com.+#self-host/);
+    await expect(cta).toHaveAttribute("target", "_blank");
+    await expect(cta).toHaveAttribute("rel", /noopener/);
+  });
+
   test("clicking 'Create an account' lands on /login?mode=register so the form opens in register mode", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: /create an account/i }).first().click();
