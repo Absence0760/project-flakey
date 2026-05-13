@@ -137,6 +137,72 @@ test("FLAKEY_ENV env var is the fallback for environment when config doesn't set
   }
 });
 
+test("cypressConfig.env.name is the LAST fallback for environment (cypress run --env name=qa)", async () => {
+  // When a Cypress consumer wires this adapter directly (not via
+  // setupFlakey), they pass the cypress config as a third arg so the
+  // adapter can see `--env name=qa` / `--env environment=qa`. Without
+  // this, the run label silently drops and the dashboard groups under
+  // an empty environment string — confusing for any consumer using the
+  // standard Cypress `--env name=` convention.
+  const { on, handlers } = makeOn();
+  register(
+    on as any,
+    { url: URL, apiKey: API_KEY, suite: SUITE },
+    { env: { name: "qa-from-cypress-cli" } },
+  );
+  await handlers.get("before:run")!();
+  await handlers.get("after:run")!({ totalFailed: 0 });
+
+  const startBody = JSON.parse(
+    fetchMock.calls.find((c) => c.url.endsWith("/live/start"))!.opts.body as string,
+  );
+  assert.equal(startBody.environment, "qa-from-cypress-cli");
+});
+
+test("cypressConfig.env.environment is preferred over cypressConfig.env.name (matches plugin.ts setupFlakey)", async () => {
+  // Both keys are Cypress conventions for labelling environments.
+  // Match the existing setupFlakey resolution order: `environment` wins
+  // over `name` so a consumer using both gets the more-specific key.
+  const { on, handlers } = makeOn();
+  register(
+    on as any,
+    { url: URL, apiKey: API_KEY, suite: SUITE },
+    { env: { name: "fallback", environment: "preferred" } },
+  );
+  await handlers.get("before:run")!();
+  await handlers.get("after:run")!({ totalFailed: 0 });
+
+  const startBody = JSON.parse(
+    fetchMock.calls.find((c) => c.url.endsWith("/live/start"))!.opts.body as string,
+  );
+  assert.equal(startBody.environment, "preferred");
+});
+
+test("FLAKEY_ENV wins over cypressConfig.env.name (env var beats CLI flag)", async () => {
+  process.env.FLAKEY_ENV = "from-env";
+  try {
+    const { on, handlers } = makeOn();
+    register(
+      on as any,
+      { url: URL, apiKey: API_KEY, suite: SUITE },
+      { env: { name: "from-cypress-cli" } },
+    );
+    await handlers.get("before:run")!();
+    await handlers.get("after:run")!({ totalFailed: 0 });
+
+    const startBody = JSON.parse(
+      fetchMock.calls.find((c) => c.url.endsWith("/live/start"))!.opts.body as string,
+    );
+    assert.equal(
+      startBody.environment,
+      "from-env",
+      "an explicit FLAKEY_ENV should beat a Cypress --env flag",
+    );
+  } finally {
+    delete process.env.FLAKEY_ENV;
+  }
+});
+
 test("before:spec emits spec.started with spec.relative", async () => {
   const { on, handlers } = makeOn();
   register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE });

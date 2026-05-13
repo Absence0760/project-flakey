@@ -34,6 +34,38 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<RunRe
   });
 }
 
+test("resolveOptions: suiteName falls back to FLAKEY_SUITE env when --suite is absent", async () => {
+  // FLAKEY_SUITE is the canonical env-var name across every reporter
+  // adapter. Without this fallback, a CI invocation that exports
+  // FLAKEY_SUITE but omits --suite silently filed runs under "default".
+  process.env.FLAKEY_SUITE = "ci-env-suite";
+  try {
+    const { resolveOptions } = await import("../index.ts");
+    const opts = resolveOptions({});
+    assert.equal(opts.suiteName, "ci-env-suite");
+  } finally {
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
+test("resolveOptions: --suite wins over FLAKEY_SUITE env var", async () => {
+  process.env.FLAKEY_SUITE = "ci-env-suite";
+  try {
+    const { resolveOptions } = await import("../index.ts");
+    const opts = resolveOptions({ suite: "explicit-suite" });
+    assert.equal(opts.suiteName, "explicit-suite");
+  } finally {
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
+test("resolveOptions: with no --suite and no FLAKEY_SUITE, falls back to literal 'default'", async () => {
+  delete process.env.FLAKEY_SUITE;
+  const { resolveOptions } = await import("../index.ts");
+  const opts = resolveOptions({});
+  assert.equal(opts.suiteName, "default");
+});
+
 test("`flakey-cli <unknown-subcommand>` prints help and exits non-zero", async () => {
   const { code, stderr } = await runCli(["does-not-exist"]);
   assert.notEqual(code, 0, "unknown subcommand must exit with non-zero status");

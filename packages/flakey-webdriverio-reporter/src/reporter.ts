@@ -41,8 +41,19 @@ export default class FlakeyWdioReporter extends WDIOReporter {
 
   constructor(options: any) {
     super(options);
-    this.flakeyOpts = options as FlakeyWdioOptions;
-    this.client = new ApiClient(this.flakeyOpts);
+    // Env-var fallbacks for the canonical FLAKEY_* names. The live-
+    // reporter adapters all read these; without them, a CI consumer
+    // that sets only env vars (the documented pattern) got an empty
+    // `url`/`apiKey` and every upload threw. Options still win when
+    // present in wdio.conf.ts.
+    const resolved: FlakeyWdioOptions = {
+      ...(options as FlakeyWdioOptions),
+      url: (options as FlakeyWdioOptions).url ?? process.env.FLAKEY_API_URL ?? "",
+      apiKey: (options as FlakeyWdioOptions).apiKey ?? process.env.FLAKEY_API_KEY ?? "",
+      suite: (options as FlakeyWdioOptions).suite ?? process.env.FLAKEY_SUITE ?? "default",
+    };
+    this.flakeyOpts = resolved;
+    this.client = new ApiClient(resolved);
   }
 
   onRunnerStart(runner: RunnerStats) {

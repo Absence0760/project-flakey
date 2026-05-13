@@ -28,5 +28,14 @@ Expected file formats are documented in `docs/uploading-results.md`.
 |---|---|---|
 | `FLAKEY_API_URL` | `http://localhost:3000` | Backend API URL |
 | `FLAKEY_API_KEY` | — | API key for authentication |
+| `FLAKEY_SUITE` | `default` | Suite-name fallback when `--suite` is omitted |
+| `FLAKEY_RELEASE` | — | Release version label; backend upserts the release row + links the run |
+| `FLAKEY_ENV` / `TEST_ENV` | — | Target environment label (e.g. `qa`, `stage`) stored on `runs.environment` |
 
-CI metadata (`BRANCH`, `COMMIT_SHA`, `CI_RUN_ID`) is read from standard env vars; see the GitHub Actions snippet in the root README.
+CI-metadata chains (same ordering as the reporter packages):
+
+- `BRANCH` → `GITHUB_HEAD_REF` → `GITHUB_REF_NAME` → `BITBUCKET_BRANCH`
+- `COMMIT_SHA` → `GITHUB_SHA` → `BITBUCKET_COMMIT`
+- `CI_RUN_ID` → `GITHUB_RUN_ID` → `BITBUCKET_BUILD_NUMBER`
+
+`GITHUB_HEAD_REF` is preferred over `GITHUB_REF_NAME` because GitHub Actions sets `GITHUB_HEAD_REF` to the source branch on pull-request runs (the more useful value); `GITHUB_REF_NAME` on a PR is the merge ref.

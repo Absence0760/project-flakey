@@ -21,21 +21,18 @@ interface UploadOptions {
   apiKey: string;
 }
 
-function parseArgs(): UploadOptions {
-  const args = process.argv.slice(2);
-  const opts: Record<string, string> = {};
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) {
-      const key = args[i].slice(2);
-      opts[key] = args[i + 1] ?? "";
-      i++;
-    }
-  }
-
+// Exported for unit testing (src/tests/cli.test.ts). The resolution
+// chain has multiple fallbacks per field and is exactly the kind of
+// thing that silently regresses — pin it.
+export function resolveOptions(opts: Record<string, string>): UploadOptions {
   return {
     reportDir: resolve(opts["report-dir"] ?? "cypress/reports"),
-    suiteName: opts["suite"] ?? "default",
+    // FLAKEY_SUITE env-var fallback so CI consumers can drop the
+    // --suite flag entirely (matches the live-reporter adapters and the
+    // main playwright/wdio reporters). Without it, a CI invocation that
+    // sets FLAKEY_SUITE but omits --suite silently filed everything
+    // under "default".
+    suiteName: opts["suite"] ?? process.env.FLAKEY_SUITE ?? "default",
     // Env-var resolution chains aligned with the reporter packages.
     // GHA / Bitbucket fallbacks cover the common-CI default vars so a
     // user who runs `flakey-upload` from GitHub Actions without
@@ -51,6 +48,21 @@ function parseArgs(): UploadOptions {
     snapshotsDir: resolve(opts["snapshots-dir"] ?? "cypress/snapshots"),
     apiKey: opts["api-key"] ?? API_KEY,
   };
+}
+
+function parseArgs(): UploadOptions {
+  const args = process.argv.slice(2);
+  const opts: Record<string, string> = {};
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--")) {
+      const key = args[i].slice(2);
+      opts[key] = args[i + 1] ?? "";
+      i++;
+    }
+  }
+
+  return resolveOptions(opts);
 }
 
 function findReportFile(dir: string, reporter: string): { path: string; isXml: boolean } | null {
@@ -385,24 +397,38 @@ async function uploadUiCoverage(args: string[]): Promise<void> {
   await postJSON("/ui-coverage/visits", { suite_name: suite, run_id: runId, visits }, apiKey);
 }
 
-(async () => {
-  const argv = process.argv.slice(2);
-  const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
-  const rest = sub ? argv.slice(1) : argv;
+// Guard the CLI dispatch so this module can be imported by unit tests
+// for resolveOptions (and any future testable helper) without firing
+// the upload pipeline. The `bin` shebang invocation passes
+// process.argv[1] = path-to-this-file, so when run as a CLI the guard
+// is true; when imported via `await import(...)` from a test, argv[1]
+// is the test runner.
+const invokedAsCli =
+  process.argv[1] &&
+  (process.argv[1].endsWith("/index.js") ||
+    process.argv[1].endsWith("/index.ts") ||
+    process.argv[1].endsWith("/flakey-upload"));
 
-  switch (sub) {
-    case "coverage":   await uploadCoverage(rest);   break;
-    case "a11y":       await uploadA11y(rest);       break;
-    case "visual":     await uploadVisual(rest);     break;
-    case "ui-coverage": await uploadUiCoverage(rest); break;
-    case "upload":
-    case null:         await upload(parseArgs());    break;
-    default:
-      console.error(`Unknown subcommand: ${sub}`);
-      console.error("Available: upload, coverage, a11y, visual, ui-coverage");
-      process.exit(1);
-  }
-})().catch((err) => {
-  console.error(`flakey-upload: unexpected error — ${err?.message ?? err}`);
-  process.exit(1);
-});
+if (invokedAsCli) {
+  (async () => {
+    const argv = process.argv.slice(2);
+    const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
+    const rest = sub ? argv.slice(1) : argv;
+
+    switch (sub) {
+      case "coverage":   await uploadCoverage(rest);   break;
+      case "a11y":       await uploadA11y(rest);       break;
+      case "visual":     await uploadVisual(rest);     break;
+      case "ui-coverage": await uploadUiCoverage(rest); break;
+      case "upload":
+      case null:         await upload(parseArgs());    break;
+      default:
+        console.error(`Unknown subcommand: ${sub}`);
+        console.error("Available: upload, coverage, a11y, visual, ui-coverage");
+        process.exit(1);
+    }
+  })().catch((err) => {
+    console.error(`flakey-upload: unexpected error — ${err?.message ?? err}`);
+    process.exit(1);
+  });
+}

@@ -89,11 +89,31 @@ interface MochaLiveConfig {
 
 export function register(
   on: (event: string, handler: (...args: any[]) => void) => void,
-  config: MochaLiveConfig = {}
+  config: MochaLiveConfig = {},
+  // Optional Cypress `config` object from setupNodeEvents — when
+  // present, lets the environment-resolution chain see Cypress's own
+  // conventions (`cypress run --env name=qa` lands at config.env.name;
+  // `--env environment=qa` lands at config.env.environment). Without
+  // this, a consumer wiring this adapter directly (not via setupFlakey)
+  // would silently drop the environment label that the Cypress
+  // ecosystem expects to work. setupFlakey in flakey-cypress-reporter
+  // already pre-resolves these and passes them via `config.environment`
+  // — this parameter only matters for direct callers.
+  cypressConfig?: { env?: Record<string, unknown> }
 ): ((results: unknown) => Promise<void>) | undefined {
   const url = (config.url ?? process.env.FLAKEY_API_URL ?? "").replace(/\/$/, "");
   const apiKey = config.apiKey ?? process.env.FLAKEY_API_KEY ?? "";
   const suite = config.suite ?? process.env.FLAKEY_SUITE ?? "";
+
+  // Cypress `--env name=` and `--env environment=` conventions for
+  // labelling the run's target environment. Walked AFTER FLAKEY_ENV /
+  // TEST_ENV because an explicit env var should win over a Cypress
+  // CLI flag that might also be set for another tool's benefit.
+  const cypressEnv = cypressConfig?.env ?? {};
+  const cypressEnvironment =
+    (typeof cypressEnv.environment === "string" && cypressEnv.environment) ||
+    (typeof cypressEnv.name === "string" && cypressEnv.name) ||
+    "";
 
   if (!url || !apiKey) return;
 
@@ -130,7 +150,7 @@ export function register(
                 branch: config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
                 commitSha: config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
                 ciRunId: config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
-                environment: config.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? "",
+                environment: config.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? cypressEnvironment,
               }),
             });
             if (res.ok) {

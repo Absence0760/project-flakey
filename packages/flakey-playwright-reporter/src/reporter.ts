@@ -48,8 +48,20 @@ export default class FlakeyPlaywrightReporter {
   private traceMap = new Map<string, { tracePath: string; testTitle: string; specFile: string }>();
 
   constructor(options: ReporterOptions) {
-    this.options = options;
-    this.client = new ApiClient(options);
+    // Env-var fallbacks for the canonical FLAKEY_* names. The live-
+    // reporter adapters all do this; the main reporter previously
+    // didn't, so a CI consumer that set only env vars (the documented
+    // pattern) got an empty `url`/`apiKey` and every upload threw with
+    // a confusing "fetch failed" message. Resolution order is options
+    // → env, so an explicit `url` in playwright.config.ts still wins.
+    const resolved: ReporterOptions = {
+      ...options,
+      url: options.url ?? process.env.FLAKEY_API_URL ?? "",
+      apiKey: options.apiKey ?? process.env.FLAKEY_API_KEY ?? "",
+      suite: options.suite ?? process.env.FLAKEY_SUITE ?? "default",
+    };
+    this.options = resolved;
+    this.client = new ApiClient(resolved);
   }
 
   onTestEnd(test: PlaywrightTestCase, result: PlaywrightTestResult) {

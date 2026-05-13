@@ -6,15 +6,15 @@
   "main": "dist/plugin.js",
   "exports": {
     "./plugin": {
-      "types": "./plugin.d.ts",
+      "types": "./dist/plugin.d.ts",
       "default": "./plugin.js"
     },
     "./support": {
-      "types": "./support.d.ts",
+      "types": "./dist/support.d.ts",
       "default": "./support.js"
     },
     "./cucumber": {
-      "types": "./cucumber.d.ts",
+      "types": "./dist/cucumber.d.ts",
       "default": "./cucumber.js"
     }
   },

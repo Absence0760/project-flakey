@@ -444,7 +444,12 @@ export async function setupFlakey(
       // installAfterRun was added in @flakeytesting/live-reporter 0.6.0; older
       // versions ignore it and install their own after:run (which collides on
       // Cypress 15 but is harmless on earlier versions).
-      liveAfterRun = register(on, { url, apiKey, suite, environment, verbose, installAfterRun: false }) ?? undefined;
+      // Pass `config` through so register()'s cypressConfig parameter
+      // sees the Cypress env bag (--env name=qa / --env environment=qa).
+      // Belt-and-braces — we've already resolved `environment` above,
+      // but propagating the bag means a future field added to the
+      // resolution chain doesn't have to be threaded twice.
+      liveAfterRun = register(on, { url, apiKey, suite, environment, verbose, installAfterRun: false }, config) ?? undefined;
     } catch {
       // @flakeytesting/live-reporter not installed — skip
     }

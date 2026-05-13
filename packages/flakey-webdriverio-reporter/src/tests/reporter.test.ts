@@ -101,6 +101,64 @@ function uploadPayload(calls: Capture[]): any {
   throw new Error(`expected POST /runs or /runs/upload — saw ${calls.map((c) => c.url).join(", ")}`);
 }
 
+test("env-var fallback: constructor reads FLAKEY_API_URL / FLAKEY_API_KEY / FLAKEY_SUITE when options omit them", async () => {
+  // A CI consumer wiring this reporter as `[FlakeyReporter, { logFile }]`
+  // (credentials via env vars) must work — without the fallback the
+  // ApiClient gets url:"" and every upload throws.
+  process.env.FLAKEY_API_URL = "https://env-url.example.com";
+  process.env.FLAKEY_API_KEY = "fk_env_key";
+  process.env.FLAKEY_SUITE = "env-suite";
+  try {
+    const r = new FlakeyWdioReporter({ logFile: "/tmp/wdio.log" });
+    r.onRunnerStart(runnerStats());
+    r.onSuiteStart(suiteStats("a.spec.js", "A"));
+    r.onTestPass(testStats("x", "A > x", 1));
+    await r.onRunnerEnd(runnerStats());
+
+    assert.ok(
+      fetchMock.calls.length > 0,
+      "env-derived creds must produce a POST",
+    );
+    const call = fetchMock.calls[0];
+    assert.match(call.url, /env-url\.example\.com\/runs(\/upload)?$/);
+    assert.equal(call.opts.headers.Authorization, "Bearer fk_env_key");
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.suite_name, "env-suite");
+  } finally {
+    delete process.env.FLAKEY_API_URL;
+    delete process.env.FLAKEY_API_KEY;
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
+test("options win over env: explicit url/apiKey/suite override FLAKEY_* env vars", async () => {
+  process.env.FLAKEY_API_URL = "https://env-url.example.com";
+  process.env.FLAKEY_API_KEY = "fk_env_key";
+  process.env.FLAKEY_SUITE = "env-suite";
+  try {
+    const r = new FlakeyWdioReporter({
+      url: "https://options-url.example.com",
+      apiKey: "fk_options_key",
+      suite: "options-suite",
+      logFile: "/tmp/wdio.log",
+    });
+    r.onRunnerStart(runnerStats());
+    r.onSuiteStart(suiteStats("a.spec.js", "A"));
+    r.onTestPass(testStats("x", "A > x", 1));
+    await r.onRunnerEnd(runnerStats());
+
+    const call = fetchMock.calls[0];
+    assert.match(call.url, /options-url\.example\.com/);
+    assert.equal(call.opts.headers.Authorization, "Bearer fk_options_key");
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.suite_name, "options-suite");
+  } finally {
+    delete process.env.FLAKEY_API_URL;
+    delete process.env.FLAKEY_API_KEY;
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
 test("constructor stashes options + builds an ApiClient (no fetch yet)", () => {
   const r = new FlakeyWdioReporter({
     url: URL, apiKey: API_KEY, suite: SUITE,

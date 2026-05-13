@@ -38,9 +38,9 @@ export const config = {
 
 | Option | Type | Default | Notes |
 |--------|------|---------|-------|
-| `url` | string | — | Required. Backend base URL. |
-| `apiKey` | string | — | Required. |
-| `suite` | string | — | Required. Suite name shown in dashboard. |
+| `url` | string | `FLAKEY_API_URL` env | Required (option or env). Backend base URL. |
+| `apiKey` | string | `FLAKEY_API_KEY` env | Required (option or env). |
+| `suite` | string | `FLAKEY_SUITE` env, then `"default"` | Suite name shown in dashboard. |
 | `branch` | string | env fallback | `BRANCH` → `GITHUB_HEAD_REF` → `GITHUB_REF_NAME` → `BITBUCKET_BRANCH` |
 | `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` → `BITBUCKET_COMMIT` |
 | `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` → `BITBUCKET_BUILD_NUMBER` |

@@ -390,6 +390,70 @@ test("upload error is caught — onEnd resolves cleanly even when the network fa
   await r.onEnd({ status: "passed" });
 });
 
+test("env-var fallback: constructor reads FLAKEY_API_URL / FLAKEY_API_KEY / FLAKEY_SUITE when options are absent", async () => {
+  // The CI pattern in the docs is `reporter: ["@flakeytesting/playwright-reporter"]`
+  // with credentials supplied via env vars. Without the fallback the
+  // reporter's ApiClient constructed with `url: ""` and every upload
+  // throws on the first `/runs` POST.
+  process.env.FLAKEY_API_URL = "https://env-url.example.com";
+  process.env.FLAKEY_API_KEY = "fk_env_key";
+  process.env.FLAKEY_SUITE = "env-suite";
+  try {
+    // Construct with bare options to mimic the no-config CI invocation.
+    const r = new FlakeyPlaywrightReporter({} as any);
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+
+    // The POST should hit the env-derived URL with the env-derived
+    // bearer token, and the run payload should carry the env-derived
+    // suite name.
+    assert.ok(
+      fetchMock.calls.length > 0,
+      "reporter must POST even when only env vars are set",
+    );
+    const call = fetchMock.calls[0];
+    assert.match(call.url, /env-url\.example\.com\/runs(\/upload)?$/);
+    assert.equal(call.opts.headers.Authorization, "Bearer fk_env_key");
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.suite_name, "env-suite");
+  } finally {
+    delete process.env.FLAKEY_API_URL;
+    delete process.env.FLAKEY_API_KEY;
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
+test("options win over env: explicit url/apiKey/suite override FLAKEY_* env vars", async () => {
+  process.env.FLAKEY_API_URL = "https://env-url.example.com";
+  process.env.FLAKEY_API_KEY = "fk_env_key";
+  process.env.FLAKEY_SUITE = "env-suite";
+  try {
+    const r = new FlakeyPlaywrightReporter({
+      url: "https://options-url.example.com",
+      apiKey: "fk_options_key",
+      suite: "options-suite",
+    });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+
+    const call = fetchMock.calls[0];
+    assert.match(call.url, /options-url\.example\.com/);
+    assert.equal(call.opts.headers.Authorization, "Bearer fk_options_key");
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(payload.meta.suite_name, "options-suite");
+  } finally {
+    delete process.env.FLAKEY_API_URL;
+    delete process.env.FLAKEY_API_KEY;
+    delete process.env.FLAKEY_SUITE;
+  }
+});
+
 test("onEnd with zero collected tests still POSTs (covers the 'all tests skipped' edge — playwright sometimes calls onEnd without onTestEnd)", async () => {
   const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
   await r.onEnd({ status: "passed" });
