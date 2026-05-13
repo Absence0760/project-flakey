@@ -24,7 +24,21 @@ echo "Running migrations against $HOST:$PORT/$DB as $USER"
 for f in "$DIR"/*.sql; do
   name="$(basename "$f")"
   echo "  $name"
-  psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -f "$f" --quiet --set ON_ERROR_STOP=1 2>&1 | grep -v "already exists\|NOTICE" || true
+  # Run psql separately from the noise filter so the grep `|| true`
+  # can't mask a real failure. Capture psql output + status, then
+  # filter noise on the captured string. Previous form
+  # (`psql … 2>&1 | grep -v … || true`) let a half-applied migration
+  # silently print "Done." because the trailing `|| true`
+  # neutralised pipefail's last-non-zero rule.
+  set +e
+  out="$(psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -f "$f" --quiet --set ON_ERROR_STOP=1 2>&1)"
+  status=$?
+  set -e
+  echo "$out" | grep -v "already exists\|NOTICE" || true
+  if [ "$status" -ne 0 ]; then
+    echo "MIGRATION FAILED: $name (psql exit $status)" >&2
+    exit 1
+  fi
 done
 
 echo "Done."

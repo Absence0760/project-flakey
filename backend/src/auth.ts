@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import pool, { tenantQuery } from "./db.js";
 
@@ -91,43 +90,48 @@ function verifyRefreshToken(token: string): { id: number } | null {
 
 async function verifyApiKey(key: string): Promise<AuthUser | null> {
   const prefix = key.slice(0, 8);
-  const rows = await pool.query("SELECT * FROM lookup_api_key($1)", [prefix]);
+  // verify_api_key (migration 041) does the bcrypt comparison
+  // server-side via pgcrypto and returns ONLY the matched row's
+  // identity columns — it never exposes key_hash to the application.
+  // The previous lookup_api_key path returned the hash and let any
+  // flakey_app caller enumerate prefixes for offline cracking.
+  const rows = await pool.query(
+    "SELECT * FROM verify_api_key($1, $2)",
+    [prefix, key],
+  );
+  const row = rows.rows[0];
+  if (!row) return null;
 
-  for (const row of rows.rows) {
-    if (bcrypt.compareSync(key, row.key_hash)) {
-      // The api_keys table has FORCE ROW LEVEL SECURITY (migration 004)
-      // and a tenancy policy on org_id; a plain pool.query without
-      // set_config('app.current_org_id', …) silently UPDATEs zero rows.
-      // Route through tenantQuery scoped to the api-key's own org so the
-      // RLS policy admits the write.
-      tenantQuery(
-        row.org_id,
-        "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
-        [row.key_id],
-      ).catch(() => {});
+  // The api_keys table has FORCE ROW LEVEL SECURITY (migration 004)
+  // and a tenancy policy on org_id; a plain pool.query without
+  // set_config('app.current_org_id', …) silently UPDATEs zero rows.
+  // Route through tenantQuery scoped to the api-key's own org so the
+  // RLS policy admits the write.
+  tenantQuery(
+    row.org_id,
+    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
+    [row.key_id],
+  ).catch(() => {});
 
-      const memberResult = await pool.query(
-        "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
-        [row.org_id, row.user_id]
-      );
-      // If the user has been removed from the org their key was
-      // issued for, refuse the key entirely. Previously this path
-      // defaulted to "viewer", which silently downgraded a kicked
-      // member to read-only rather than logging them out — a
-      // removed member must have NO access, not lesser access.
-      if (memberResult.rows.length === 0) return null;
+  const memberResult = await pool.query(
+    "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
+    [row.org_id, row.user_id]
+  );
+  // If the user has been removed from the org their key was
+  // issued for, refuse the key entirely. Previously this path
+  // defaulted to "viewer", which silently downgraded a kicked
+  // member to read-only rather than logging them out — a
+  // removed member must have NO access, not lesser access.
+  if (memberResult.rows.length === 0) return null;
 
-      return {
-        id: row.user_id,
-        email: row.email,
-        name: row.name,
-        role: row.user_role,
-        orgId: row.org_id,
-        orgRole: memberResult.rows[0].role,
-      };
-    }
-  }
-  return null;
+  return {
+    id: row.user_id,
+    email: row.email,
+    name: row.name,
+    role: row.user_role,
+    orgId: row.org_id,
+    orgRole: memberResult.rows[0].role,
+  };
 }
 
 // Fix 4: Set httpOnly cookie with the token
