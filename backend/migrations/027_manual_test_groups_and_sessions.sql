@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS manual_test_groups (
 CREATE INDEX IF NOT EXISTS idx_manual_test_groups_org ON manual_test_groups(org_id);
 ALTER TABLE manual_test_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_test_groups FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS manual_test_groups_tenant ON manual_test_groups;
 CREATE POLICY manual_test_groups_tenant ON manual_test_groups
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS release_test_sessions (
 CREATE INDEX IF NOT EXISTS idx_release_test_sessions_release ON release_test_sessions(release_id);
 ALTER TABLE release_test_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE release_test_sessions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS release_test_sessions_tenant ON release_test_sessions;
 CREATE POLICY release_test_sessions_tenant ON release_test_sessions
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -72,6 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_session_results_session ON release_test_session_r
 CREATE INDEX IF NOT EXISTS idx_session_results_status ON release_test_session_results(session_id, status);
 ALTER TABLE release_test_session_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE release_test_session_results FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS release_test_session_results_tenant ON release_test_session_results;
 CREATE POLICY release_test_session_results_tenant ON release_test_session_results
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

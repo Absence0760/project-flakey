@@ -22,6 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_manual_test_runs_test ON manual_test_runs(manual_
 CREATE INDEX IF NOT EXISTS idx_manual_test_runs_org_time ON manual_test_runs(org_id, run_at DESC);
 ALTER TABLE manual_test_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_test_runs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS manual_test_runs_tenant ON manual_test_runs;
 CREATE POLICY manual_test_runs_tenant ON manual_test_runs
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

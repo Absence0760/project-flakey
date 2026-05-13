@@ -15,6 +15,7 @@ CREATE INDEX IF NOT EXISTS idx_notes_target ON notes(org_id, target_type, target
 
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notes FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS notes_tenant ON notes;
 CREATE POLICY notes_tenant ON notes
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

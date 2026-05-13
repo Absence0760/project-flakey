@@ -14,6 +14,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_org ON audit_log(org_id, created_at DES
 
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS audit_log_tenant ON audit_log;
 CREATE POLICY audit_log_tenant ON audit_log
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS suite_overrides (
 
 ALTER TABLE suite_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE suite_overrides FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS suite_overrides_tenant ON suite_overrides;
 CREATE POLICY suite_overrides_tenant ON suite_overrides
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -52,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_org ON webhooks(org_id);
 
 ALTER TABLE webhooks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE webhooks FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS webhooks_tenant ON webhooks;
 CREATE POLICY webhooks_tenant ON webhooks
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

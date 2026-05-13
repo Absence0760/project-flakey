@@ -14,6 +14,7 @@ CREATE INDEX IF NOT EXISTS idx_error_groups_org ON error_groups(org_id);
 
 ALTER TABLE error_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE error_groups FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS error_groups_tenant ON error_groups;
 CREATE POLICY error_groups_tenant ON error_groups
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -32,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_error_notes_group ON error_notes(error_group_id, 
 
 ALTER TABLE error_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE error_notes FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS error_notes_tenant ON error_notes;
 CREATE POLICY error_notes_tenant ON error_notes
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

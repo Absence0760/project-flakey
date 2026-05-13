@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS release_runs (
 CREATE INDEX IF NOT EXISTS idx_release_runs_release ON release_runs(release_id);
 ALTER TABLE release_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE release_runs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS release_runs_tenant ON release_runs;
 CREATE POLICY release_runs_tenant ON release_runs
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS release_manual_tests (
 CREATE INDEX IF NOT EXISTS idx_release_manual_tests_release ON release_manual_tests(release_id);
 ALTER TABLE release_manual_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE release_manual_tests FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS release_manual_tests_tenant ON release_manual_tests;
 CREATE POLICY release_manual_tests_tenant ON release_manual_tests
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

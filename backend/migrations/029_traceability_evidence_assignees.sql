@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_manual_test_requirements_test
   ON manual_test_requirements(manual_test_id);
 ALTER TABLE manual_test_requirements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_test_requirements FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS manual_test_requirements_tenant ON manual_test_requirements;
 CREATE POLICY manual_test_requirements_tenant ON manual_test_requirements
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

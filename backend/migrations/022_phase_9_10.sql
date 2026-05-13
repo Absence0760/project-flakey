@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS failure_jira_issues (
 CREATE INDEX IF NOT EXISTS idx_failure_jira_org ON failure_jira_issues(org_id);
 ALTER TABLE failure_jira_issues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE failure_jira_issues FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS failure_jira_issues_tenant ON failure_jira_issues;
 CREATE POLICY failure_jira_issues_tenant ON failure_jira_issues
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS scheduled_reports (
 CREATE INDEX IF NOT EXISTS idx_scheduled_reports_org ON scheduled_reports(org_id);
 ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_reports FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS scheduled_reports_tenant ON scheduled_reports;
 CREATE POLICY scheduled_reports_tenant ON scheduled_reports
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS coverage_reports (
 CREATE INDEX IF NOT EXISTS idx_coverage_org ON coverage_reports(org_id, created_at DESC);
 ALTER TABLE coverage_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE coverage_reports FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS coverage_reports_tenant ON coverage_reports;
 CREATE POLICY coverage_reports_tenant ON coverage_reports
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -108,6 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_a11y_run ON a11y_reports(run_id);
 CREATE INDEX IF NOT EXISTS idx_a11y_org_created ON a11y_reports(org_id, created_at DESC);
 ALTER TABLE a11y_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE a11y_reports FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS a11y_reports_tenant ON a11y_reports;
 CREATE POLICY a11y_reports_tenant ON a11y_reports
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -133,6 +137,7 @@ CREATE INDEX IF NOT EXISTS idx_visual_diffs_run ON visual_diffs(run_id);
 CREATE INDEX IF NOT EXISTS idx_visual_diffs_org ON visual_diffs(org_id, created_at DESC);
 ALTER TABLE visual_diffs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE visual_diffs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS visual_diffs_tenant ON visual_diffs;
 CREATE POLICY visual_diffs_tenant ON visual_diffs
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -152,6 +157,7 @@ CREATE TABLE IF NOT EXISTS ui_coverage (
 CREATE INDEX IF NOT EXISTS idx_ui_coverage_org ON ui_coverage(org_id, last_seen DESC);
 ALTER TABLE ui_coverage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ui_coverage FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ui_coverage_tenant ON ui_coverage;
 CREATE POLICY ui_coverage_tenant ON ui_coverage
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -168,6 +174,7 @@ CREATE TABLE IF NOT EXISTS ui_known_routes (
 );
 ALTER TABLE ui_known_routes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ui_known_routes FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ui_known_routes_tenant ON ui_known_routes;
 CREATE POLICY ui_known_routes_tenant ON ui_known_routes
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -198,6 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_manual_tests_org ON manual_tests(org_id);
 CREATE INDEX IF NOT EXISTS idx_manual_tests_status ON manual_tests(org_id, status);
 ALTER TABLE manual_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_tests FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS manual_tests_tenant ON manual_tests;
 CREATE POLICY manual_tests_tenant ON manual_tests
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -222,6 +230,7 @@ CREATE TABLE IF NOT EXISTS releases (
 CREATE INDEX IF NOT EXISTS idx_releases_org ON releases(org_id, created_at DESC);
 ALTER TABLE releases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE releases FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS releases_tenant ON releases;
 CREATE POLICY releases_tenant ON releases
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
@@ -241,6 +250,7 @@ CREATE TABLE IF NOT EXISTS release_checklist_items (
 CREATE INDEX IF NOT EXISTS idx_checklist_release ON release_checklist_items(release_id);
 ALTER TABLE release_checklist_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE release_checklist_items FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS release_checklist_items_tenant ON release_checklist_items;
 CREATE POLICY release_checklist_items_tenant ON release_checklist_items
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);

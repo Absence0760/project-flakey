@@ -83,16 +83,20 @@ ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_keys FORCE ROW LEVEL SECURITY;
 
 -- 9. RLS policies
+DROP POLICY IF EXISTS runs_tenant_isolation ON runs;
 CREATE POLICY runs_tenant_isolation ON runs
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
 
+DROP POLICY IF EXISTS api_keys_tenant_isolation ON api_keys;
 CREATE POLICY api_keys_tenant_isolation ON api_keys
   USING (org_id = current_setting('app.current_org_id', true)::int)
   WITH CHECK (org_id = current_setting('app.current_org_id', true)::int);
 
+DROP POLICY IF EXISTS specs_tenant_isolation ON specs;
 CREATE POLICY specs_tenant_isolation ON specs
   USING (run_id IN (SELECT id FROM runs));
 
+DROP POLICY IF EXISTS tests_tenant_isolation ON tests;
 CREATE POLICY tests_tenant_isolation ON tests
   USING (spec_id IN (SELECT id FROM specs));
