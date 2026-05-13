@@ -26,6 +26,26 @@ function defineConfig() {
 				base: process.env.BASE_PATH || '',
 			},
 			inlineStyleThreshold: 0,
+			// CSP injected as a <meta> tag in every prerendered HTML page.
+			// Complements the CloudFront response_headers_policy that
+			// applies the same gate at the response-header layer; both
+			// run in browsers and the most-restrictive directives win.
+			// `script-src 'self'` rejects inline + remote scripts; the
+			// hash-mode lets SvelteKit auto-add hashes for any inline
+			// hydration script the framework emits.
+			csp: {
+				mode: 'hash',
+				directives: {
+					'default-src': ['self'],
+					'img-src': ['self', 'data:', 'blob:'],
+					'style-src': ['self', 'unsafe-inline'],
+					'script-src': ['self'],
+					'connect-src': ['self', 'https:'],
+					'frame-ancestors': ['none'],
+					'base-uri': ['self'],
+					'form-action': ['self'],
+				},
+			},
 		},
 	};
 }

@@ -2,6 +2,7 @@
 	import { authFetch } from '$lib/auth';
 	import { API_URL } from '$lib/config';
 	import { artifactSrc } from '$lib/api';
+	import { isHttpUrl } from '$lib/safe-url';
 	import { onMount } from 'svelte';
 
 	interface Props { runId: number; }
@@ -165,7 +166,7 @@
 										<span class="v-impact v-{v.impact ?? 'minor'}">{v.impact ?? 'minor'}</span>
 										<span class="v-id">{v.id}</span>
 										{#if v.description}<span class="v-desc">{v.description}</span>{/if}
-										{#if v.helpUrl}<a class="v-help" href={v.helpUrl} target="_blank" rel="noreferrer">learn</a>{/if}
+										{#if isHttpUrl(v.helpUrl)}<a class="v-help" href={v.helpUrl} target="_blank" rel="noreferrer">learn</a>{/if}
 									</li>
 								{/each}
 							</ul>

@@ -18,6 +18,19 @@ import { unlink } from "fs/promises";
 const evidenceUpload = multer({
   dest: "uploads/tmp",
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB per attachment — plenty for screenshots
+  // Reject SVG (and svgz) at the boundary. storage.ts forces these
+  // to application/octet-stream as a second gate, but blocking the
+  // upload outright is the cleaner contract — no point persisting
+  // attachments we know we won't serve as inline images.
+  fileFilter: (_req, file, cb) => {
+    const name = (file.originalname ?? "").toLowerCase();
+    if (name.endsWith(".svg") || name.endsWith(".svgz") ||
+        file.mimetype === "image/svg+xml") {
+      cb(new Error("SVG attachments are not allowed"));
+      return;
+    }
+    cb(null, true);
+  },
 });
 
 const router = Router();

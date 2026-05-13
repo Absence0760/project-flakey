@@ -225,6 +225,12 @@ function guessContentType(key: string): string {
     case "webm": return "video/webm";
     case "gz": return "application/gzip";
     case "json": return "application/json";
+    // Explicit gate: never advertise SVG as image/svg+xml. Browsers
+    // execute scripts inside SVG when fetched as that MIME, which
+    // turns an attached "screenshot.svg" into a stored XSS the
+    // moment a user clicks the attachment link.
+    case "svg":
+    case "svgz": return "application/octet-stream";
     default: return "application/octet-stream";
   }
 }
