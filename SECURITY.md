@@ -2,8 +2,9 @@
 
 ## Reporting a vulnerability
 
-Email **security@flakey.io** (or, if that bounces, open a private security
-advisory via GitHub: <https://github.com/Absence0760/project-flakey/security/advisories/new>).
+This policy applies to the upstream [Flakey](https://github.com/Absence0760/project-flakey)
+project. If you've found an issue here, please report it via the
+**[GitHub security advisory form](https://github.com/Absence0760/project-flakey/security/advisories/new)**.
 
 Please include enough detail to reproduce the issue: affected route /
 component, expected vs. actual behaviour, and a minimal proof-of-concept if
@@ -14,14 +15,25 @@ severities.
 Do not open a public GitHub issue for security findings — the embargo
 window is what protects existing deployments while a patch ships.
 
+> **Forking this repo for self-hosting?** Replace this section with your
+> own intake address (e.g. `security@your-domain.example`) and change the
+> advisory link to your fork's `…/security/advisories/new` page. Reports
+> about *your* deployment should not land in the upstream tracker.
+
 ## Scope
 
-In scope: anything in this repository, the published `@flakeytesting/*`
-npm packages, and the SaaS-managed deployment at `flakey.io`.
+In scope: anything in this repository and the published `@flakeytesting/*`
+npm packages.
 
-Out of scope: third-party integrations beyond their published APIs (Jira,
-PagerDuty, Slack), social-engineering attempts on contributors, denial-of-
-service attacks against the SaaS instance.
+Out of scope:
+
+- Third-party integrations beyond their published APIs (Jira, PagerDuty,
+  Slack).
+- Issues that only reproduce against a fork's customisations or a self-
+  hoster's deployment — report those to the fork's maintainer.
+- Social-engineering attempts on contributors.
+- Denial-of-service attacks against any specific deployment (capacity is
+  an operator concern, not a code concern).
 
 ## Supported versions
 
