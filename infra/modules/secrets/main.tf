@@ -1,26 +1,11 @@
-resource "random_password" "db" {
-  length  = 32
-  special = false
-}
-
 resource "random_password" "jwt" {
   length  = 64
   special = false
 }
 
-resource "aws_secretsmanager_secret" "db_password" {
-  name                    = "${var.app_name}-${var.environment}/db-password"
-  recovery_window_in_days = 7
-  # AWS-managed Secrets Manager key (alias/aws/secretsmanager). Beats
-  # the per-account "default key" since aws/secretsmanager has its own
-  # CloudTrail data-plane logging. Resolves Trivy AWS-0098.
-  kms_key_id = data.aws_kms_alias.secretsmanager.target_key_arn
-}
-
-resource "aws_secretsmanager_secret_version" "db_password" {
-  secret_id     = aws_secretsmanager_secret.db_password.id
-  secret_string = random_password.db.result
-}
+# Note: db_password is no longer managed here. RDS now uses
+# `manage_master_user_password = true` and emits its own rotated
+# secret — see modules/rds/outputs.tf:master_user_secret_arn.
 
 resource "aws_secretsmanager_secret" "jwt_secret" {
   name                    = "${var.app_name}-${var.environment}/jwt-secret"

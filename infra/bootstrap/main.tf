@@ -213,15 +213,15 @@ resource "aws_iam_role" "github_actions" {
 # `var.app_name` or `var.environment` ever changes, both bootstrap
 # and the matching module need to move together.
 locals {
-  account_id          = data.aws_caller_identity.current.account_id
-  ecr_repo_arn        = "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/${var.app_name}-backend"
-  ecs_cluster_arn     = "arn:aws:ecs:${var.aws_region}:${local.account_id}:cluster/${var.app_name}-${var.environment}"
-  ecs_service_arn     = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${var.app_name}-${var.environment}/${var.app_name}-${var.environment}-backend"
-  ecs_taskdef_family  = "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/${var.app_name}-${var.environment}-backend:*"
-  s3_frontend_arn     = "arn:aws:s3:::${var.app_name}-${var.environment}-frontend"
-  s3_artifacts_arn    = "arn:aws:s3:::${var.app_name}-${var.environment}-artifacts"
-  iam_ecs_exec_arn    = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-execution"
-  iam_ecs_task_arn    = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-task"
+  account_id         = data.aws_caller_identity.current.account_id
+  ecr_repo_arn       = "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/${var.app_name}-backend"
+  ecs_cluster_arn    = "arn:aws:ecs:${var.aws_region}:${local.account_id}:cluster/${var.app_name}-${var.environment}"
+  ecs_service_arn    = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${var.app_name}-${var.environment}/${var.app_name}-${var.environment}-backend"
+  ecs_taskdef_family = "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/${var.app_name}-${var.environment}-backend:*"
+  s3_frontend_arn    = "arn:aws:s3:::${var.app_name}-${var.environment}-frontend"
+  s3_artifacts_arn   = "arn:aws:s3:::${var.app_name}-${var.environment}-artifacts"
+  iam_ecs_exec_arn   = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-execution"
+  iam_ecs_task_arn   = "arn:aws:iam::${local.account_id}:role/${var.app_name}-${var.environment}-ecs-task"
 }
 
 resource "aws_iam_role_policy" "github_actions" {

@@ -35,7 +35,11 @@ resource "aws_db_instance" "main" {
 
   db_name  = "flakey"
   username = "flakey"
-  password = var.db_password
+  # AWS-managed master password: RDS rotates and stores in Secrets
+  # Manager automatically (alias/aws/secretsmanager). The application
+  # reads the rotated value from `master_user_secret_arn`. Replaces a
+  # static random_password that previously had no rotation policy.
+  manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]

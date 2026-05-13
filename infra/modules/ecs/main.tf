@@ -296,8 +296,12 @@ resource "aws_ecs_task_definition" "backend" {
     ]
 
     secrets = [
-      { name = "DB_PASSWORD", valueFrom = var.db_password_arn },
-      { name = "DB_MIGRATION_PASSWORD", valueFrom = var.db_password_arn },
+      # `:password::` is the JMESPath fragment that plucks the `password`
+      # key out of the RDS-managed master secret JSON
+      # ({"username":"...","password":"..."}). The DB_USER env var above
+      # is the read/write app role, distinct from the master user.
+      { name = "DB_PASSWORD", valueFrom = "${var.db_password_arn}:password::" },
+      { name = "DB_MIGRATION_PASSWORD", valueFrom = "${var.db_password_arn}:password::" },
       { name = "JWT_SECRET", valueFrom = var.jwt_secret_arn },
     ]
 
