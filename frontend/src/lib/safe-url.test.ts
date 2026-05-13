@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isHttpUrl, safeHref } from "./safe-url.js";
+import { isHttpUrl, safeHref, absoluteAttachmentUrl } from "./safe-url.js";
 
 describe("isHttpUrl", () => {
 	it("accepts http URLs", () => {
@@ -50,5 +50,43 @@ describe("safeHref", () => {
 		expect(safeHref("data:text/html,...")).toBeNull();
 		expect(safeHref(null)).toBeNull();
 		expect(safeHref(undefined)).toBeNull();
+	});
+});
+
+describe("absoluteAttachmentUrl", () => {
+	const API = "https://api.flakey.io";
+
+	it("joins same-origin /uploads paths onto the API base URL", () => {
+		expect(absoluteAttachmentUrl("/uploads/evidence/42/7/x.png", API))
+			.toBe("https://api.flakey.io/uploads/evidence/42/7/x.png");
+	});
+
+	it("returns an absolute https URL untouched (S3 presigned form)", () => {
+		const presigned = "https://flakey-bucket.s3.amazonaws.com/runs/1/screenshots/foo.png?X-Amz-Signature=abc";
+		expect(absoluteAttachmentUrl(presigned, API)).toBe(presigned);
+	});
+
+	it("returns '#' for javascript: URLs even when the backend somehow surfaces one", () => {
+		// Defence-in-depth: if a future regression ever lets user input
+		// flow into attachment.url, this gate keeps it out of <a href>.
+		expect(absoluteAttachmentUrl("javascript:alert(1)", API)).toBe("#");
+	});
+
+	it("returns '#' for data: URLs (no inline HTML smuggling)", () => {
+		expect(absoluteAttachmentUrl("data:text/html,<script>alert(1)</script>", API)).toBe("#");
+	});
+
+	it("returns '#' for file:// URLs", () => {
+		expect(absoluteAttachmentUrl("file:///etc/passwd", API)).toBe("#");
+	});
+
+	it("returns '#' for null / undefined / empty input", () => {
+		expect(absoluteAttachmentUrl(null, API)).toBe("#");
+		expect(absoluteAttachmentUrl(undefined, API)).toBe("#");
+		expect(absoluteAttachmentUrl("", API)).toBe("#");
+	});
+
+	it("returns '#' for a malformed value that isn't a path or a URL", () => {
+		expect(absoluteAttachmentUrl("not a url and not a path", API)).toBe("#");
 	});
 });

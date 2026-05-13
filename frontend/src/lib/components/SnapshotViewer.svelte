@@ -182,6 +182,32 @@
         class="snapshot-scaler"
         style="width: {bundle.viewportWidth * scale}px; height: {bundle.viewportHeight * scale}px;"
       >
+        <!--
+          SECURITY: this iframe renders captured DOM snapshots from
+          customer test runs (via srcdoc, written in the $effect above).
+          The snapshot HTML is UNTRUSTED — a malicious customer can
+          control what their reporter captured. The current sandbox
+          flags must never relax:
+
+            * NO allow-scripts. Any script in the captured DOM is
+              defanged at the iframe boundary. The only feature
+              currently needing scripts (scrollTo on load) is invoked
+              from the PARENT frame (line ~70), not by code inside the
+              iframe — so allow-scripts is unnecessary and adding it
+              would immediately turn this into stored-XSS.
+            * allow-same-origin is present ONLY so the parent's
+              `iframeEl.contentWindow.scrollTo(...)` call works
+              (cross-origin srcdoc would throw on contentWindow
+              access). Without allow-scripts the same-origin grant
+              is harmless: scripts can't run to exfiltrate cookies
+              or read localStorage from inside this frame.
+
+          If anyone ever needs to add allow-scripts to enable
+          interactivity in the captured DOM, the ONLY safe path is to
+          DROP allow-same-origin in the same change (so the iframe
+          becomes a unique-origin sandbox). Never have both flags set
+          together — that combination is a stored-XSS surface.
+        -->
         <iframe
           bind:this={iframeEl}
           sandbox="allow-same-origin"

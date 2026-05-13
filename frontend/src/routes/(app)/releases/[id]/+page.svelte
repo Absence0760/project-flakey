@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import { authFetch, getAuth } from '$lib/auth';
 	import { API_URL } from '$lib/config';
-	import { isHttpUrl } from '$lib/safe-url';
+	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '$lib/safe-url';
 
 	interface ChecklistItem {
 		id: number;
@@ -871,7 +871,7 @@
 		return /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
 	}
 	function absoluteAttachmentUrl(url: string): string {
-		return url.startsWith('http') ? url : `${API_URL}${url}`;
+		return absoluteAttachmentUrlImpl(url, API_URL);
 	}
 
 	async function addItem() {
