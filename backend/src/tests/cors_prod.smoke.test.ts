@@ -67,7 +67,7 @@ before(async () => {
       // Required by the production-mode boot guard (added in
       // backend/src/index.ts). Throwaway value — this test only
       // exercises CORS, never reads/writes encrypted secrets.
-      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // gitleaks:allow — deterministic test fixture, not a real secret
       NODE_ENV: "production",
       // The unit under test.
       CORS_ORIGINS: ALLOWED,

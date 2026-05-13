@@ -68,7 +68,7 @@ test("boot REFUSES to start when FLAKEY_ENCRYPTION_KEY_OLD (rotation companion) 
   // A typo in the rotation companion would silently break the decrypt
   // read-path until someone happened to hit a v1: ciphertext that
   // needed the old key. Validate both.
-  const validKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const validKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; // gitleaks:allow — deterministic test fixture, not a real secret
   const { code, stderr } = await runWithKey(validKey, { FLAKEY_ENCRYPTION_KEY_OLD: "garbage-typo" });
   assert.notEqual(code, 0);
   assert.match(stderr, /FLAKEY_ENCRYPTION_KEY validation failed/);

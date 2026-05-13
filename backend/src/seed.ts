@@ -331,7 +331,11 @@ const gherkinDemoCommandLog = [
   { name: "should", message: "include /dashboard", state: "failed" },
 ];
 
-function pick<T>(arr: T[]): T {
+// `readonly T[]` accepts both mutable arrays and `as const`-frozen
+// tuples. The function is read-only — never mutates `arr` — so the
+// stricter input type is honest and silences TS2345 on the bulk-seed
+// callers (bulkPriorities / bulkStatuses use `as const`).
+function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 

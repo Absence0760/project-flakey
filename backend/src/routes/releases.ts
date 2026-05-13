@@ -1694,7 +1694,12 @@ router.post(
       }
 
       const storage = getStorage();
-      const added: Array<{ key: string; url: string; filename: string; size: number; uploaded_by: number; uploaded_at: string }> = [];
+      // No `url` field here — presigned URLs go stale (S3 presigns
+      // expire after 1h and CDN URLs persist beyond the auth window).
+      // The GET handler re-derives a fresh URL from `key` at read
+      // time; the IMMEDIATE response below hydrates one so the UI
+      // doesn't need a round-trip to render the just-uploaded list.
+      const added: Array<{ key: string; filename: string; size: number; uploaded_by: number; uploaded_at: string }> = [];
       for (const f of files) {
         const ts = Date.now();
         const safeName = f.originalname.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
