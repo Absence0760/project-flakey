@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
+import { validateRefUrl } from "../url-validation.js";
 
 // Attached to /manual-tests/:id/requirements — path-prefixed below so the
 // outer router can mount it alongside the existing manual-tests router.
@@ -72,7 +73,13 @@ router.post("/", async (req, res) => {
       res.status(400).json({ error: "ref_key required" });
       return;
     }
-    const prov = PROVIDERS.includes(provider) ? provider : inferProvider(ref_url);
+    const urlResult = validateRefUrl(ref_url);
+    if (!urlResult.ok) {
+      res.status(400).json({ error: urlResult.reason });
+      return;
+    }
+    const safeRefUrl = urlResult.value;
+    const prov = PROVIDERS.includes(provider) ? provider : inferProvider(safeRefUrl ?? undefined);
     const result = await tenantQuery(
       req.user!.orgId,
       `INSERT INTO manual_test_requirements
@@ -87,7 +94,7 @@ router.post("/", async (req, res) => {
         req.user!.orgId,
         parentTestId(req),
         ref_key.trim(),
-        ref_url ?? null,
+        safeRefUrl,
         ref_title ?? null,
         prov,
         req.user!.id,

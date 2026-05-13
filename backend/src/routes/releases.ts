@@ -12,6 +12,7 @@ import {
   type JiraVersion,
 } from "../integrations/jira.js";
 import { getStorage } from "../storage.js";
+import { validateRefUrl } from "../url-validation.js";
 
 const evidenceUpload = multer({
   dest: "uploads/tmp",
@@ -1425,6 +1426,16 @@ router.post("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) 
     }
     const { known_issue_ref } = req.body ?? {};
 
+    // known_issue_ref is rendered as `<a href>` on the dashboard if it
+    // looks like a URL. Allow plain keys (`JIRA-123`) but reject any
+    // non-http(s) scheme so a `javascript:` payload can't be stored.
+    const refResult = validateRefUrl(known_issue_ref, { allowPlainKey: true });
+    if (!refResult.ok) {
+      res.status(400).json({ error: refResult.reason });
+      return;
+    }
+    const safeKnownRef = refResult.value;
+
     const existing = await tenantQuery(
       req.user!.orgId,
       `SELECT r.id, r.status
@@ -1452,7 +1463,7 @@ router.post("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) 
               accepted_by = $2,
               accepted_at = NOW()
         WHERE session_id = $3 AND manual_test_id = $4`,
-      [known_issue_ref ?? null, req.user!.id, req.params.sessionId, req.params.testId]
+      [safeKnownRef, req.user!.id, req.params.sessionId, req.params.testId]
     );
     await logAudit(
       req.user!.orgId,
@@ -1460,7 +1471,7 @@ router.post("/:id/sessions/:sessionId/results/:testId/accept", async (req, res) 
       "release.session_result_accept",
       "release",
       req.params.id,
-      { session_id: req.params.sessionId, manual_test_id: req.params.testId, known_issue_ref }
+      { session_id: req.params.sessionId, manual_test_id: req.params.testId, known_issue_ref: safeKnownRef }
     );
     res.json({ accepted: true });
   } catch (err) {

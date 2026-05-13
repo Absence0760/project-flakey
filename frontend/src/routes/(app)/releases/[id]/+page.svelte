@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { authFetch, getAuth } from '$lib/auth';
 	import { API_URL } from '$lib/config';
+	import { isHttpUrl } from '$lib/safe-url';
 
 	interface ChecklistItem {
 		id: number;
@@ -674,10 +675,10 @@
 		await load();
 	}
 
-	// Heuristic: treat a ref containing "://" as a URL — render as a link.
-	function isRefUrl(ref: string | null): boolean {
-		return !!ref && /:\/\//.test(ref);
-	}
+	// Defence-in-depth: only treat http(s) URLs as link refs so a stored
+	// `javascript:` payload can't surface as a clickable href even if the
+	// backend write-path gate ever regresses.
+	const isRefUrl = (ref: string | null) => isHttpUrl(ref);
 	// Extract a compact identifier out of a bug ref so we don't splatter
 	// full URLs across tables. Jira `/browse/ABC-1`, GitHub `/issues/123`,
 	// anything else falls back to the last path segment.
@@ -1237,7 +1238,7 @@
 								{#each requirementsCoverage as r}
 									<tr class:req-fully-passing={r.passed === r.total} class:req-has-failures={r.failed > 0 || r.blocked > 0}>
 										<td>
-											{#if r.ref_url}
+											{#if isHttpUrl(r.ref_url)}
 												<a href={r.ref_url} target="_blank" rel="noopener" class="req-key">{r.ref_key}</a>
 											{:else}
 												<span class="req-key">{r.ref_key}</span>
@@ -1377,7 +1378,7 @@
 												<strong>{r.title}</strong>
 												{#if r.filed_bug_key}
 													<a
-														href={r.filed_bug_url ?? '#'}
+														href={isHttpUrl(r.filed_bug_url) ? r.filed_bug_url : '#'}
 														target="_blank"
 														rel="noopener"
 														class="bug-chip"

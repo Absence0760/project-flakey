@@ -5,6 +5,7 @@
 	import { authFetch, getAuth } from '$lib/auth';
 	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
 	import { API_URL } from '$lib/config';
+	import { isHttpUrl } from '$lib/safe-url';
 
 	interface ManualTest {
 		id: number;
@@ -1410,7 +1411,7 @@
 						{#each selected.requirements as r}
 							<li>
 								<span class={`provider-badge provider-${r.provider}`}>{providerLabel(r.provider) || r.provider}</span>
-								{#if r.ref_url}
+								{#if isHttpUrl(r.ref_url)}
 									<a href={r.ref_url} target="_blank" rel="noopener" class="req-key">{r.ref_key}</a>
 								{:else}
 									<span class="req-key">{r.ref_key}</span>
