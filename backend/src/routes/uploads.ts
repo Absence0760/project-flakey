@@ -1,7 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
 import { basename, join } from "path";
-import { rmSync } from "fs";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
@@ -11,7 +10,7 @@ import { autoCreateIssuesForRun } from "../integrations/jira.js";
 import { maybeTriggerPagerDutyForRun } from "../integrations/pagerduty.js";
 import { getStorage } from "../storage.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
-import { rejectExecutableAttachments, wrapMulter } from "../upload-filters.js";
+import { rejectExecutableAttachments, safeUnlinkTmp, wrapMulter } from "../upload-filters.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -107,7 +106,7 @@ router.post("/", uploadFields, async (req, res) => {
     if (oversize) {
       // Reap every multer temp file before bailing.
       for (const f of [...screenshotFiles, ...videoFiles, ...snapshotFiles]) {
-        rmSync(f.path, { force: true });
+        safeUnlinkTmp(f.path);
       }
       res.status(413).json({
         error: `${oversize.field} file '${oversize.file.originalname}' is ${oversize.file.size} bytes; max ${oversize.max} bytes`,
@@ -287,7 +286,7 @@ router.post("/", uploadFields, async (req, res) => {
     res.status(merged ? 200 : 201).json({ id: runId!, merged });
     } finally {
       for (const p of allTmpPaths) {
-        try { rmSync(p, { force: true }); } catch { /* ignore */ }
+        try { safeUnlinkTmp(p); } catch { /* ignore */ }
       }
     }
   } catch (err) {

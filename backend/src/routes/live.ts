@@ -1,10 +1,10 @@
 import { Router } from "express";
 import crypto from "crypto";
-import { rmSync } from "fs";
 import multer from "multer";
 import { tenantQuery } from "../db.js";
 import { liveEvents, type LiveTestEvent } from "../live-events.js";
 import { getStorage } from "../storage.js";
+import { safeUnlinkTmp } from "../upload-filters.js";
 
 const router = Router();
 
@@ -661,8 +661,9 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     // Always reap multer's temp file so a 4xx / 5xx / mid-loop throw
     // doesn't leak a 50 MB file under uploads/tmp. storage.put on
     // success either moves (local) or uploads-then-deletes (S3), so
-    // rmSync force:true is a safe no-op in the happy path.
-    if (file) rmSync(file.path, { force: true });
+    // safeUnlinkTmp is a safe no-op in the happy path. The helper
+    // bounds-checks file.path to uploads/tmp/ before rm-ing.
+    if (file) safeUnlinkTmp(file.path);
   }
 });
 
@@ -758,7 +759,7 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
     console.error("POST /live/:runId/screenshot error:", err);
     res.status(500).json({ error: "Internal server error" });
   } finally {
-    if (file) rmSync(file.path, { force: true });
+    if (file) safeUnlinkTmp(file.path);
   }
 });
 

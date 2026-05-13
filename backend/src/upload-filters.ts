@@ -1,4 +1,6 @@
 import type { Request, RequestHandler, Response, NextFunction } from "express";
+import { rmSync } from "fs";
+import path from "path";
 import multer, { type Options } from "multer";
 
 // Multer fileFilter that rejects attachment types that browsers will
@@ -30,6 +32,28 @@ export const rejectExecutableAttachments: Options["fileFilter"] = (_req, file, c
   }
   cb(null, true);
 };
+
+// Multer's temp-file root. Every route that takes a multipart upload
+// is configured with `dest: "uploads/tmp"`, and multer writes the
+// payload to a random-named file under that directory. Resolving it
+// once at module load gives us a stable absolute prefix to compare
+// against when reaping the temp file in a finally block.
+const UPLOAD_TMP_ROOT = path.resolve("uploads/tmp") + path.sep;
+
+// Reap a multer temp file with a defence-in-depth bounds check.
+// Multer's `file.path` is set internally to a crypto-random filename
+// under `uploads/tmp/`, so in practice it can never escape that
+// directory — but it derives from `req.file`, which CodeQL marks as
+// user-tainted. A path-traversal escape would only be possible if a
+// future change swapped multer for a custom storage engine that
+// honoured a client-controlled filename. Bounds-checking here makes
+// the guarantee a runtime invariant rather than a "trust multer"
+// argument, and silences the js/path-injection alert.
+export function safeUnlinkTmp(p: string): void {
+  const resolved = path.resolve(p);
+  if (!resolved.startsWith(UPLOAD_TMP_ROOT)) return;
+  rmSync(resolved, { force: true });
+}
 
 // Wrap a multer middleware so fileFilter rejections and other multer
 // errors surface as a clean 400 rather than the default 500 from
