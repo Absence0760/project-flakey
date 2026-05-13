@@ -6,10 +6,22 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./playwright": "./dist/playwright.js",
-    "./mocha": "./dist/mocha.js",
-    "./webdriverio": "./dist/webdriverio.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./playwright": {
+      "types": "./dist/playwright.d.ts",
+      "default": "./dist/playwright.js"
+    },
+    "./mocha": {
+      "types": "./dist/mocha.d.ts",
+      "default": "./dist/mocha.js"
+    },
+    "./webdriverio": {
+      "types": "./dist/webdriverio.d.ts",
+      "default": "./dist/webdriverio.js"
+    }
   },
   "files": [
     "dist"

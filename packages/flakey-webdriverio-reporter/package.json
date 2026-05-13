@@ -29,19 +29,24 @@
     "directory": "packages/flakey-webdriverio-reporter"
   },
   "peerDependencies": {
-    "@wdio/types": ">=8.0.0"
+    "@wdio/reporter": ">=8.0.0",
+    "@wdio/types": ">=8.0.0",
+    "webdriverio": ">=8.0.0"
   },
   "peerDependenciesMeta": {
     "@wdio/types": {
       "optional": true
+    },
+    "webdriverio": {
+      "optional": true
     }
   },
   "dependencies": {
-    "@flakeytesting/core": "workspace:*",
-    "@wdio/reporter": "^9.27.0"
+    "@flakeytesting/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
+    "@wdio/reporter": "^9.27.0",
     "tsx": "^4.20.6",
     "typescript": "^6.0.3"
   }

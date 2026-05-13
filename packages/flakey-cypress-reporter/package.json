@@ -6,9 +6,18 @@
   "main": "dist/reporter.cjs",
   "types": "dist/reporter.d.ts",
   "exports": {
-    ".": "./dist/reporter.cjs",
-    "./plugin": "./dist/plugin.js",
-    "./support": "./dist/support.js"
+    ".": {
+      "types": "./dist/reporter.d.ts",
+      "default": "./dist/reporter.cjs"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    },
+    "./support": {
+      "types": "./dist/support.d.ts",
+      "default": "./dist/support.js"
+    }
   },
   "files": [
     "dist"

@@ -174,7 +174,7 @@ export function flakeyReporter(
   // the option for CI users who don't want to touch cypress.config.ts.
   const verbose = rawOpts.verbose === true || process.env.FLAKEY_VERBOSE === "1";
   const suite = opts.suite ?? "default";
-  const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
+  const branch = opts.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "";
   const commitSha = opts.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "";
   // ciRunId is resolved LAZILY at upload time. live-reporter sets
   // process.env.CI_RUN_ID from before:run, which fires after setupNodeEvents,

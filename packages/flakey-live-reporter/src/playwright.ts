@@ -22,6 +22,11 @@ interface PlaywrightReporterConfig {
   commitSha?: string;
   ciRunId?: string;
   /**
+   * Target environment label (e.g. "qa", "stage", "prod"). Falls back
+   * to FLAKEY_ENV / TEST_ENV process env vars when omitted.
+   */
+  environment?: string;
+  /**
    * When true, prints `[flakey-live] Live run started: #N` and
    * `[flakey-live] Run #N complete` to stdout. Default false — keeps
    * CI logs quiet; errors still print. `FLAKEY_VERBOSE=1` env honoured.
@@ -65,6 +70,7 @@ export default class PlaywrightLiveReporter {
             branch: this.config.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
             commitSha: this.config.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
             ciRunId: this.config.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
+            environment: this.config.environment ?? process.env.FLAKEY_ENV ?? process.env.TEST_ENV ?? "",
           }),
         });
         if (res.ok) {
