@@ -1679,9 +1679,13 @@
 					{@const v = jira.version}
 					<div class="jira-head">
 						<div>
-							<a class="jira-version-name" href={jira.browse_url} target="_blank" rel="noopener">
-								{jira.project_key} / {v.name}
-							</a>
+							{#if isHttpUrl(jira.browse_url)}
+								<a class="jira-version-name" href={jira.browse_url} target="_blank" rel="noopener">
+									{jira.project_key} / {v.name}
+								</a>
+							{:else}
+								<span class="jira-version-name">{jira.project_key} / {v.name}</span>
+							{/if}
 							<div class="jira-sub">
 								{v.released ? '✓ Released' : v.archived ? 'Archived' : v.overdue ? '⚠ Overdue' : 'Unreleased'}
 								{#if v.releaseDate} · {v.releaseDate}{/if}
@@ -1699,7 +1703,11 @@
 						<ul class="jira-issues">
 							{#each jira.issues as issue}
 								<li class={`jira-cat-${issue.statusCategory}`}>
-									<a href={issue.url} target="_blank" rel="noopener" class="issue-key">{issue.key}</a>
+									{#if isHttpUrl(issue.url)}
+										<a href={issue.url} target="_blank" rel="noopener" class="issue-key">{issue.key}</a>
+									{:else}
+										<span class="issue-key">{issue.key}</span>
+									{/if}
 									<span class="issue-summary">{issue.summary}</span>
 									<span class="issue-status">{issue.status}</span>
 									{#if issue.assignee}<span class="issue-assignee dim">{issue.assignee}</span>{/if}
