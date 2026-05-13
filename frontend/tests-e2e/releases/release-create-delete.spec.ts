@@ -24,14 +24,16 @@ async function createReleaseViaForm(page: Page): Promise<string> {
   await page.goto("/releases");
   await expect(page.locator(".release-grid").first()).toBeVisible({ timeout: 10_000 });
 
+  // The "+ New release" button opens a modal overlay (the earlier
+  // inline .create-card design was replaced in the UI polish pass).
   await page.getByRole("button", { name: /New release/ }).click();
-  const form = page.locator(".create-card");
-  await expect(form).toBeVisible();
+  const modal = page.locator(".modal");
+  await expect(modal).toBeVisible({ timeout: 5_000 });
 
   const version = `e2e-create-${Date.now().toString(36)}`;
-  await form.locator('input[placeholder*="v1.2.0"]').fill(version);
-  await form.getByRole("button", { name: /^Create$/ }).click();
-  await expect(form).toBeHidden({ timeout: 5_000 });
+  await modal.locator('input[placeholder*="v1.2.0"]').fill(version);
+  await modal.getByRole("button", { name: /^Create release$/ }).click();
+  await expect(modal).toBeHidden({ timeout: 5_000 });
   return version;
 }
 
@@ -43,6 +45,9 @@ test.describe("releases — create-then-delete lifecycle", () => {
   }) => {
     const version = await createReleaseViaForm(page);
 
+    // Releases grid paginates at 50; the just-created card may not
+    // be on page 1 in a populated dev DB — filter via search.
+    await page.getByPlaceholder("Search version or name…").fill(version);
     const card = page.locator(".release-card", {
       has: page.locator(".version", { hasText: version }),
     }).first();

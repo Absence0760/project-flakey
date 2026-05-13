@@ -46,16 +46,22 @@ test.describe("release-flow E2E (admin happy path)", () => {
     page,
   }) => {
     // ── Step 1: create a fresh release ─────────────────────────────
+    // The "+ New release" button opens a modal overlay (UI polish
+    // pass replaced the earlier inline .create-card form).
     await page.goto("/releases");
     await page.getByRole("button", { name: /New release/ }).click();
 
     const version = `e2e-flow-${Date.now()}`;
-    const form = page.locator(".create-card");
-    await form.locator('input[placeholder*="v1.2.0"]').fill(version);
-    await form.getByRole("button", { name: /^Create$/ }).click();
-    await expect(form).toBeHidden({ timeout: 5_000 });
+    const modal = page.locator(".modal");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    await modal.locator('input[placeholder*="v1.2.0"]').fill(version);
+    await modal.getByRole("button", { name: /^Create release$/ }).click();
+    await expect(modal).toBeHidden({ timeout: 5_000 });
 
     // ── Step 2: land on its detail page ────────────────────────────
+    // Releases grid paginates at 50; filter via search to find this
+    // specific release.
+    await page.getByPlaceholder("Search version or name…").fill(version);
     const newCard = page.locator(".release-card", {
       has: page.locator(".version", { hasText: version }),
     });

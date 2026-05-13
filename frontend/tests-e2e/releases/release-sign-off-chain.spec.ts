@@ -100,8 +100,10 @@ test.describe("release sign-off chain", () => {
     ).toBeVisible();
 
     // Navigate back to the /releases list — the NEW release card
-    // surfaces with the "signed off" status pill.
+    // surfaces with the "signed off" status pill. List paginates at
+    // 50; filter via search to surface this specific version.
     await page.goto("/releases");
+    await page.getByPlaceholder("Search version or name…").fill(version);
     const card = page.locator(".release-card", {
       has: page.locator(".version", { hasText: version }),
     }).first();

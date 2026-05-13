@@ -29,20 +29,23 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
 
     // Pin (button title is "Pin for quick access" before pinning).
     await pinBtn.click();
-    // The pinned section mounts at the top of the list with this id.
-    const pinnedSection = page.locator(".pinned-section");
-    await expect(pinnedSection).toBeVisible({ timeout: 2_000 });
-    await expect(pinnedSection.locator(".pinned-card")).toHaveCount(1);
+    // The pinned band mounts at the top of the list; rendered as
+    // <section class="pinned-band">, with each pinned run as a
+    // .pinned-item anchor inside .pinned-list. (Renamed in the UI
+    // polish pass from .pinned-section / .pinned-card.)
+    const pinnedBand = page.locator(".pinned-band");
+    await expect(pinnedBand).toBeVisible({ timeout: 2_000 });
+    await expect(pinnedBand.locator(".pinned-item")).toHaveCount(1);
 
-    // Reload — localStorage persists the pin set; the pinned section
-    // must re-render with the same card.
+    // Reload — localStorage persists the pin set; the pinned band
+    // must re-render with the same item.
     await page.reload();
-    await expect(page.locator(".pinned-section")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".pinned-section .pinned-card")).toHaveCount(1);
+    await expect(page.locator(".pinned-band")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".pinned-band .pinned-item")).toHaveCount(1);
 
-    // Unpin via the pinned-card's pin button (its title is "Unpin").
-    await page.locator(".pinned-section .pin-btn").click();
-    await expect(page.locator(".pinned-section")).toHaveCount(0);
+    // Unpin via the pinned-item's pin button (its title is "Unpin").
+    await page.locator(".pinned-band .pin-btn").click();
+    await expect(page.locator(".pinned-band")).toHaveCount(0);
   });
 
   test("search filter narrows the visible run rows", async ({ page }) => {

@@ -359,20 +359,24 @@ test.describe("/releases/<id> — status dropdown", () => {
 test.describe("/releases — list extras", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
-  test("creating a release via the inline form lands the new card with status 'draft'", async ({
+  test("creating a release via the modal form lands the new card with status 'draft'", async ({
     page,
   }) => {
+    // The "+ New release" button now opens a modal overlay (was an
+    // inline .create-card in the earlier design).
     await page.goto("/releases");
     await expect(page.locator(".release-grid").first()).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: /New release/ }).click();
-    const form = page.locator(".create-card");
-    await expect(form).toBeVisible();
+    const modal = page.locator(".modal");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
 
     const v = `e2e-list-${Date.now().toString(36)}`;
-    await form.locator('input[placeholder*="v1.2.0"]').fill(v);
-    await form.getByRole("button", { name: /^Create$/ }).click();
-    await expect(form).toBeHidden({ timeout: 5_000 });
+    await modal.locator('input[placeholder*="v1.2.0"]').fill(v);
+    await modal.getByRole("button", { name: /^Create release$/ }).click();
+    await expect(modal).toBeHidden({ timeout: 5_000 });
 
+    // List paginates at 50; filter via search to surface the new card.
+    await page.getByPlaceholder("Search version or name…").fill(v);
     const card = page.locator(".release-card", {
       has: page.locator(".version", { hasText: v }),
     }).first();
@@ -380,7 +384,7 @@ test.describe("/releases — list extras", () => {
     await expect(card.locator(".status")).toHaveText(/draft/i);
   });
 
-  test("the New release form's Cancel button hides the form without creating a card", async ({
+  test("the New release modal's Cancel button hides the modal without creating a card", async ({
     page,
   }) => {
     await page.goto("/releases");
@@ -390,10 +394,10 @@ test.describe("/releases — list extras", () => {
     const before = await page.locator(".release-card").count();
 
     await page.getByRole("button", { name: /New release/ }).click();
-    const form = page.locator(".create-card");
-    await expect(form).toBeVisible();
-    await form.getByRole("button", { name: /^Cancel$/ }).click();
-    await expect(form).toBeHidden({ timeout: 2_000 });
+    const modal = page.locator(".modal");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    await modal.getByRole("button", { name: /^Cancel$/ }).click();
+    await expect(modal).toBeHidden({ timeout: 2_000 });
     expect(await page.locator(".release-card").count()).toBe(before);
   });
 });

@@ -51,9 +51,13 @@ test.describe("/errors", () => {
     // loadError. None of these is the "Loading..." status-text. A
     // regression that drops the fetch-result handler would leave the
     // page stuck on "Loading...".
-    await expect(page.locator(".error-list, .empty, .status-text.error")).toBeVisible({
-      timeout: 10_000,
-    });
+    //
+    // .first() because the detail pane has its own .empty for the
+    // "no notes yet" hint — the OR-locator would otherwise hit
+    // multiple matches and trip strict mode.
+    await expect(
+      page.locator(".error-list, .empty, .status-text.error").first(),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".status-text", { hasText: "Loading..." })).toHaveCount(0);
   });
 });

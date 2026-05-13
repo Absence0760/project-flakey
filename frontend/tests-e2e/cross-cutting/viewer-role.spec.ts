@@ -28,8 +28,11 @@ test.describe("Demo Team owner — empty-state coverage", () => {
 
   test("/flaky shows the empty hint or zero rows", async ({ page }) => {
     await page.goto("/flaky");
-    await expect(page.locator("h1")).toBeVisible({ timeout: 10_000 });
-    // Either zero flaky cards rendered, or an explicit empty hint.
+    // The /flaky page has no h1 (the sidebar nav + URL label it).
+    // Wait for the empty hint to land, then assert no cards.
+    await expect(
+      page.locator(".empty p", { hasText: /No flaky tests detected/ }),
+    ).toBeVisible({ timeout: 10_000 });
     const cards = page.locator(".flaky-card");
     expect(await cards.count()).toBe(0);
   });

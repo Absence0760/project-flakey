@@ -22,8 +22,11 @@ test.describe("/releases", () => {
     await expect(page.locator(".release-grid").first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test("renders header + all three seeded releases as cards", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Releases" })).toBeVisible();
+  test("renders the subtitle + all three seeded releases as cards", async ({ page }) => {
+    // The page intentionally has no <h1> — the sidebar nav + URL
+    // label the page (see /releases/+page.svelte:259). The subtitle
+    // is the next-most-stable copy anchor.
+    await expect(page.locator(".subtitle")).toContainText(/release/i);
 
     // The three seeded releases should each render as a card. The
     // .release-card anchor href is the contract: /releases/<id>.
@@ -55,10 +58,10 @@ test.describe("/releases", () => {
     });
 
     // The seed inserts 6 checklist items. The progress label reads
-    // "<checked>/<total> checklist items"; we don't pin <checked>
-    // because the toggle tests in release-detail.spec.ts may have
-    // mutated the checked count by the time this assertion runs.
-    await expect(v240.locator(".progress-label")).toHaveText(/\d+\/6 checklist items/);
+    // "<checked>/<total> · <pct>%"; we don't pin <checked> because the
+    // toggle tests in release-detail.spec.ts may have mutated the
+    // checked count by the time this assertion runs.
+    await expect(v240.locator(".progress-label")).toHaveText(/\d+\/6\s*·\s*\d+%/);
 
     // The release's friendly name "Q2 launch" is on the card.
     await expect(v240.locator(".name")).toHaveText("Q2 launch");
@@ -69,8 +72,9 @@ test.describe("/releases", () => {
       has: page.locator(".version", { hasText: "v2.3.0" }),
     });
 
-    // The signed-off card shows "Signed off by <email> · <date>".
-    await expect(v230.locator(".signed")).toHaveText(/Signed off by .* · .*/);
+    // The signed-off card shows "✓ Signed off <date> · <email>".
+    // Match both the leading checkmark + the two-part rendering.
+    await expect(v230.locator(".signed")).toHaveText(/Signed off .* · .*/);
   });
 
   test("clicking a release card navigates to /releases/<id>", async ({ page }) => {
@@ -88,19 +92,27 @@ test.describe("/releases", () => {
     });
   });
 
-  test("admin can create a new release via the inline form", async ({ page }) => {
-    await page.getByRole("button", { name: /New release/ }).click();
+  test("admin can create a new release via the modal form", async ({ page }) => {
+    // The "+ New release" button now opens a modal overlay (it was
+    // an inline .create-card in an earlier design). Click the button,
+    // fill the version field, submit, assert the new card appears.
+    await page.getByRole("button", { name: /\+ New release/ }).click();
 
-    // The create-card form appears with version + name + target + desc.
-    const form = page.locator(".create-card");
-    await expect(form).toBeVisible();
+    const modal = page.locator(".modal");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    await expect(modal.getByRole("heading", { name: "New release" })).toBeVisible();
 
     const newVersion = `e2e-${Date.now()}`;
-    await form.locator('input[placeholder*="v1.2.0"]').fill(newVersion);
-    await form.getByRole("button", { name: /^Create$/ }).click();
+    await modal.locator('input[placeholder*="v1.2.0"]').fill(newVersion);
+    await modal.getByRole("button", { name: /^Create release$/ }).click();
 
-    // Toast surfaces; the form closes; the new card appears in the grid.
-    await expect(form).toBeHidden({ timeout: 5_000 });
+    // Modal dismisses; new release lands on the server. The release
+    // grid paginates at 50 cards and accumulates seeded + prior-run
+    // releases in dev DB, so the just-created card may not be on
+    // page 1. Filter to it by version using the search box (which
+    // resets pagination on input — see +page.svelte's $effect).
+    await expect(modal).toBeHidden({ timeout: 5_000 });
+    await page.getByPlaceholder("Search version or name…").fill(newVersion);
     await expect(
       page.locator(".release-card", {
         has: page.locator(".version", { hasText: newVersion }),

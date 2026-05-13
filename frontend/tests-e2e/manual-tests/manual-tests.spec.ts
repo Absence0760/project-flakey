@@ -104,6 +104,12 @@ test.describe("/manual-tests", () => {
     // order the first row may be that empty-stepped one. The seed's
     // "Verify PDF export of run report" exists from the start with
     // the standard 3-step template.
+    //
+    // Bulk-fill in the seed pushes the manual_tests count above the
+    // page-size limit (50). Filter via the search box so the target
+    // row lands on page 1 regardless of how many manual tests exist.
+    await page.getByPlaceholder("Search title, tag, suite…").fill("Verify PDF export of run report");
+
     const seededRow = page
       .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
@@ -134,8 +140,6 @@ test.describe("/manual-tests", () => {
   });
 
   test("creating a manual test adds it to the list", async ({ page }) => {
-    const beforeRows = await page.locator("table.tests tbody tr").count();
-
     await page.getByRole("button", { name: /New test/ }).click();
 
     const modal = page.locator(".modal.create-modal");
@@ -152,10 +156,13 @@ test.describe("/manual-tests", () => {
     await expect(createBtn).toBeEnabled({ timeout: 2_000 });
     await createBtn.click();
 
-    // Modal closes; new row appears.
+    // Modal closes; the new test lands on the server. The list is
+    // paginated at 50 rows so the new row may not be on page 1 in
+    // a populated DB — filter to it via search to verify.
     await expect(modal).toBeHidden({ timeout: 5_000 });
-    const afterRows = await page.locator("table.tests tbody tr").count();
-    expect(afterRows).toBe(beforeRows + 1);
-    await expect(page.locator("table.tests tbody", { hasText: uniqueTitle })).toBeVisible();
+    await page.getByPlaceholder("Search title, tag, suite…").fill(uniqueTitle);
+    await expect(
+      page.locator("table.tests tbody tr.test-row", { hasText: uniqueTitle }),
+    ).toBeVisible({ timeout: 5_000 });
   });
 });

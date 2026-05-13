@@ -27,7 +27,10 @@ test.describe("manual-test requirements CRUD", () => {
 
     // Use the same stable seeded title that manual-tests.spec uses to
     // open the detail modal (it has an enabled run + the standard
-    // 3-step template, and never shifts in the table).
+    // 3-step template, and never shifts in the table). The seed
+    // bulk-fills past the page-size limit (50) so filter via search
+    // to surface the target row reliably.
+    await page.getByPlaceholder("Search title, tag, suite…").fill("Verify PDF export of run report");
     await page
       .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
@@ -90,6 +93,7 @@ test.describe("manual-test requirements CRUD", () => {
     await page.goto("/manual-tests");
     await expect(page.locator("table.tests")).toBeVisible({ timeout: 10_000 });
 
+    await page.getByPlaceholder("Search title, tag, suite…").fill("Verify PDF export of run report");
     await page
       .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",

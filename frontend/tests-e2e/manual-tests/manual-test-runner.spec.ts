@@ -34,7 +34,9 @@ test.describe("manual-test step-by-step runner", () => {
     // (so the "Run test" CTA appears) and has the standard 3-step
     // template — same row used by manual-tests.spec.ts and the
     // manual-test-requirements spec, so we know it's stable across
-    // re-seeds.
+    // re-seeds. The bulk-fill in the seed pushes manual_tests past
+    // PAGE_SIZE (50) so we filter via search to surface the row.
+    await page.getByPlaceholder("Search title, tag, suite…").fill("Verify PDF export of run report");
     await page
       .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
@@ -86,6 +88,7 @@ test.describe("manual-test step-by-step runner", () => {
     await page.goto("/manual-tests");
     await expect(page.locator("table.tests")).toBeVisible({ timeout: 10_000 });
 
+    await page.getByPlaceholder("Search title, tag, suite…").fill("Verify PDF export of run report");
     await page
       .locator("table.tests tbody tr.test-row", {
         hasText: "Verify PDF export of run report",
