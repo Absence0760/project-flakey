@@ -4,6 +4,34 @@ import { mdsvex } from 'mdsvex';
 
 export default defineConfig();
 
+// Build the connect-src list at config-load time. The frontend
+// (served from one origin) fetches the API at VITE_API_URL — a
+// different origin in both dev (`http://localhost:3000`) and prod
+// (`https://api.flakey.io`). CSP `'self'` only covers the page's
+// own origin, so the API origin must be explicitly allow-listed
+// or every fetch fails with a CSP "blocked by Content Security
+// Policy" error and the dashboard renders blank.
+//
+// Extra entries listed in PUBLIC_CSP_CONNECT_SRC (space-separated)
+// extend the list — used by ops who proxy the API behind a CDN or
+// add a separate analytics endpoint.
+function connectSrc() {
+	const sources = new Set(["'self'"]);
+	const apiUrl = process.env.VITE_API_URL || "http://localhost:3000";
+	try {
+		const u = new URL(apiUrl);
+		sources.add(`${u.protocol}//${u.host}`);
+	} catch {
+		// VITE_API_URL is malformed — leave only 'self'. The fetch will
+		// fail but at runtime, not at config-load time.
+	}
+	const extras = (process.env.PUBLIC_CSP_CONNECT_SRC || "")
+		.split(/\s+/)
+		.filter(Boolean);
+	for (const e of extras) sources.add(e);
+	return [...sources];
+}
+
 /** @type {() => import('@sveltejs/kit').Config} */
 function defineConfig() {
 	return {
@@ -40,7 +68,7 @@ function defineConfig() {
 					'img-src': ['self', 'data:', 'blob:'],
 					'style-src': ['self', 'unsafe-inline'],
 					'script-src': ['self'],
-					'connect-src': ['self', 'https:'],
+					'connect-src': connectSrc(),
 					'frame-ancestors': ['none'],
 					'base-uri': ['self'],
 					'form-action': ['self'],
