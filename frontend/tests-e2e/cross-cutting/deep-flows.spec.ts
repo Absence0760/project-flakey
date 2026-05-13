@@ -338,7 +338,7 @@ test.describe("deep cross-page flows", () => {
     await expect(page.getByRole("button", { name: /Sign off release/ })).toBeVisible();
   });
 
-  test("/ runs-list filter URL is bookmarkable: deep-link to ?date=all renders all runs", async ({
+  test("/runs runs-list filter URL is bookmarkable: deep-link to ?date=all renders all runs", async ({
     page,
   }) => {
     // Lands directly with a non-default filter in the URL — the route
@@ -346,7 +346,7 @@ test.describe("deep cross-page flows", () => {
     // A regression where readFiltersFromUrl was wired only to
     // afterNavigate (and not the initial mount) would land on the
     // listing with the default 7-day filter, ignoring the URL.
-    await page.goto("/?date=all");
+    await page.goto("/runs?date=all");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     await expect(
       page.locator(".filter-tab", { hasText: "All time" }),

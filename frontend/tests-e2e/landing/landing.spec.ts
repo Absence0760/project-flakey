@@ -3,30 +3,54 @@ import { expect, test } from "@playwright/test";
 import { ADMIN_USER } from "../fixtures/users";
 
 /**
- * Public landing page at /.
+ * Two routes, two contracts:
  *
- * Two distinct contracts:
+ *   1. `/` — auth-aware REDIRECT-ONLY route. Authenticated → /dashboard,
+ *      unauthenticated → /login. No marketing copy. This is what
+ *      self-hosters want their internal URL to do.
  *
- *   1. UNAUTHENTICATED visitors see marketing copy at /. No redirect.
- *      The page is the org's funnel from "saw the README" to "signed
- *      in" — it must NOT hide behind an auth gate.
- *   2. AUTHENTICATED visitors who happen to land on / get redirected
- *      to /dashboard. This covers the "bookmarked the root" and
- *      "clicked the logo from a logged-in session" cases.
+ *   2. `/welcome` — public marketing landing page. Always renders; never
+ *      redirects. Authenticated visitors who hit /welcome explicitly
+ *      stay on /welcome — they asked for the marketing page. The hosted
+ *      SaaS at flakey.io can either redirect the public root to /welcome
+ *      at the CDN layer or link to /welcome from external marketing.
  *
- * Each test runs with an explicit storageState so the auth/no-auth
- * matrix is exhaustive. The default storageState in playwright.config
- * is admin (authenticated) — we override per-test.
+ * Splitting the two means every protected route (including /) gates on
+ * auth, and the auth-walls.spec contract — "every route under (app)
+ * redirects to /login when unauthenticated" — holds for `/` too.
  */
 
-test.describe("/ landing page — unauthenticated", () => {
+test.describe("/ — auth-aware redirect", () => {
+  test.describe("unauthenticated", () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    test("unauthenticated visit to / redirects to /login (the self-host default)", async ({ page }) => {
+      await page.goto("/");
+      await expect(page).toHaveURL(/\/login/);
+    });
+  });
+
+  test.describe("authenticated", () => {
+    test.use({ storageState: ADMIN_USER.storageStatePath });
+
+    test("authenticated visit to / redirects to /dashboard", async ({ page }) => {
+      await page.goto("/");
+      await expect(page).toHaveURL(/\/dashboard/);
+      // Confirm we're inside the (app) layout, not still on the
+      // redirect-only stub.
+      await expect(page.locator(".sidebar")).toBeVisible();
+    });
+  });
+});
+
+test.describe("/welcome — public marketing landing page", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   test("renders the product hero + compare table + footer for unauthenticated visitors (no redirect)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/welcome");
 
-    // No /login or /dashboard redirect should fire — visitor stays on `/`.
-    await expect(page).toHaveURL(/\/$/);
+    // The visitor stays on /welcome — no redirect to /login or /dashboard.
+    await expect(page).toHaveURL(/\/welcome/);
 
     // Hero copy is the funnel contract — the headline must mention
     // the positioning ("self-hosted" + "CI-agnostic") because that's
@@ -35,22 +59,20 @@ test.describe("/ landing page — unauthenticated", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/CI-agnostic/i);
 
     // Compare table is the second-half hook — must render and
-    // include the four competitor columns we promised in the audit
-    // fix conversation.
+    // include the four competitor columns we promised.
     await expect(page.getByRole("heading", { name: /How Flakey compares/i })).toBeVisible();
     for (const product of ["Flakey", "Cypress Cloud", "BrowserStack", "Currents.dev", "TestRail"]) {
       await expect(page.locator("th", { hasText: product })).toBeVisible();
     }
 
-    // Primary CTA points at /login. We use getByRole to dodge the
-    // duplicate "Sign in →" link inside the topnav.
+    // Primary CTA points at /login.
     const primaryCta = page.getByRole("link", { name: /^Sign in$/i });
     await expect(primaryCta.first()).toBeVisible();
     await expect(primaryCta.first()).toHaveAttribute("href", "/login");
   });
 
   test("clicking 'Sign in' navigates to /login (no auth state was set)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/welcome");
     await page.getByRole("link", { name: /^Sign in$/i }).first().click();
     await expect(page).toHaveURL(/\/login/);
   });
@@ -60,7 +82,7 @@ test.describe("/ landing page — unauthenticated", () => {
     // section. We don't click it (target=_blank + external) — just
     // assert the link is present and well-formed so a future copy
     // edit that drops it surfaces in CI.
-    await page.goto("/");
+    await page.goto("/welcome");
     const cta = page.getByRole("link", { name: /^Self-host/ }).first();
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute("href", /github\.com.+#self-host/);
@@ -69,7 +91,7 @@ test.describe("/ landing page — unauthenticated", () => {
   });
 
   test("clicking 'Create an account' lands on /login?mode=register so the form opens in register mode", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/welcome");
     await page.getByRole("link", { name: /create an account/i }).first().click();
     await expect(page).toHaveURL(/\/login\?mode=register/);
     // The register form has a Name field — the login form doesn't.
@@ -78,7 +100,7 @@ test.describe("/ landing page — unauthenticated", () => {
   });
 
   test("compare table flags Flakey as 'yes' on the four claims that are core to the positioning", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/welcome");
     await expect(page.getByRole("heading", { name: /How Flakey compares/i })).toBeVisible();
 
     // For each must-win row, the Flakey cell should carry the 'yes'
@@ -90,7 +112,6 @@ test.describe("/ landing page — unauthenticated", () => {
       "Open source",
     ]) {
       const rowEl = page.locator("tr", { hasText: row });
-      // The Flakey column is the first product column (2nd <td>).
       const flakeyCell = rowEl.locator("td.flakey-cell").first();
       const mark = flakeyCell.locator(".cell-mark");
       await expect(mark).toHaveAttribute("aria-label", "yes");
@@ -98,14 +119,14 @@ test.describe("/ landing page — unauthenticated", () => {
   });
 });
 
-test.describe("/ landing page — registration posture adapts to backend", () => {
+test.describe("/welcome — registration posture adapts to backend", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   test("when /auth/registration-status returns {open: true}, the 'Create an account' CTA is visible (default dev posture)", async ({ page }) => {
     // The local dev backend has ALLOW_REGISTRATION=true so the
-    // endpoint returns open:true. Landing-page hero shows the
+    // endpoint returns open:true. Welcome page hero shows the
     // Create-an-account CTA, no invite-only note.
-    await page.goto("/");
+    await page.goto("/welcome");
     await expect(page.getByRole("link", { name: /create an account/i }).first()).toBeVisible();
     await expect(page.locator('[data-test="invite-only-note"]')).toHaveCount(0);
   });
@@ -113,8 +134,6 @@ test.describe("/ landing page — registration posture adapts to backend", () =>
   test("when /auth/registration-status returns {open: false}, the CTA is hidden and the invite-only note renders", async ({ page }) => {
     // Mock the registration-status endpoint so this test exercises
     // the closed branch without needing a second backend process.
-    // The route handler runs in the browser context — sole side
-    // effect on the page under test.
     await page.route("**/auth/registration-status", async (route) => {
       await route.fulfill({
         status: 200,
@@ -123,11 +142,8 @@ test.describe("/ landing page — registration posture adapts to backend", () =>
       });
     });
 
-    await page.goto("/");
+    await page.goto("/welcome");
 
-    // The CTA must NOT appear, and the invite-only banner MUST
-    // appear. We rely on the data-test attribute so a copy edit on
-    // the banner text doesn't break the assertion.
     await expect(page.locator('[data-test="invite-only-note"]')).toBeVisible();
     await expect(page.getByRole("link", { name: /^Create an account$/ })).toHaveCount(0);
 
@@ -151,22 +167,5 @@ test.describe("/ landing page — registration posture adapts to backend", () =>
     // The form is still rendered — the email-match flow still works,
     // so we don't disable the submit button.
     await expect(page.locator('input[type="email"]')).toBeVisible();
-  });
-});
-
-test.describe("/ landing page — authenticated", () => {
-  // Re-attach the admin storage state so this page's onMount sees a
-  // valid bt_token + bt_user and the redirect path fires.
-  test.use({ storageState: ADMIN_USER.storageStatePath });
-
-  test("authenticated visitor at / is redirected to /dashboard", async ({ page }) => {
-    await page.goto("/");
-    // The redirect fires inside onMount after restoreAuth() reads
-    // localStorage. Playwright's default `goto` waits for load; we
-    // need to wait for the client-side redirect to settle.
-    await expect(page).toHaveURL(/\/dashboard/);
-    // Confirm we're actually inside the (app) layout, not still on
-    // the landing copy.
-    await expect(page.locator(".sidebar")).toBeVisible();
   });
 });

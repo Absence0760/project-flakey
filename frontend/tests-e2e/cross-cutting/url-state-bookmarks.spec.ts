@@ -13,16 +13,16 @@ import { ADMIN_USER } from "../fixtures/users";
 test.describe("URL state — bookmarkable filters", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
-  test("/?date=all lands with the All time tab active", async ({ page }) => {
-    await page.goto("/?date=all");
+  test("/runs?date=all lands with the All time tab active", async ({ page }) => {
+    await page.goto("/runs?date=all");
     await expect(page.locator(".filter-tab", { hasText: "All time" })).toHaveClass(/active/, {
       timeout: 10_000,
     });
     await expect(page.locator(".filter-tab", { hasText: "7 days" })).not.toHaveClass(/active/);
   });
 
-  test("/?status=failed lands with only failed runs visible", async ({ page }) => {
-    await page.goto("/?status=failed");
+  test("/runs?status=failed lands with only failed runs visible", async ({ page }) => {
+    await page.goto("/runs?status=failed");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     // Every visible row should have failures (red status dot).
     const passDots = await page.locator("tr.run-row .run-status-dot.pass:not(.fail)").count();
@@ -31,8 +31,8 @@ test.describe("URL state — bookmarkable filters", () => {
     // Rows with failures have run.failed > 0; passing rows are filtered out.
   });
 
-  test("/?suite=auth-e2e lands with only auth-e2e runs", async ({ page }) => {
-    await page.goto("/?suite=auth-e2e");
+  test("/runs?suite=auth-e2e lands with only auth-e2e runs", async ({ page }) => {
+    await page.goto("/runs?suite=auth-e2e");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     // Suite/branch/env dropdowns live inside the "Filters" popover —
     // open it before reading the <select> value.
@@ -67,8 +67,8 @@ test.describe("URL state — bookmarkable filters", () => {
     );
   });
 
-  test("/?suite=auth-e2e&date=all combines two filters", async ({ page }) => {
-    await page.goto("/?suite=auth-e2e&date=all");
+  test("/runs?suite=auth-e2e&date=all combines two filters", async ({ page }) => {
+    await page.goto("/runs?suite=auth-e2e&date=all");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".filter-tab", { hasText: "All time" })).toHaveClass(/active/);
     // Suite/branch/env now live inside a "Filters" popover — open it

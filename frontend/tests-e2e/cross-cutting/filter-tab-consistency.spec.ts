@@ -35,14 +35,14 @@ async function firstFilterTabHeight(page: Page): Promise<number> {
 test.describe("filter-tab is the single canonical 'tag' pattern", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
-  test("/ no longer uses the legacy .summary-btn / .summary-bar markup", async ({ page }) => {
-    await login(page, "/");
+  test("/runs no longer uses the legacy .summary-btn / .summary-bar markup", async ({ page }) => {
+    await login(page, "/runs");
     await expect(page.locator(".summary-btn")).toHaveCount(0);
     await expect(page.locator(".summary-bar")).toHaveCount(0);
   });
 
-  test("/ now uses the .filter-tabs / .filter-tab segmented control", async ({ page }) => {
-    await login(page, "/");
+  test("/runs now uses the .filter-tabs / .filter-tab segmented control", async ({ page }) => {
+    await login(page, "/runs");
     const tabs = page.locator(".filter-tabs .filter-tab");
     // At minimum: All + Passed + Failed. New failures shows only
     // when stats.newFailures > 0 (seed-dependent), so >=3.
@@ -51,7 +51,7 @@ test.describe("filter-tab is the single canonical 'tag' pattern", () => {
   });
 
   test("the status color modifiers (.pass, .fail, .new) tint the count pill, not the tab", async ({ page }) => {
-    await login(page, "/");
+    await login(page, "/runs");
 
     // The .filter-tab itself should NOT be color-coded by status —
     // that's what made the old .summary-btn pattern stand out from
@@ -84,7 +84,7 @@ test.describe("filter-tab is the single canonical 'tag' pattern", () => {
     // already (`/manual-tests`). The two should match within a
     // sub-pixel rounding budget; a large delta would indicate the
     // pages have drifted CSS copies of .filter-tab.
-    await login(page, "/");
+    await login(page, "/runs");
     const homeH = await firstFilterTabHeight(page);
 
     await login(page, "/manual-tests");
