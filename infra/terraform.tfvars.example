@@ -1,24 +1,32 @@
-aws_region         = "ap-southeast-2"
+# Self-hosters: copy this file to `terraform.tfvars` and replace every
+# `<...>` placeholder with your own values. Every value below is a
+# variable — there is no `flakey.io` hard-coding in the stack. The
+# `app_name` controls every resource prefix (ECR repo, ECS cluster,
+# log groups, etc.) so two different `app_name`s in two different
+# AWS accounts won't collide.
+
+aws_region         = "us-east-1"
 environment        = "production"
-app_name           = "flakey"
+app_name           = "<your-app-name>"           # e.g. "acme-tests" — used as the prefix for every named resource
 db_instance_class  = "db.t4g.micro"
-allow_registration = false
+allow_registration = false                       # true = anyone can self-serve; false = invite-only
 budget_limit       = "150"
-budget_alert_email = "you@example.com"
+budget_alert_email = "<you@your-domain.com>"
 
 # Required: ACM certificate ARN for the ALB HTTPS listener.
 # Must be in the same region as the ALB. Create one in the ACM
 # console (https://console.aws.amazon.com/acm/home), wait for
 # DNS validation to complete, then paste the ARN here.
-acm_certificate_arn = "arn:aws:acm:ap-southeast-2:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+acm_certificate_arn = "arn:aws:acm:<region>:<account-id>:certificate/<cert-id>"
 
-# REQUIRED: tighten the SPA's CSP connect-src to the API origin(s).
-# The SvelteKit dashboard fetches the API from a different origin
-# (typically the ALB DNS for the env's ECS service, or api.flakey.io
-# behind a custom domain). Without this list, the CSP collapses to
-# `connect-src 'self'` and every API call from the SPA is blocked.
-# A non-empty list is enforced by a variable validation block.
-csp_connect_src = ["https://api.flakey.io"]
+# REQUIRED: the API origin(s) the SPA fetches from. The SvelteKit
+# dashboard runs on a different origin from the API (CloudFront vs
+# ALB), so the CSP must explicitly allow the API origin or every
+# fetch from the dashboard fails. Set this to whatever public URL
+# your ALB / API gateway lives at (custom domain via Route53 or the
+# raw ALB DNS name). A non-empty list is enforced by a variable
+# validation block — apply will refuse otherwise.
+csp_connect_src = ["https://api.<your-domain>"]
 
 # Optional cost-incurring toggles (defaults shown):
 # rds_multi_az = true                  # set false on staging/dev to halve cost

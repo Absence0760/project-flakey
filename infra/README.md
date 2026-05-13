@@ -34,6 +34,26 @@ Terraform configuration for deploying Flakey to AWS. Designed to be as touchless
 | Frontend deploy | Static build synced to S3, CloudFront cache invalidated |
 | GitHub OIDC | Bootstrap module creates the IAM role |
 
+## Self-hoster checklist
+
+**Nothing in this stack hard-codes `flakey.io`** — every domain, cert, region, and IAM-trust-subject is exposed as a variable. To run this for your own org:
+
+| Variable | What it controls |
+|---|---|
+| `app_name` | Prefix for every named resource (ECR repo, ECS cluster + service, log groups, security groups). Two `app_name`s never collide in one AWS account. |
+| `aws_region` | Where the ALB / ECS / RDS live. CloudFront cert must additionally be in `us-east-1` (an AWS hard constraint). |
+| `acm_certificate_arn` | Your ALB cert. Must be in `aws_region`. |
+| `cloudfront_acm_certificate_arn` | Your CloudFront cert. Must be in `us-east-1`. |
+| `cloudfront_aliases` | Your DNS names (e.g. `["app.acme.com"]`). |
+| `csp_connect_src` | Your API origin(s) so the SPA can fetch the API across origins. **Required** — `terraform apply` refuses if absent or still holding the `<placeholder>` string from `terraform.tfvars.example`. |
+| `allow_registration` | `true` for SaaS-style self-serve; `false` (default) for invite-only. |
+| `budget_alert_email` | Where the monthly-budget alarm sends mail. |
+| `github_repo` (bootstrap stack only) | Your `<org>/<repo>` for the OIDC trust subject. The deploy IAM role's trust policy is scoped to this — no other repo can assume it. |
+
+Copy `terraform.tfvars.example` → `terraform.tfvars`, fill in each `<placeholder>`, then `terraform apply`. The validation blocks in `variables.tf` will refuse to plan if you leave a placeholder in place.
+
+The reporter packages (`@flakeytesting/*`) and the backend itself read `FLAKEY_API_URL` / `FLAKEY_API_KEY` at runtime — there are no compile-time references to `flakey.io` anywhere in `backend/` or `packages/`.
+
 ## Setup (one-time)
 
 ### 1. Bootstrap (state bucket + GitHub OIDC)
@@ -41,7 +61,10 @@ Terraform configuration for deploying Flakey to AWS. Designed to be as touchless
 ```bash
 cd infra/bootstrap
 terraform init
-terraform apply -var="github_repo=your-org/project-flakey"
+# Replace <your-github-org>/<your-repo> with your fork's path. The
+# deploy IAM role's trust policy is StringLike-pinned to this exact
+# value — a fork that never set this won't be assumable.
+terraform apply -var="github_repo=<your-github-org>/<your-repo>"
 ```
 
 This creates:

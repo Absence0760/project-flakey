@@ -6,7 +6,7 @@ variable "enable_waf" {
   default     = false
 }
 variable "csp_connect_src" {
-  description = "Additional connect-src values for the CloudFront response-headers CSP. The frontend always gets `'self'`. List the API origin(s) the SPA needs to fetch from (e.g. [\"https://api.flakey.io\"]). Empty list keeps connect-src tight to `'self'` only."
+  description = "Additional connect-src values for the CloudFront response-headers CSP. The frontend always gets `'self'`. List the API origin(s) the SPA needs to fetch from (e.g. [\"https://api.your-domain.com\"]). Empty list keeps connect-src tight to `'self'` only."
   type        = list(string)
   default     = []
 }
@@ -18,7 +18,7 @@ variable "cloudfront_acm_certificate_arn" {
 }
 
 variable "cloudfront_aliases" {
-  description = "DNS aliases for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI can match the cert's CN. e.g. [\"app.flakey.io\"]."
+  description = "DNS aliases for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI can match the cert's CN. e.g. [\"app.your-domain.com\"]."
   type        = list(string)
   default     = []
 }

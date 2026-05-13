@@ -76,11 +76,18 @@ variable "rds_multi_az" {
 }
 
 variable "csp_connect_src" {
-  description = "Additional connect-src origins for the CloudFront response-headers CSP. The frontend always has 'self'. The SPA fetches the API from a different origin (ALB DNS or api.flakey.io), so this MUST include that origin or every API call fails with a CSP error and the dashboard renders blank. e.g. [\"https://api.flakey.io\"]."
+  description = "Additional connect-src origins for the CloudFront response-headers CSP. The SPA fetches the API from a different origin (CloudFront vs ALB), so this MUST include the API origin or every fetch from the dashboard fails with a CSP error and the dashboard renders blank. e.g. [\"https://api.your-domain.com\"]."
   type        = list(string)
   validation {
     condition     = length(var.csp_connect_src) > 0
     error_message = "csp_connect_src must include at least one API origin — without it, the SvelteKit SPA can't reach the API and the dashboard renders blank. See terraform.tfvars.example."
+  }
+  validation {
+    # Reject the `<...>` placeholder text that terraform.tfvars.example
+    # ships with — forces self-hosters to actually edit the file before
+    # `terraform apply` succeeds.
+    condition     = alltrue([for s in var.csp_connect_src : !can(regex("<", s)) && !can(regex(">", s))])
+    error_message = "csp_connect_src contains a `<placeholder>` value from terraform.tfvars.example — replace it with your real API origin (e.g. \"https://api.acme.com\")."
   }
 }
 
@@ -91,7 +98,7 @@ variable "cloudfront_acm_certificate_arn" {
 }
 
 variable "cloudfront_aliases" {
-  description = "DNS aliases (CNAMEs) for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI matches the cert. e.g. [\"app.flakey.io\"]."
+  description = "DNS aliases (CNAMEs) for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI matches the cert. e.g. [\"app.your-domain.com\"]."
   type        = list(string)
   default     = []
 }

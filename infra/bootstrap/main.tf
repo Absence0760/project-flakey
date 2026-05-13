@@ -16,12 +16,17 @@ variable "aws_region" {
 }
 
 variable "github_repo" {
-  description = "GitHub repo in format org/repo"
+  description = "GitHub repo in `<org>/<repo>` form for the OIDC trust subject. Set to your fork's path — the deploy IAM role's trust policy is StringLike-pinned to this exact value, so a fork that doesn't set this can't assume the role even if they get the role ARN."
   type        = string
+  validation {
+    condition     = can(regex("^[^/<>]+/[^/<>]+$", var.github_repo))
+    error_message = "github_repo must be `<org>/<repo>` (no slashes inside the parts, no `<placeholder>` text)."
+  }
 }
 
 variable "app_name" {
-  default = "flakey"
+  description = "Resource-prefix for every named AWS resource the stack creates (ECR repo, ECS cluster + service, log groups, security groups). Change this for your fork — `flakey` is the upstream default."
+  default     = "flakey"
 }
 
 variable "environment" {
