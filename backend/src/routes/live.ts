@@ -25,6 +25,11 @@ const rejectSvg: multer.Options["fileFilter"] = (_req, file, cb) => {
 const snapshotUpload = multer({
   dest: "uploads/tmp",
   limits: { fileSize: 50 * 1024 * 1024 },
+  // Snapshots are gzip'd JSON (.json.gz). guessContentType maps .gz to
+  // application/gzip so an SVG renamed `foo.json.gz` would never be
+  // served as image/svg+xml — but reject at the boundary anyway so an
+  // attacker can't pollute the snapshots/ prefix with junk.
+  fileFilter: rejectSvg,
 });
 const screenshotUpload = multer({
   dest: "uploads/tmp",
@@ -695,7 +700,12 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
     const originalName = typeof file.originalname === "string" && file.originalname
       ? file.originalname
       : `${Date.now()}.png`;
-    const safeName = originalName.replace(/[^a-zA-Z0-9_\-. ]/g, "_").slice(0, 200);
+    // Strip whitespace as well as other unsafe chars — a space in an
+    // S3 object key requires percent-encoding in URLs, which some CDN
+    // configs and the v4-signer / re-signer handle inconsistently. Use
+    // `_` for any non-alphanumeric so the resulting key is URL-safe
+    // without encoding.
+    const safeName = originalName.replace(/[^a-zA-Z0-9_\-.]/g, "_").slice(0, 200);
     const key = `runs/${runId}/screenshots/${safeName}`;
 
     await getStorage().put(file.path, key);

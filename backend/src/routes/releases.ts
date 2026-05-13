@@ -13,7 +13,7 @@ import {
 } from "../integrations/jira.js";
 import { getStorage } from "../storage.js";
 import { validateRefUrl } from "../url-validation.js";
-import { unlink } from "fs/promises";
+import { rmSync } from "fs";
 
 const evidenceUpload = multer({
   dest: "uploads/tmp",
@@ -1742,9 +1742,12 @@ router.post(
     } finally {
       // Always reap the multer temp files — without this, every
       // failed upload (4xx / 5xx / network drop mid-loop) leaves a
-      // 20-MB-cap file behind in uploads/tmp.
+      // 20-MB-cap file behind in uploads/tmp. Synchronous rmSync so
+      // the unlink completes before the response flushes — async
+      // unlink in finally would let a sudden SIGKILL between
+      // finally-return and unlink-resolution orphan up to 20 × 20 MB.
       for (const f of files) {
-        unlink(f.path).catch(() => { /* already gone */ });
+        try { rmSync(f.path, { force: true }); } catch { /* already gone */ }
       }
     }
   }
