@@ -14,3 +14,7 @@ variable "enable_performance_insights" {
   type        = bool
   default     = false
 }
+variable "alerts_topic_arn" {
+  description = "SNS topic ARN for CloudWatch alarms (CPU, free storage, connections). Wired from module.ecs.alerts_topic_arn so DB alarms land in the same email subscription as ALB alarms."
+  type        = string
+}

@@ -68,3 +68,60 @@ data "aws_kms_alias" "rds" {
   count = var.enable_performance_insights ? 1 : 0
   name  = "alias/aws/rds"
 }
+
+# CloudWatch alarms — keep ECS+ALB and RDS on the same SNS topic so a
+# single subscription notifies on every infra-side incident. Thresholds
+# tuned for a single-tenant small-instance Postgres; bump for prod
+# fleets via a separate alarm pack.
+resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+  alarm_name          = "${var.app_name}-${var.environment}-rds-cpu"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/RDS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alerts_topic_arn]
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.main.identifier
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_free_storage" {
+  alarm_name          = "${var.app_name}-${var.environment}-rds-free-storage"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "FreeStorageSpace"
+  namespace           = "AWS/RDS"
+  period              = 300
+  statistic           = "Minimum"
+  # 5 GB. allocated_storage is 20 GB with autoscale up to 100 GB;
+  # this fires before the autoscale would even kick in so a sustained
+  # write surge gets a human in the loop.
+  threshold          = 5 * 1024 * 1024 * 1024
+  treat_missing_data = "notBreaching"
+  alarm_actions      = [var.alerts_topic_arn]
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.main.identifier
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_connections" {
+  alarm_name          = "${var.app_name}-${var.environment}-rds-connections"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "DatabaseConnections"
+  namespace           = "AWS/RDS"
+  period              = 300
+  statistic           = "Average"
+  # t4g.micro defaults to ~85 max_connections; alert at 70 to spot
+  # connection-leak runaway before it starts rejecting connects.
+  threshold          = 70
+  treat_missing_data = "notBreaching"
+  alarm_actions      = [var.alerts_topic_arn]
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.main.identifier
+  }
+}

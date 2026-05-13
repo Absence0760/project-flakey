@@ -75,6 +75,12 @@ variable "rds_multi_az" {
   default     = true
 }
 
+variable "csp_connect_src" {
+  description = "Additional connect-src origins for the CloudFront response-headers CSP. The frontend always has 'self'. Add the API origin(s) here so the SPA can fetch from them (e.g. [\"https://api.flakey.io\"]). Empty = SPA only fetches same-origin."
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_flow_logs" {
   description = "VPC Flow Logs (REJECT-only) to CloudWatch with KMS encryption. ~$5-15/mo at low volume; needed for security-investigation cadence, otherwise audit-trail bloat."
   type        = bool

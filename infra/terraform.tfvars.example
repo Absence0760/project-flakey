@@ -6,5 +6,23 @@ allow_registration = false
 budget_limit       = "150"
 budget_alert_email = "you@example.com"
 
+# Required: ACM certificate ARN for the ALB HTTPS listener.
+# Must be in the same region as the ALB. Create one in the ACM
+# console (https://console.aws.amazon.com/acm/home), wait for
+# DNS validation to complete, then paste the ARN here.
+acm_certificate_arn = "arn:aws:acm:ap-southeast-2:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+
+# Optional: tighten the SPA's CSP connect-src to a specific API
+# origin so a future XSS can't exfiltrate to arbitrary HTTPS hosts.
+# Default empty list = SPA can only fetch same-origin.
+# csp_connect_src = ["https://api.flakey.io"]
+
+# Optional cost-incurring toggles (defaults shown):
+# rds_multi_az = true                  # set false on staging/dev to halve cost
+# enable_performance_insights = false  # ~$7/mo
+# enable_waf                  = false  # ~$9/mo + per-request
+# enable_vpc_endpoints        = false  # ~$72/mo at 2 AZs
+# enable_flow_logs            = false  # ~$5-15/mo
+
 # Passwords are auto-generated and stored in AWS Secrets Manager.
 # No manual secrets to configure.

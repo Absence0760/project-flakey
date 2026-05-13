@@ -274,6 +274,31 @@ resource "aws_wafv2_web_acl" "frontend" {
 # helmet sets on the backend (frame-ancestors, sniffing, referrer
 # leakage), and CSP is permissive only for the origin's own assets
 # plus inline styles SvelteKit emits during hydration.
+#
+# `style-src 'unsafe-inline'`: SvelteKit emits hydration `<style>`
+# blocks at runtime; switching to nonce/hash mode requires SSR
+# coordination this static-site adapter doesn't provide. Future
+# tightening: pre-compute hashes of every emitted inline-style block at
+# build time and inject them here.
+#
+# `connect-src` is `'self'` plus whatever is in var.csp_connect_src.
+# The previous wildcard `https:` allowed exfiltration to any HTTPS
+# host; tighten to the API origin via `csp_connect_src = ["https://..."]`
+# in the root tfvars.
+locals {
+  csp_connect_src = trimspace(join(" ", concat(["'self'"], var.csp_connect_src)))
+  csp = join("; ", [
+    "default-src 'self'",
+    "img-src 'self' data: blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "connect-src ${local.csp_connect_src}",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ])
+}
+
 resource "aws_cloudfront_response_headers_policy" "frontend" {
   name = "${var.app_name}-${var.environment}-frontend-headers"
 
@@ -294,7 +319,7 @@ resource "aws_cloudfront_response_headers_policy" "frontend" {
       override        = true
     }
     content_security_policy {
-      content_security_policy = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      content_security_policy = local.csp
       override                = true
     }
   }

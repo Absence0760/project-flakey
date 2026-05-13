@@ -336,6 +336,14 @@ resource "aws_ecs_service" "backend" {
     container_port   = 3000
   }
 
+  # CI deploys mutate task_definition (rolling new revision per image
+  # push) and the autoscaling target mutates desired_count. Ignore
+  # both so a Terraform apply doesn't roll the service back to the
+  # bootstrap revision or reset the live capacity to 1.
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
   depends_on = [aws_lb_listener.https]
 }
 
