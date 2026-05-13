@@ -20,11 +20,13 @@ module "secrets" {
 }
 
 module "s3" {
-  source          = "./modules/s3"
-  app_name        = var.app_name
-  environment     = var.environment
-  enable_waf      = var.enable_waf
-  csp_connect_src = var.csp_connect_src
+  source                         = "./modules/s3"
+  app_name                       = var.app_name
+  environment                    = var.environment
+  enable_waf                     = var.enable_waf
+  csp_connect_src                = var.csp_connect_src
+  cloudfront_acm_certificate_arn = var.cloudfront_acm_certificate_arn
+  cloudfront_aliases             = var.cloudfront_aliases
   # CloudFront WAFv2 must be created in us-east-1; pass the aliased
   # provider in via the `aws.us_east_1` configuration alias the module
   # declares in its required_providers block.

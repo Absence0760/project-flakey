@@ -22,9 +22,51 @@ resource "aws_iam_role" "ecs_execution" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_execution" {
-  role       = aws_iam_role.ecs_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+# Inline-scoped execution policy in place of the AWS-managed
+# AmazonECSTaskExecutionRolePolicy. The managed policy grants `ecr:*`
+# Get/Batch/List on any repo in the account plus `logs:*` Create/Put on
+# any log group — broader than necessary. This inline policy scopes:
+#   - ECR pull actions to the specific backend repo
+#   - CloudWatch Logs write actions to the backend log group
+# The `ecr:GetAuthorizationToken` action is intentionally on `*` because
+# it has no resource-level support (this is AWS's documented behaviour).
+data "aws_caller_identity" "ecs_exec" {}
+data "aws_region" "ecs_exec" {}
+
+resource "aws_iam_role_policy" "ecs_execution_inline" {
+  name = "${var.app_name}-${var.environment}-ecs-execution"
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ECRAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRPull"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+        ]
+        Resource = "arn:aws:ecr:${data.aws_region.ecs_exec.name}:${data.aws_caller_identity.ecs_exec.account_id}:repository/${var.app_name}-backend"
+      },
+      {
+        Sid    = "CloudWatchLogsWrite"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = "${aws_cloudwatch_log_group.backend.arn}:*"
+      },
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "ecs_execution_secrets" {
@@ -449,8 +491,15 @@ resource "aws_cloudwatch_metric_alarm" "high_5xx" {
   period              = 300
   statistic           = "Sum"
   threshold           = 10
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
+  # `missing` (not `notBreaching`) — if the ALB target group is
+  # accidentally removed or its listener misconfigured, the
+  # HTTPCode_Target_5XX_Count metric stops reporting. `notBreaching`
+  # would silently mask that as "everything fine"; `missing` keeps the
+  # alarm in INSUFFICIENT_DATA so a human notices the dashboard light
+  # going dark. The companion `unhealthy_hosts` alarm covers the
+  # routine "5xx after the targets come back up" case.
+  treat_missing_data = "missing"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
   dimensions = {
     LoadBalancer = aws_lb.main.arn_suffix
   }

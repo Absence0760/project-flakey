@@ -386,9 +386,27 @@ resource "aws_cloudfront_distribution" "frontend" {
     geo_restriction { restriction_type = "none" }
   }
 
-  viewer_certificate {
-    cloudfront_default_certificate = true
+  # When a custom ACM cert is supplied, enforce TLS 1.2_2021 at the
+  # edge. The default `*.cloudfront.net` cert can't carry a minimum
+  # protocol version — CloudFront falls back to its global default
+  # (TLSv1 at time of writing), so the only way to pin a floor is via
+  # an explicit ACM cert. Aliases are required so SNI can match.
+  dynamic "viewer_certificate" {
+    for_each = var.cloudfront_acm_certificate_arn == null ? [1] : []
+    content {
+      cloudfront_default_certificate = true
+    }
   }
+  dynamic "viewer_certificate" {
+    for_each = var.cloudfront_acm_certificate_arn == null ? [] : [1]
+    content {
+      acm_certificate_arn      = var.cloudfront_acm_certificate_arn
+      ssl_support_method       = "sni-only"
+      minimum_protocol_version = "TLSv1.2_2021"
+    }
+  }
+
+  aliases = var.cloudfront_aliases
 
   tags = { Name = "${var.app_name}-${var.environment}-cdn" }
 }

@@ -12,10 +12,13 @@ budget_alert_email = "you@example.com"
 # DNS validation to complete, then paste the ARN here.
 acm_certificate_arn = "arn:aws:acm:ap-southeast-2:000000000000:certificate/00000000-0000-0000-0000-000000000000"
 
-# Optional: tighten the SPA's CSP connect-src to a specific API
-# origin so a future XSS can't exfiltrate to arbitrary HTTPS hosts.
-# Default empty list = SPA can only fetch same-origin.
-# csp_connect_src = ["https://api.flakey.io"]
+# REQUIRED: tighten the SPA's CSP connect-src to the API origin(s).
+# The SvelteKit dashboard fetches the API from a different origin
+# (typically the ALB DNS for the env's ECS service, or api.flakey.io
+# behind a custom domain). Without this list, the CSP collapses to
+# `connect-src 'self'` and every API call from the SPA is blocked.
+# A non-empty list is enforced by a variable validation block.
+csp_connect_src = ["https://api.flakey.io"]
 
 # Optional cost-incurring toggles (defaults shown):
 # rds_multi_az = true                  # set false on staging/dev to halve cost

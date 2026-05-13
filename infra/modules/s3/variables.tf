@@ -10,3 +10,15 @@ variable "csp_connect_src" {
   type        = list(string)
   default     = []
 }
+
+variable "cloudfront_acm_certificate_arn" {
+  description = "ACM certificate ARN (in us-east-1) for a custom domain on CloudFront. When set, the viewer is configured with minimum_protocol_version=TLSv1.2_2021 + SNI. When null (default), CloudFront uses the default `*.cloudfront.net` cert which cannot enforce a min TLS version. Set this before exposing the dashboard on a real domain."
+  type        = string
+  default     = null
+}
+
+variable "cloudfront_aliases" {
+  description = "DNS aliases for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI can match the cert's CN. e.g. [\"app.flakey.io\"]."
+  type        = list(string)
+  default     = []
+}

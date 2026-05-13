@@ -76,7 +76,22 @@ variable "rds_multi_az" {
 }
 
 variable "csp_connect_src" {
-  description = "Additional connect-src origins for the CloudFront response-headers CSP. The frontend always has 'self'. Add the API origin(s) here so the SPA can fetch from them (e.g. [\"https://api.flakey.io\"]). Empty = SPA only fetches same-origin."
+  description = "Additional connect-src origins for the CloudFront response-headers CSP. The frontend always has 'self'. The SPA fetches the API from a different origin (ALB DNS or api.flakey.io), so this MUST include that origin or every API call fails with a CSP error and the dashboard renders blank. e.g. [\"https://api.flakey.io\"]."
+  type        = list(string)
+  validation {
+    condition     = length(var.csp_connect_src) > 0
+    error_message = "csp_connect_src must include at least one API origin — without it, the SvelteKit SPA can't reach the API and the dashboard renders blank. See terraform.tfvars.example."
+  }
+}
+
+variable "cloudfront_acm_certificate_arn" {
+  description = "ACM certificate ARN in us-east-1 for a custom CloudFront domain. When set, enforces minimum_protocol_version=TLSv1.2_2021 + SNI. Default null = CloudFront's default `*.cloudfront.net` cert (can't pin a min TLS version). REQUIRED before going to prod on a real domain. Note: ACM cert for CloudFront MUST live in us-east-1, regardless of the rest of the stack."
+  type        = string
+  default     = null
+}
+
+variable "cloudfront_aliases" {
+  description = "DNS aliases (CNAMEs) for the CloudFront distribution. Required when cloudfront_acm_certificate_arn is set so SNI matches the cert. e.g. [\"app.flakey.io\"]."
   type        = list(string)
   default     = []
 }
