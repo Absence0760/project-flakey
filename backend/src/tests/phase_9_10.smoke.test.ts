@@ -712,6 +712,62 @@ test("GET /runs marks aborted runs with aborted=true", async () => {
   assert.equal(detailBody.aborted_reason, "flag test");
 });
 
+// ─── Live run abort: pending tests transition to skipped ──────────────
+test("live run abort: pending test rows transition to status='skipped' after run.aborted", async () => {
+  // The abort handler invokes transitionPendingTestsAfterAbort
+  // (live.ts:873) so a UI viewing the aborted run doesn't see test
+  // rows stuck as `pending` indefinitely. Without this transition,
+  // any test that was in-flight at abort time would render as an
+  // "in progress" dot forever — confusing because the run itself
+  // is clearly over. Pin the transition so a refactor of the abort
+  // path can't silently drop it.
+  const start = await authPost("/live/start", { suite: "smoke-abort-skipped" });
+  const { id: runId } = (await start.json()) as { id: number };
+
+  const spec = "cypress/e2e/abort-pending.cy.ts";
+  const inFlightTitles = [
+    "AbortPending > test A still running",
+    "AbortPending > test B still running",
+  ];
+  for (const title of inFlightTitles) {
+    await authPost(`/live/${runId}/events`, [{ type: "test.started", spec, test: title }]);
+  }
+
+  // Both rows should land as `pending` before the abort fires.
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${runId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string; status: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => inFlightTitles.every((t) => rows.find((r) => r.full_title === t)?.status === "pending"),
+  );
+
+  await authPost(`/live/${runId}/abort`, { reason: "transition-test" });
+
+  // After abort, the pending rows must be flipped to `skipped`.
+  // run.aborted persistence + the test transition are both
+  // fire-and-forget so we poll until consistent.
+  const finalRows = await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${runId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string; status: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => inFlightTitles.every((t) => rows.find((r) => r.full_title === t)?.status === "skipped"),
+  );
+
+  for (const title of inFlightTitles) {
+    const row = finalRows.find((r) => r.full_title === title);
+    assert.ok(row, `pending row for "${title}" must still exist after abort (not deleted)`);
+    assert.equal(
+      row!.status,
+      "skipped",
+      `pending row for "${title}" must transition to status='skipped' after run.aborted — otherwise the UI shows it as 'in progress' forever`,
+    );
+  }
+});
+
 // ─── Live snapshot endpoint: happy path + sanitization + foreign runId ───
 test("POST /live/:runId/snapshot stores blob, sanitizes filename, links test row, rejects foreign run", async () => {
   // Create a live run
