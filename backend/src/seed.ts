@@ -1544,7 +1544,11 @@ async function seed() {
        VALUES ($1, $2, $3, 'Local dev / CLI', $4)`,
       [adminId, demoAdminKeyHash, demoAdminKey.slice(0, 8), orgId],
     );
-    console.log(`Seeded admin API key (raw value: ${demoAdminKey}) for CLI testing.`);
+    // Don't print the raw key — the value is documented in CLAUDE.md
+    // as a known dev fixture, but logging it leaks into CI logs and
+    // trips gitleaks/secret-scanner regexes that pattern-match `fk_*`.
+    // Print prefix only.
+    console.log(`Seeded admin API key (prefix: ${demoAdminKey.slice(0, 8)}…) — see backend/CLAUDE.md for the full value.`);
 
     // One webhook target.  Points at an .invalid host so any actual
     // dispatch fails fast (no accidental traffic to a real service in

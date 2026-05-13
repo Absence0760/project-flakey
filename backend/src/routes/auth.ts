@@ -4,7 +4,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../db.js";
 import { tenantQuery, userScopedQuery } from "../db.js";
-import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail } from "../auth.js";
+import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail, getJwtSecret } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 import { logAudit } from "../audit.js";
 
@@ -255,7 +255,7 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
-    const payload = jwt.verify(refreshTokenValue, process.env.JWT_SECRET ?? "flakey-dev-secret-change-me") as any;
+    const payload = jwt.verify(refreshTokenValue, getJwtSecret()) as any;
     if (payload.type !== "refresh") {
       res.status(401).json({ error: "Invalid refresh token" });
       return;
@@ -336,7 +336,7 @@ router.post("/logout", async (req, res) => {
     try {
       const payload = jwt.verify(
         refreshTokenValue,
-        process.env.JWT_SECRET ?? "flakey-dev-secret-change-me",
+        getJwtSecret(),
       ) as any;
       if (payload.type === "refresh" && typeof payload.jti === "string") {
         await userScopedQuery(

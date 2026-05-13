@@ -2,12 +2,20 @@ import nodemailer from "nodemailer";
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:7777";
 
+// If SMTP_USER is set, SMTP_PASSWORD is required — silently auth'ing
+// with an empty password masks a misconfiguration and produces
+// confusing 'authentication failed' from the SMTP server. Refuse to
+// configure the transporter without both halves of the credential.
+if (process.env.SMTP_USER && !process.env.SMTP_PASSWORD) {
+  throw new Error("SMTP_USER is set but SMTP_PASSWORD is empty — set both or neither");
+}
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST ?? "localhost",
   port: Number(process.env.SMTP_PORT ?? 1025),
   secure: process.env.SMTP_SECURE === "true",
   ...(process.env.SMTP_USER
-    ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD ?? "" } }
+    ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD! } }
     : {}),
 });
 

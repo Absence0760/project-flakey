@@ -3,8 +3,32 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import pool, { tenantQuery } from "./db.js";
 
-// Fix 1: Warn in dev, fail in prod (handled in index.ts)
-const JWT_SECRET = process.env.JWT_SECRET ?? "flakey-dev-secret-change-me";
+// Fix 1: Warn in dev, fail in prod.
+//
+// The boot guard in index.ts already refuses to start when
+// NODE_ENV=production and JWT_SECRET isn't set. This second guard
+// makes the fallback fail at module-load time if any other entry
+// point (a script, a test harness, a future standalone worker)
+// imports auth.ts directly without going through index.ts. The
+// previous form silently substituted the dev string in any
+// no-JWT_SECRET environment, which was safe in practice but lost
+// the prod guarantee the moment a non-index.ts entry point appears.
+const JWT_SECRET = (() => {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET is required in production");
+  }
+  return "flakey-dev-secret-change-me";
+})();
+
+// Exported for callers in routes/auth.ts that verify refresh tokens
+// outside the requireAuth middleware path. Centralising the constant
+// avoids the previous pattern of repeating the dev-fallback literal at
+// each callsite — the prod-mode throw fires once at import time, not
+// per call.
+export function getJwtSecret(): string {
+  return JWT_SECRET;
+}
 // Fix 5: Short-lived access token + longer refresh token
 const ACCESS_EXPIRY = "1h";
 const REFRESH_EXPIRY = "7d";

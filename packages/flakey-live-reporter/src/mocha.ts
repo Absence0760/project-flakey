@@ -199,10 +199,16 @@ export function register(
     client?.send({ type: "spec.started", spec: spec.relative });
   });
 
-  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; tests: number } }) => {
+  on("after:spec", (spec: { relative: string }, results: { stats: { passes: number; failures: number; skipped: number; pending?: number; tests: number } }) => {
     // Individual test.passed/failed/skipped events are sent in real-time by the
     // Flakey Cypress reporter (reporter.ts) as each test finishes. Here we only
     // emit the spec-level summary so the live feed shows spec completion markers.
+    //
+    // Cypress's Mocha runner reports `it.skip()` / `xit()` tests as
+    // `pending`, NOT `skipped`. The backend's recompute path bundles
+    // both into the "skipped" bucket; mirror that here so the
+    // mid-run spec.finished payload doesn't disagree with the
+    // backend's eventual count if the spec has any pending tests.
     client?.send({
       type: "spec.finished",
       spec: spec.relative,
@@ -210,7 +216,7 @@ export function register(
         total: results.stats.tests,
         passed: results.stats.passes,
         failed: results.stats.failures,
-        skipped: results.stats.skipped,
+        skipped: results.stats.skipped + (results.stats.pending ?? 0),
       },
     });
   });

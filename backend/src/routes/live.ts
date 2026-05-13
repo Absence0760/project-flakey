@@ -1,13 +1,36 @@
 import { Router } from "express";
 import crypto from "crypto";
+import { rmSync } from "fs";
 import multer from "multer";
 import { tenantQuery } from "../db.js";
 import { liveEvents, type LiveTestEvent } from "../live-events.js";
 import { getStorage } from "../storage.js";
 
 const router = Router();
-const snapshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 50 * 1024 * 1024 } });
-const screenshotUpload = multer({ dest: "uploads/tmp", limits: { fileSize: 25 * 1024 * 1024 } });
+
+// SVG / SVGZ rejected at the boundary on every multipart endpoint that
+// accepts a screenshot — storage.ts forces them to
+// application/octet-stream as a second gate, but blocking the upload
+// outright is the cleaner contract.
+const rejectSvg: multer.Options["fileFilter"] = (_req, file, cb) => {
+  const name = (file.originalname ?? "").toLowerCase();
+  if (name.endsWith(".svg") || name.endsWith(".svgz") ||
+      file.mimetype === "image/svg+xml") {
+    cb(new Error("SVG attachments are not allowed"));
+    return;
+  }
+  cb(null, true);
+};
+
+const snapshotUpload = multer({
+  dest: "uploads/tmp",
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
+const screenshotUpload = multer({
+  dest: "uploads/tmp",
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: rejectSvg,
+});
 
 /**
  * GET /live/active — list run IDs that are currently receiving live events.
@@ -575,6 +598,7 @@ async function recomputeSpecAndRunStats(orgId: number, runId: number, specId: nu
  * end-of-run batch uploader uses, so the existing title-match association still works.
  */
 router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, res) => {
+  const file = req.file;
   try {
     const runId = Number(req.params.runId);
     if (!runId) {
@@ -582,7 +606,6 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
       return;
     }
 
-    const file = req.file;
     const spec = typeof req.body?.spec === "string" ? req.body.spec : "";
     const testTitle = typeof req.body?.testTitle === "string" ? req.body.testTitle : "";
     if (!file || !spec || !testTitle) {
@@ -629,6 +652,12 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
   } catch (err) {
     console.error("POST /live/:runId/snapshot error:", err);
     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    // Always reap multer's temp file so a 4xx / 5xx / mid-loop throw
+    // doesn't leak a 50 MB file under uploads/tmp. storage.put on
+    // success either moves (local) or uploads-then-deletes (S3), so
+    // rmSync force:true is a safe no-op in the happy path.
+    if (file) rmSync(file.path, { force: true });
   }
 });
 
@@ -641,6 +670,7 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
  * association survives the final batch upload.
  */
 router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (req, res) => {
+  const file = req.file;
   try {
     const runId = Number(req.params.runId);
     if (!runId) {
@@ -648,7 +678,6 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
       return;
     }
 
-    const file = req.file;
     const spec = typeof req.body?.spec === "string" ? req.body.spec : "";
     const testTitle = typeof req.body?.testTitle === "string" ? req.body.testTitle : "";
     if (!file || !spec || !testTitle) {
@@ -718,6 +747,8 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
   } catch (err) {
     console.error("POST /live/:runId/screenshot error:", err);
     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    if (file) rmSync(file.path, { force: true });
   }
 });
 

@@ -1380,6 +1380,76 @@ test("/runs/upload multipart merge preserves screenshots streamed mid-run (issue
   );
 });
 
+test("/runs/upload multipart merge preserves snapshot_path streamed mid-run (issue #23)", async () => {
+  const suite = `issue-23-snapshot-multipart-${Date.now()}`;
+  const start = await authPost("/live/start", { suite });
+  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+  const spec = "cypress/e2e/snap-mp.cy.ts";
+  const fullTitle = "snap > test gets a snapshot mid-run multipart";
+
+  await authPost(`/live/${liveRunId}/events`, [
+    { type: "test.started", spec, test: fullTitle },
+  ]);
+  await waitFor(
+    async () => {
+      const d = await authGet(`/runs/${liveRunId}`);
+      const body = (await d.json()) as { specs?: Array<{ tests?: Array<{ full_title: string }> }> };
+      return body.specs?.flatMap((s) => s.tests ?? []) ?? [];
+    },
+    (rows) => rows.some((r) => r.full_title === fullTitle)
+  );
+
+  // Stream a snapshot blob.
+  const gz = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  const snapFd = new FormData();
+  snapFd.set("snapshot", new Blob([gz], { type: "application/gzip" }), "snap-mp.json.gz");
+  snapFd.set("spec", spec);
+  snapFd.set("testTitle", fullTitle);
+  const streamed = await fetch(`${BASE}/live/${liveRunId}/snapshot`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: snapFd,
+  });
+  assert.equal(streamed.status, 200);
+  const streamedKey = ((await streamed.json()) as { key: string }).key;
+
+  // Multipart end-of-run upload that triggers DELETE+reinsert of the
+  // tests row. The streamed snapshot_path must survive.
+  const uploadFd = new FormData();
+  uploadFd.set(
+    "payload",
+    JSON.stringify({
+      meta: {
+        suite_name: suite, branch: "main", commit_sha: "snap-mp-sha", ci_run_id,
+        started_at: "2026-05-04T00:00:00Z", finished_at: "2026-05-04T00:00:10Z",
+        reporter: "cypress",
+      },
+      stats: { total: 1, passed: 0, failed: 1, skipped: 0, pending: 0, duration_ms: 10 },
+      specs: [{
+        file_path: spec, title: spec,
+        stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 10 },
+        tests: [{
+          title: "test gets a snapshot mid-run multipart",
+          full_title: fullTitle, status: "failed", duration_ms: 10,
+          screenshot_paths: [], error: { message: "boom" },
+        }],
+      }],
+    })
+  );
+  const upload = await fetch(`${BASE}/runs/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: uploadFd,
+  });
+  assert.ok(upload.ok, `multipart upload merge failed: ${upload.status}`);
+
+  const after = await authGet(`/runs/${liveRunId}`);
+  const body = (await after.json()) as { specs: Array<{ tests: Array<{ full_title: string; snapshot_path: string | null }> }> };
+  const t = body.specs.flatMap((s) => s.tests).find((tt) => tt.full_title === fullTitle);
+  assert.ok(t, "test row must still exist after multipart merge");
+  assert.equal(t!.snapshot_path, streamedKey, "streamed snapshot_path must survive multipart delete+reinsert");
+});
+
 // ─── Issue #21: target environment ──────────────────────────────────────
 test("POST /runs records meta.environment and exposes it on the list (issue #21)", async () => {
   const suite = `env-upload-${Date.now()}`;
