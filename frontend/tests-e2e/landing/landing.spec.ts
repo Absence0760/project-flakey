@@ -85,6 +85,62 @@ test.describe("/ landing page — unauthenticated", () => {
   });
 });
 
+test.describe("/ landing page — registration posture adapts to backend", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("when /auth/registration-status returns {open: true}, the 'Create an account' CTA is visible (default dev posture)", async ({ page }) => {
+    // The local dev backend has ALLOW_REGISTRATION=true so the
+    // endpoint returns open:true. Landing-page hero shows the
+    // Create-an-account CTA, no invite-only note.
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: /create an account/i }).first()).toBeVisible();
+    await expect(page.locator('[data-test="invite-only-note"]')).toHaveCount(0);
+  });
+
+  test("when /auth/registration-status returns {open: false}, the CTA is hidden and the invite-only note renders", async ({ page }) => {
+    // Mock the registration-status endpoint so this test exercises
+    // the closed branch without needing a second backend process.
+    // The route handler runs in the browser context — sole side
+    // effect on the page under test.
+    await page.route("**/auth/registration-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ open: false }),
+      });
+    });
+
+    await page.goto("/");
+
+    // The CTA must NOT appear, and the invite-only banner MUST
+    // appear. We rely on the data-test attribute so a copy edit on
+    // the banner text doesn't break the assertion.
+    await expect(page.locator('[data-test="invite-only-note"]')).toBeVisible();
+    await expect(page.getByRole("link", { name: /^Create an account$/ })).toHaveCount(0);
+
+    // The "Sign in" CTA must still be visible — invite-only doesn't
+    // mean the page becomes useless to existing users.
+    await expect(page.getByRole("link", { name: /^Sign in$/i }).first()).toBeVisible();
+  });
+
+  test("login page in register mode shows the invite-only banner when registration is closed", async ({ page }) => {
+    await page.route("**/auth/registration-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ open: false }),
+      });
+    });
+
+    await page.goto("/login?mode=register");
+
+    await expect(page.locator('[data-test="invite-only-banner"]')).toBeVisible({ timeout: 5_000 });
+    // The form is still rendered — the email-match flow still works,
+    // so we don't disable the submit button.
+    await expect(page.locator('input[type="email"]')).toBeVisible();
+  });
+});
+
 test.describe("/ landing page — authenticated", () => {
   // Re-attach the admin storage state so this page's onMount sees a
   // valid bt_token + bt_user and the redirect path fires.

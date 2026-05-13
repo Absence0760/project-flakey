@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { login, register } from "$lib/auth";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
@@ -13,6 +14,22 @@
   let verificationSent = $state(false);
   let resetSent = $state(false);
   let resendingVerification = $state(false);
+  // null while still fetching; true/false once the backend responds.
+  // null treats as "open" for graceful degradation if the endpoint
+  // is unreachable.
+  let registrationOpen = $state<boolean | null>(null);
+
+  onMount(async () => {
+    try {
+      const res = await fetch(`${API_URL}/auth/registration-status`);
+      if (res.ok) {
+        const body = (await res.json()) as { open?: boolean };
+        registrationOpen = body.open === true;
+      }
+    } catch {
+      // Leave null; the form still works, just without the banner.
+    }
+  });
 
   const inviteToken = $derived($page.url.searchParams.get("invite"));
   const initialMode = $derived($page.url.searchParams.get("mode"));
@@ -104,6 +121,25 @@
 
     {#if inviteToken}
       <p class="invite-banner">You've been invited to join an organization. {mode === "login" ? "Sign in" : "Create an account"} to accept.</p>
+    {:else if mode === "register" && registrationOpen === false}
+      <!--
+        Closed-registration mode + register mode + no magic-link token.
+        Two real paths still work from here:
+          1. The user's email matches a pending org_invites row — the
+             backend's POST /auth/register will accept the submit even
+             without an invite_token because resolveOrg() looks up
+             invites by email.
+          2. The user has a magic-link URL like /login?invite=<token>
+             and just navigated here without it — they should re-open
+             that URL.
+        The banner explains both without blocking the form.
+      -->
+      <div class="info-banner invite-only-banner" data-test="invite-only-banner">
+        <p>
+          <strong>This instance is invite-only.</strong> If your email has been invited, fill out the form below — we'll find the pending invite by email and join you to that org. Otherwise, ask an admin for an invite link.
+        </p>
+        <button class="link-btn" onclick={() => { mode = "login"; }}>Back to sign in</button>
+      </div>
     {/if}
 
     {#if verificationSent}
@@ -325,6 +361,22 @@
     border-radius: 6px;
     font-size: 0.85rem;
     color: var(--text);
+  }
+
+  /* Closed-registration banner uses the warning palette (yellow-ish)
+     to distinguish from the info-blue used for verification + reset.
+     Same shape, different colour means it reads as "heads up" rather
+     than "you've done a thing successfully". */
+  .invite-only-banner {
+    margin: 0 0 1rem;
+    background: color-mix(in srgb, var(--color-skip) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-skip) 50%, transparent);
+    text-align: left;
+  }
+
+  .invite-only-banner p {
+    margin: 0 0 0.5rem;
+    line-height: 1.5;
   }
 
   .info-banner p {

@@ -174,6 +174,20 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// GET /auth/registration-status — public read of the ALLOW_REGISTRATION
+// posture so the SPA landing page can hide "Create an account" CTAs
+// when self-serve is disabled. Leaks a single bit of config state
+// (registration open or closed) — already discoverable by sending a
+// fake register and seeing the 403, so exposing it directly just
+// closes the UX dead-end.
+//
+// Public — no auth required. Bounded by the global API rate limiter
+// (no need for the credential-burning authLimiter; this endpoint can't
+// be exploited against credentials).
+router.get("/registration-status", (_req, res) => {
+  res.json({ open: ALLOW_OPEN_REGISTRATION });
+});
+
 // POST /auth/register
 router.post("/register", async (req, res) => {
   try {

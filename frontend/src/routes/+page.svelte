@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth } from '$lib/auth';
+	import { API_URL } from '$lib/config';
 
 	// Show a brief loading frame while the auth check decides whether
 	// to redirect — without this, returning visitors see a flash of
@@ -9,7 +10,14 @@
 	// the (sync) restoreAuth + auth check completes.
 	let ready = $state(false);
 
-	onMount(() => {
+	// Backend's ALLOW_REGISTRATION posture. null while we're still
+	// fetching (or if the fetch failed); UI treats null as "show the
+	// button" — same as the open case — because hiding when we don't
+	// know would block legitimate users in transient backend-blip
+	// scenarios. The endpoint itself is public + cheap to call.
+	let registrationOpen = $state<boolean | null>(null);
+
+	onMount(async () => {
 		restoreAuth();
 		const auth = getAuth();
 		if (auth.token && auth.user) {
@@ -17,6 +25,17 @@
 			return;
 		}
 		ready = true;
+		try {
+			const res = await fetch(`${API_URL}/auth/registration-status`);
+			if (res.ok) {
+				const body = (await res.json()) as { open?: boolean };
+				registrationOpen = body.open === true;
+			}
+		} catch {
+			// Backend unreachable — leave null so the CTA stays visible.
+			// If the user tries to register and the backend is actually
+			// down, the form will surface a proper network error.
+		}
 	});
 
 	function go(path: string) {
@@ -25,6 +44,13 @@
 			goto(path);
 		};
 	}
+
+	// "Show the register CTA?" — true unless we've explicitly heard
+	// "closed" back from the backend. Null (still loading / fetch
+	// failed) defaults to open so the page works during the initial
+	// paint and degrades gracefully if /registration-status is
+	// unreachable.
+	const showRegister = $derived(registrationOpen !== false);
 
 	// Competitor comparison matrix. Kept declarative so the table stays
 	// scannable and a future row addition doesn't require touching the
@@ -196,8 +222,19 @@
 				</p>
 				<div class="hero-cta">
 					<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
-					<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+					{#if showRegister}
+						<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+					{/if}
 				</div>
+				{#if registrationOpen === false}
+					<div class="invite-only-note" data-test="invite-only-note">
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<rect x="2" y="3" width="12" height="10" rx="1.5" />
+							<path d="M2 4l6 5 6-5" />
+						</svg>
+						<span>This instance is <strong>invite-only</strong>. Ask your admin for an invite, or sign in if you've already been invited.</span>
+					</div>
+				{/if}
 				<div class="hero-meta">
 					<span>Works with <strong>Cypress</strong>, <strong>Playwright</strong>, <strong>WebdriverIO</strong>, <strong>Selenium</strong>, <strong>Jest</strong>, <strong>JUnit</strong>, <strong>Postman</strong>.</span>
 				</div>
@@ -314,10 +351,16 @@
 		<section class="cta">
 			<div class="cta-inner">
 				<h2>Get started in under a minute</h2>
-				<p>Sign in if you already have an account, or create one to get started. Self-hosting? See the README on GitHub.</p>
+				{#if showRegister}
+					<p>Sign in if you already have an account, or create one to get started. Self-hosting? See the README on GitHub.</p>
+				{:else}
+					<p>Sign in if you've already been invited. New users need an invite from an existing admin on this instance.</p>
+				{/if}
 				<div class="cta-buttons">
 					<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
-					<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+					{#if showRegister}
+						<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+					{/if}
 					<a href="https://github.com/Absence0760/project-flakey" rel="noopener" target="_blank" class="btn ghost">
 						GitHub <span class="external-arrow">↗</span>
 					</a>
@@ -500,6 +543,30 @@
 
 	.hero-meta strong {
 		color: var(--text-secondary);
+		font-weight: 600;
+	}
+
+	.invite-only-note {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1.25rem;
+		padding: 0.55rem 0.85rem;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--color-skip) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-skip) 30%, transparent);
+		color: var(--text-secondary);
+		font-size: 0.88rem;
+		max-width: 100%;
+	}
+
+	.invite-only-note svg {
+		flex-shrink: 0;
+		color: var(--color-skip);
+	}
+
+	.invite-only-note strong {
+		color: var(--text);
 		font-weight: 600;
 	}
 
