@@ -38,6 +38,7 @@ import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
 import { runScheduledReports } from "./scheduled-reports.js";
 import { getStorage } from "./storage.js";
+import { validateConfiguredKeys } from "./crypto.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -54,6 +55,21 @@ if (IS_PROD && !process.env.JWT_SECRET) {
 // boot in prod without it.
 if (IS_PROD && !process.env.FLAKEY_ENCRYPTION_KEY) {
   console.error("FATAL: FLAKEY_ENCRYPTION_KEY is required in production. Integration secrets would otherwise be persisted as plaintext.");
+  process.exit(1);
+}
+
+// Validate key FORMAT at boot — not just presence. A FLAKEY_ENCRYPTION_KEY
+// that's set but malformed (wrong length, not hex/base64) silently passes
+// the presence check above; crypto.ts's lazy parseKey then throws on the
+// first PATCH /jira/settings, surfacing as a generic 500 + unhandled error
+// log entry. Calling validateConfiguredKeys here makes the failure mode a
+// clean refuse-to-boot. Same logic applied to FLAKEY_ENCRYPTION_KEY_OLD
+// (key rotation companion) since a typo there silently breaks read-path
+// decryption.
+try {
+  validateConfiguredKeys();
+} catch (err) {
+  console.error(`FATAL: FLAKEY_ENCRYPTION_KEY validation failed: ${(err as Error).message}`);
   process.exit(1);
 }
 
@@ -194,15 +210,29 @@ const artifactLimiter = rateLimit({
 });
 
 if (STORAGE_MODE === "s3") {
-  app.get("/uploads/*", artifactLimiter, promoteUploadToken, requireAuth, requireRunOwnership, async (req, res) => {
-    try {
-      const key = req.path.replace(/^\/uploads\//, "");
-      const url = await getStorage().getUrl(key);
-      res.redirect(302, url);
-    } catch {
-      res.status(404).json({ error: "Artifact not found" });
-    }
-  });
+  // Express 5 / path-to-regexp v8 rejects bare `*` — must be a named
+  // splat. `app.use("/uploads", ...)` is equivalent (the prefix is
+  // stripped from req.path before the handler runs) and lets the same
+  // middleware chain that wraps express.static below cover both modes.
+  app.use(
+    "/uploads",
+    artifactLimiter,
+    promoteUploadToken,
+    requireAuth,
+    requireRunOwnership,
+    async (req, res) => {
+      try {
+        // requireRunOwnership saw the prefix-stripped path (e.g.
+        // `/runs/42/screenshots/foo.png`); strip the leading slash to
+        // get the storage key the S3 backend expects.
+        const key = req.path.replace(/^\//, "");
+        const url = await getStorage().getUrl(key);
+        res.redirect(302, url);
+      } catch {
+        res.status(404).json({ error: "Artifact not found" });
+      }
+    },
+  );
 } else {
   app.use(
     "/uploads",
@@ -303,7 +333,21 @@ app.use("/auth/resend-verification", authLimiter);
 app.use("/auth/verify-email", authLimiter);
 app.use("/auth/refresh", authLimiter);
 app.use("/auth/logout", authLimiter);
+// /auth is mounted WITHOUT requireAuth at the router level because the
+// router mixes public endpoints (login, register, forgot-password,
+// reset-password, resend-verification, verify-email, refresh, logout)
+// with protected endpoints. Each protected handler attaches
+// requireAuth individually (search authRouter for `requireAuth,` —
+// `/me`, `/switch-org`, `/api-keys*`, `/me/password`, `/me/sessions`).
+// When adding a new handler to authRouter, decide explicitly whether
+// to gate it; the absence of router-level requireAuth means the
+// default is PUBLIC.
 app.use("/auth", authRouter);
+// /badge is intentionally public — shields.io-style embeddable SVG
+// badges (`/badge/:orgSlug/:suiteName.svg`) must be reachable from
+// Markdown / GitHub READMEs that can't carry an Authorization header.
+// The badge route's only data source is a (org_slug, suite_name)
+// composite key; no tenant data leaks beyond pass/fail/count totals.
 app.use("/badge", badgeRouter);
 
 // Protected routes

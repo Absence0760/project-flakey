@@ -11,6 +11,7 @@ import { autoCreateIssuesForRun } from "../integrations/jira.js";
 import { maybeTriggerPagerDutyForRun } from "../integrations/pagerduty.js";
 import { getStorage } from "../storage.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
+import { rejectExecutableAttachments, wrapMulter } from "../upload-filters.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
@@ -23,17 +24,27 @@ const router = Router();
 //
 // fieldSize bounds non-file form fields (the JSON `payload` blob) at
 // 5 MB — generous for any real reporter payload.
-const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 1024, fieldSize: 5 * 1024 * 1024 } });
+//
+// fileFilter rejects SVG/HTML at the boundary — without it a reporter
+// could upload `xss.html` and (in local-disk mode) `express.static`
+// would serve it back with Content-Type: text/html. The S3 path is
+// already covered by guessContentType's octet-stream fallback, but the
+// boundary check makes both modes consistent.
+const upload = multer({
+  dest: "uploads/tmp",
+  limits: { fileSize: 200 * 1024 * 1024, fieldSize: 5 * 1024 * 1024 },
+  fileFilter: rejectExecutableAttachments,
+});
 
 const SCREENSHOT_MAX_BYTES = 25 * 1024 * 1024;
 const SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 
-const uploadFields = upload.fields([
+const uploadFields = wrapMulter(upload.fields([
   { name: "screenshots", maxCount: 100 },
   { name: "videos", maxCount: 100 },
   { name: "snapshots", maxCount: 500 },
-]);
+]));
 
 // POST /runs/upload — multipart upload with screenshots and videos
 router.post("/", uploadFields, async (req, res) => {
@@ -117,6 +128,10 @@ router.post("/", uploadFields, async (req, res) => {
     ];
 
     try {
+    // `client` inside this block is already org-scoped — tenantTransaction
+    // sets app.current_org_id at transaction start, so every client.query
+    // below runs with RLS active. Treat client.query identically to
+    // tenantQuery for review purposes.
     await tenantTransaction(orgId, async (client) => {
       const result = await findOrCreateRun(client, orgId, run);
       runId = result.runId;
