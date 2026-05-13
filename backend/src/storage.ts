@@ -215,7 +215,11 @@ class S3Storage implements Storage {
   }
 }
 
-function guessContentType(key: string): string {
+// Exported for unit testing (storage_content_type.unit.test.ts) — the
+// SVG → octet-stream rule is a security boundary, so it's worth a
+// direct test rather than going through the S3 client mock-and-spy
+// dance.
+export function guessContentType(key: string): string {
   const ext = key.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "png": return "image/png";

@@ -172,6 +172,39 @@ test("once tripped, /auth/forgot-password from the same IP also 429s", async () 
   );
 });
 
+test("once tripped, /auth/refresh from the same IP also 429s (refresh-token brute force gate)", async () => {
+  // /auth/refresh accepts a refresh token in the body and trades
+  // it for a new access token. Without this gate, an attacker
+  // who scraped one expired refresh token could spray it against
+  // the rotation endpoint trying to land between revocations.
+  const res = await fetch(`${BASE}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: "fake-refresh-token-for-rate-limit-test" }),
+  });
+  assert.equal(
+    res.status,
+    429,
+    "/auth/refresh must be gated by authLimiter or attackers can spray refresh tokens",
+  );
+});
+
+test("once tripped, /auth/logout from the same IP also 429s (no-cost spam gate)", async () => {
+  // /auth/logout is also rate-limited so a tripped bucket
+  // shows up here too. Less security-critical than refresh,
+  // but the gate must remain wired.
+  const res = await fetch(`${BASE}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: "anything" }),
+  });
+  assert.equal(
+    res.status,
+    429,
+    "/auth/logout must be gated by authLimiter (cross-endpoint bucket sharing)",
+  );
+});
+
 // ── 3. Standard RateLimit-* headers accompany the 429 ──────────────────
 
 test("rate-limited 429 response carries the standard RateLimit-* headers so clients can back off", async () => {

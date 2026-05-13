@@ -421,6 +421,65 @@ test("Accept on a passed result returns 400 (only failures/blocked can be deferr
     "accept on a passed result should 400 — only failed/blocked can be deferred");
 });
 
+// ── Evidence upload boundary checks ─────────────────────────────────────
+
+test("POST evidence rejects non-integer sessionId in the URL (path-traversal smuggle)", async () => {
+  // sessionId is interpolated into the storage key as
+  // `evidence/<sessionId>/<testId>/...`. The route validates it's a
+  // positive integer to stop a `../`-prefix smuggle from escaping
+  // the prefix. The route also returns 400 for non-numeric input.
+  const fd = new FormData();
+  fd.set("files", new Blob([Uint8Array.from([1, 2, 3])], { type: "image/png" }), "x.png");
+  const res = await fetch(
+    `${BASE}/releases/${releaseId}/sessions/..-evil/results/${manualTestId}/evidence`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd },
+  );
+  assert.equal(res.status, 400, "non-integer sessionId must be rejected at the boundary");
+});
+
+test("POST evidence rejects non-integer testId in the URL", async () => {
+  const fd = new FormData();
+  fd.set("files", new Blob([Uint8Array.from([1, 2, 3])], { type: "image/png" }), "x.png");
+  const res = await fetch(
+    `${BASE}/releases/${releaseId}/sessions/${sessionId}/results/abc/evidence`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd },
+  );
+  assert.equal(res.status, 400, "non-integer testId must be rejected at the boundary");
+});
+
+test("POST evidence rejects negative-int sessionId (positive-int gate)", async () => {
+  const fd = new FormData();
+  fd.set("files", new Blob([Uint8Array.from([1, 2, 3])], { type: "image/png" }), "x.png");
+  const res = await fetch(
+    `${BASE}/releases/${releaseId}/sessions/-1/results/${manualTestId}/evidence`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd },
+  );
+  // Express may match `:sessionId` as `-1` and the handler rejects on
+  // !Number.isInteger || <=0. Some routers strip the `-` first and
+  // 404 instead. Either is acceptable as long as the upload is
+  // refused before storage.put runs.
+  assert.ok(res.status === 400 || res.status === 404,
+    `negative sessionId must be rejected; got ${res.status}`);
+});
+
+test("POST evidence rejects .svg / .svgz uploads at the multer fileFilter (XSS-via-attachment gate)", async () => {
+  // SVG files served back inline can execute scripts. The
+  // evidenceUpload multer rejects them at the boundary even though
+  // storage.ts forces SVG → application/octet-stream as a second
+  // gate. Belt-and-braces.
+  const fd = new FormData();
+  fd.set("files", new Blob([Uint8Array.from([0x3c])], { type: "image/svg+xml" }), "evil.svg");
+  const res = await fetch(
+    `${BASE}/releases/${releaseId}/sessions/${sessionId}/results/${manualTestId}/evidence`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd },
+  );
+  assert.notEqual(res.status, 200, "SVG upload must NOT succeed");
+  // multer surfaces fileFilter errors as 500 by default; some Express
+  // configurations route them as 400. Either is acceptable as long
+  // as the file isn't accepted.
+  assert.ok(res.status >= 400, `expected 4xx/5xx, got ${res.status}`);
+});
+
 // ── Requirements (traceability) ─────────────────────────────────────────
 
 test("GET /releases/:id/requirements returns traceability data", async () => {

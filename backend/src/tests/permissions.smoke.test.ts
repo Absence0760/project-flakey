@@ -207,6 +207,31 @@ test("viewer cannot POST /ui-coverage/routes (inventory mutation)", async () => 
   assert.equal(res.status, 403);
 });
 
+// ── /connectivity/* admin-only gate (round-1 audit fix) ─────────────────
+//
+// /connectivity/{database,git,email} probes touch org git tokens, send
+// transactional mail, and fan out outbound API calls. A viewer firing
+// /connectivity/git would let a read-only role test whether the org's
+// git_token is valid against the configured provider — which is a
+// privilege escalation since the token can otherwise only be set by an
+// admin/owner. Router-level admin/owner check added in
+// backend/src/routes/connectivity.ts.
+
+test("viewer cannot POST /connectivity/database", async () => {
+  const res = await asViewer().post("/connectivity/database", {});
+  assert.equal(res.status, 403, "viewer must not run the DB connectivity probe");
+});
+
+test("viewer cannot POST /connectivity/email", async () => {
+  const res = await asViewer().post("/connectivity/email", {});
+  assert.equal(res.status, 403, "viewer must not trigger transactional mail");
+});
+
+test("viewer cannot POST /connectivity/git", async () => {
+  const res = await asViewer().post("/connectivity/git", {});
+  assert.equal(res.status, 403, "viewer must not test the org git token");
+});
+
 // ── Owner sanity-check ───────────────────────────────────────────────────
 
 test("owner CAN do all of the above", async () => {

@@ -265,6 +265,30 @@ test("fixFilename: combination of traversal + null byte + Unicode all collapse t
   assert.equal(fixFilename(wireform), "résumé.pdf");
 });
 
+test("fixFilename: clamps to 200 chars (downstream key/column length cap)", () => {
+  // A reporter sending originalname: <10000 chars> would otherwise
+  // produce a 10 KB S3 key that breaks DB metadata columns and the
+  // 1024-char S3 key limit. The 200-char cap is far below either.
+  const long = "a".repeat(10_000) + ".png";
+  const out = fixFilename(long);
+  assert.equal(out.length, 200);
+  // The cap takes the first 200 chars after sanitisation — the .png
+  // suffix is lost when the prefix already fills the budget. That's
+  // intentional; the alternative (extension-aware truncation) adds
+  // surface area and the cap is a defence-in-depth, not a UX promise.
+  assert.equal(out, "a".repeat(200));
+});
+
+test("fixFilename: clamp runs AFTER basename so traversal can't survive a long-prefix smuggle", () => {
+  // Construct a name long enough that a naive `name.slice(0, 200)`
+  // applied BEFORE basename would leave a `../etc/passwd`-style
+  // prefix in the result. The current ordering (basename → slice)
+  // strips the directory before the cap, so only the leaf survives.
+  const dir = "../".repeat(80);
+  const leaf = "leaf-name.png";
+  assert.equal(fixFilename(dir + leaf), leaf);
+});
+
 // ── normalizeForMatch ───────────────────────────────────────────────────
 
 test("normalizeForMatch: lowercases and strips non-alphanumeric", () => {

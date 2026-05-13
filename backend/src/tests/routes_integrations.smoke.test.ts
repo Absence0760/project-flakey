@@ -205,6 +205,39 @@ test("PATCH /pagerduty/settings rejects an invalid severity gracefully", async (
   assert.ok(res.ok, `PATCH failed: ${res.status}`);
 });
 
+test("POST /pagerduty/test response NEVER includes the integration key or decryptSecret leak strings", async () => {
+  // Fail-mode: the previous /pagerduty/test handler returned
+  // `(err as Error).message` verbatim. decryptSecret errors include
+  // the malformed ciphertext in the message; surfacing them lets the
+  // user enumerate prefixes via crafted bad input.
+  // PagerDuty isn't configured here (no integration_key set) so the
+  // route returns the configured-check shape immediately, never
+  // reaching the decryptSecret path. But pin the response shape so a
+  // future regression can't reintroduce the raw-error path.
+  const res = await post("/pagerduty/test", {});
+  assert.ok(res.ok, `unexpected non-2xx: ${res.status}`);
+  const text = await res.text();
+  assert.ok(
+    !/Decryption failed|v1:|aes-256-gcm/i.test(text),
+    `response must not include decryptSecret leak strings: ${text}`,
+  );
+});
+
+test("POST /jira/test response NEVER returns raw error.message", async () => {
+  // Same shape as the pagerduty redaction. Jira's test handler used
+  // to return (err as Error).message which can include
+  // decryptSecret-failure strings. Route now returns a fixed string.
+  const res = await post("/jira/test", {});
+  // Jira isn't configured here either so this returns 400
+  // "Jira not configured" — but that itself must not include any
+  // ciphertext / leak strings.
+  const text = await res.text();
+  assert.ok(
+    !/Decryption failed|v1:|aes-256-gcm/i.test(text),
+    `response must not include decryptSecret leak strings: ${text}`,
+  );
+});
+
 // ── /reports (scheduled) ────────────────────────────────────────────────
 
 let reportId: number;
