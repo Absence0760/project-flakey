@@ -521,7 +521,7 @@
   {:else if run}
     <!-- Breadcrumb -->
     <nav class="breadcrumb">
-      <a href="/">Automated runs</a>
+      <a href="/runs">Automated runs</a>
       <span class="sep">/</span>
       <span>#{run.id}</span>
       <div class="run-nav">

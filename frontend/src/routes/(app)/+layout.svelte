@@ -10,7 +10,7 @@
 
 	const nav = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '◇' },
-		{ href: '/', label: 'Automated runs', icon: '▶' },
+		{ href: '/runs', label: 'Automated runs', icon: '▶' },
 		{ href: '/flaky', label: 'Flaky', icon: '⚡' },
 		{ href: '/slowest', label: 'Slowest', icon: '◷' },
 		{ href: '/errors', label: 'Errors', icon: '✗' },
@@ -38,6 +38,11 @@
 		ready = true;
 
 		if (!auth.token) {
+			// Unauthenticated → /login directly, NOT through the public
+			// landing page at `/`. Users hitting an authenticated route
+			// without a token want to sign in, not read marketing copy.
+			// The landing page handles the "no token, hits /" case
+			// separately.
 			goto('/login');
 		} else {
 			loadOrgs();
@@ -67,7 +72,7 @@
 	}
 
 	function isActive(href: string, pathname: string): boolean {
-		if (href === '/') return pathname === '/' || /^\/runs(\/|$)/.test(pathname);
+		if (href === '/runs') return /^\/runs(\/|$)/.test(pathname);
 		if (href === '/dashboard') return pathname === '/dashboard';
 		return pathname.startsWith(href);
 	}
@@ -92,7 +97,7 @@
 {:else}
 	<div class="shell">
 		<aside class="sidebar">
-			<a href="/" class="logo">
+			<a href="/dashboard" class="logo">
 				<svg class="logo-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
 					<defs>
 						<linearGradient id="logo-bg" x1="0%" y1="0%" x2="100%" y2="100%">

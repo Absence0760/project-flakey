@@ -14,7 +14,7 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 async function gotoFirstRun(page: Page): Promise<number> {
-  await page.goto("/");
+  await page.goto("/runs");
   const firstRow = page.locator("tr.run-row").first();
   await expect(firstRow).toBeVisible({ timeout: 10_000 });
   const runIdAttr = await firstRow.getAttribute("data-run-id");
@@ -98,11 +98,11 @@ test.describe("/runs/<id> — run-level affordances", () => {
     }
   });
 
-  test("breadcrumb 'Automated runs' link navigates back to /", async ({ page }) => {
+  test("breadcrumb 'Automated runs' link navigates back to /runs", async ({ page }) => {
     const runId = await gotoFirstRun(page);
     void runId;
     await page.locator("a, button", { hasText: "Automated runs" }).first().click();
-    await expect(page).toHaveURL(/\/$|\/\?/);
+    await expect(page).toHaveURL(/\/runs(\?.*)?$/);
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 5_000 });
   });
 

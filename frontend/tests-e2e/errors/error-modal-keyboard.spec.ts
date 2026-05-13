@@ -16,7 +16,7 @@ async function openModalForFailedTest(page: Page): Promise<void> {
   // the spec without any underlying `.test-row` entries, which would
   // strand this test on a page with "No tests match the current
   // filter." Query the backend to find a real per-test failure.
-  await page.goto("/");
+  await page.goto("/runs");
   await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
   const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
   if (!token) throw new Error("no auth token in localStorage");

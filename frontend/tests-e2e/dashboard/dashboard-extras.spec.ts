@@ -38,12 +38,12 @@ test.describe("/dashboard — KPI panels + nav", () => {
     }
   });
 
-  test("quick-nav: clicking 'Automated runs' sidebar link lands on /", async ({ page }) => {
+  test("quick-nav: clicking 'Automated runs' sidebar link lands on /runs", async ({ page }) => {
     await page.goto("/dashboard");
     // Sidebar nav-item is `<a class="nav-item"><span>icon</span> Automated runs</a>`
     // — substring match ignores the icon prefix.
     await page.locator("a.nav-item", { hasText: "Automated runs" }).click();
-    await expect(page).toHaveURL(/^http:\/\/localhost:7778\/(\?.*)?$/);
+    await expect(page).toHaveURL(/\/runs(\?.*)?$/);
   });
 
   test("quick-nav: clicking 'Errors' sidebar link lands on /errors", async ({ page }) => {

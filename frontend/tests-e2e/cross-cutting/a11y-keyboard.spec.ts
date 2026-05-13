@@ -29,7 +29,7 @@ async function openRunWithFailures(page: Page): Promise<void> {
   // an error_message, so picking the first `.fail-badge` row is
   // fragile — cucumber-style runs can report failure at the spec
   // level without per-test rows.
-  await page.goto("/");
+  await page.goto("/runs");
   await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
   const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
   if (!token) throw new Error("no auth token in localStorage");

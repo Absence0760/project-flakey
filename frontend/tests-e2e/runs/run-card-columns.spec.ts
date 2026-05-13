@@ -26,7 +26,7 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 async function loadRuns(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/runs");
   await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
 }
 
@@ -87,7 +87,7 @@ test.describe("runs list — new chips on the run row", () => {
     });
 
     try {
-      await page.goto("/");
+      await page.goto("/runs");
       const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
       await expect(row).toBeVisible({ timeout: 15_000 });
 

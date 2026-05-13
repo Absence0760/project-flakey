@@ -32,7 +32,7 @@ async function openRunWithErrorBar(page: Page): Promise<void> {
   // auth the frontend uses). Walk the runs list paged at 200, find
   // the first run with at least one failed test that has
   // error_message, navigate there.
-  await page.goto("/");
+  await page.goto("/runs");
   await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
   const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
   if (!token) throw new Error("no auth token in localStorage");

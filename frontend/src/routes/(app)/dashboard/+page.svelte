@@ -415,7 +415,7 @@
       <section class="panel">
         <header class="panel-header">
           <h2>Recent automated runs</h2>
-          <a class="panel-link" href="/">See all →</a>
+          <a class="panel-link" href="/runs">See all →</a>
         </header>
         {#if stats.automated.recent_runs.length === 0}
           <p class="empty">No runs yet.</p>

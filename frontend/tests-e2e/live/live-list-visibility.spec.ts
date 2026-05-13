@@ -45,7 +45,7 @@ test.describe("issue #41 — live runs surface in the runs list mid-flight", () 
   }) => {
     test.setTimeout(60_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     // Wait for at least one existing row so we know the page is
     // hydrated and pollLiveRuns has armed its 5-second interval.
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
@@ -83,7 +83,7 @@ test.describe("issue #41 — live runs surface in the runs list mid-flight", () 
     // hide run B until the next poll cycle.
     test.setTimeout(60_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
     const token = await getToken(page);
@@ -113,7 +113,7 @@ test.describe("issue #41 — live runs surface in the runs list mid-flight", () 
     // same way nails down the UX parity.
     test.setTimeout(60_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
     const token = await getToken(page);
@@ -150,7 +150,7 @@ test.describe("issue #41 — live runs surface in the runs list mid-flight", () 
     // can't quietly drop the finish-side refresh.
     test.setTimeout(60_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
     const token = await getToken(page);

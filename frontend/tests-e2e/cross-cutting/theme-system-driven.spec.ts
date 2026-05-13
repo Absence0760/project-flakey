@@ -30,14 +30,14 @@ test.describe("theme is system-driven only", () => {
 
   test("dark system → dark --bg", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
     expect(await readBg(page)).toBe("#0d1117");
   });
 
   test("light system → light --bg", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
     expect(await readBg(page)).toBe("#ffffff");
   });
@@ -45,7 +45,7 @@ test.describe("theme is system-driven only", () => {
   test("the sidebar no longer renders a `.theme-toggle` button (regression guard)", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/runs");
     await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
     await expect(page.locator(".theme-toggle")).toHaveCount(0);
   });
@@ -56,7 +56,7 @@ test.describe("theme is system-driven only", () => {
     await page.addInitScript(() => {
       try { localStorage.setItem("theme", "dark"); } catch { /* ignore */ }
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.locator("tr.run-row").first().waitFor({ timeout: 15_000 });
 
     const remaining = await page.evaluate(() => localStorage.getItem("theme"));

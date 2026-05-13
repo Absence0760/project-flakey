@@ -78,7 +78,7 @@ test.describe("URL state — bookmarkable filters", () => {
   });
 
   test("/runs/<id>?status=all keeps the All tab active for failed runs", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
     const href = await page.locator("tr.run-row").first().getAttribute("data-href");
     await page.goto(`${href}?status=all`);

@@ -334,7 +334,7 @@ after-script:
 | `PORT` | `3000` | API port |
 | `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Allowed origins (comma-separated). Dev default includes both the frontend (7778) and the backend itself (3000) so health probes from the same machine pass. |
 | `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
-| `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
+| `ALLOW_REGISTRATION` | `false` | Set `true` to allow open self-service registration (each new user gets their own tenant/org as owner). When `false` (default), `POST /auth/register` returns 403 unless the request carries a valid `invite_token`. |
 | `NODE_ENV` | — | Set `production` to refuse boot without JWT_SECRET and FLAKEY_ENCRYPTION_KEY. CORS_ORIGINS still applies the same allow-list in any env — there's no looser dev-only fallback. |
 | `FLAKEY_ENCRYPTION_KEY` | _(required in production)_ | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Validated at boot — a malformed value refuses to start, not just an unset one. Unset = plaintext passthrough (local dev only — backend refuses to start in production). |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | — | Optional previous encryption key for rotation. Used only on the read path when the primary key fails to authenticate a v1: ciphertext. Never used for new writes. See `backend/docs/integrations.md` for the dual-key rotation procedure. |

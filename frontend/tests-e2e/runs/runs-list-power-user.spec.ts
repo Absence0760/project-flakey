@@ -16,7 +16,7 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
   });
 

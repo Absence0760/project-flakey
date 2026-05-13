@@ -58,7 +58,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
   }) => {
     test.setTimeout(45_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     // Wait for hydration so the connectLiveStream() EventSource is
     // open. The first-row visibility check is just a hydration probe.
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
@@ -91,7 +91,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
   }) => {
     test.setTimeout(45_000);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(500);
 
@@ -126,7 +126,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
 
     // Authenticate via a stand-alone page first so we can mint a
     // token without loading the dashboard yet.
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     const token = await getToken(page);
 
@@ -137,7 +137,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     try {
       // Hard reload so the dashboard mounts from scratch and
       // connectLiveStream() runs against an org with one in-flight run.
-      await page.goto("/");
+      await page.goto("/runs");
       await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
       const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
@@ -168,7 +168,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
       if (url.includes("/live/active")) polledUrls.push(url);
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
 
     // Watch for one full pre-SSE polling cycle plus padding.
@@ -190,7 +190,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
       if (url.includes("/live/stream")) streamRequests.push(url);
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
     // Allow the connectLiveStream() handshake to complete.
     await page.waitForTimeout(1500);

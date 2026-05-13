@@ -29,7 +29,7 @@ test.describe("multi-tenant isolation", () => {
     test.use({ storageState: ADMIN_USER.storageStatePath });
 
     test("runs list shows Acme runs (seed creates 50+)", async ({ page }) => {
-      await page.goto("/");
+      await page.goto("/runs");
       // Wait for the loading state to clear.
       await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
 
@@ -45,7 +45,7 @@ test.describe("multi-tenant isolation", () => {
     test.use({ storageState: DEMO_USER.storageStatePath });
 
     test("runs list shows the empty state — Demo Team has no runs", async ({ page }) => {
-      await page.goto("/");
+      await page.goto("/runs");
 
       // Empty-state copy from src/routes/(app)/+page.svelte:395-401.
       // We assert on the visible structural element (.empty wrapper)

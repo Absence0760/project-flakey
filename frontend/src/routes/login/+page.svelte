@@ -15,10 +15,17 @@
   let resendingVerification = $state(false);
 
   const inviteToken = $derived($page.url.searchParams.get("invite"));
+  const initialMode = $derived($page.url.searchParams.get("mode"));
 
-  // If arriving with an invite token, default to register mode
+  // Default to register mode when:
+  //   - the URL carries an invite token (existing behaviour), OR
+  //   - `?mode=register` is explicit (landing-page CTA, README link).
+  // Default to forgot mode when `?mode=forgot`. Anything else leaves
+  // the form on login.
   $effect(() => {
     if (inviteToken) mode = "register";
+    else if (initialMode === "register") mode = "register";
+    else if (initialMode === "forgot") mode = "forgot";
   });
 
   async function handleSubmit() {

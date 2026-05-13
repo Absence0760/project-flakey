@@ -19,7 +19,7 @@ test.describe("Demo Team owner — empty-state coverage", () => {
   test.use({ storageState: DEMO_USER.storageStatePath });
 
   test("/ shows the empty-runs hint", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/runs");
     // No runs seeded for Demo Team → empty state lands.
     await expect(page.locator(".empty p", { hasText: /No test runs found/ })).toBeVisible({
       timeout: 10_000,

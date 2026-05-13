@@ -16,7 +16,7 @@ test.describe("/ runs list", () => {
   test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/runs");
     // The list defaults its date filter to "7 days" so the cold load
     // is fast on heavy users. Wait for the first run-row to appear
     // before driving anything else.
