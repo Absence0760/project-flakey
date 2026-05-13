@@ -42,6 +42,7 @@ module "rds" {
   db_instance_class           = var.db_instance_class
   ecs_security_group_id       = module.ecs.ecs_security_group_id
   enable_performance_insights = var.enable_performance_insights
+  rds_multi_az                = var.rds_multi_az
 }
 
 module "budget" {

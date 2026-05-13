@@ -69,6 +69,12 @@ variable "enable_performance_insights" {
   default     = false
 }
 
+variable "rds_multi_az" {
+  description = "Enable Multi-AZ RDS deployment. Recommended true for production (synchronous standby + failover); false for staging/dev to halve the instance cost."
+  type        = bool
+  default     = true
+}
+
 variable "enable_flow_logs" {
   description = "VPC Flow Logs (REJECT-only) to CloudWatch with KMS encryption. ~$5-15/mo at low volume; needed for security-investigation cadence, otherwise audit-trail bloat."
   type        = bool
