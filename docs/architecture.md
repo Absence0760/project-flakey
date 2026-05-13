@@ -57,7 +57,17 @@ Test run starts
         |       |     • prevents stale-run auto-abort during long quiet
         |       |       scenarios (slow Cucumber test, large cy.wait, etc.)
         |       |
+        |       ├── GET /live/:runId/history (catch-up: list events emitted so far)
+        |       ├── GET /live/active (active run ids in the org — fuels the
+        |       |     dashboard's "running now" badge)
+        |       ├── GET /live/stream (org-scoped SSE: subscribe to active-set
+        |       |     deltas so the dashboard updates without polling)
+        |       |
         |       └── POST /live/:runId/abort (on SIGINT/SIGTERM)
+        |             • emits run.aborted into the bus
+        |             • transitionPendingTestsAfterAbort flips any in-flight
+        |               pending test rows to 'skipped' so the UI doesn't show
+        |               them as "in progress" forever
         |
 Test run completes
         |
@@ -115,19 +125,50 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /runs/:id` — single run with full spec/test tree
 - `GET /runs/environments` — distinct environment values present on the org's runs (powers the runs-grid filter dropdown)
 - `GET /errors` — failures grouped by error message, filterable by suite/run
+- `PATCH /errors/:fingerprint/status` — set status on an error group (open/investigating/known/fixed)
+- `GET /errors/:fingerprint/tests` — list affected tests for an error group
 - `GET /stats` — dashboard aggregate stats with date range filtering
 - `GET /stats/trends` — time-series data (pass rate, failures, duration, top failures)
 - `GET /tests/:id` — single test detail with prev/next failure navigation
+- `GET /tests/search/list?q=` — type-ahead search for tests
+- `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs)
+- `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests
+- `GET /quarantine/check` — check whether a test is currently quarantined
+- `GET /compare` — diff two runs (added/removed/changed status, duration delta)
+- `GET /compare/suites` — list suites available for comparison
+- `GET /audit` — read the audit log (org-scoped)
+- `GET /badge/:orgSlug/:suiteName.svg` — **public** shields.io-style SVG badge (no auth — see `backend/src/index.ts` mount comment)
+
+*Suite, view, and notes management:*
+- `GET /suites` — list suites in the org (rerun-template, archived flag, last-seen-at)
+- `PATCH /suites/:name/rename` / `PATCH /suites/:name/archive` / `PATCH /suites/:name/rerun-template` / `DELETE /suites/:name` — suite mutations
+- `GET/POST/DELETE /views` — saved-filter dashboards (Phase 6)
+- `GET /notes` / `GET /notes/counts` / `POST /notes` — error-group notes (per-fingerprint)
+
+*Webhooks + connectivity probes:*
+- `GET/POST/PATCH/DELETE /webhooks` — webhook CRUD (URL schemes restricted to http(s); SSRF gate blocks loopback / private ranges unless `WEBHOOK_ALLOW_PRIVATE_TARGETS=true`)
+- `POST /webhooks/:id/test` — fire a test event against the webhook target
+- `POST /connectivity/database` / `/connectivity/email` / `/connectivity/git` — admin/owner-only smoke checks (gated by per-route role check; not RLS — these probe org-level config, not tenant data)
+
+*AI / prediction (Phase 8):*
+- `GET /analyze/status` — whether AI features are enabled for the org
+- `POST /analyze/test-connection` — verify AI provider creds
+- `POST /analyze/error/:fingerprint` / `POST /analyze/flaky` / `POST /analyze/similar/:fingerprint` — error-group analysis, flakiness explanation, similar-failure search
+- `POST /predict/tests` — predict which tests should run given a changed-file list
+- `GET /predict/split` — parallelisation plan for the next run
 
 *Auth & orgs:*
 - `GET /auth/me` — current user info + org list
 - `POST /auth/switch-org` — switch active organization
 - `GET/POST/DELETE /auth/api-keys` — manage API keys
+- `POST /auth/refresh` / `POST /auth/logout` — refresh-token rotation + revocation (consumes the prior `jti` via the `revoked_refresh_tokens` table)
 - `GET/POST /orgs` — list/create organizations
 - `GET /orgs/:id/members` — list org members
+- `PATCH /orgs/:id/members/:userId` — change a member's role (admin/owner only)
 - `POST /orgs/:id/invites` — invite user by email
 - `POST /orgs/invites/:token/accept` — accept invite
 - `DELETE /orgs/:id/members/:userId` — remove member
+- `GET/PATCH /orgs/:id/settings` — read/update org-level settings (Jira / PagerDuty / git integration creds, all encrypted at rest)
 
 *Quality metrics (Phase 10):*
 - `POST /coverage` — upload Istanbul-style coverage summary for a run; optional `release` field upserts the release and links the run via `release_runs`
@@ -165,6 +206,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `POST/DELETE /releases/:id/sessions/:sessionId/results/:testId/evidence` — multipart attachment upload (20 MB cap per file, max 20 files; SVG/SVGZ rejected to stop a stored XSS via the attachment link). `url` is re-derived from `key` at GET time (presigns expire after 1h)
 - `GET /releases/:id/requirements` — coverage rollup by requirement; groups linked manual tests per requirement with pass/fail counts from the latest session
 - `GET/POST/DELETE /manual-tests/:id/requirements` — link a manual test to story refs (Jira/GitHub/Linear). `ref_url` must be http(s); other schemes are rejected on write
+- `GET/POST/PATCH/DELETE /manual-test-groups` — organize manual tests into named groups for batched session runs
 
 *Integrations (Phase 9):*
 - `GET/PATCH /jira/settings` — configure Jira connection (token encrypted at rest)
@@ -226,9 +268,12 @@ users (id, email, password_hash, name, role,
 -- per-account brute-force lockout on top of the per-IP rate limit.
 api_keys (id, user_id, key_hash, key_prefix, label, org_id, last_used_at, created_at)
 revoked_refresh_tokens (jti, user_id, revoked_at)
--- migration 037. /auth/logout inserts the current refresh token's jti
--- here; /auth/refresh consults it before issuing a new pair AND inserts
--- the consumed jti on success (refresh-token rotation).
+-- migration 037 / 040. /auth/logout inserts the current refresh token's
+-- jti here; /auth/refresh consults it before issuing a new pair AND
+-- inserts the consumed jti on success (refresh-token rotation).
+-- FORCE ROW LEVEL SECURITY is enabled (migration 040) keyed on
+-- app.current_user_id (not org_id — this is a per-user table). The
+-- userScopedQuery helper in backend/src/db.ts sets the session var.
 
 -- Multi-tenancy
 organizations (id, name, slug, created_at)
@@ -249,6 +294,12 @@ specs (id, run_id, file_path, title, total, passed, failed, skipped, duration_ms
 tests (id, spec_id, title, full_title, status, duration_ms,
        error_message, error_stack, screenshot_paths, video_path,
        snapshot_path, test_code, command_log, metadata)
+-- command_log (JSONB): Mochawesome step records (Cypress chained
+-- commands, assertions, retries). Rendered in the dashboard's
+-- "Commands" timeline below the screenshot.
+-- metadata (JSONB): reporter-specific extras — Playwright retries +
+-- tags + annotations; JUnit properties; ANSI-coloured error snippets.
+-- Free-form; the dashboard renders known shapes and ignores the rest.
 
 -- Quality metrics (Phase 10, org-scoped via RLS)
 coverage_reports (id, org_id, run_id, lines_pct, branches_pct, functions_pct,
