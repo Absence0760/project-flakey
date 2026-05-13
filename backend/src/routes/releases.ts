@@ -1259,7 +1259,22 @@ router.get("/:id/sessions/:sessionId", async (req, res) => {
         ORDER BY mt.priority DESC, mt.title`,
       [req.params.sessionId]
     );
-    res.json({ ...session.rows[0], results: results.rows });
+    // Re-derive presigned attachment URLs at read time. The persisted
+    // JSONB stores only `key` (not `url`) because S3 presigns expire
+    // after 1 hour; pre-hydrate here so the dashboard renders with a
+    // fresh URL on every page load.
+    const storage = getStorage();
+    const hydrated = await Promise.all(results.rows.map(async (row) => {
+      const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+      const withUrls = await Promise.all(attachments.map(async (a: { key?: string; url?: string }) => {
+        if (typeof a?.key === "string") {
+          return { ...a, url: await storage.getUrl(a.key) };
+        }
+        return a;
+      }));
+      return { ...row, attachments: withUrls };
+    }));
+    res.json({ ...session.rows[0], results: hydrated });
   } catch (err) {
     console.error("GET /releases/:id/sessions/:sessionId error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -1685,10 +1700,13 @@ router.post(
         const safeName = f.originalname.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
         const key = `evidence/${sessionId}/${testId}/${ts}-${safeName}`;
         await storage.put(f.path, key);
-        const url = await storage.getUrl(key);
+        // Don't bake the presigned URL into the JSONB — S3 presigns
+        // expire after 1 hour and become permanently 403, and CDN
+        // URLs persisted indefinitely become a public link long after
+        // the user expects access to be auth-gated. The GET handler
+        // re-derives a fresh URL from `key` at read time.
         added.push({
           key,
-          url,
           filename: f.originalname,
           size: f.size,
           uploaded_by: req.user!.id,
@@ -1711,7 +1729,13 @@ router.post(
         String(req.params.id),
         { session_id: sessionId, manual_test_id: testId, files: added.length }
       );
-      res.json({ added });
+      // Hydrate `url` for the immediate response so the UI can render
+      // links right after upload without re-fetching. The persisted
+      // JSONB above intentionally omits `url`.
+      const responseAdded = await Promise.all(
+        added.map(async (a) => ({ ...a, url: await storage.getUrl(a.key) }))
+      );
+      res.json({ added: responseAdded });
     } catch (err) {
       console.error("POST evidence error:", err);
       res.status(500).json({ error: "Internal server error" });

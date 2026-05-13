@@ -115,22 +115,46 @@ app.use(express.json({ limit: "50mb" }));
 const STORAGE_MODE = process.env.STORAGE ?? "local";
 
 async function requireRunOwnership(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
-  // Path looks like /uploads/runs/<id>/<rest>; extract the id and verify
-  // the caller's org owns it.
-  const m = req.path.match(/^\/runs\/(\d+)\//);
-  if (!m) {
-    res.status(404).json({ error: "Artifact not found" });
-    return;
-  }
-  const runId = Number(m[1]);
+  // Two artifact-key shapes are gated here:
+  //   /runs/<id>/...                         — run artifacts (screenshots/snapshots/videos)
+  //   /evidence/<sessionId>/<testId>/...     — release-test-session evidence
+  // Each is owned via a different join; reject everything else (a
+  // matching key was constructed by the upload routes, so an unknown
+  // shape is either an attempt to read another artifact namespace or a
+  // path-traversal smuggle).
   try {
     const { tenantQuery } = await import("./db.js");
-    const owns = await tenantQuery(req.user!.orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
-    if (!owns.rowCount) {
-      res.status(404).json({ error: "Artifact not found" });
+    const runMatch = req.path.match(/^\/runs\/(\d+)\//);
+    if (runMatch) {
+      const runId = Number(runMatch[1]);
+      const owns = await tenantQuery(req.user!.orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+      if (!owns.rowCount) {
+        res.status(404).json({ error: "Artifact not found" });
+        return;
+      }
+      next();
       return;
     }
-    next();
+    const evMatch = req.path.match(/^\/evidence\/(\d+)\/(\d+)\//);
+    if (evMatch) {
+      const sessionId = Number(evMatch[1]);
+      const testId = Number(evMatch[2]);
+      // The session_results row exists only inside the caller's org
+      // because release_test_session_results has FORCE RLS keyed on org_id.
+      const owns = await tenantQuery(
+        req.user!.orgId,
+        `SELECT 1 FROM release_test_session_results
+          WHERE session_id = $1 AND manual_test_id = $2`,
+        [sessionId, testId],
+      );
+      if (!owns.rowCount) {
+        res.status(404).json({ error: "Artifact not found" });
+        return;
+      }
+      next();
+      return;
+    }
+    res.status(404).json({ error: "Artifact not found" });
   } catch (err) {
     console.error("Artifact ownership check error:", err);
     res.status(500).json({ error: "Internal server error" });

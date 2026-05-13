@@ -14,7 +14,20 @@ import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
 
 const router = Router();
-const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 1024, fieldSize: 50 * 1024 * 1024 } });
+// Per-field size caps. Multer's `limits.fileSize` is global, so we hold
+// the global at the highest sane value (videos, 200 MB) and enforce
+// per-field caps in the route handler after multer has streamed each
+// file to disk. The handler unlinks any oversize temp file and returns
+// 413 — this is the actual gate that stops a reporter from posting a
+// 20 GB request via 100×200 MB screenshots.
+//
+// fieldSize bounds non-file form fields (the JSON `payload` blob) at
+// 5 MB — generous for any real reporter payload.
+const upload = multer({ dest: "uploads/tmp", limits: { fileSize: 200 * 1024 * 1024, fieldSize: 5 * 1024 * 1024 } });
+
+const SCREENSHOT_MAX_BYTES = 25 * 1024 * 1024;
+const SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
+const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 
 const uploadFields = upload.fields([
   { name: "screenshots", maxCount: 100 },
@@ -69,6 +82,27 @@ router.post("/", uploadFields, async (req, res) => {
     const screenshotFiles = files?.screenshots ?? [];
     const videoFiles = files?.videos ?? [];
     const snapshotFiles = files?.snapshots ?? [];
+
+    // Per-field size enforcement. Multer's global fileSize is set to
+    // the video cap; fields that should be smaller (screenshots,
+    // snapshots) get rejected here before any storage put or DB write.
+    const oversize = (
+      [
+        ...screenshotFiles.map((f) => ({ field: "screenshots", file: f, max: SCREENSHOT_MAX_BYTES })),
+        ...snapshotFiles.map((f) => ({ field: "snapshots", file: f, max: SNAPSHOT_MAX_BYTES })),
+        ...videoFiles.map((f) => ({ field: "videos", file: f, max: VIDEO_MAX_BYTES })),
+      ] as const
+    ).find((entry) => entry.file.size > entry.max);
+    if (oversize) {
+      // Reap every multer temp file before bailing.
+      for (const f of [...screenshotFiles, ...videoFiles, ...snapshotFiles]) {
+        rmSync(f.path, { force: true });
+      }
+      res.status(413).json({
+        error: `${oversize.field} file '${oversize.file.originalname}' is ${oversize.file.size} bytes; max ${oversize.max} bytes`,
+      });
+      return;
+    }
 
     const storage = getStorage();
 
