@@ -30,7 +30,7 @@ All three adapters (mocha, playwright, webdriverio) read these from `process.env
 | `BRANCH` / `GITHUB_HEAD_REF` / `GITHUB_REF_NAME` | all | Branch fallback chain |
 | `COMMIT_SHA` / `GITHUB_SHA` | all | Commit SHA fallback chain |
 | `CI_RUN_ID` / `GITHUB_RUN_ID` | all | CI run id fallback; `mocha.ts` also writes this after `/live/start` |
-| `FLAKEY_ENV` / `TEST_ENV` | mocha | Target environment label (e.g. "qa", "stage"); forwarded to `/live/start` as `environment` so the placeholder run records it up front |
+| `FLAKEY_ENV` / `TEST_ENV` | all | Target environment label (e.g. "qa", "stage"); forwarded to `/live/start` as `environment` so the placeholder run records it up front. (Originally mocha-only — playwright + wdio adapters added the same chain in 0.8.x.) |
 
 ## Heartbeat
 

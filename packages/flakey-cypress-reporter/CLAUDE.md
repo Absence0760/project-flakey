@@ -45,6 +45,16 @@ The end-of-run merge (both `/runs` and `/runs/upload`) preserves the streamed `s
 
 `reporterOptions.environment` (third-arg or via `setupFlakey`) takes precedence; otherwise the reporter resolves it lazily at upload time, walking `process.env.FLAKEY_ENV` → `process.env.TEST_ENV` → `config.env.environment` → `config.env.name`. The last two cover Cypress's own `cypress run --env environment=qa` / `--env name=qa` conventions. Whichever resolves first lands on the run as `meta.environment`. Resolution is lazy because `setupNodeEvents` merges `--env` after the plugin registers — capturing at registration would always see the empty value.
 
+## CI metadata env-var chains
+
+Branch / commit / ci-run-id all walk the same fallback chains as the live-reporter and the other framework reporters:
+
+- branch: `BRANCH` → `GITHUB_HEAD_REF` → `GITHUB_REF_NAME` → `BITBUCKET_BRANCH`
+- commit: `COMMIT_SHA` → `GITHUB_SHA` → `BITBUCKET_COMMIT`
+- ci_run_id: `CI_RUN_ID` → `GITHUB_RUN_ID` → `BITBUCKET_BUILD_NUMBER`
+
+`GITHUB_HEAD_REF` ahead of `GITHUB_REF_NAME` matches what GitHub Actions sets on PR runs (head ref is the source branch; ref-name is the merge ref).
+
 ## Depends on
 
 - `@flakeytesting/core` (workspace) — shared upload/format helpers.

@@ -162,7 +162,8 @@ Scheduler (internal, advisory-lock coordinated):
 - `POST /releases/:id/sessions/:sessionId/results/:testId` — record a per-test status + notes within a session
 - `POST /releases/:id/sessions/:sessionId/results/:testId/accept` — defer a failure as a known issue. Body: `{ known_issue_ref?: string }` — accepts a plain key (`JIRA-123`) or an http(s) URL; non-http(s) URLs are rejected at the boundary
 - `POST /releases/:id/sessions/:sessionId/results/:testId/file-bug` — create the bug in the configured tracker (Jira) and persist `filed_bug_key` / `filed_bug_url` on the result
-- `POST/DELETE /releases/:id/sessions/:sessionId/results/:testId/evidence` — multipart attachment upload (20 MB cap per file, max 20 files; SVG/SVGZ rejected to stop a stored XSS via the attachment link)
+- `POST/DELETE /releases/:id/sessions/:sessionId/results/:testId/evidence` — multipart attachment upload (20 MB cap per file, max 20 files; SVG/SVGZ rejected to stop a stored XSS via the attachment link). `url` is re-derived from `key` at GET time (presigns expire after 1h)
+- `GET /releases/:id/requirements` — coverage rollup by requirement; groups linked manual tests per requirement with pass/fail counts from the latest session
 - `GET/POST/DELETE /manual-tests/:id/requirements` — link a manual test to story refs (Jira/GitHub/Linear). `ref_url` must be http(s); other schemes are rejected on write
 
 *Integrations (Phase 9):*

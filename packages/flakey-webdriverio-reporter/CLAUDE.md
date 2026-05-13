@@ -27,8 +27,11 @@ export const config = {
 
 ## Peer / deps
 
+- `@wdio/reporter >=8.0.0` (required peer — base class). Moved from
+  `dependencies` so consumers don't end up with a duplicate copy
+  mismatching their wdio CLI version.
 - `@wdio/types >=8.0.0` (optional peer — only needed for type info).
-- `@wdio/reporter` (direct dep) — base class.
+- `webdriverio >=8.0.0` (optional peer — listed for completeness).
 - `@flakeytesting/core` (workspace) — shared upload/format helpers.
 
 ## Options
@@ -38,10 +41,11 @@ export const config = {
 | `url` | string | — | Required. Backend base URL. |
 | `apiKey` | string | — | Required. |
 | `suite` | string | — | Required. Suite name shown in dashboard. |
-| `branch` | string | env fallback | `BRANCH` → `GITHUB_REF_NAME` |
-| `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` |
-| `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` |
+| `branch` | string | env fallback | `BRANCH` → `GITHUB_HEAD_REF` → `GITHUB_REF_NAME` → `BITBUCKET_BRANCH` |
+| `commitSha` | string | env fallback | `COMMIT_SHA` → `GITHUB_SHA` → `BITBUCKET_COMMIT` |
+| `ciRunId` | string | env fallback | `CI_RUN_ID` → `GITHUB_RUN_ID` → `BITBUCKET_BUILD_NUMBER` |
 | `release` | string | `FLAKEY_RELEASE` env | Release version — backend upserts release + links run |
+| `environment` | string | `FLAKEY_ENV` → `TEST_ENV` env | Target env label (e.g. `qa`, `stage`) — stored on `runs.environment` |
 | `screenshotsDir` | string | `"screenshots"` | Relative to cwd |
 | `videosDir` | string | `"videos"` | Relative to cwd |
 
