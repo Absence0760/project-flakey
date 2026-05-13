@@ -13,6 +13,7 @@ import {
 } from "../integrations/jira.js";
 import { getStorage } from "../storage.js";
 import { validateRefUrl } from "../url-validation.js";
+import { unlink } from "fs/promises";
 
 const evidenceUpload = multer({
   dest: "uploads/tmp",
@@ -1630,13 +1631,23 @@ router.post(
   "/:id/sessions/:sessionId/results/:testId/evidence",
   evidenceUpload.array("files", 20),
   async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     try {
       if (req.user!.orgRole === "viewer") {
         res.status(403).json({ error: "Admin role required" });
         return;
       }
-      const files = req.files as Express.Multer.File[] | undefined;
-      if (!files || files.length === 0) {
+      // Reject non-integer path params so a crafted `../` in sessionId
+      // can't fan out into the storage key under `evidence/<sessionId>/...`.
+      // Integer-only matches the underlying SERIAL columns.
+      const sessionId = Number(req.params.sessionId);
+      const testId = Number(req.params.testId);
+      if (!Number.isInteger(sessionId) || sessionId <= 0 ||
+          !Number.isInteger(testId) || testId <= 0) {
+        res.status(400).json({ error: "sessionId and testId must be positive integers" });
+        return;
+      }
+      if (files.length === 0) {
         res.status(400).json({ error: "No files uploaded" });
         return;
       }
@@ -1647,7 +1658,7 @@ router.post(
            FROM release_test_session_results r
            JOIN release_test_sessions s ON s.id = r.session_id
           WHERE r.session_id = $1 AND r.manual_test_id = $2 AND s.release_id = $3`,
-        [req.params.sessionId, req.params.testId, req.params.id]
+        [sessionId, testId, req.params.id]
       );
       if (existing.rows.length === 0) {
         res.status(404).json({ error: "Result not found" });
@@ -1658,8 +1669,8 @@ router.post(
       const added: Array<{ key: string; url: string; filename: string; size: number; uploaded_by: number; uploaded_at: string }> = [];
       for (const f of files) {
         const ts = Date.now();
-        const safeName = f.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const key = `evidence/${req.params.sessionId}/${req.params.testId}/${ts}-${safeName}`;
+        const safeName = f.originalname.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+        const key = `evidence/${sessionId}/${testId}/${ts}-${safeName}`;
         await storage.put(f.path, key);
         const url = await storage.getUrl(key);
         added.push({
@@ -1677,7 +1688,7 @@ router.post(
         `UPDATE release_test_session_results
             SET attachments = attachments || $1::jsonb
           WHERE session_id = $2 AND manual_test_id = $3`,
-        [JSON.stringify(added), req.params.sessionId, req.params.testId]
+        [JSON.stringify(added), sessionId, testId]
       );
       await logAudit(
         req.user!.orgId,
@@ -1685,12 +1696,19 @@ router.post(
         "release.session_result_evidence",
         "release",
         String(req.params.id),
-        { session_id: req.params.sessionId, manual_test_id: req.params.testId, files: added.length }
+        { session_id: sessionId, manual_test_id: testId, files: added.length }
       );
       res.json({ added });
     } catch (err) {
       console.error("POST evidence error:", err);
       res.status(500).json({ error: "Internal server error" });
+    } finally {
+      // Always reap the multer temp files — without this, every
+      // failed upload (4xx / 5xx / network drop mid-loop) leaves a
+      // 20-MB-cap file behind in uploads/tmp.
+      for (const f of files) {
+        unlink(f.path).catch(() => { /* already gone */ });
+      }
     }
   }
 );

@@ -54,8 +54,13 @@ router.get("/", async (req, res) => {
       LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
         AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
       LEFT JOIN LATERAL (
+        -- Explicit org_id predicate alongside RLS. The notes_tenant
+        -- policy already enforces this, but the explicit predicate
+        -- keeps query intent legible at the call site and lets the
+        -- planner use the org_id-leading composite index.
         SELECT COUNT(*)::int AS cnt FROM notes n
-        WHERE n.target_type = 'error' AND n.target_key = ea.fingerprint
+        WHERE n.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+          AND n.target_type = 'error' AND n.target_key = ea.fingerprint
       ) nc ON TRUE
       ORDER BY ea.last_seen DESC, ea.occurrence_count DESC`,
       params

@@ -267,7 +267,10 @@ export function fixFilename(name: string): string {
     decoded = name;
   }
   // posix basename + win32 backslash strip + null-byte strip.
-  return basename(decoded.replace(/\\/g, "/")).replace(/\0/g, "");
+  // Final 200-char cap stops a multi-MB filename payload from blowing
+  // up downstream key/length budgets in S3 metadata or DB columns.
+  const cleaned = basename(decoded.replace(/\\/g, "/")).replace(/\0/g, "");
+  return cleaned.slice(0, 200);
 }
 
 export function normalizeForMatch(str: string): string {

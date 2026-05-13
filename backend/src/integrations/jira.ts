@@ -76,7 +76,11 @@ export async function createJiraIssue(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Jira create failed: ${res.status} ${body.slice(0, 300)}`);
+    // Log the body server-side for debugging; Jira error responses
+    // sometimes include the request payload back, so the raw body
+    // can echo internal data we shouldn't surface to the user.
+    console.error(`Jira create failed: ${res.status}`, body);
+    throw new Error(`Jira create failed: HTTP ${res.status}`);
   }
   const data = (await res.json()) as { key: string };
   return { key: data.key, url: `${cfg.baseUrl}/browse/${data.key}` };
@@ -211,7 +215,8 @@ export async function fetchProjectVersions(cfg: JiraConfig): Promise<JiraVersion
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Jira versions fetch failed: ${res.status} ${body.slice(0, 200)}`);
+    console.error(`Jira versions fetch failed: ${res.status}`, body);
+    throw new Error(`Jira versions fetch failed: HTTP ${res.status}`);
   }
   return (await res.json()) as JiraVersion[];
 }
@@ -242,7 +247,8 @@ export async function fetchVersionIssueCounts(
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Jira counts fetch failed: ${res.status} ${body.slice(0, 200)}`);
+    console.error(`Jira counts fetch failed: ${res.status}`, body);
+    throw new Error(`Jira counts fetch failed: HTTP ${res.status}`);
   }
   return (await res.json()) as JiraVersionIssueCounts;
 }
@@ -278,7 +284,8 @@ export async function fetchIssuesForVersion(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Jira search failed: ${res.status} ${body.slice(0, 200)}`);
+    console.error(`Jira search failed: ${res.status}`, body);
+    throw new Error(`Jira search failed: HTTP ${res.status}`);
   }
   const data = (await res.json()) as {
     issues: Array<{

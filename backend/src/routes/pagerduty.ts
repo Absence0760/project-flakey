@@ -93,7 +93,11 @@ router.post("/test", async (req, res) => {
     );
     res.json(out);
   } catch (err) {
-    res.json({ ok: false, status: 0, error: (err as Error).message });
+    // Surface a fixed message; the original error may include the
+    // PagerDuty integration key (decryptSecret failures embed the
+    // ciphertext in the message). Logged server-side for diagnosis.
+    console.error("POST /pagerduty/test error:", err);
+    res.json({ ok: false, status: 0, error: "PagerDuty test failed" });
   }
 });
 

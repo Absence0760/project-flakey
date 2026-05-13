@@ -598,7 +598,11 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     }
 
     const safeTitle = testTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "-").slice(0, 100);
-    const safeSpec = spec.replace(/[^a-zA-Z0-9_\-./]/g, "").replace(/\//g, "__");
+    // 200-char cap on the spec path before flattening: a multi-MB
+    // payload can't fan out into a giant S3 key (and the resulting
+    // filename stays well inside the typical 1024-char object-key
+    // ceiling).
+    const safeSpec = spec.replace(/[^a-zA-Z0-9_\-./]/g, "").slice(0, 200).replace(/\//g, "__");
     const fileName = `${safeSpec}--${safeTitle}.json.gz`;
     const key = `runs/${runId}/snapshots/${fileName}`;
 

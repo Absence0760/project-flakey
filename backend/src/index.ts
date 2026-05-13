@@ -258,12 +258,18 @@ app.get("/health", healthLimiter, async (_req, res) => {
 // probes don't count against it.
 app.use(globalLimiter);
 
-// Rate limit only unauthenticated auth endpoints (login, register, password reset)
+// Rate limit only unauthenticated auth endpoints (login, register, password reset).
+// /refresh + /logout don't require a valid bearer (they read the
+// refresh-token cookie/body) so they're reachable without auth and
+// need the same per-IP throttle to keep cookie-replay grinding out
+// of the picture.
 app.use("/auth/login", authLimiter);
 app.use("/auth/register", authLimiter);
 app.use("/auth/forgot-password", authLimiter);
 app.use("/auth/reset-password", authLimiter);
 app.use("/auth/resend-verification", authLimiter);
+app.use("/auth/refresh", authLimiter);
+app.use("/auth/logout", authLimiter);
 app.use("/auth", authRouter);
 app.use("/badge", badgeRouter);
 
