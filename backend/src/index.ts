@@ -83,6 +83,14 @@ app.use(helmet({
       frameAncestors: ["'none'"],
     },
   },
+  // The API is meant to be consumed by the SvelteKit SPA on a
+  // different origin (port 7778 in dev, the CloudFront-served
+  // frontend in prod). helmet's default `Cross-Origin-Resource-Policy:
+  // same-origin` blocks the cross-origin read even when CORS allows
+  // the request — the SPA gets a "Failed to fetch" with no useful
+  // error. Switch to `cross-origin`; CORS (the explicit
+  // ALLOWED_ORIGINS allow-list above) is the actual access gate.
+  crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 // CORS: use the same whitelist callback in every environment.
 // Previously dev used `origin: true`, which reflects the request
