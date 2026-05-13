@@ -48,6 +48,15 @@ if (IS_PROD && !process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+// Without FLAKEY_ENCRYPTION_KEY, crypto.ts falls back to plaintext
+// passthrough — fine for local dev but means production-stored Jira
+// tokens, PagerDuty keys, etc. would land on disk in clear. Refuse to
+// boot in prod without it.
+if (IS_PROD && !process.env.FLAKEY_ENCRYPTION_KEY) {
+  console.error("FATAL: FLAKEY_ENCRYPTION_KEY is required in production. Integration secrets would otherwise be persisted as plaintext.");
+  process.exit(1);
+}
+
 if (IS_PROD && process.env.ALLOW_REGISTRATION === "true") {
   console.warn("WARNING: ALLOW_REGISTRATION=true — open self-registration is enabled.");
 }
