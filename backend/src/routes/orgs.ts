@@ -5,6 +5,15 @@ import { requireAuth, signToken, normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { encryptSecret } from "../crypto.js";
 
+// This router uses raw `pool.query` (not `tenantQuery`) throughout. The
+// tables touched here — organizations, org_members, org_invites, users —
+// are the pre-tenant infrastructure tables and intentionally have NO
+// row-level security: setting `app.current_org_id` requires already
+// knowing which org the caller belongs to, and discovering that is the
+// job of these queries. The tenant boundary on every handler is the
+// per-handler membership check (e.g.
+// `SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2`)
+// — that predicate is what prevents cross-org reads/writes, not RLS.
 const router = Router();
 
 // GET /orgs — list user's orgs

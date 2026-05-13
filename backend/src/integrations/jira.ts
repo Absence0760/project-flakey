@@ -19,6 +19,13 @@ export interface JiraIssueResult {
 }
 
 export async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
+  // `organizations` has no RLS (cross-org infrastructure table). The
+  // tenant boundary here is the `WHERE id = $1` clause — orgId always
+  // originates from req.user!.orgId or a run's org_id, never from
+  // request input. tenantQuery would be wrong here: setting
+  // app.current_org_id requires already knowing which org to scope to,
+  // which is exactly what this query exists to answer (config lookup
+  // before any tenant work begins).
   const result = await pool.query(
     `SELECT jira_base_url, jira_email, jira_api_token, jira_project_key,
             jira_issue_type, jira_auto_create

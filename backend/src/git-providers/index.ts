@@ -8,6 +8,8 @@ import { createBitbucketProvider } from "./bitbucket.js";
 import { buildCommentBody } from "./comment.js";
 
 async function getProviderConfig(orgId: number): Promise<GitProviderConfig | null> {
+  // `organizations` has no RLS — see backend/src/routes/orgs.ts header.
+  // orgId is always trusted; WHERE id = $1 is the tenant boundary.
   const result = await pool.query(
     "SELECT git_provider, git_token, git_repo, git_base_url FROM organizations WHERE id = $1",
     [orgId]

@@ -37,6 +37,10 @@ router.post("/", async (req, res) => {
     let runId: number;
     let merged = false;
 
+    // `client` inside this block is already org-scoped — tenantTransaction
+    // sets app.current_org_id at transaction start, so every client.query
+    // below runs with RLS active. Treat client.query identically to
+    // tenantQuery for review purposes.
     await tenantTransaction(orgId, async (client) => {
       const result = await findOrCreateRun(client, orgId, run);
       runId = result.runId;

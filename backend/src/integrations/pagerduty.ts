@@ -9,6 +9,9 @@ export interface PagerDutyConfig {
 }
 
 async function getPagerDutyConfig(orgId: number): Promise<PagerDutyConfig | null> {
+  // `organizations` has no RLS — see backend/src/routes/orgs.ts header
+  // comment. orgId always originates from req.user!.orgId or a run's
+  // org_id; the `WHERE id = $1` clause is the tenant boundary.
   const result = await pool.query(
     `SELECT pagerduty_integration_key, pagerduty_severity, pagerduty_auto_trigger
      FROM organizations WHERE id = $1`,
