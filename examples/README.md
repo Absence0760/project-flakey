@@ -123,6 +123,10 @@ pnpm start
 
 The app runs on `http://localhost:4444`.
 
+### A note on `.env` files
+
+Each example reads `FLAKEY_API_KEY` from `process.env`. You can either export it inline (as shown below) or drop a `.env` file at the example's root (e.g. `examples/cypress/.env`). **`.env` files are gitignored at the repo root and must never be committed** — pasting a real API key into one and then running `git add --force` would publish it. If you do commit a real key, **revoke it immediately** in the dashboard's API-keys page; the hash-stored format cannot be retrieved or rotated in place.
+
 ### Run an example
 
 Each example is a standalone project. Install and run:

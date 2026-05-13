@@ -131,11 +131,19 @@ async function verifyApiKey(key: string): Promise<AuthUser | null> {
   // set_config('app.current_org_id', …) silently UPDATEs zero rows.
   // Route through tenantQuery scoped to the api-key's own org so the
   // RLS policy admits the write.
+  //
+  // Fire-and-forget — the `last_used_at` write is cosmetic (audit
+  // dashboard freshness) and should never block the request. Log
+  // failures though: a systematic RLS misconfiguration or connection
+  // exhaustion needs to surface somewhere, not silently leave every
+  // api_keys row's last_used_at stuck at NULL forever.
   tenantQuery(
     row.org_id,
     "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
     [row.key_id],
-  ).catch(() => {});
+  ).catch((err) => {
+    console.error("[api-key] last_used_at update failed:", err);
+  });
 
   const memberResult = await pool.query(
     "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",

@@ -29,6 +29,17 @@ function parseKey(raw: string | undefined): Buffer | null {
   throw new Error("Encryption key must be 32 bytes (base64 or hex)");
 }
 
+// Exposed for boot-time validation. index.ts calls this on startup
+// (in production) so a malformed FLAKEY_ENCRYPTION_KEY fails fast
+// with a clear message rather than throwing on the first integration
+// PATCH and being swallowed by a generic 500.
+export function validateConfiguredKeys(): void {
+  // Force evaluation of the lazy getters; parseKey throws on a key
+  // that's set but not 32 bytes.
+  primaryKey();
+  oldKey();
+}
+
 let cachedPrimary: Buffer | null | undefined;
 let cachedOld: Buffer | null | undefined;
 

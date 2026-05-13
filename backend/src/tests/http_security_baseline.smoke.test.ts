@@ -60,7 +60,7 @@ before(async () => {
       // Required by the production-mode boot guard (added in
       // backend/src/index.ts). Throwaway value — this test only
       // exercises HTTP headers, never reads/writes encrypted secrets.
-      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       ALLOW_REGISTRATION: "true",
       // Run in NODE_ENV=production so CORS enforces the origin
       // allowlist (in development cors is permissive) and the

@@ -123,7 +123,7 @@ function spawnServer(port: number, env: Record<string, string>): ChildProcess {
       // Required by the production-mode boot guard (added in
       // backend/src/index.ts). Throwaway value — the test never writes
       // an integration secret that would actually be encrypted.
-      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       ALLOW_REGISTRATION: "true",
       // CORS in prod requires CORS_ORIGINS; allow the loopback the
       // test client reaches in on.
