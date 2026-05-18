@@ -1,0 +1,50 @@
+# Normalize line endings on commit; check out platform-native on Linux/macOS
+# and LF on Windows (so editors don't silently rewrite the file).
+* text=auto eol=lf
+
+# Shell scripts must stay LF — CRLF breaks shebangs.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Binary files — never auto-convert line endings or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.tar.gz binary
+*.tgz binary
+*.gz binary
+*.7z binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.mp4 binary
+*.mov binary
+*.webm binary
+*.wasm binary
+
+# Don't show lockfiles in diffs — they're noise during PR review.
+# Reviewers still see what changed via `git diff <lockfile>` explicitly.
+pnpm-lock.yaml -diff
+package-lock.json -diff
+yarn.lock -diff
+Cargo.lock -diff
+poetry.lock -diff
+uv.lock -diff
+go.sum -diff
+Pipfile.lock -diff
+
+# GitHub Linguist hints — keep language-stats focused on app code.
+docs/**       linguist-documentation
+*.md          linguist-documentation
+*.svg         linguist-vendored=false
