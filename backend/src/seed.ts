@@ -521,6 +521,22 @@ async function seed() {
 
     console.log("Seeded users: admin@example.com/admin (Acme Corp owner), demo@example.com/demo123 (Demo Team owner), viewer@example.com/viewer123 (Acme Corp viewer)");
 
+    // ─── Per-tenant seed playground ────────────────────────────────────────
+    // Everything below is wrapped in a single function we invoke once per
+    // tenant. Acme gets it (with the deterministic API key + invite token
+    // demo fixtures); each worker tenant gets the same shape minus the
+    // global-unique fixtures so parallel Playwright workers have their
+    // own fully-populated org to operate inside without crossing wires.
+    //
+    // The function captures the outer `client` via closure; `orgId` and
+    // `adminId` are parameters that shadow the Acme consts at line ~493
+    // / line ~514, so the body below reads the same identifiers but
+    // operates against whichever tenant we're currently populating.
+    async function populateOrg(
+      orgId: number,
+      adminId: number,
+      includeFixtures: boolean,
+    ): Promise<void> {
     // Set RLS context for seeded runs
     await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
 
@@ -1541,18 +1557,25 @@ async function seed() {
     // without leaking it through the UI. The bcrypt'd hash is what
     // lookup_api_key() resolves against; the raw value is printed
     // below for the operator to copy.
-    const demoAdminKey = "fk_demoadmindemoadmindemoadmindemoa";
-    const demoAdminKeyHash = bcrypt.hashSync(demoAdminKey, 10);
-    await client.query(
-      `INSERT INTO api_keys (user_id, key_hash, key_prefix, label, org_id)
-       VALUES ($1, $2, $3, 'Local dev / CLI', $4)`,
-      [adminId, demoAdminKeyHash, demoAdminKey.slice(0, 8), orgId],
-    );
-    // Don't print the raw key — the value is documented in CLAUDE.md
-    // as a known dev fixture, but logging it leaks into CI logs and
-    // trips gitleaks/secret-scanner regexes that pattern-match `fk_*`.
-    // Print prefix only.
-    console.log(`Seeded admin API key (prefix: ${demoAdminKey.slice(0, 8)}…) — see backend/CLAUDE.md for the full value.`);
+    //
+    // includeFixtures gates this so worker tenants don't all insert
+    // rows that share the same key_prefix — verify_api_key would then
+    // match multiple rows on prefix lookup before the bcrypt compare,
+    // breaking the "one prefix → one identity" assumption.
+    if (includeFixtures) {
+      const demoAdminKey = "fk_demoadmindemoadmindemoadmindemoa";
+      const demoAdminKeyHash = bcrypt.hashSync(demoAdminKey, 10);
+      await client.query(
+        `INSERT INTO api_keys (user_id, key_hash, key_prefix, label, org_id)
+         VALUES ($1, $2, $3, 'Local dev / CLI', $4)`,
+        [adminId, demoAdminKeyHash, demoAdminKey.slice(0, 8), orgId],
+      );
+      // Don't print the raw key — the value is documented in CLAUDE.md
+      // as a known dev fixture, but logging it leaks into CI logs and
+      // trips gitleaks/secret-scanner regexes that pattern-match `fk_*`.
+      // Print prefix only.
+      console.log(`Seeded admin API key (prefix: ${demoAdminKey.slice(0, 8)}…) — see backend/CLAUDE.md for the full value.`);
+    }
 
     // One webhook target.  Points at an .invalid host so any actual
     // dispatch fails fast (no accidental traffic to a real service in
@@ -1617,14 +1640,21 @@ async function seed() {
     // without first sending an invite — the URL pattern is
     // /invite/<token>. Token is a deterministic constant for the
     // same operator-copy-and-paste reason as the API key above.
-    const demoInviteToken = "demo-invite-token-do-not-use-in-prod-aaaa";
-    await client.query(
-      `INSERT INTO org_invites (org_id, email, role, token, invited_by)
-       VALUES ($1, 'invitee@example.com', 'viewer', $2, $3)
-       ON CONFLICT DO NOTHING`,
-      [orgId, demoInviteToken, adminId],
-    );
-    console.log(`Seeded 1 pending org invite (token: ${demoInviteToken}).`);
+    //
+    // includeFixtures gates this because org_invites.token has a
+    // global UNIQUE constraint (migration 004) — inserting the same
+    // literal in each worker tenant would fail the constraint after
+    // the first.
+    if (includeFixtures) {
+      const demoInviteToken = "demo-invite-token-do-not-use-in-prod-aaaa";
+      await client.query(
+        `INSERT INTO org_invites (org_id, email, role, token, invited_by)
+         VALUES ($1, 'invitee@example.com', 'viewer', $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [orgId, demoInviteToken, adminId],
+      );
+      console.log(`Seeded 1 pending org invite (token: ${demoInviteToken}).`);
+    }
 
     // Bulk fill — synthetic audit_log entries so the /settings#audit-log
     // section exceeds the 25/page threshold and shows the Load more
@@ -1675,6 +1705,52 @@ async function seed() {
       );
     }
     console.log(`Seeded ${auditActions.length} audit_log entries (pagination coverage).`);
+    } // end populateOrg
+
+    // ─── Primary tenant: Acme Corp ─────────────────────────────────────────
+    // Gets the deterministic API key + invite token in addition to the
+    // standard playground data.
+    await populateOrg(orgId, adminId, true);
+
+    // ─── Worker tenants for parallel Playwright execution ─────────────────
+    // Each Playwright worker (parallelIndex 0..N-1) signs in as
+    // admin+w<i>@example.com and operates exclusively on org `acme-w<i>`.
+    // Configurable via E2E_WORKER_TENANTS — default 4 matches the
+    // playwright config's worker count. Set to 0 to skip worker seeding
+    // entirely (useful for shipping a slim production seed).
+    const WORKER_TENANT_COUNT = Number(process.env.E2E_WORKER_TENANTS ?? 4);
+    for (let i = 0; i < WORKER_TENANT_COUNT; i++) {
+      // Per-worker admin password is `worker<i>123` — deterministic so
+      // fixtures/users.ts can compute it without coordinating with the
+      // seed. Real-deployment risk is nil: these accounts only exist
+      // when the seed script is run against a dev / e2e database.
+      const wPassword = `worker${i}123`;
+      const wPasswordHash = bcrypt.hashSync(wPassword, 10);
+      const wUserRes = await client.query(
+        `INSERT INTO users (email, password_hash, name, role)
+         VALUES ($1, $2, $3, 'admin') RETURNING id`,
+        [`admin+w${i}@example.com`, wPasswordHash, `Worker ${i} Admin`],
+      );
+      const wUserId = wUserRes.rows[0].id;
+
+      const wOrgRes = await client.query(
+        `INSERT INTO organizations (name, slug, retention_days)
+         VALUES ($1, $2, NULL) RETURNING id`,
+        [`Acme Worker ${i}`, `acme-w${i}`],
+      );
+      const wOrgId = wOrgRes.rows[0].id;
+
+      await client.query(
+        `INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, 'owner')`,
+        [wOrgId, wUserId],
+      );
+
+      console.log(`\n── Seeding worker tenant ${i}: admin+w${i}@example.com / ${wPassword} → acme-w${i} ──`);
+      await populateOrg(wOrgId, wUserId, false);
+    }
+    if (WORKER_TENANT_COUNT > 0) {
+      console.log(`\nSeeded ${WORKER_TENANT_COUNT} worker tenant${WORKER_TENANT_COUNT === 1 ? "" : "s"} for parallel Playwright execution.`);
+    }
   } finally {
     client.release();
     await pool.end();

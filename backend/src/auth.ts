@@ -96,7 +96,7 @@ export function signRefreshToken(userId: number): string {
 // implicit and version-dependent. Pinning algorithms to HS256 makes
 // the invariant explicit so a future SDK upgrade can't silently
 // re-enable insecure algorithms.
-const JWT_VERIFY_OPTS = { algorithms: ["HS256"] as const };
+const JWT_VERIFY_OPTS: jwt.VerifyOptions = { algorithms: ["HS256"] };
 
 function verifyToken(token: string): AuthUser | null {
   try {
