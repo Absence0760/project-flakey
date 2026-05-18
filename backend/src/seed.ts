@@ -454,6 +454,15 @@ ${cmd.state === "failed" ? `<div style="color:#e74c3c;padding:1rem;border:2px so
 async function seed() {
   const client = await pool.connect();
 
+  // Multer's diskStorage mkdir's `uploads/tmp` at backend boot. Local-dev
+  // workflow tends to `rm -rf uploads && npm run seed` between sessions,
+  // which deletes the dir out from under a still-running backend whose
+  // multer instance won't re-create it on demand — every subsequent
+  // upload then 500s with ENOENT. Re-create here so the seed leaves
+  // the directory in a usable state regardless of which process owns
+  // the tmp root's lifecycle.
+  mkdirSync("uploads/tmp", { recursive: true });
+
   try {
     // Ensure app role exists (for RLS)
     await client.query(`
@@ -713,6 +722,74 @@ async function seed() {
           );
         }
       }
+    }
+
+    // --- Deterministic flaky-test guarantee ---
+    // The random seed CAN leave the /flaky page empty when no
+    // (full_title, suite_name) tuple lands both a pass AND a fail in
+    // the last 30 runs — runs pick 2-5 of ~12 specs at random, and
+    // suites are picked from a 3-element set, so a candidate flaky
+    // title may not co-occur with itself in the same suite often
+    // enough to register. Insert a hand-crafted 4-run alternating
+    // pass/fail sequence in a dedicated "flaky-demo" suite so the
+    // /flaky page always has at least one row (flip_count = 3),
+    // regardless of how the random rolls fell above.
+    //
+    // Runs are stamped between 60 and 15 minutes ago so they sit
+    // firmly within the /flaky endpoint's most-recent-30 window
+    // without crowding "today" in the dashboard's date filters.
+    {
+      const flakyDemoSuite = "flaky-demo";
+      const flakySpec = "cypress/e2e/flaky/intermittent.feature";
+      const flakyTitle = "should sometimes fail under load";
+      const flakyOutcomes: Array<"passed" | "failed"> = ["passed", "failed", "passed", "failed"];
+      for (let i = 0; i < flakyOutcomes.length; i++) {
+        // 60, 45, 30, 15 minutes ago. Oldest-first matches how
+        // ARRAY_AGG(... ORDER BY run_date ASC) builds the timeline.
+        const startedAt = new Date(now - (flakyOutcomes.length - i) * 15 * 60 * 1000);
+        const finishedAt = new Date(startedAt.getTime() + 28_000);
+        const status = flakyOutcomes[i];
+        const passed = status === "passed" ? 1 : 0;
+        const failed = status === "failed" ? 1 : 0;
+        const runIns = await client.query(
+          `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, created_at, org_id)
+           VALUES ($1, 'main', $2, $3, 'mochawesome', $4, $5, 1, $6, $7, 0, 0, 28000, $4, $8)
+           RETURNING id`,
+          [
+            flakyDemoSuite,
+            Math.random().toString(16).slice(2, 10),
+            `flaky-${i + 1}`,
+            startedAt.toISOString(),
+            finishedAt.toISOString(),
+            passed,
+            failed,
+            orgId,
+          ],
+        );
+        const flakyRunId = runIns.rows[0].id;
+        const specIns = await client.query(
+          `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
+           VALUES ($1, $2, 'intermittent', 1, $3, $4, 0, 28000) RETURNING id`,
+          [flakyRunId, flakySpec, passed, failed],
+        );
+        await client.query(
+          `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths)
+           VALUES ($1, $2, $3, $4, 27500, $5, $6, '{}')`,
+          [
+            specIns.rows[0].id,
+            flakyTitle,
+            `${flakySpec} > ${flakyTitle}`,
+            status,
+            status === "failed"
+              ? "TimeoutError: timed out after 25000ms waiting for the page to settle under simulated load"
+              : null,
+            status === "failed"
+              ? `    at runUnderLoad (${flakySpec}:42:7)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)`
+              : null,
+          ],
+        );
+      }
+      console.log(`Seeded deterministic flaky-demo (4 runs, alternating pass/fail) — /flaky always non-empty.`);
     }
 
     // --- Deterministic Gherkin demo run ---

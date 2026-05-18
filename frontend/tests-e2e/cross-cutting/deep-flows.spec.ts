@@ -233,11 +233,12 @@ test.describe("deep cross-page flows", () => {
     // expands a `tr.flaky-detail-row` below it with the quarantine
     // button. No more h1; the heatmap rows themselves are the
     // landing signal.
+    // The seed's deterministic flaky-demo block (4 alternating pass/fail
+    // runs of "should sometimes fail under load" in the flaky-demo
+    // suite) guarantees /flaky has at least this one row. Assert it
+    // present rather than self-skip — a missing row now means the seed
+    // changed, not random unluck.
     const firstRow = page.locator("tr.flaky-row").first();
-    if ((await firstRow.count()) === 0) {
-      test.skip(true, "seed produced no flaky candidates this time");
-      return;
-    }
     await expect(firstRow).toBeVisible({ timeout: 10_000 });
     await firstRow.click();
 
@@ -256,10 +257,16 @@ test.describe("deep cross-page flows", () => {
       )
       .toBe(!wasQuarantined);
 
-    // Reload — state must persist server-side.
+    // Reload — quarantine state must persist server-side. The /flaky
+    // route also exports a SvelteKit `snapshot` that restores
+    // expandedIndex from history.state across reload, so the first
+    // row's detail panel (with q-btn) is already in the DOM without
+    // a second click; re-clicking here would TOGGLE the expansion
+    // closed and hide the very button we want to inspect.
     await page.reload();
     const reloadedRow = page.locator("tr.flaky-row").first();
-    await reloadedRow.click();
+    await expect(reloadedRow).toBeVisible({ timeout: 10_000 });
+    await expect(reloadedRow).toHaveClass(/expanded/, { timeout: 5_000 });
     const qBtnReload = page.locator("button.q-btn").first();
     await expect(qBtnReload).toBeVisible({ timeout: 5_000 });
     expect(
