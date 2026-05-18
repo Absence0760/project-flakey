@@ -30,8 +30,8 @@
     "directory": "packages/flakey-cli"
   },
   "devDependencies": {
-    "@types/node": "^25.6.2",
-    "tsx": "^4.19.0",
+    "@types/node": "^25.8.0",
+    "tsx": "^4.22.1",
     "typescript": "^6.0.3"
   }
 }
