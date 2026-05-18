@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Two /manual-tests fixes reported from manual testing:
@@ -29,7 +28,6 @@ async function openCreateModal(page: Page): Promise<void> {
 }
 
 test.describe("/manual-tests reorder icon buttons are visible at rest", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Move down icon-btn has readable contrast against the modal background", async ({
     page,
@@ -92,7 +90,6 @@ test.describe("/manual-tests reorder icon buttons are visible at rest", () => {
 });
 
 test.describe("/manual-tests rows are clickable anywhere — match runs-list pattern", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   async function getDetailModal(page: Page) {
     return page.locator(".modal").filter({ hasText: /^Manual test detail|Steps|Run|Test session/ }).first();

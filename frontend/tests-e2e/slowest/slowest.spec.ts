@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /slowest — tests ranked by duration with percentile + trend analysis.
@@ -12,7 +11,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/slowest", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/slowest");

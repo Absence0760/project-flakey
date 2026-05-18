@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /runs/<id> — live run flow.
@@ -77,7 +76,6 @@ async function deleteRun(page: Page, token: string, runId: number): Promise<void
 }
 
 test.describe("live run flow (real-time test progress)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("LIVE badge appears, pending tests flip to passed as events arrive, then LIVE drops on run.finished", async ({
     page,

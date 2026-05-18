@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Issue #41 — a live run started via POST /live/start must appear in
@@ -38,7 +37,6 @@ async function deleteRun(page: Page, token: string, runId: number): Promise<void
 }
 
 test.describe("issue #41 — live runs surface in the runs list mid-flight", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a fresh /live/start run appears as a row with the LIVE badge without reloading", async ({
     page,

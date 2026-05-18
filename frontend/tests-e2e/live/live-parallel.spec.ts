@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Live parallel-run isolation.
@@ -74,7 +73,6 @@ async function fetchRunDetail(
 }
 
 test.describe("live parallel — multiple concurrent runs do not collide", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("two parallel runs (same shape, same spec path) — events route to the correct run, no leak across rows", async ({
     page,

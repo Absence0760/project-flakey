@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
 import { ADMIN_USER, DEMO_USER } from "../fixtures/users";
 
@@ -218,7 +218,6 @@ test.describe("live tenancy — cross-org isolation", () => {
 /* ───────────────────── 2. Three reporters at once ───────────────────── */
 
 test.describe("live multi-run — three reporters streaming concurrently", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Cypress + Playwright + WebdriverIO running side-by-side keep their rows scoped to their own runs", async ({
     page,
@@ -329,7 +328,6 @@ test.describe("live multi-run — three reporters streaming concurrently", () =>
 /* ───────────────────── 3. Abort scope across parallel runs ───────────────────── */
 
 test.describe("live multi-run — aborting one run does not affect siblings", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("aborting run A flips A's pending → skipped; runs B and C keep their pending rows and continue flipping cleanly", async ({
     page,
@@ -418,7 +416,6 @@ test.describe("live multi-run — aborting one run does not affect siblings", ()
 /* ───────────────────── 4. Concurrent abort idempotency ───────────────────── */
 
 test.describe("live — concurrent abort POSTs are idempotent", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("two simultaneous abort POSTs for the same run end in 'aborted' with no zombie pending and no double-skipped error contamination", async ({
     page,
@@ -469,7 +466,6 @@ test.describe("live — concurrent abort POSTs are idempotent", () => {
 /* ───────────────────── 5. Same-(suite, branch, commit) parallel runs ───────────────────── */
 
 test.describe("live multi-run — concurrent runs sharing (suite, branch, commit) are independent", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a CI retry that starts a second run with identical metadata gets a distinct run id and isolated state", async ({
     page,

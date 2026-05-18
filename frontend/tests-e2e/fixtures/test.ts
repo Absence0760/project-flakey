@@ -2,6 +2,30 @@ import { test as base, expect } from "@playwright/test";
 
 import { WORKER_USERS, type SeededUser } from "./users";
 
+// Type-only re-exports. We can't `export * from "@playwright/test"` —
+// pulling everything in collides with vitest/expect at runtime (both
+// register their matcher symbols on the same global). Importing types
+// is free at runtime, so specs can still do
+//   import { test, expect, type Page } from "../fixtures/test";
+// without a second import from "@playwright/test". Add new type
+// re-exports here as specs need them.
+export type {
+  APIRequestContext,
+  Browser,
+  BrowserContext,
+  ConsoleMessage,
+  Cookie,
+  Dialog,
+  ElementHandle,
+  Frame,
+  Locator,
+  Page,
+  Request,
+  Response,
+  Route,
+  TestInfo,
+} from "@playwright/test";
+
 /**
  * Worker-scoped Playwright test wrapper.
  *

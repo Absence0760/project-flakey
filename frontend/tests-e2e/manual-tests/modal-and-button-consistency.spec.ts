@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Two regressions on /manual-tests, both reported from manual
@@ -28,7 +27,7 @@ async function openCreateModal(page: Page): Promise<void> {
 }
 
 test.describe("/manual-tests modal width on a wide viewport", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath, viewport: WIDE_VIEWPORT });
+  test.use({ viewport: WIDE_VIEWPORT });
 
   test("create modal uses the wider cap on a 2560-wide viewport", async ({ page }) => {
     test.setTimeout(30_000);
@@ -49,7 +48,6 @@ test.describe("/manual-tests modal width on a wide viewport", () => {
 });
 
 test.describe("/manual-tests header buttons render at the same height", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("all .header-actions buttons share the same rendered height", async ({ page }) => {
     test.setTimeout(20_000);

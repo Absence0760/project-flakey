@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /manual-tests — step-by-step runner.
@@ -22,7 +21,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("manual-test step-by-step runner", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin can run all steps as passed → save → row + steps reflect the run", async ({
     page,

@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Theme is system-driven only. The sidebar previously had a
@@ -26,7 +25,6 @@ async function readBg(page: Page): Promise<string> {
 }
 
 test.describe("theme is system-driven only", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("dark system → dark --bg", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });

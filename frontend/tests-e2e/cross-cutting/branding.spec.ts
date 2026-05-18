@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Flakey branding — user-facing copy reads "Flakey".
@@ -16,7 +15,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("Flakey branding consistency", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("sidebar nav header reads 'Flakey'", async ({ page }) => {
     await page.goto("/dashboard");

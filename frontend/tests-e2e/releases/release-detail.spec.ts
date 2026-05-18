@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
 import { ADMIN_USER } from "../fixtures/users";
 
@@ -33,7 +33,6 @@ async function gotoRelease(page: Page, version: string): Promise<string> {
 }
 
 test.describe("/releases/<id>", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("v2.4.0 (in_progress) — header + readiness panel + sections render", async ({ page }) => {
     await gotoRelease(page, "v2.4.0");

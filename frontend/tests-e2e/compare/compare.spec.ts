@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /compare — diff two runs of the same suite.
@@ -47,7 +46,6 @@ async function pickTwoRunIdsForSameSuite(
 }
 
 test.describe("/compare — selection mode", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("with no params, renders the selection card with suite + run dropdowns", async ({
     page,
@@ -75,7 +73,6 @@ test.describe("/compare — selection mode", () => {
 });
 
 test.describe("/compare — comparison mode", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("with ?a=X&b=Y, renders header, summary pills, and at least one per-file section", async ({
     page,

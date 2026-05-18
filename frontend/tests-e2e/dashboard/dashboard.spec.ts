@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /dashboard — the landing surface for an authenticated user.
@@ -13,7 +12,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/dashboard", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/dashboard");

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
 import { ADMIN_USER, DEMO_USER } from "../fixtures/users";
 
@@ -27,7 +27,6 @@ async function getToken(page: Page): Promise<string> {
 /* ───────────────────── 1. API key CRUD + auth ───────────────────── */
 
 test.describe("auth — API key full lifecycle (create, use, revoke)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("create → list → use to authenticate /runs/upload → revoke → confirm revoked key is rejected", async ({
     page,
@@ -214,7 +213,6 @@ test.describe("auth — API key full lifecycle (create, use, revoke)", () => {
 /* ───────────────────── 2. Quarantine ───────────────────── */
 
 test.describe("quarantine — add / check / list / remove", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("adding a test to quarantine: it appears in list, check returns true, remove flips it back", async ({
     page,
@@ -351,7 +349,6 @@ test.describe("quarantine — add / check / list / remove", () => {
 /* ───────────────────── 3. Test prediction ───────────────────── */
 
 test.describe("predict — POST /predict/tests with changed file paths", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("returns a ranked test list with deterministic shape (tests array, each entry has full_title + score)", async ({
     page,

@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Client-side pagination is implemented on /flaky, /errors,
@@ -26,7 +25,6 @@ async function waitForList(page: Page, selector: string): Promise<void> {
 }
 
 test.describe("client-side pagination — Load more button", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("/slowest renders ≤ 50 items initially and exposes a Load more button when more exist", async ({
     page,
@@ -85,7 +83,6 @@ test.describe("client-side pagination — Load more button", () => {
 });
 
 test.describe("client-side pagination — /flaky and /errors", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("/flaky shows Load more when seed produces > 50 candidates", async ({ page }) => {
     test.setTimeout(30_000);
@@ -127,7 +124,6 @@ test.describe("client-side pagination — /flaky and /errors", () => {
 });
 
 test.describe("/manual-tests heading is gone (page label comes from URL + nav)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("page does not render a 'Manual tests' <h1>", async ({ page }) => {
     await page.goto("/manual-tests");

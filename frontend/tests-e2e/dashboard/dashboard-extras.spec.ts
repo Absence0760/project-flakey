@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /dashboard — KPI panels, suite health, automation/manual rollups,
@@ -8,7 +7,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/dashboard — KPI panels + nav", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("renders KPI top-row stats (total runs, automation passes, failures)", async ({ page }) => {
     await page.goto("/dashboard");

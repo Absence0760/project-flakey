@@ -1,8 +1,8 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 import { createServer, type Server, type IncomingMessage } from "node:http";
 import { AddressInfo } from "node:net";
 
-import { ADMIN_USER, VIEWER_USER } from "../fixtures/users";
+import { VIEWER_USER } from "../fixtures/users";
 
 /**
  * Integration-surface e2e: webhooks (full CRUD + delivery), Jira
@@ -77,7 +77,6 @@ function captureNextWebhook(): {
 /* ───────────────────────── Webhooks ─────────────────────────── */
 
 test.describe("integrations — webhooks (CRUD + URL validation + delivery)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin creates a Slack-platform webhook, sees it in the list, updates name, deletes it", async ({
     page,
@@ -299,7 +298,6 @@ test.describe("integrations — webhooks (CRUD + URL validation + delivery)", ()
 /* ───────────────────────── Jira ─────────────────────────── */
 
 test.describe("integrations — Jira settings + test", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("GET /jira/settings returns the org's current settings (has_api_token boolean, no plaintext)", async ({
     page,
@@ -395,7 +393,6 @@ test.describe("integrations — Jira settings + test", () => {
 /* ───────────────────────── PagerDuty ─────────────────────────── */
 
 test.describe("integrations — PagerDuty settings + test", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("GET /pagerduty/settings exposes has_key boolean, never the integration_key", async ({
     page,

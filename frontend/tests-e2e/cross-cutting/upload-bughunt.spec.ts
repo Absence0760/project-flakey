@@ -1,6 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Bug-hunting integration tests for the upload + live-merge surfaces
@@ -128,7 +127,6 @@ function uploadPayload(opts: {
 /* ───────────────────── 1. Concurrent /runs/upload merge ───────────────────── */
 
 test.describe("upload bughunt — concurrent /runs/upload with same ci_run_id", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("three simultaneous uploads sharing (suite, ci_run_id) merge into ONE run id, not three", async ({
     page,
@@ -201,7 +199,6 @@ test.describe("upload bughunt — concurrent /runs/upload with same ci_run_id", 
 /* ───────────────────── 2. Live screenshot lands AFTER /runs/upload ───────────────────── */
 
 test.describe("upload bughunt — screenshot lands AFTER end-of-run upload", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a /live/<id>/screenshot POST that arrives AFTER /runs/upload's delete+reinsert is still attached to the right test row", async ({
     page,
@@ -277,7 +274,6 @@ test.describe("upload bughunt — screenshot lands AFTER end-of-run upload", () 
 /* ───────────────────── 3. /runs/<id>?status=failed filter consistency ───────────────────── */
 
 test.describe("upload bughunt — status filter consistency", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("the run-detail UI's status=failed view shows exactly the rows with status='failed' in the API response", async ({
     page,
@@ -354,7 +350,6 @@ test.describe("upload bughunt — status filter consistency", () => {
 /* ───────────────────── 4. Burst of events vs the 3s poll ───────────────────── */
 
 test.describe("upload bughunt — torn reads under fast event burst", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("driving 50 test.passed events in rapid succession leaves zero pending rows once the chain settles", async ({
     page,

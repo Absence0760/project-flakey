@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Two routes, two contracts:
@@ -31,7 +30,6 @@ test.describe("/ — auth-aware redirect", () => {
   });
 
   test.describe("authenticated", () => {
-    test.use({ storageState: ADMIN_USER.storageStatePath });
 
     test("authenticated visit to / redirects to /dashboard", async ({ page }) => {
       await page.goto("/");

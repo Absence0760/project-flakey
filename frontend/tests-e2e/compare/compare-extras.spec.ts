@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /compare — extra paths beyond the basic header/pills smoke.
@@ -42,7 +41,6 @@ async function pickRunIdsForSuite(
 }
 
 test.describe("/compare — selection-mode flow", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("pick suite → run A → run B → Compare → navigates to ?a=…&b=…", async ({ page }) => {
     const { a, b, suite } = await pickRunIdsForSuite(page);
@@ -73,7 +71,6 @@ test.describe("/compare — selection-mode flow", () => {
 });
 
 test.describe("/compare — comparison-mode URL state", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("?category=unchanged lands with the Unchanged pill active", async ({ page }) => {
     const { a, b } = await pickRunIdsForSuite(page);

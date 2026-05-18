@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Deep cross-page flows — multi-route user journeys.
@@ -91,7 +90,6 @@ async function openErrorModalOnTest(
 }
 
 test.describe("deep cross-page flows", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("notes keyed on test full_title+file_path surface across runs", async ({ page }) => {
     // The seed creates 3 Playwright runs all sharing the same

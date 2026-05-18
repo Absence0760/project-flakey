@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
 import { ADMIN_USER } from "../fixtures/users";
 
@@ -19,7 +19,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("manual-test requirements CRUD", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin can link a new requirement and unlink it again", async ({ page }) => {
     await page.goto("/manual-tests");

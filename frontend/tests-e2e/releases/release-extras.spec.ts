@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /releases & /releases/<id> — extra coverage beyond the existing
@@ -17,7 +16,6 @@ async function gotoV240(page: Page): Promise<void> {
 }
 
 test.describe("/releases extras", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Linked automated runs panel: count badge matches link-list rows", async ({ page }) => {
     await gotoV240(page);

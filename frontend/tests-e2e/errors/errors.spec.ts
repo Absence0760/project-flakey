@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /errors — recurring test failures grouped by fingerprint.
@@ -17,7 +16,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/errors", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/errors");

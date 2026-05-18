@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /releases — creating a release via the inline form actually persists
@@ -38,7 +37,6 @@ async function createReleaseViaForm(page: Page): Promise<string> {
 }
 
 test.describe("releases — create-then-delete lifecycle", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin creates a release via the UI form, then DELETE /releases/:id removes it from the listing", async ({
     page,

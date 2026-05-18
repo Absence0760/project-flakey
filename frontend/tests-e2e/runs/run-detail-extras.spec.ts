@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /runs/<id> — run-level affordances beyond the test list.
@@ -31,7 +30,6 @@ async function gotoFirstRun(page: Page): Promise<number> {
 }
 
 test.describe("/runs/<id> — run-level affordances", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("status filter tabs narrow the rendered test list", async ({ page }) => {
     await gotoFirstRun(page);

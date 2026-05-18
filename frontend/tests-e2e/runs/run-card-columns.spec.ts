@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Run-row columns added to make better use of horizontal real
@@ -31,7 +30,6 @@ async function loadRuns(page: Page): Promise<void> {
 }
 
 test.describe("runs list — new chips on the run row", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("every run row shows a `.meta-chip.reporter` framework chip", async ({ page }) => {
     await loadRuns(page);

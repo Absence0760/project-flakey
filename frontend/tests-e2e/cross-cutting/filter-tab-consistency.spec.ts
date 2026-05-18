@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * The "status / filter tag" controls on the (app)/* pages now use
@@ -33,7 +32,6 @@ async function firstFilterTabHeight(page: Page): Promise<number> {
 }
 
 test.describe("filter-tab is the single canonical 'tag' pattern", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("/runs no longer uses the legacy .summary-btn / .summary-bar markup", async ({ page }) => {
     await login(page, "/runs");

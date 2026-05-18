@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /errors — change a fingerprint's status and verify it persists.
@@ -17,7 +16,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/errors — status CRUD", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin changes a status pill: Open → Investigating → reload still shows it", async ({
     page,

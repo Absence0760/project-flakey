@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Roadmap Phase 12 / commit e133342 — the dashboard's runs list now
@@ -51,7 +50,6 @@ async function deleteRun(page: Page, token: string, runId: number): Promise<void
 }
 
 test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a fresh /live/start surfaces within ~2 s (SSE add delta — not 5 s polling)", async ({
     page,

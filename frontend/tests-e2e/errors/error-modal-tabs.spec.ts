@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * ErrorModal — non-Commands tabs.
@@ -107,7 +106,6 @@ async function openModalForTest(
 }
 
 test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Info tab shows test metadata strip + error message for failures", async ({ page }) => {
     // The gherkin demo failed test — guaranteed to exist post-seed
@@ -190,7 +188,6 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
 });
 
 test.describe("ErrorModal — Source tab (test_code path)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Source tab renders the test code block when test_code is present", async ({ page }) => {
     // Mochawesome seed populates test_code for "should login with valid
@@ -219,7 +216,6 @@ test.describe("ErrorModal — Source tab (test_code path)", () => {
 });
 
 test.describe("ErrorModal — Details tab (metadata path)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Details tab surfaces retry history + annotations + stdout", async ({ page }) => {
     // The Playwright SSO test has retries (1 fail, 1 pass), tags

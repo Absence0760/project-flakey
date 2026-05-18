@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Live-reporter adapter coverage — one test per ecosystem reporter,
@@ -82,7 +81,6 @@ async function bootstrap(
 }
 
 test.describe("live-reporter adapter — Cypress/Mocha event sequence", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("emits spec.started → test.started → test.passed/failed → spec.finished → run.finished", async ({
     page,
@@ -143,7 +141,6 @@ test.describe("live-reporter adapter — Cypress/Mocha event sequence", () => {
 });
 
 test.describe("live-reporter adapter — Playwright event sequence", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("emits run.started (with stats) → test.started/test.passed → run.finished (no spec events)", async ({
     page,
@@ -209,7 +206,6 @@ test.describe("live-reporter adapter — Playwright event sequence", () => {
 });
 
 test.describe("live-reporter adapter — WebdriverIO event sequence", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("emits spec.started → test.passed/failed (no test.started) → run.finished", async ({
     page,
@@ -268,7 +264,6 @@ test.describe("live-reporter adapter — WebdriverIO event sequence", () => {
 });
 
 test.describe("live-reporter adapter — Cucumber/Gherkin spec format", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Cucumber-style .feature files surface in the live spec list", async ({ page }) => {
     test.setTimeout(75_000);
@@ -317,7 +312,6 @@ test.describe("live-reporter adapter — Cucumber/Gherkin spec format", () => {
 });
 
 test.describe("live-reporter — heartbeat / empty-events flush", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("empty-event POST keeps stale-run detection happy without changing state", async ({
     page,

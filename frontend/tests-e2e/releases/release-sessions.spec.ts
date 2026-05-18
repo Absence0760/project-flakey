@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /releases/<id> — test execution sessions.
@@ -33,7 +32,6 @@ async function gotoV240(page: Page): Promise<void> {
 }
 
 test.describe("/releases/<id> — sessions", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("active-session panel header shows in-progress badges + the session label", async ({
     page,

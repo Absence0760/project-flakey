@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * ErrorModal .debugger panel was capped at max-width: 1200px, which
@@ -63,7 +62,7 @@ async function openRunWithErrorBar(page: Page): Promise<void> {
 }
 
 test.describe("ErrorModal panel width on a wide viewport", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath, viewport: WIDE_VIEWPORT });
+  test.use({ viewport: WIDE_VIEWPORT });
 
   test(".debugger panel uses the wider cap on a 2560-wide viewport", async ({ page }) => {
     test.setTimeout(45_000);

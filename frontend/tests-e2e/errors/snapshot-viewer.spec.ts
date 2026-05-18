@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * ErrorModal — snapshot click-through, action-level + step-level.
@@ -84,7 +83,6 @@ async function openErrorModal(page: import("@playwright/test").Page): Promise<vo
 }
 
 test.describe("ErrorModal snapshot viewer (gherkin demo run)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("renders gherkin parents AND child commands in the command list", async ({ page }) => {
     await openGherkinRun(page);

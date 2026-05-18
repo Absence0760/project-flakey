@@ -1,6 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
-
-import { ADMIN_USER } from "../fixtures/users";
+import { expect, test, type Page } from "../fixtures/test";
 
 /**
  * XSS through ingested test data.
@@ -172,16 +170,18 @@ async function assertNoXssFired(page: Page, fired: ReturnType<typeof installXssT
 }
 
 test.describe("XSS through ingested test data", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   let runId: number;
   let token: string;
 
-  test.beforeAll(async ({ browser }) => {
+  test.beforeAll(async ({ browser, workerAdminStorageState }) => {
     // Use a one-shot context to upload — beforeAll doesn't receive the
     // per-test `page` fixture, and we want runId to be reused across
     // the per-route assertions below to keep this spec fast.
-    const ctx = await browser.newContext({ storageState: ADMIN_USER.storageStatePath });
+    // workerAdminStorageState is worker-scoped so it's available here
+    // and pins the upload to this worker's tenant (no Acme collision
+    // when multiple Playwright workers run this spec in parallel).
+    const ctx = await browser.newContext({ storageState: workerAdminStorageState });
     const page = await ctx.newPage();
     await page.goto("/dashboard");
     token = await getToken(page);
@@ -189,9 +189,9 @@ test.describe("XSS through ingested test data", () => {
     await ctx.close();
   });
 
-  test.afterAll(async ({ browser }) => {
+  test.afterAll(async ({ browser, workerAdminStorageState }) => {
     if (!runId || !token) return;
-    const ctx = await browser.newContext({ storageState: ADMIN_USER.storageStatePath });
+    const ctx = await browser.newContext({ storageState: workerAdminStorageState });
     const page = await ctx.newPage();
     await deleteRun(page, token, runId);
     await ctx.close();

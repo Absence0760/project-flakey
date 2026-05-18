@@ -1,6 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Round-four live coverage — deeper scenarios the earlier rounds don't
@@ -130,7 +129,6 @@ const MINIMAL_PNG = Buffer.from([
 /* ───────────────────── 1. Live → /runs/upload merge ───────────────────── */
 
 test.describe("live deep — /runs/upload merge preserves live screenshots", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a live screenshot uploaded mid-run survives the end-of-run upload's tests delete+reinsert", async ({
     page,
@@ -237,7 +235,6 @@ test.describe("live deep — /runs/upload merge preserves live screenshots", () 
 /* ───────────────────── 2. Stats correctness under bulk events ───────────────────── */
 
 test.describe("live deep — stats stay consistent with row counts under bulk events", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("after a 10-test mix of passed/failed/skipped, run + spec stats exactly match the row counts", async ({
     page,
@@ -323,7 +320,6 @@ test.describe("live deep — stats stay consistent with row counts under bulk ev
 /* ───────────────────── 3. run.finished + /abort race ───────────────────── */
 
 test.describe("live deep — run.finished + /abort fired concurrently", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("racing run.finished and /abort end the run in a single consistent state, no zombies", async ({
     page,
@@ -390,7 +386,6 @@ test.describe("live deep — run.finished + /abort fired concurrently", () => {
 /* ───────────────────── 4. DELETE during in-flight chain ───────────────────── */
 
 test.describe("live deep — DELETE /runs/<id> with chain work in flight", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("deleting a run while events are still queued does not crash the backend; another run continues unaffected", async ({
     page,
@@ -453,7 +448,6 @@ test.describe("live deep — DELETE /runs/<id> with chain work in flight", () =>
 /* ───────────────────── 5. Snapshot endpoint ───────────────────── */
 
 test.describe("live deep — snapshot endpoint cross-spec scoping", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("/snapshot attaches to the matching test row and does NOT leak to a same-named test in a different spec", async ({
     page,

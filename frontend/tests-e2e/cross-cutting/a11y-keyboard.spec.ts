@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Keyboard a11y regression for the components touched in the
@@ -60,7 +59,6 @@ async function openRunWithFailures(page: Page): Promise<void> {
 }
 
 test.describe("keyboard a11y — runs/[id] error bar", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("test-error-bar is Tab-reachable and Enter opens the ErrorModal", async ({ page }) => {
     test.setTimeout(45_000);
@@ -104,7 +102,6 @@ test.describe("keyboard a11y — runs/[id] error bar", () => {
 });
 
 test.describe("keyboard a11y — ErrorModal", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("backdrop receives focus on open and Escape closes", async ({ page }) => {
     test.setTimeout(45_000);

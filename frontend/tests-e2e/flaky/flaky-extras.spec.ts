@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /flaky — sort + run-window controls beyond the default smoke.
@@ -12,7 +11,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/flaky — sort + run window", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/flaky");

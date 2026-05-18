@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * URL-state bookmarkability — direct deep-links into a route with
@@ -11,7 +10,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("URL state — bookmarkable filters", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("/runs?date=all lands with the All time tab active", async ({ page }) => {
     await page.goto("/runs?date=all");

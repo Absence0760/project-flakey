@@ -1,6 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * E2E coverage for the post-run-only example tools (Selenium, Jest,
@@ -77,7 +76,6 @@ async function deleteRun(
 /* ─────────────────────────────── 1. Selenium (mochawesome) ─────────────────────────────── */
 
 test.describe("examples — Selenium upload via mochawesome JSON", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a mochawesome report from Selenium's mocha runner uploads, normalises, and renders on the dashboard", async ({
     page,
@@ -178,7 +176,6 @@ test.describe("examples — Selenium upload via mochawesome JSON", () => {
 /* ─────────────────────────────── 2. Jest (JUnit) ─────────────────────────────── */
 
 test.describe("examples — Jest upload via JUnit XML", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a jest-junit report uploads, normalises, and renders correctly", async ({ page }) => {
     test.setTimeout(45_000);
@@ -222,7 +219,6 @@ Expected 0, received NaN
 /* ─────────────────────────────── 3. Postman / Newman (JUnit) ─────────────────────────────── */
 
 test.describe("examples — Postman/Newman upload via JUnit XML", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a Newman JUnit report (one <testsuite> per request, testcase per assertion) uploads cleanly", async ({
     page,
@@ -273,7 +269,6 @@ expected response.id to be defined
 /* ─────────────────────────────── 4. OWASP ZAP (JUnit) ─────────────────────────────── */
 
 test.describe("examples — OWASP ZAP upload via JUnit XML", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a ZAP-style JUnit report (one testcase per finding, classname=alert risk) uploads cleanly", async ({
     page,
@@ -329,7 +324,6 @@ Description: The page parameter is vulnerable to SQL injection.
 /* ─────────────────────────────── 5. Cross-tool: identical ci_run_id merges into one run ─────────────────────────────── */
 
 test.describe("examples — same ci_run_id across tools merges into one run", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a Jest unit-test report and a Postman API-test report sharing (suite, ci_run_id) merge into one run with both spec sets", async ({
     page,

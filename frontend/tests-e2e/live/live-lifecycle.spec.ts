@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Live test lifecycle — the contract:
@@ -79,7 +78,6 @@ async function bootstrap(
 }
 
 test.describe("live lifecycle — full happy path (planned manifest → run order → finish)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("emits ALL test.started up front → pending manifest visible → tests flip in order → run.finished drops LIVE", async ({
     page,
@@ -158,7 +156,6 @@ test.describe("live lifecycle — full happy path (planned manifest → run orde
 });
 
 test.describe("live lifecycle — mid-run abort transitions pending tests out of pending", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("aborting a run with pending tests transitions them to terminal state (no zombie 'running' rows)", async ({
     page,
@@ -219,7 +216,6 @@ test.describe("live lifecycle — mid-run abort transitions pending tests out of
 });
 
 test.describe("live lifecycle — stale detection auto-aborts a quiet run", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a run that emits no events for FLAKEY_LIVE_TIMEOUT_MS gets auto-aborted, no pending zombies", async ({
     page,
@@ -261,7 +257,6 @@ test.describe("live lifecycle — stale detection auto-aborts a quiet run", () =
 });
 
 test.describe("live lifecycle — screenshot attached mid-run lands on the test row", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("POST /live/<id>/screenshot mid-run attaches the file path to the matching test", async ({
     page,
@@ -327,7 +322,6 @@ test.describe("live lifecycle — screenshot attached mid-run lands on the test 
 });
 
 test.describe("live lifecycle — adapter-shape coverage (Cypress, Playwright, WDIO)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Cypress/Mocha adapter: full per-spec lifecycle for 3 tests + run.finished clears LIVE", async ({
     page,

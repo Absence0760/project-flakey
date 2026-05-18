@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Release-flow end-to-end — the full happy path that a release
@@ -40,7 +39,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("release-flow E2E (admin happy path)", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("create → link runs + tests → custom checklist item → state preserved across reload", async ({
     page,

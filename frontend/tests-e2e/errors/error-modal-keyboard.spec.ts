@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * ErrorModal — keyboard + close affordances.
@@ -49,7 +48,6 @@ async function openModalForFailedTest(page: Page): Promise<void> {
 }
 
 test.describe("ErrorModal — close affordances", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("Escape key closes the modal", async ({ page }) => {
     await openModalForFailedTest(page);

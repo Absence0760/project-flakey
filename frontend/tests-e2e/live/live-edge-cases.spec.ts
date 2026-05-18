@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
 import { ADMIN_USER, DEMO_USER } from "../fixtures/users";
 
@@ -117,7 +117,6 @@ async function uploadScreenshot(
 /* ───────────────────── 1. Out-of-order events ───────────────────── */
 
 test.describe("live edge — events arriving out of order", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("test.passed arriving before test.started for the same title still resolves to ONE consistent row", async ({
     page,
@@ -157,7 +156,6 @@ test.describe("live edge — events arriving out of order", () => {
 /* ───────────────────── 2. Concurrent screenshot uploads ───────────────────── */
 
 test.describe("live edge — concurrent screenshot uploads", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("five simultaneous /screenshot POSTs against the same test land as five distinct keys, no duplicates, no missing", async ({
     page,
@@ -212,7 +210,6 @@ test.describe("live edge — concurrent screenshot uploads", () => {
 /* ───────────────────── 3. Cross-spec same-title scoping ───────────────────── */
 
 test.describe("live edge — cross-spec same-title scoping", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("two specs in the same run with a test called 'login' — a screenshot for spec A does NOT attach to spec B's row", async ({
     page,
@@ -313,7 +310,6 @@ test.describe("live edge — /live/active cross-org isolation", () => {
 /* ───────────────────── 5. Special-char titles round-trip ───────────────────── */
 
 test.describe("live edge — special-character test titles", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("titles containing %, _, \\, quotes, and emoji survive event flow + screenshot LIKE matching without wildcard widening", async ({
     page,

@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /runs/<id> — single run detail.
@@ -18,7 +17,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/runs/<id>", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   // The seed creates 50+ runs against admin's org. The lowest id
   // assigned to admin should be 1 in a freshly-seeded DB; if the DB

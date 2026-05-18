@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Page-width regression for the .page max-width cap.
@@ -46,7 +45,7 @@ async function pageWidth(page: Page): Promise<number> {
 }
 
 test.describe("(app)/* .page cap uses the full real estate on wide monitors", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath, viewport: WIDE_VIEWPORT });
+  test.use({ viewport: WIDE_VIEWPORT });
 
   // One route per page-shape so a future style refactor that
   // accidentally drops the new cap on one route is caught here.

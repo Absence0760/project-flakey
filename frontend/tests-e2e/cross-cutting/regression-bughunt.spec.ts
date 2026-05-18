@@ -1,6 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * Regression tests for bugs surfaced from the dev-server console:
@@ -60,7 +59,6 @@ async function postEvent(
 /* ───────────────────── /flaky?suite=… SQL fix ───────────────────── */
 
 test.describe("regression — /flaky?suite=<name> filter doesn't 500", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("the suite filter on /flaky returns 200 with a (possibly empty) list, not 500", async ({
     page,
@@ -139,7 +137,6 @@ test.describe("regression — /flaky?suite=<name> filter doesn't 500", () => {
 /* ─────────────── DELETE /runs/:id forgets the live-events registry ─────────────── */
 
 test.describe("regression — DELETE /runs/<id> unregisters the run from live-events bus", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("after DELETE /runs/:id the run is removed from /live/active (no zombie entries)", async ({
     page,

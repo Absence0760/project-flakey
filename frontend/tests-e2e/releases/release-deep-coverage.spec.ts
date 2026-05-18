@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /releases/<id> — deep coverage of every interactive surface.
@@ -73,7 +72,6 @@ async function gotoRelease(page: Page, id: number, version: string): Promise<voi
 }
 
 test.describe("/releases/<id> — checklist CRUD", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin can ADD a custom checklist item via the inline form", async ({ page }) => {
     const { id, version, token } = await createRelease(page, {
@@ -189,7 +187,6 @@ test.describe("/releases/<id> — checklist CRUD", () => {
 });
 
 test.describe("/releases/<id> — linked-runs picker", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("admin can link a run via the picker → row appears, then unlink it", async ({ page }) => {
     const { id, version, token } = await createRelease(page, {
@@ -260,7 +257,6 @@ test.describe("/releases/<id> — linked-runs picker", () => {
 });
 
 test.describe("/releases/<id> — Mark released action", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("after sign-off, 'Mark released' flips status to released and disables the button", async ({
     page,
@@ -330,7 +326,6 @@ test.describe("/releases/<id> — Mark released action", () => {
 });
 
 test.describe("/releases/<id> — status dropdown", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("changing status via the dropdown PATCHes the release and updates the header", async ({
     page,
@@ -357,7 +352,6 @@ test.describe("/releases/<id> — status dropdown", () => {
 });
 
 test.describe("/releases — list extras", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("creating a release via the modal form lands the new card with status 'draft'", async ({
     page,
@@ -403,7 +397,6 @@ test.describe("/releases — list extras", () => {
 });
 
 test.describe("/releases/<id> — readiness panel auto-evaluation", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("a fresh release with no linked runs falls back to org-wide readiness (no crash)", async ({
     page,
@@ -439,7 +432,6 @@ test.describe("/releases/<id> — readiness panel auto-evaluation", () => {
 });
 
 test.describe("/releases/<id> — manual-test linking", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("linked-tests panel shows the empty state with no links", async ({ page }) => {
     const { id, version, token } = await createRelease(page);
@@ -461,7 +453,6 @@ test.describe("/releases/<id> — manual-test linking", () => {
 });
 
 test.describe("/releases/<id> — UX regression: <details> survives load()", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   // Earlier versions of the route called `load()` after every mutation
   // with `loading = true` at the top, which unmounted the entire

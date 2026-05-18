@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /flaky — the headline product feature.
@@ -16,7 +15,6 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 test.describe("/flaky", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/flaky");

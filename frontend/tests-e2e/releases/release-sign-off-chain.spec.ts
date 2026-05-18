@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
 
 /**
  * /releases — full sign-off chain end-to-end.
@@ -50,7 +49,6 @@ async function createRelease(page: Page): Promise<{ id: number; version: string 
 }
 
 test.describe("release sign-off chain", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test("create → check all required → sign off → status flips → list view reflects it", async ({
     page,

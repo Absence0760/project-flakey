@@ -44,12 +44,20 @@ export default defineConfig({
   // mis-stated and every dependent test would fail the same way.
   forbidOnly: !!process.env.CI,
 
-  // Single worker — tests share one seeded Postgres + one dev server,
-  // and the upload-merge / live-flow paths aren't isolated per page
-  // context. Bump up after the suite is stable and per-org isolation
-  // is in place.
-  workers: 1,
-  fullyParallel: false,
+  // Four workers by default — each Playwright worker (parallelIndex
+  // 0..3) signs in as a dedicated seeded admin (admin+wN@example.com)
+  // and operates exclusively on its dedicated org (acme-wN), so write-
+  // heavy specs no longer collide on Acme's shared state. The wrapper
+  // at fixtures/test.ts auto-resolves the per-worker storage state;
+  // specs that import `test` from there pick up the isolation
+  // automatically.
+  //
+  // Lower with PLAYWRIGHT_WORKERS=1 to debug, or bump it if you
+  // re-seed with E2E_WORKER_TENANTS=N>4 (both must move in lockstep —
+  // workers % WORKER_USERS.length loops indices, but you'll lose
+  // isolation between paired workers if they share a tenant).
+  workers: Number(process.env.PLAYWRIGHT_WORKERS ?? 4),
+  fullyParallel: true,
 
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
 

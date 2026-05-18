@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures/test";
 
 import { ADMIN_USER, DEMO_USER } from "../fixtures/users";
 
@@ -22,7 +22,6 @@ import { ADMIN_USER, DEMO_USER } from "../fixtures/users";
  */
 
 test.describe("/settings — admin (Acme owner) sees admin-only affordances", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/settings");
@@ -148,7 +147,6 @@ test.describe("/settings — cross-tenant isolation", () => {
 });
 
 test.describe("/settings/integrations — admin (Acme) renders all sections", () => {
-  test.use({ storageState: ADMIN_USER.storageStatePath });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/settings/integrations");
