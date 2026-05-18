@@ -1,0 +1,45 @@
+name: pr-title-lint
+
+# Enforces conventional-commit-style PR titles. Catches lazy PR titles
+# ("update", "fix stuff", "wip") at PR-open time so the merged history
+# stays scannable.
+#
+# Allowed types are below in `types:`. The scope is free-form (single
+# word) and optional. Subject must be 70 chars or fewer.
+#
+# Disable by deleting this file. Failed-check noise on a personal-project
+# PR may not be worth it if you're the only contributor.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: read-all
+
+jobs:
+  lint:
+    name: lint title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@0723387faaf9b38adef4775cd42cfd5155ed6017 # v5.5.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            test
+            perf
+            ci
+            build
+            revert
+          requireScope: false
+          subjectPattern: ^[a-z].+[^\.]$
+          subjectPatternError: |
+            The subject "{subject}" must start lowercase and not end with a period.
+          headerPatternCorrespondence: type, scope, subject

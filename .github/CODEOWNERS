@@ -1,0 +1,26 @@
+# Path-based reviewer routing. GitHub automatically requests review from
+# the listed owner when a PR touches matching files.
+#
+# Replace `<owner>` with your GitHub username (or a `@org/team` handle for
+# org-managed repos). Delete any line whose path doesn't exist in this repo.
+#
+# Order matters — last matching line wins. The catch-all line at the bottom
+# means a PR with no other matches still gets routed to you.
+
+# Catch-all — every file owned by you unless overridden below.
+*                                       @<owner>
+
+# Infra / production-impact paths
+/infra/                                 @<owner>
+/.github/workflows/                     @<owner>
+/.github/dependabot.yml                 @<owner>
+/.github/CODEOWNERS                     @<owner>
+
+# Security-sensitive scaffolding
+/SECURITY.md                            @<owner>
+/.pre-commit-config.yaml                @<owner>
+/.sops.yaml                             @<owner>
+
+# Claude tooling
+/.claude/                               @<owner>
+/CLAUDE.md                              @<owner>

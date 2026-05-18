@@ -1,0 +1,60 @@
+# Config for actions/labeler. Each top-level key is a label name; the
+# `changed-files` list is the set of glob patterns that, if matched by any
+# changed file, applies the label.
+#
+# Adjust the path globs to match your project's actual layout — these are
+# sensible defaults for a pnpm-monorepo web app with infra + docs.
+
+"area:frontend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - frontend/**
+          - apps/web/**
+
+"area:backend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - backend/**
+          - apps/backend/**
+
+"area:infra":
+  - changed-files:
+      - any-glob-to-any-file:
+          - infra/**
+          - .github/workflows/**
+          - .github/dependabot.yml
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - docs/**
+          - "**/CLAUDE.md"
+
+"area:tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.test.ts"
+          - "**/*.test.js"
+          - "**/*.spec.ts"
+          - "**/tests/**"
+          - "**/test/**"
+          - "**/__tests__/**"
+          - playwright/**
+
+"area:claude":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .claude/**
+
+"area:deps":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/package.json"
+          - "**/pnpm-lock.yaml"
+          - "**/pyproject.toml"
+          - "**/requirements*.txt"
+          - "**/Cargo.toml"
+          - "**/Cargo.lock"
+          - "**/go.mod"
+          - "**/go.sum"
