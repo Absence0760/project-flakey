@@ -5,7 +5,7 @@ Express + Node + TypeScript API. Multi-tenant via Postgres Row-Level Security.
 ## Commands
 
 - `npm run dev` — tsx watch with `.env` loading
-- `npm run seed` — seed sample data: 3 users (`admin@example.com`/`admin`, `demo@example.com`/`demo123`, `viewer@example.com`/`viewer123`), 2 orgs (Acme Corp, Demo Team), 56 runs across Mochawesome/Playwright/JUnit, plus demoable extras: a known admin API key (`fk_demoadmindemoadmindemoadmindemoa`) for CLI testing, one webhook target at `https://example.invalid/seeded-hook`, two quarantine entries, two non-default error-group statuses (investigating + known), and one pending org invite (`token: demo-invite-token-do-not-use-in-prod-aaaa`).
+- `npm run seed` — seed sample data: 3 primary users (`admin@example.com`/`admin`, `demo@example.com`/`demo123`, `viewer@example.com`/`viewer123`), 2 primary orgs (Acme Corp, Demo Team), 56 runs across Mochawesome/Playwright/JUnit, plus demoable extras: a known admin API key (`fk_demoadmindemoadmindemoadmindemoa`) for CLI testing, one webhook target at `https://example.invalid/seeded-hook`, two quarantine entries, two non-default error-group statuses (investigating + known), and one pending org invite (`token: demo-invite-token-do-not-use-in-prod-aaaa`). Also seeds **4 worker tenants** (`admin+w{0..3}@example.com` / `worker{0..3}123`, orgs `acme-w{0..3}`) with the same playground content as Acme (minus the global-unique API key + invite token) so parallel Playwright workers can each operate on a dedicated tenant. Override the worker-tenant count with `E2E_WORKER_TENANTS=N` (default 4; set to 0 for a slim production seed).
 - `npm test` — `node --test` over `src/tests/**/*.test.ts` via tsx
 - `npm run build` — `tsc` → `dist/`
 - `npm start` — run the built `dist/index.js`

@@ -70,22 +70,67 @@ E2E_BACKEND_URL=https://api.staging.example.com pnpm test:e2e
 
 ## Seed credentials
 
+Primary trio (kept stable across runs — pinned specs reference these):
+
 | Constant | Email | Password | Org membership | Org |
 |---|---|---|---|---|
 | `ADMIN_USER` | `admin@example.com` | `admin` | owner | Acme Corp (`acme`) |
 | `DEMO_USER` | `demo@example.com` | `demo123` | owner | Demo Team (`demo-team`) |
 | `VIEWER_USER` | `viewer@example.com` | `viewer123` | viewer | Acme Corp (`acme`) |
 
+Worker tenants (one fully-populated org per Playwright worker — see Parallelism below):
+
+| Constant | Email | Password | Org membership | Org |
+|---|---|---|---|---|
+| `WORKER_USERS[0]` | `admin+w0@example.com` | `worker0123` | owner (admin) | `acme-w0` |
+| `WORKER_USERS[1]` | `admin+w1@example.com` | `worker1123` | owner (admin) | `acme-w1` |
+| `WORKER_USERS[2]` | `admin+w2@example.com` | `worker2123` | owner (admin) | `acme-w2` |
+| `WORKER_USERS[3]` | `admin+w3@example.com` | `worker3123` | owner (admin) | `acme-w3` |
+
 Use `VIEWER_USER` for any "admin-only endpoint must 403 a viewer" assertion — it's the only seeded user with `org_members.role = 'viewer'`. `DEMO_USER` is an *owner* of an empty org (used for cross-tenant isolation + empty-state coverage), despite the legacy `users.role = 'viewer'` global field.
 
-Source of truth: `backend/src/seed.ts`. If the seed changes, update `fixtures/users.ts` in lockstep.
+Source of truth: `backend/src/seed.ts`. If the seed changes (number of worker tenants, passwords, org slugs), update `fixtures/users.ts` in lockstep.
+
+## Parallelism
+
+Playwright runs four workers by default (`workers: 4`, `fullyParallel: true`). Each worker (`parallelIndex` 0..3) signs in as its matching `WORKER_USERS[i]` admin and operates exclusively on `acme-w<i>` — fully populated by `npm run seed` with the same 81 runs / 55 releases / 78 manual tests as Acme. Write-heavy specs no longer collide because no two workers share a tenant.
+
+How it works:
+
+```ts
+// fixtures/test.ts re-exports a wrapped `test` whose default
+// storageState resolves to the worker's admin tenant.
+import { test, expect } from "../fixtures/test";
+
+test.describe("/dashboard", () => {
+  // No test.use({ storageState: ... }) needed — the per-worker
+  // default kicks in. This spec runs on whichever tenant the
+  // worker is bound to (acme-w0, w1, w2, or w3).
+  test("renders the KPI cards", async ({ page }) => { ... });
+});
+```
+
+Specs that need a specific user (Acme admin for sign-in form tests, `VIEWER_USER` for role-403, `DEMO_USER` for the cross-tenant pair) keep their explicit `test.use({ storageState: ... })` — describe-level `test.use` wins over the wrapper's default. For cross-tenant tests that open a second context, use the `workerAdminStorageState` worker-scoped fixture to keep the second context on the same tenant:
+
+```ts
+test.beforeAll(async ({ browser, workerAdminStorageState }) => {
+  const ctx = await browser.newContext({ storageState: workerAdminStorageState });
+  // ...
+});
+```
+
+Tuning:
+
+- `PLAYWRIGHT_WORKERS=1 pnpm test:e2e` — serialize for debugging.
+- `E2E_WORKER_TENANTS=8 npm run seed` (in backend) + `PLAYWRIGHT_WORKERS=8 pnpm test:e2e` (in frontend) — scale up. Keep both values in lockstep; the wrapper does `parallelIndex % WORKER_USERS.length` so a mismatch silently shares tenants across workers and re-introduces the original collision problem.
+- `E2E_WORKER_TENANTS=0 npm run seed` — skip the worker tenants entirely (ship-a-slim-prod-seed mode); the suite then needs `PLAYWRIGHT_WORKERS=1` so the per-worker fixture has a tenant to point at.
 
 ## When to add a spec here vs a vitest
 
 - **Add a vitest** for a pure helper in `src/lib/` with no DOM, no fetch, no auth singleton coupling.
 - **Add a spec here** for everything else: a new route, a new component that mounts on a route, a flow that crosses login/logout, a regression in the live-stream SSE bus.
 
-The Playwright config disables `fullyParallel` and runs a single worker because the suite shares one seeded DB. If a spec must be parallelisable later, scope its writes to a per-test org rather than relaxing the worker setting.
+The suite runs four workers in parallel (`fullyParallel: true`), each bound to its own seeded `acme-w<N>` tenant via `fixtures/test.ts`. When you add a new spec, import `test` from `../fixtures/test` so it inherits per-worker isolation by default. Don't reach for `ADMIN_USER` unless the spec genuinely needs Acme (form-flow tests, cross-tenant pairs, or assertions on a specific user's email/name).
 
 ## Test discipline
 

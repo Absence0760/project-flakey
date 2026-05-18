@@ -1,7 +1,5 @@
 import { expect, test, type Page } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
-
 /**
  * /releases/<id> — release detail surface. Covers:
  *
@@ -247,16 +245,19 @@ test.describe("/releases/<id>", () => {
     await expect(page.getByRole("button", { name: /Sign off release/ })).toBeVisible();
   });
 
-  test("v2.3.0 (signed_off) — header banner replaces sign-off button", async ({ page }) => {
+  test("v2.3.0 (signed_off) — header banner replaces sign-off button", async ({ page, workerAdminUser }) => {
     await gotoRelease(page, "v2.3.0");
 
     await expect(page.locator(".release-header .status")).toHaveText(/signed off/i);
 
     // Actions section shows the post-sign-off banner instead of the
-    // "Sign off release" button.
+    // "Sign off release" button. The signed_off_by is whoever owns
+    // this worker's tenant (seed sets it to the org's admin), so
+    // assert against the per-worker admin's email rather than a
+    // hard-coded admin@example.com.
     const actions = page.locator("section.actions-section");
     await expect(actions.locator(".signed-off")).toBeVisible();
-    await expect(actions.locator(".signed-off")).toContainText(ADMIN_USER.email);
+    await expect(actions.locator(".signed-off")).toContainText(workerAdminUser.email);
 
     // The "Sign off release" CTA must NOT render — the contract is
     // a release can't be signed off twice.
