@@ -1,0 +1,192 @@
+name: Dependabot lockfile sync
+
+# Dependabot updates <workspace>/package.json but never touches the root
+# pnpm-lock.yaml, which breaks ci.yml's `pnpm install --frozen-lockfile`. This
+# workflow regenerates the lockfile on every Dependabot PR and commits the
+# result back, which retriggers CI and lets the PR go green without manual
+# intervention.
+#
+# Setup (one-time):
+#   1. Create a fine-grained PAT scoped to this repo with "Contents: Write"
+#      permission (Settings → Developer settings → Personal access tokens →
+#      Fine-grained tokens). Expiry up to you — rotate when it expires.
+#   2. Add it as a **Dependabot** secret named `DEPENDABOT_LOCKFILE_PAT`:
+#      Settings → Secrets and variables → **Dependabot** → New repository
+#      secret. NOT the Actions tab.
+#      CLI: `gh secret set DEPENDABOT_LOCKFILE_PAT --app dependabot`
+#
+# Why the Dependabot store (gotcha that bit us once already): GitHub
+# treats Dependabot-authored PRs as forks for permission purposes.
+# Workflows triggered by them get a read-only GITHUB_TOKEN and CANNOT
+# read secrets from the regular Actions store — only from the separate
+# Dependabot secrets store. A PAT stashed under Settings → Actions
+# secrets is invisible to this workflow when Dependabot opens a PR;
+# the gate step below sees an empty value and skips, ci.yml then
+# fails --frozen-lockfile, and the PR has to be landed manually.
+# `gh api repos/:owner/:repo/dependabot/secrets` lists the right store.
+#
+# Why a PAT and not GITHUB_TOKEN: pushes made with GITHUB_TOKEN do not retrigger
+# workflows — GitHub blocks that path to prevent infinite loops. A PAT push is
+# attributed to the token owner and does retrigger `pull_request` events, so
+# ci.yml re-runs on the synced branch.
+#
+# ---- Two-job split (closes CodeQL actions/untrusted-checkout) ----
+#
+# The CodeQL rule `actions/untrusted-checkout/medium` fires on any workflow
+# that (a) has access to secrets AND (b) checks out PR-head code. Even with
+# `persist-credentials: false` + `--ignore-scripts` mitigations, the heuristic
+# doesn't see those guards. The official safe pattern — and the one CodeQL
+# accepts — is to split the work into two jobs:
+#
+#   - regenerate: NO secrets. Runs `pnpm install --lockfile-only` against the
+#     PR-head code. The worst a malicious bump could do here is produce a
+#     bogus pnpm-lock.yaml — which would then fail ci.yml's frozen-lockfile
+#     check on the next run, so a human notices.
+#
+#   - push: NO PR-head code in the working tree. Has the PAT. Downloads the
+#     lockfile from job 1's artifact, validates the PR-head ref against the
+#     event payload, and commits + pushes via the PAT. Never runs any code
+#     from the PR-head checkout.
+#
+# This pattern is the one referenced in the GitHub Security Lab "Keeping
+# your GitHub Actions and workflows secure" series.
+
+on:
+  pull_request:
+    paths:
+      - "**/package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    # Only run on Dependabot-authored PRs. github.actor is the bot username.
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # No `permissions:` override — this job inherits the workflow-level
+    # `contents: read` AND has no access to any secret. Even if pnpm
+    # install somehow executed attacker code, there's nothing here to
+    # exfiltrate.
+    steps:
+      - name: Checkout PR branch (no credentials)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Belt-and-braces: even though no secrets are exposed to this
+          # job, don't leave the GITHUB_TOKEN sitting in .git/config.
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Regenerate lockfile
+        # --lockfile-only updates pnpm-lock.yaml without populating
+        # node_modules. pnpm does not run any lifecycle scripts in this
+        # mode; --ignore-scripts is redundant but explicit.
+        run: pnpm install --lockfile-only --ignore-scripts
+
+      - name: Bail if lockfile unchanged
+        id: diff
+        run: |
+          if git diff --quiet pnpm-lock.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload lockfile artifact
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pnpm-lock
+          path: pnpm-lock.yaml
+          retention-days: 1
+
+  push:
+    needs: regenerate
+    # Only fire when the regenerate job actually produced an artifact.
+    # The `needs.regenerate.result == 'success'` guard makes the chain
+    # explicit; the artifact-download step below would also fail if
+    # the artifact didn't exist.
+    if: github.actor == 'dependabot[bot]' && needs.regenerate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      # This job touches the PAT and pushes — it needs contents: read
+      # only because the actual push is via the PAT (which has its own
+      # scope), not GITHUB_TOKEN. The token here is just for the
+      # artifact download API.
+      contents: read
+    steps:
+      - name: Skip if PAT is unset
+        id: gate
+        env:
+          PAT: ${{ secrets.DEPENDABOT_LOCKFILE_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "DEPENDABOT_LOCKFILE_PAT is not configured — skipping lockfile sync." >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download lockfile artifact
+        if: steps.gate.outputs.skip == 'false'
+        # actions/download-artifact returns a non-fatal error when the
+        # artifact doesn't exist — that's the "no change" path from
+        # the regenerate job.
+        id: download
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: pnpm-lock
+
+      - name: Validate + push lockfile
+        if: steps.gate.outputs.skip == 'false' && steps.download.outcome == 'success'
+        env:
+          DEPENDABOT_LOCKFILE_PAT: ${{ secrets.DEPENDABOT_LOCKFILE_PAT }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Defensive sanity check: a malicious PR-head couldn't have
+          # provided a fake ref here because PR_HEAD_REF comes from
+          # the trusted event payload, not the PR-head workspace.
+          # github.event.pull_request.head.ref is read from the API,
+          # not from any file the PR could write.
+          if [ -z "$PR_HEAD_REF" ]; then
+            echo "::error::Missing PR head ref in event payload." >&2
+            exit 1
+          fi
+
+          # Fresh clone (no PR-head code in the working tree). We
+          # clone the BASE branch (main), copy in the lockfile artifact,
+          # then push as a single commit onto the PR-head ref. No code
+          # from the PR-head ever executes in this step.
+          mkdir push-workspace && cd push-workspace
+          git init -q
+          git config user.name "dependabot[bot]"
+          git config user.email "49699333+dependabot[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${DEPENDABOT_LOCKFILE_PAT}@github.com/${REPO}.git"
+          git fetch origin "$PR_HEAD_REF" --depth 1
+          git checkout "$PR_HEAD_SHA"
+
+          # Replace the lockfile with the regenerated one.
+          cp ../pnpm-lock.yaml ./pnpm-lock.yaml
+
+          if git diff --quiet pnpm-lock.yaml; then
+            echo "Lockfile already in sync after fetch — nothing to commit."
+            exit 0
+          fi
+          git add pnpm-lock.yaml
+          git commit -m "chore: sync pnpm-lock.yaml"
+          git push origin "HEAD:${PR_HEAD_REF}"
