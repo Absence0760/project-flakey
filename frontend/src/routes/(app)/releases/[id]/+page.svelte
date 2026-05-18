@@ -2327,7 +2327,7 @@
 	.del { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 0.2rem 0.4rem; }
 	.del:hover { color: var(--text); }
 	.add-item { display: flex; gap: 0.5rem; margin-top: 0.75rem; align-items: center; }
-	.add-item input[type="text"], .add-item input:not([type]) { flex: 1; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+	.add-item input:not([type]) { flex: 1; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
 	.req-toggle { font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem; }
 	.btn-primary { background: var(--link, #2563eb); color: #fff; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
 	.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -2677,8 +2677,6 @@
 	.session-counts .pass { color: #16a34a; font-weight: 600; }
 	.session-counts .fail { color: #dc2626; font-weight: 600; }
 
-	.active-session { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
-	.active-session h3 { margin: 0; font-size: 0.95rem; }
 	.session-table {
 		width: 100%;
 		border-collapse: collapse;
@@ -2775,10 +2773,8 @@
 		gap: 0.75rem;
 	}
 	.active-session-panel summary > .summary-right,
-	.session-history-panel summary > .summary-right,
 	.linked-tests-panel summary > .summary-right,
-	.linked-runs-panel summary > .summary-right,
-	.requirements-panel summary > .summary-right {
+	.linked-runs-panel summary > .summary-right {
 		justify-self: end;
 	}
 	.active-session-panel summary::-webkit-details-marker,
@@ -2852,9 +2848,7 @@
 		background: rgba(37, 99, 235, 0.08);
 		border-color: rgba(37, 99, 235, 0.35);
 	}
-	.readiness-failures summary,
 	.readiness-accepted summary { color: inherit; }
-	.readiness-failures summary,
 	.readiness-accepted summary {
 		cursor: pointer;
 		font-size: 0.85rem;
@@ -2892,7 +2886,7 @@
 	/* ── Active session table extras ─────────────────────────────────── */
 	.status-pill.status-accepted { background: #dbeafe; color: #1e40af; }
 	.session-table tr.accepted { background: rgba(37, 99, 235, 0.08); }
-	.session-table tr.row-flash {
+	.session-table tr:global(.row-flash) {
 		animation: row-flash 1.6s ease-out;
 	}
 	@keyframes row-flash {
