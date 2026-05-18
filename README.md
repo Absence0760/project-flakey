@@ -35,7 +35,7 @@ cd ../frontend && pnpm install
 cd backend && npm run seed
 ```
 
-Creates two users, two orgs, and 56 sample test runs (Mochawesome, Playwright, JUnit).
+Creates three users (admin / demo / viewer), two orgs, and 56 sample test runs (Mochawesome, Playwright, JUnit).
 
 ### 4. Start the app
 
@@ -61,8 +61,7 @@ npm install --save-dev @flakeytesting/cypress-reporter @flakeytesting/cypress-sn
 
 ```typescript
 // cypress.config.ts
-import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
-import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
+import { setupFlakey } from "@flakeytesting/cypress-reporter/plugin";
 
 export default defineConfig({
   reporter: "@flakeytesting/cypress-reporter",
@@ -72,9 +71,11 @@ export default defineConfig({
     suite: "my-project",
   },
   e2e: {
-    setupNodeEvents(on, config) {
-      flakeyReporter(on, config);
-      flakeySnapshots(on, config);
+    async setupNodeEvents(on, config) {
+      // setupFlakey wires up the reporter + snapshots + live-reporter
+      // in one call. Use `flakeyReporter` directly only if you want to
+      // opt out of snapshots / live streaming.
+      await setupFlakey(on, config);
       return config;
     },
   },
@@ -173,16 +174,16 @@ The CLI also ships uploaders for quality metrics beyond pass/fail:
 
 ```bash
 # Code coverage (Istanbul coverage-summary.json)
-npx flakey-cli coverage --run-id 42 --file coverage/coverage-summary.json
+npx flakey-upload coverage --run-id 42 --file coverage/coverage-summary.json
 
 # Accessibility (axe-core results)
-npx flakey-cli a11y --run-id 42 --file axe-results.json --url /
+npx flakey-upload a11y --run-id 42 --file axe-results.json --url /
 
 # Visual regression diffs
-npx flakey-cli visual --run-id 42 --file visual-manifest.json
+npx flakey-upload visual --run-id 42 --file visual-manifest.json
 
 # UI coverage — record which routes tests visited
-npx flakey-cli ui-coverage --suite my-e2e --file visits.json --run-id 42
+npx flakey-upload ui-coverage --suite my-e2e --file visits.json --run-id 42
 ```
 
 See [packages/flakey-cli/docs/uploading-results.md](packages/flakey-cli/docs/uploading-results.md#uploading-quality-metrics) for the expected file formats.
@@ -191,7 +192,7 @@ See [packages/flakey-cli/docs/uploading-results.md](packages/flakey-cli/docs/upl
 
 ```bash
 newman run collection.json --reporters junit --reporter-junit-export results.xml
-npx flakey-cli upload --report-dir . --suite api-tests --reporter junit
+npx flakey-upload upload --report-dir . --suite api-tests --reporter junit
 ```
 
 ### OWASP ZAP
@@ -245,7 +246,7 @@ Create an API key from the Settings page for permanent access (no expiry).
 - **Compare runs** — side-by-side diff showing regressions, fixes, and unchanged tests
 
 ### Reporter Metadata
-- **Playwright:** retry history, tags, annotations, source location, stdout/stderr, error snippets
+- **Playwright:** test title path, status, duration, error message + stack, screenshot and video attachment paths, and (when traces are present) command logs via `@flakeytesting/playwright-snapshots`
 - **JUnit:** exception types, classnames, properties, hostname, skip reasons, stdout/stderr
 - **Mochawesome:** command logs, test source code
 

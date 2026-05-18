@@ -51,7 +51,10 @@ cd backend && npm run seed
 ```
 
 This creates:
-- Two users: `admin@example.com` / `admin` and `demo@example.com` / `demo123`
+- Three users:
+  - `admin@example.com` / `admin` — owner of Acme Corp
+  - `demo@example.com` / `demo123` — owner of Demo Team
+  - `viewer@example.com` / `viewer123` — viewer-role member of Acme Corp
 - Two organizations: Acme Corp (admin's) and Demo Team (demo's)
 - 56 sample test runs spread across 18 months (50 main + 3 Playwright + 3 JUnit, assigned to Acme Corp)
 - Phase 9/10 sample data attached to Acme Corp:
@@ -174,7 +177,7 @@ npx tsx src/index.ts \
 | `DB_NAME` | `flakey` | Database name |
 | `PORT` | `3000` | API server port |
 | `JWT_SECRET` | `flakey-dev-secret-change-me` | JWT signing secret (change in production) |
-| `ALLOW_REGISTRATION` | `true` | Set `false` for invite-only registration |
+| `ALLOW_REGISTRATION` | `false` | Set `true` to allow self-serve registration; default is invite-only |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
 | `FRONTEND_URL` | `http://localhost:7778` | Used for email links and PR comments |
 | `STORAGE` | `local` | `local` or `s3` for artifact storage |

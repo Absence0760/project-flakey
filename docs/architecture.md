@@ -235,7 +235,7 @@ Supported reporters:
 - Users log in with email/password -> receive a short-lived access token (1h) and a refresh token (7d)
 - JWT contains user ID, email, name, role, and `orgId` (active organization)
 - API keys (`fk_` prefix) for CLI/programmatic access, scoped to an organization
-- API keys are stored as bcrypt hashes with a prefix for efficient lookup
+- API keys are stored as bcrypt hashes with an 8-char prefix for index lookup; verification runs server-side in a Postgres `SECURITY DEFINER` function (`verify_api_key`, migration 041) which compares via pgcrypto and returns ONLY the matched row's identity columns — the bcrypt hash is never returned to the application layer, closing the prior hash-enumeration path
 - Per-account lockout: 5 wrong-password attempts (env-tunable via `LOGIN_LOCKOUT_THRESHOLD`) locks the account for 15 minutes (`LOGIN_LOCKOUT_MINUTES`) on top of the per-IP rate limit, defending the single-account threat that a distributed brute-force from many IPs would otherwise fly under
 - Login response time is bcrypt-bounded even on unknown emails (a dummy compare runs on the unknown-email branch) so account existence can't be enumerated by timing
 - Refresh tokens carry a `jti` claim; `/auth/logout` and `/auth/refresh` both revoke the consumed jti via the `revoked_refresh_tokens` table, giving real server-side logout + refresh-token rotation
