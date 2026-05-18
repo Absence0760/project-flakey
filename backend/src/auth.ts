@@ -92,9 +92,15 @@ export function signRefreshToken(userId: number): string {
   );
 }
 
+// jsonwebtoken v9 defaults reject alg:"none", but the defence is
+// implicit and version-dependent. Pinning algorithms to HS256 makes
+// the invariant explicit so a future SDK upgrade can't silently
+// re-enable insecure algorithms.
+const JWT_VERIFY_OPTS = { algorithms: ["HS256"] as const };
+
 function verifyToken(token: string): AuthUser | null {
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as any;
+    const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS) as any;
     if (payload.type === "refresh") return null; // Don't accept refresh tokens as access tokens
     return payload as AuthUser;
   } catch {
@@ -104,7 +110,7 @@ function verifyToken(token: string): AuthUser | null {
 
 function verifyRefreshToken(token: string): { id: number } | null {
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as any;
+    const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS) as any;
     if (payload.type !== "refresh") return null;
     return { id: payload.id };
   } catch {

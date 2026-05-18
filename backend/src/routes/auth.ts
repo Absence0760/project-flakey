@@ -269,7 +269,7 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
-    const payload = jwt.verify(refreshTokenValue, getJwtSecret()) as any;
+    const payload = jwt.verify(refreshTokenValue, getJwtSecret(), { algorithms: ["HS256"] }) as any;
     if (payload.type !== "refresh") {
       res.status(401).json({ error: "Invalid refresh token" });
       return;
@@ -351,6 +351,7 @@ router.post("/logout", async (req, res) => {
       const payload = jwt.verify(
         refreshTokenValue,
         getJwtSecret(),
+        { algorithms: ["HS256"] },
       ) as any;
       if (payload.type === "refresh" && typeof payload.jti === "string") {
         await userScopedQuery(
