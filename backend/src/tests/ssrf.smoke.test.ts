@@ -1,12 +1,14 @@
 /**
  * SSRF defence on user-configurable URLs.
  *
- * The two surfaces where a tenant admin can configure a URL the
- * backend later dispatches to via fetch():
- *   - POST /webhooks            { url: "https://..." }
- *   - PATCH /jira/settings      { base_url: "https://..." }
+ * The surfaces where a tenant admin can configure a URL the backend
+ * later dispatches to via fetch():
+ *   - POST /webhooks                  { url: "https://..." }
+ *   - PATCH /jira/settings            { base_url: "https://..." }
+ *   - POST /reports / PATCH /reports/:id  { destination: "https://..." } (channels: webhook | slack)
+ *   - PATCH /orgs/:id/settings        { git_base_url: "https://..." }
  *
- * Both flow through validateWebhookUrl in routes/webhooks.ts. The gate
+ * All flow through validateWebhookUrl in routes/webhooks.ts. The gate
  * has two layers (see the JSDoc on that function for the full rationale):
  *
  *   - Always: scheme must be http or https. file://, javascript:,
@@ -109,6 +111,49 @@ async function patchJira(base: string, token: string, base_url: string): Promise
     },
     body: JSON.stringify({ base_url }),
   });
+}
+
+async function postReportWebhook(base: string, token: string, destination: string): Promise<Response> {
+  return fetch(`${base}/reports`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      name: "ssrf-report",
+      cadence: "daily",
+      hour_utc: 9,
+      channel: "webhook",
+      destination,
+    }),
+  });
+}
+
+async function patchOrgGitBaseUrl(
+  base: string,
+  token: string,
+  orgId: number,
+  git_base_url: string,
+): Promise<Response> {
+  return fetch(`${base}/orgs/${orgId}/settings`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ git_base_url }),
+  });
+}
+
+async function getMyOrgId(base: string, token: string): Promise<number> {
+  const res = await fetch(`${base}/orgs`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`GET /orgs failed: ${res.status} ${await res.text()}`);
+  const orgs = (await res.json()) as Array<{ id: number }>;
+  if (orgs.length === 0) throw new Error("expected at least one org for the registered user");
+  return orgs[0].id;
 }
 
 function spawnServer(port: number, env: Record<string, string>): ChildProcess {
@@ -247,6 +292,71 @@ test("PATCH /jira/settings rejects a loopback base_url", async () => {
 
 test("PATCH /jira/settings accepts a real Atlassian host", async () => {
   const res = await patchJira(BASE_BLOCK, adminTokenBlock, "https://acme.atlassian.net");
+  assert.equal(res.status, 200, `expected 200, got ${res.status}: ${await res.text()}`);
+});
+
+// ── 4b. POST /reports (channel=webhook) runs the same gate ──────────────
+
+test("POST /reports rejects an IMDS destination on a webhook-channel report", async () => {
+  const res = await postReportWebhook(BASE_BLOCK, adminTokenBlock, "http://169.254.169.254/");
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /private \/ loopback \/ metadata/);
+});
+
+test("POST /reports rejects a loopback destination on a webhook-channel report", async () => {
+  const res = await postReportWebhook(BASE_BLOCK, adminTokenBlock, "http://localhost:9000/hook");
+  assert.equal(res.status, 400);
+});
+
+test("POST /reports accepts a public destination on a webhook-channel report", async () => {
+  const res = await postReportWebhook(BASE_BLOCK, adminTokenBlock, "https://example.com/hook");
+  assert.equal(res.status, 201, `expected 201, got ${res.status}: ${await res.text()}`);
+});
+
+test("POST /reports leaves email-channel destination unchecked (not a URL)", async () => {
+  const res = await fetch(`${BASE_BLOCK}/reports`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminTokenBlock}`,
+    },
+    body: JSON.stringify({
+      name: "ssrf-email-report",
+      cadence: "daily",
+      hour_utc: 9,
+      channel: "email",
+      destination: "ops@example.com",
+    }),
+  });
+  assert.equal(res.status, 201, `expected 201, got ${res.status}: ${await res.text()}`);
+});
+
+// ── 4c. PATCH /orgs/:id/settings runs the same gate on git_base_url ────
+
+test("PATCH /orgs/:id/settings rejects an IMDS git_base_url", async () => {
+  const orgId = await getMyOrgId(BASE_BLOCK, adminTokenBlock);
+  const res = await patchOrgGitBaseUrl(BASE_BLOCK, adminTokenBlock, orgId, "http://169.254.169.254/");
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /private \/ loopback \/ metadata/);
+});
+
+test("PATCH /orgs/:id/settings rejects a loopback git_base_url", async () => {
+  const orgId = await getMyOrgId(BASE_BLOCK, adminTokenBlock);
+  const res = await patchOrgGitBaseUrl(BASE_BLOCK, adminTokenBlock, orgId, "http://localhost/api/v4");
+  assert.equal(res.status, 400);
+});
+
+test("PATCH /orgs/:id/settings accepts a real self-hosted git host", async () => {
+  const orgId = await getMyOrgId(BASE_BLOCK, adminTokenBlock);
+  const res = await patchOrgGitBaseUrl(BASE_BLOCK, adminTokenBlock, orgId, "https://git.example.com/api/v4");
+  assert.equal(res.status, 200, `expected 200, got ${res.status}: ${await res.text()}`);
+});
+
+test("PATCH /orgs/:id/settings accepts an empty git_base_url (clear field)", async () => {
+  const orgId = await getMyOrgId(BASE_BLOCK, adminTokenBlock);
+  const res = await patchOrgGitBaseUrl(BASE_BLOCK, adminTokenBlock, orgId, "");
   assert.equal(res.status, 200, `expected 200, got ${res.status}: ${await res.text()}`);
 });
 

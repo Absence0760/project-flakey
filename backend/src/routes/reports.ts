@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
+import { validateWebhookUrl } from "./webhooks.js";
 
 const router = Router();
 
 const VALID_CADENCES = ["daily", "weekly"];
 const VALID_CHANNELS = ["email", "webhook", "slack"];
+const URL_CHANNELS = new Set(["webhook", "slack"]);
 
 // GET /reports — list scheduled reports
 router.get("/", async (req, res) => {
@@ -39,6 +41,13 @@ router.post("/", async (req, res) => {
     if (cadence === "weekly" && (day_of_week === undefined || day_of_week === null)) {
       res.status(400).json({ error: "day_of_week (0-6) required for weekly cadence" });
       return;
+    }
+    if (URL_CHANNELS.has(channel)) {
+      const urlCheck = validateWebhookUrl(destination);
+      if (!urlCheck.ok) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
     }
 
     const hour = Number.isInteger(hour_utc) && hour_utc >= 0 && hour_utc <= 23 ? hour_utc : 9;
@@ -77,6 +86,28 @@ router.patch("/:id", async (req, res) => {
     const sets: string[] = [];
     const params: unknown[] = [];
     let i = 1;
+
+    // Effective channel for URL-validating the destination: if the caller
+    // is changing the channel in the same PATCH, validate against the new
+    // value; otherwise read the existing row.
+    let effectiveChannel: string | null = null;
+    if (req.body.channel !== undefined && VALID_CHANNELS.includes(req.body.channel)) {
+      effectiveChannel = req.body.channel;
+    } else if (req.body.destination !== undefined) {
+      const existing = await tenantQuery(
+        req.user!.orgId,
+        "SELECT channel FROM scheduled_reports WHERE id = $1",
+        [req.params.id]
+      );
+      effectiveChannel = existing.rows[0]?.channel ?? null;
+    }
+    if (req.body.destination !== undefined && effectiveChannel && URL_CHANNELS.has(effectiveChannel)) {
+      const urlCheck = validateWebhookUrl(req.body.destination);
+      if (!urlCheck.ok) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
+    }
 
     const fields = ["name", "destination", "suite_filter"];
     for (const f of fields) {

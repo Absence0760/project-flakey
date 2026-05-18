@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { requireAuth, signToken, normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { encryptSecret } from "../crypto.js";
+import { validateWebhookUrl } from "./webhooks.js";
 
 // This router uses raw `pool.query` (not `tenantQuery`) throughout. The
 // tables touched here — organizations, org_members, org_invites, users —
@@ -360,8 +361,19 @@ router.patch("/:id/settings", async (req, res) => {
       params.push(req.body.git_repo || null);
     }
     if (req.body.git_base_url !== undefined) {
+      // /connectivity/git later fetch()es this; gate it through the
+      // same SSRF allowlist as webhooks so a tenant can't aim it at
+      // IMDS / RFC1918 / loopback.
+      const raw = req.body.git_base_url;
+      if (raw) {
+        const urlCheck = validateWebhookUrl(raw);
+        if (!urlCheck.ok) {
+          res.status(400).json({ error: urlCheck.error });
+          return;
+        }
+      }
       sets.push(`git_base_url = $${i++}`);
-      params.push(req.body.git_base_url || null);
+      params.push(raw || null);
     }
 
     if (sets.length === 0) {
