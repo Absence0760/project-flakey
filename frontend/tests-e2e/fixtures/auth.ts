@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { chromium, expect, type FullConfig } from "@playwright/test";
 
 import { signIn } from "./helpers";
-import { ALL_USERS, type SeededUser } from "./users";
+import { ALL_SEEDED_USERS, type SeededUser } from "./users";
 
 // Storage states older than this are considered stale and will be
 // regenerated. Backend JWTs are 1h by default, so we keep a margin.
@@ -89,7 +89,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     config.projects[0]?.use.baseURL ?? "http://localhost:7778";
 
   // First pass: filter by file presence + mtime. Cheap.
-  const ageFilter = ALL_USERS.filter((u) => {
+  const ageFilter = ALL_SEEDED_USERS.filter((u) => {
     if (process.env.E2E_FRESH_LOGIN === "1") return false; // forced fresh
     if (!existsSync(u.storageStatePath)) return false;
     const ageMs = Date.now() - statSync(u.storageStatePath).mtimeMs;
@@ -101,7 +101,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   // This catches the post-re-seed case where the JWT still verifies
   // but its user_id no longer exists / has no org membership.
   const usersToSignIn: SeededUser[] = [];
-  for (const u of ALL_USERS) {
+  for (const u of ALL_SEEDED_USERS) {
     if (process.env.E2E_FRESH_LOGIN === "1") {
       usersToSignIn.push(u);
       continue;

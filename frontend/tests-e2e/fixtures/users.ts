@@ -63,3 +63,39 @@ export const VIEWER_USER: SeededUser = {
 };
 
 export const ALL_USERS: SeededUser[] = [ADMIN_USER, DEMO_USER, VIEWER_USER];
+
+/**
+ * Worker tenants for parallel Playwright execution.
+ *
+ * Each Playwright worker (parallelIndex 0..N-1) signs in as the
+ * matching WORKER_USERS[parallelIndex] and operates exclusively on
+ * its dedicated org (`acme-w<i>`). The seed (`npm run seed` in
+ * backend/) creates the same playground data inside each worker org
+ * that Acme has, so any spec can run against any worker tenant.
+ *
+ * Source of truth: the WORKER_TENANT_COUNT loop in backend/src/seed.ts.
+ * Adjust E2E_WORKER_TENANTS (seed) AND playwright.config.ts workers
+ * in lockstep — they must match.
+ *
+ * `name` mirrors the seed: `Worker <i> Admin`. `role` is 'admin' so
+ * specs that exercise admin-only paths (settings, releases, manual
+ * tests) work without needing the original ADMIN_USER. Worker admins
+ * are NOT a substitute for VIEWER_USER (which carries org_members.role
+ * = 'viewer'); use VIEWER_USER for role-403 assertions as before.
+ */
+export const WORKER_TENANT_COUNT = 4;
+
+export const WORKER_USERS: SeededUser[] = Array.from(
+  { length: WORKER_TENANT_COUNT },
+  (_, i): SeededUser => ({
+    email: `admin+w${i}@example.com`,
+    password: `worker${i}123`,
+    name: `Worker ${i} Admin`,
+    orgSlug: `acme-w${i}`,
+    role: "admin",
+    storageStatePath: resolve(STORAGE_DIR, `worker-${i}.json`),
+  }),
+);
+
+/** Every seeded user, primary + worker tenants. Used by globalSetup. */
+export const ALL_SEEDED_USERS: SeededUser[] = [...ALL_USERS, ...WORKER_USERS];
