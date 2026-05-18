@@ -176,6 +176,8 @@ npx tsx src/index.ts \
 | `DB_PASSWORD` | `flakey_app` | Database password |
 | `DB_NAME` | `flakey` | Database name |
 | `PORT` | `3000` | API server port |
+| `NODE_ENV` | — | Set `production` to refuse boot without `JWT_SECRET` + `FLAKEY_ENCRYPTION_KEY` and to apply the production-tier rate-limit defaults (see [README.md](../README.md#environment-variables) for the full per-bucket table) |
+| `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Comma-separated allow-list. Dev default covers the Vite dev server (7778) and the API itself (3000) for same-machine probes |
 | `JWT_SECRET` | `flakey-dev-secret-change-me` | JWT signing secret (change in production) |
 | `ALLOW_REGISTRATION` | `false` | Set `true` to allow self-serve registration; default is invite-only |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
@@ -193,7 +195,8 @@ npx tsx src/index.ts \
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
 | `EMAIL_FROM` | `Flakey <noreply@example.com>` | From-address used for all outgoing email |
-| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
+| `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough (refused in `NODE_ENV=production`). See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
+| `FLAKEY_ENCRYPTION_KEY_OLD` | _(none)_ | Optional previous encryption key for rotation — read-path only, never used for new writes. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) for the dual-key rotation procedure |
 
 ### Frontend
 

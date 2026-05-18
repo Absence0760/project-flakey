@@ -24,8 +24,9 @@ cd project-flakey
 pnpm install
 pnpm db:up                              # Postgres in Docker
 cp backend/.env.example backend/.env    # edit JWT_SECRET, FLAKEY_ENCRYPTION_KEY
-pnpm db:reset                           # apply migrations + seed sample data
-pnpm dev                                # backend :3000, frontend :7778
+cd backend && ./migrate.sh              # apply migrations
+cd backend && npm run seed              # load sample data + worker tenants
+cd .. && pnpm dev                       # backend :3000, frontend :7778
 ```
 
 Seeded login: `admin@example.com` / `admin`. See `backend/CLAUDE.md` for the full seed manifest.
@@ -49,8 +50,9 @@ cd frontend && pnpm test
 # E2E (Playwright, hits the dev server)
 cd frontend && pnpm test:e2e
 
-# Per-package tests
-pnpm -r --filter "@flakeytesting/*" test
+# Per-package tests (named script — wraps pnpm -r with --workspace-concurrency=1
+# --if-present so packages without a `test` script don't error out)
+pnpm test:packages
 ```
 
 ## Where things go

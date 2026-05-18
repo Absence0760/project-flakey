@@ -61,6 +61,7 @@ export default defineConfig({
 
 ```ts
 // wdio.conf.ts
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
 import { register } from "@flakeytesting/live-reporter/webdriverio";
 
 const liveReporter = register({

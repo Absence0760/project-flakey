@@ -130,6 +130,8 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /stats` — dashboard aggregate stats with date range filtering
 - `GET /stats/trends` — time-series data (pass rate, failures, duration, top failures)
 - `GET /tests/:id` — single test detail with prev/next failure navigation
+- `GET /tests/:id/history` — pass/fail timeline for one test across recent runs
+- `GET /tests/slowest` — slowest tests with P50/P95/P99 percentiles, trend direction, and duration timeline
 - `GET /tests/search/list?q=` — type-ahead search for tests
 - `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs)
 - `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests

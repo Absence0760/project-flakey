@@ -9,7 +9,7 @@ CLI for uploading test results and quality metrics to a Flakey backend.
 
 ## Bin
 
-The published binary is `flakey-upload` (see `bin` in `package.json`). The README and docs also invoke it as `flakey-cli` via `npx` — if renaming the bin, update both docs and the workflow `upload` script in the root `package.json`.
+The published binary is `flakey-upload` (see `bin` in `package.json`) — that's the only name `npx` can resolve. The directory and the `@flakeytesting/cli` package name use `cli`, but the bin is `flakey-upload`; if you rename the bin, update the README's quick-start and the root `package.json`'s `upload` script in lockstep.
 
 ## Subcommands
 

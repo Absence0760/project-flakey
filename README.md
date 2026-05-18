@@ -336,6 +336,9 @@ after-script:
 | `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Allowed origins (comma-separated). Dev default includes both the frontend (7778) and the backend itself (3000) so health probes from the same machine pass. |
 | `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
 | `ALLOW_REGISTRATION` | `false` | Set `true` to allow open self-service registration (each new user gets their own tenant/org as owner). When `false` (default), `POST /auth/register` returns 403 unless the request carries a valid `invite_token`. |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | When `true`, registered users must verify their email (via the `SMTP_*` chain) before logging in. |
+| `STORAGE` | `local` | `local` writes uploads to `uploads/runs/{id}/...` on disk; `s3` puts them in `S3_BUCKET` and serves via signed URLs / CloudFront. |
+| `S3_BUCKET` / `S3_REGION` | — / `us-east-1` | S3 bucket name and region (only when `STORAGE=s3`). |
 | `NODE_ENV` | — | Set `production` to refuse boot without JWT_SECRET and FLAKEY_ENCRYPTION_KEY. CORS_ORIGINS still applies the same allow-list in any env — there's no looser dev-only fallback. |
 | `FLAKEY_ENCRYPTION_KEY` | _(required in production)_ | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Validated at boot — a malformed value refuses to start, not just an unset one. Unset = plaintext passthrough (local dev only — backend refuses to start in production). |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | — | Optional previous encryption key for rotation. Used only on the read path when the primary key fails to authenticate a v1: ciphertext. Never used for new writes. See `backend/docs/integrations.md` for the dual-key rotation procedure. |

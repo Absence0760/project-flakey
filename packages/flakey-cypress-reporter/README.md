@@ -36,11 +36,12 @@ export default defineConfig({
 });
 ```
 
-Add one line to your support file (for DOM snapshots — optional):
+Add the reporter's support file (captures Cypress command logs for the error modal) and, optionally, the snapshots support file (DOM snapshots per command):
 
 ```ts
 // cypress/support/e2e.ts
-import "@flakeytesting/cypress-snapshots/support";
+import "@flakeytesting/cypress-reporter/support";
+import "@flakeytesting/cypress-snapshots/support"; // optional — only if you installed @flakeytesting/cypress-snapshots
 ```
 
 Then run as usual:

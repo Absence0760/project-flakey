@@ -10,7 +10,7 @@ pnpm add -D @flakeytesting/cli
 npm install --save-dev @flakeytesting/cli
 ```
 
-The binary is `flakey-upload`. Also accessible as `flakey-cli` via `npx`.
+The published binary is `flakey-upload` — that's the name you invoke (`npx flakey-upload …` or just `flakey-upload …` in a `package.json` script).
 
 ## Quick start
 
