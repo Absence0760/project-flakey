@@ -335,10 +335,10 @@ app.use("/auth/refresh", authLimiter);
 app.use("/auth/logout", authLimiter);
 // /auth is mounted WITHOUT requireAuth at the router level because the
 // router mixes public endpoints (login, register, forgot-password,
-// reset-password, resend-verification, verify-email, refresh, logout)
-// with protected endpoints. Each protected handler attaches
-// requireAuth individually (search authRouter for `requireAuth,` —
-// `/me`, `/switch-org`, `/api-keys*`, `/me/password`, `/me/sessions`).
+// reset-password, resend-verification, verify-email, refresh, logout,
+// registration-status) with protected endpoints. Each protected handler
+// attaches requireAuth individually (search authRouter for `requireAuth,`
+// — currently `/me`, `/switch-org`, `/api-keys` GET/POST/DELETE).
 // When adding a new handler to authRouter, decide explicitly whether
 // to gate it; the absence of router-level requireAuth means the
 // default is PUBLIC.
