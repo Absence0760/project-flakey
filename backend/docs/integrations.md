@@ -135,7 +135,7 @@ curl -X POST http://localhost:3000/jira/issues \
   -H "Content-Type: application/json" \
   -d '{
     "summary": "[checkout] Cart total wrong with expired coupon",
-    "description": "Error: expected 90.00, got 100.00\n\nRun: http://localhost:7777/runs/42",
+    "description": "Error: expected 90.00, got 100.00\n\nRun: http://localhost:7778/runs/42",
     "fingerprint": "checkout-cart-expired-coupon-v1"
   }'
 ```

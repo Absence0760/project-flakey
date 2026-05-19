@@ -110,7 +110,7 @@ All interactive elements have `data-testid` attributes for reliable selectors:
 ### Prerequisites
 
 1. Flakey backend running on `http://localhost:3000`
-2. Flakey frontend running on `http://localhost:7777`
+2. Flakey frontend running on `http://localhost:7778`
 3. An API key from Flakey (Profile > API Keys)
 
 ### Start the sample app
@@ -170,7 +170,7 @@ node scripts/upload.js smoke
 ### Verify results
 
 After a test run, check Flakey:
-- `http://localhost:7777` — the run should appear on the dashboard
+- `http://localhost:7778` — the run should appear on the dashboard
 - `http://localhost:3000/runs` — API endpoint should list the new run
 
 ## What each example covers

@@ -18,7 +18,7 @@ TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
 
 ### Getting an API key (recommended for CI)
 
-1. Log in at http://localhost:7777
+1. Log in at http://localhost:7778
 2. Go to **Settings** in the sidebar
 3. Under **API Keys**, enter a label and click **Create key**
 4. Copy the key (starts with `fk_`) — it's only shown once

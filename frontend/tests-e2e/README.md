@@ -56,7 +56,7 @@ cd backend && npm run seed  # load admin + demo users + sample runs
 cd backend && npm run dev   # API on :3000
 
 # in another terminal, from frontend/
-pnpm test:e2e               # spawns vite dev on :7777, runs globalSetup, runs specs
+pnpm test:e2e               # spawns vite dev on :7778, runs globalSetup, runs specs
 pnpm test:e2e:ui            # same, but with Playwright's UI runner
 ```
 
