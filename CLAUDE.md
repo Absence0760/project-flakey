@@ -37,6 +37,24 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - **Frontend + packages**: pnpm (workspace root is `packages/*`, see `pnpm-workspace.yaml`).
 - **Backend**: uses its own `npm` lockfile. Don't run pnpm inside `backend/`.
 
+## Fix bugs at the source — never adjust the test to hide them
+
+When a test fails, the only acceptable resolution paths are:
+
+1. **The test itself is broken** (wrong fixture, missing required field, typo, race in test setup, unique-constraint collision with seed data). Fix the test.
+2. **The app has a real bug or missing primitive.** Fix the app code. If the app needs a new affordance for the test to wait deterministically (a `data-ready` attribute backed by a real readiness signal, an exposed status, a broadcast handshake), add it in the app code — it's a real API, not test scaffolding.
+
+There is no third option. These are forbidden because they ship the bug behind a green check:
+
+- Inflating a Playwright `expect` / `toBeVisible` timeout to absorb a flake (`5_000` → `15_000` → `30_000`). Fix whatever makes the page slow.
+- `await page.waitForTimeout(N)` between two actions. Wait on a real signal (DOM node, state attribute, network response).
+- Bumping `--retries` (or relying on Playwright's `retries: 1`) to mask a real race.
+- `test.skip(…)` / `test.fixme(…)` / `test.fail(…)` against a real bug without an open follow-up that names what's broken + when it'll be fixed.
+- Loosening strict assertions (`toHaveText('foo')` → `toContainText(/foo|bar|.*/i)`) to "absorb variance" — the variance IS the bug.
+- Replacing a real wait with a sleep "because the real signal is unreliable" — the real signal needs fixing.
+
+If you spot a candidate fix that fits one of those patterns: stop, surface the underlying app issue, and either fix it in the same session or flag it explicitly. Don't half-mask it via the test.
+
 ## Branching & PRs
 
 - Base branch for PRs: `main`.
