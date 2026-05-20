@@ -15,9 +15,22 @@ Each subdirectory has its own CLAUDE.md — read it before editing.
 
 ## Root commands
 
+Run everything from the repo root via pnpm — no need to `cd` into a workspace.
+
 - `pnpm dev` — start backend (3000) and frontend (7778) concurrently
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
 - `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — docker-compose Postgres lifecycle
+- `pnpm install:backend` — runs `npm install` inside `backend/` (the only workspace outside the pnpm tree)
+- `pnpm build` — builds packages → backend → frontend (build:packages first so reporter dist/ is fresh)
+- `pnpm build:backend` / `pnpm build:frontend` / `pnpm build:packages` — one at a time
+- `pnpm check` — backend `tsc --noEmit` + `pnpm check:frontend` (svelte-kit sync + svelte-check)
+- `pnpm check:backend` / `pnpm check:frontend` — one at a time
+- `pnpm test` — backend → packages → frontend unit (vitest). Does NOT include e2e — that needs running services
+- `pnpm test:backend` — `node --test` over `backend/src/tests/**/*.test.ts` (needs `db:up` + seed)
+- `pnpm test:frontend` — vitest pure-helper unit tests
+- `pnpm test:packages` — `node --test` per `@flakeytesting/*` package
+- `pnpm test:e2e` — Playwright e2e (needs full stack running + seeded DB)
+- `pnpm test:examples` — runs the shared example fixtures against a live backend
 
 ## Package manager
 

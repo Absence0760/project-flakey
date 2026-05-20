@@ -21,12 +21,8 @@ docker compose up -d
 ### 2. Install dependencies
 
 ```bash
-pnpm install
-```
-
-```bash
-cd backend && npm install
-cd ../frontend && pnpm install
+pnpm install              # frontend + packages (pnpm workspace)
+pnpm install:backend      # backend (uses its own npm lockfile)
 ```
 
 ### 3. Seed sample data

@@ -5,12 +5,24 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
+    "install:backend": "cd backend && npm install",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && pnpm dev",
     "dev": "concurrently -n api,web -c blue,green \"pnpm dev:backend\" \"pnpm dev:frontend\"",
-    "upload": "cd packages/flakey-cli && node dist/index.js",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && pnpm build",
+    "build:packages": "pnpm -r --filter \"@flakeytesting/*\" build",
+    "build": "pnpm build:packages && pnpm build:backend && pnpm build:frontend",
+    "check:backend": "cd backend && npx tsc --noEmit",
+    "check:frontend": "cd frontend && pnpm check",
+    "check": "pnpm check:backend && pnpm check:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && pnpm test",
     "test:packages": "pnpm -r --workspace-concurrency=1 --filter \"@flakeytesting/*\" --if-present test",
-    "test:examples": "cd examples/shared && pnpm install --ignore-workspace && pnpm test"
+    "test:examples": "cd examples/shared && pnpm install --ignore-workspace && pnpm test",
+    "test:e2e": "cd frontend && pnpm test:e2e",
+    "test": "pnpm test:backend && pnpm test:packages && pnpm test:frontend",
+    "upload": "cd packages/flakey-cli && node dist/index.js"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
