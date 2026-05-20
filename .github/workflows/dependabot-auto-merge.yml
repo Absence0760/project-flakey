@@ -11,10 +11,19 @@ name: Dependabot auto-merge
 # pnpm 10 majors needed careful migration; auto-merging those would
 # actively break the build.
 #
-# Repository setting required: "Allow auto-merge" enabled on
-# Settings → General → Pull Requests. Without it `gh pr merge --auto`
-# returns an error and the workflow no-ops; PRs sit waiting for a
-# human like before, so worst case is degenerate, not destructive.
+# Repository settings required (both are off by default on a fresh
+# org repo, so check after a clone):
+#   1. Settings → General → Pull Requests → "Allow auto-merge"
+#      Without this, `gh pr merge --auto` errors and the workflow
+#      no-ops; PRs sit waiting for a human like before.
+#   2. Settings → Actions → General → Workflow permissions →
+#      "Allow GitHub Actions to create and approve pull requests"
+#      Without this, `gh pr review --approve` fails with "GitHub
+#      Actions is not permitted to approve pull requests". We tolerate
+#      that failure below so the auto-merge step still runs — handy
+#      when branch protection doesn't require an explicit approval
+#      (only required checks). If branch protection DOES require
+#      approval, the queued auto-merge will sit until a human reviews.
 
 on:
   pull_request_target:
@@ -51,15 +60,27 @@ jobs:
           # bump it isn't.
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve + auto-merge minor / patch
+      - name: Approve PR (tolerant)
+        # Best-effort. Fails when the repo hasn't enabled "Allow GitHub
+        # Actions to create and approve pull requests" (see header
+        # comment) — that's a configuration choice, not a CI bug, so we
+        # don't fail the workflow over it. The auto-merge step below
+        # still runs and will land the PR if branch protection allows
+        # it without an explicit approval.
+        if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review --approve "$PR_URL"
+
+      - name: Queue auto-merge (minor + patch)
+        # `--auto --squash` lands the merge as soon as every required
+        # check turns green. If branch protection blocks the merge,
+        # `--auto` queues it — the user can land it manually after
+        # the protection is satisfied.
         if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          gh pr review --approve "$PR_URL"
-          # `--auto --squash` lands the merge as soon as every required
-          # check turns green. If branch protection blocks the merge,
-          # `--auto` queues it — the user can land it manually after
-          # the protection is satisfied.
-          gh pr merge --auto --squash "$PR_URL"
+        run: gh pr merge --auto --squash "$PR_URL"
