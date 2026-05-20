@@ -18,10 +18,29 @@
  *   });
  */
 
-import { writeFileSync, mkdirSync, readFileSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
+
+// Atomic O_CREAT|O_EXCL write with user-only perms. Path is predictable
+// by design (cross-process handoff into the cypress plugin's after:run
+// drain step). The exclusive flag refuses any pre-existing entry,
+// including a symlink an attacker may have planted; we retry once
+// after unlinking. unlinkSync on a symlink removes the link, not the
+// target.
+function safeBufferWrite(path: string, data: string): void {
+  try {
+    writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+  } catch (err: any) {
+    if (err && err.code === "EEXIST") {
+      unlinkSync(path);
+      writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+    } else {
+      throw err;
+    }
+  }
+}
 
 // ---- Types ----
 
@@ -283,13 +302,13 @@ class FlakeyCypressReporter {
 
   private saveToTmp() {
     const dir = getBufferDir();
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
 
     for (const { spec, tests } of this.specMap.values()) {
       spec.tests = tests;
       const safeName = spec.file_path.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 100);
       const filePath = join(dir, `${safeName}_${Date.now()}.json`);
-      writeFileSync(filePath, JSON.stringify(spec));
+      safeBufferWrite(filePath, JSON.stringify(spec));
     }
   }
 }

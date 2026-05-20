@@ -71,7 +71,7 @@ test("LocalStorage.put rejects destKey with traversal segments (..)", async () =
   const Storage = await loadLocalStorage();
   const s = new Storage(mkdtempSync(join(tmpdir(), "storage-test-")));
 
-  const tmp = join(tmpdir(), `evil-${Date.now()}.bin`);
+  const tmp = join(mkdtempSync(join(tmpdir(), "storage-src-")), "evil.bin");
   writeFileSync(tmp, "evil-payload");
 
   await assert.rejects(
@@ -88,7 +88,7 @@ test("LocalStorage.put rejects deeply traversal destKeys (../../...)", async () 
   const Storage = await loadLocalStorage();
   const s = new Storage(mkdtempSync(join(tmpdir(), "storage-test-")));
 
-  const tmp = join(tmpdir(), `evil-${Date.now()}.bin`);
+  const tmp = join(mkdtempSync(join(tmpdir(), "storage-src-")), "evil.bin");
   writeFileSync(tmp, "evil-payload");
 
   await assert.rejects(
@@ -104,7 +104,7 @@ test("LocalStorage.put rejects null bytes in destKey", async () => {
   const Storage = await loadLocalStorage();
   const s = new Storage(mkdtempSync(join(tmpdir(), "storage-test-")));
 
-  const tmp = join(tmpdir(), `evil-${Date.now()}.bin`);
+  const tmp = join(mkdtempSync(join(tmpdir(), "storage-src-")), "evil.bin");
   writeFileSync(tmp, "evil-payload");
 
   await assert.rejects(

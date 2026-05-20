@@ -25,6 +25,25 @@ import { execSync } from "child_process";
 import { LiveClient, installShutdownHandler } from "./index.js";
 
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
+
+// Atomic O_CREAT|O_EXCL write with user-only perms. The path is
+// predictable by design (cross-process handoff to the cypress plugin
+// and the Mocha reporter — both sides need to find it), so we rely
+// on the exclusive flag to refuse any pre-existing entry, including
+// a symlink an attacker may have planted, then retry once after
+// unlinking. unlinkSync on a symlink removes the link, not the target.
+function safeHandoffWrite(path: string, data: string): void {
+  try {
+    writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+  } catch (err: any) {
+    if (err && err.code === "EEXIST") {
+      unlinkSync(path);
+      writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+    } else {
+      throw err;
+    }
+  }
+}
 // Home-dir fallback for the singleton handoff file. tmpdir() isn't reliable
 // across Cypress 15's process tree (different subprocesses resolve different
 // TMPDIR env vars); homedir() is. cwd() would also work but process.cwd()
@@ -161,12 +180,12 @@ export function register(
               }
               process.env.FLAKEY_LIVE_RUN_ID = String(runId);
               try {
-                mkdirSync(FLAKEY_BASE_DIR, { recursive: true });
+                mkdirSync(FLAKEY_BASE_DIR, { recursive: true, mode: 0o700 });
                 // Write one run-id file per ancestor pid so the Mocha reporter
                 // (which may live in a different process tree branch) can find
                 // a match by walking its own ancestor chain.
                 for (const pid of getAncestorPids(process.pid)) {
-                  writeFileSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
+                  safeHandoffWrite(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
                 }
                 // Singleton fallback — some Cypress versions (observed in 15.14)
                 // put the Mocha reporter in a process tree that shares NO
@@ -177,13 +196,13 @@ export function register(
                 // a `.flakey-live-run-id` file in cwd — which IS stable across
                 // the Cypress process tree. Both plugin and Mocha reporter
                 // resolve cwd to the invocation dir.
-                writeFileSync(join(FLAKEY_BASE_DIR, "latest-run-id"), String(runId));
+                safeHandoffWrite(join(FLAKEY_BASE_DIR, "latest-run-id"), String(runId));
                 // Home-dir singleton — works even when TMPDIR and cwd diverge
                 // across Cypress's process tree. This is the fallback the
                 // Mocha reporter relies on in Cypress 15+.
                 try {
-                  mkdirSync(FLAKEY_HOME_DIR, { recursive: true });
-                  writeFileSync(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
+                  mkdirSync(FLAKEY_HOME_DIR, { recursive: true, mode: 0o700 });
+                  safeHandoffWrite(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
                 } catch { /* ignore — the tmpdir path may still work */ }
               } catch { /* ignore */ }
               if (verbose) {

@@ -20,6 +20,25 @@ import { join, basename } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 
+// Atomic O_CREAT|O_EXCL write with user-only perms. Path is predictable
+// by design (cross-process handoff between Cypress's setupNodeEvents and
+// the Mocha reporter — both sides need to find it). The exclusive flag
+// refuses any pre-existing entry, including a symlink an attacker may
+// have planted; we retry once after unlinking. unlinkSync on a symlink
+// removes the link, not the target.
+function safeBufferWrite(path: string, data: string): void {
+  try {
+    writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+  } catch (err: any) {
+    if (err && err.code === "EEXIST") {
+      unlinkSync(path);
+      writeFileSync(path, data, { flag: "wx", mode: 0o600 });
+    } else {
+      throw err;
+    }
+  }
+}
+
 // Buffer dirs scoped by the numeric live-run-id (written by live-reporter
 // under every ancestor pid it can see). Both the plugin and the Mocha
 // reporter walk their own ancestor chains to find a matching live-run-id
@@ -201,9 +220,9 @@ export function flakeyReporter(
   on("task", {
     "flakey:saveCommandLog"(data: { testTitle: string; specFile: string; commands: object[] }) {
       const { cmd } = getBufferDirs();
-      mkdirSync(cmd, { recursive: true });
+      mkdirSync(cmd, { recursive: true, mode: 0o700 });
       const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
-      writeFileSync(join(cmd, `${safeName}.json`), JSON.stringify(data));
+      safeBufferWrite(join(cmd, `${safeName}.json`), JSON.stringify(data));
       return null;
     },
   });
