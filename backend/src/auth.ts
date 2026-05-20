@@ -208,11 +208,18 @@ function parseCookie(cookieHeader: string | undefined, name: string): string | n
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   let candidate: AuthUser | null = null;
+  // Server-controlled flag: true only when verifyApiKey actually
+  // returned a candidate. Don't re-derive the auth path from
+  // `authHeader.startsWith("Bearer fk_")` later — that would let a
+  // user smuggle `Authorization: Bearer fk_…` past a still-valid
+  // cookie session to skip the staleness check below.
+  let authedViaApiKey = false;
 
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     if (token.startsWith("fk_")) {
       candidate = await verifyApiKey(token).catch(() => null);
+      if (candidate) authedViaApiKey = true;
     } else {
       candidate = verifyToken(token);
     }
@@ -231,11 +238,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 
   // Session-staleness check: re-read org_members on every request.
-  // Skip when verifyApiKey already populated `candidate` — the API
-  // key path resolves orgRole from the live row above, so its
-  // candidate is non-stale by construction. The JWT/cookie paths
-  // carry sign-time claims and need the re-read.
-  if (!authHeader?.startsWith("Bearer fk_")) {
+  // Skip only when the candidate actually came from verifyApiKey —
+  // that path resolves orgRole from the live row, so its candidate
+  // is non-stale by construction. The JWT/cookie paths carry
+  // sign-time claims and need the re-read.
+  if (!authedViaApiKey) {
     const member = await pool.query(
       "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
       [candidate.orgId, candidate.id],

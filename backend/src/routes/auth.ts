@@ -14,6 +14,50 @@ const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === "t
 
 const router = Router();
 
+/**
+ * Pull the refresh token out of either the JSON body or the
+ * `flakey_refresh` cookie and verify it server-side. Returns a
+ * normalized result so callers branch on a server-controlled value,
+ * not on the user-supplied string itself. Callers MUST treat `null`
+ * as "no valid refresh token to act on".
+ *
+ * CodeQL js/user-controlled-bypass flags `if (refreshTokenValue) …`
+ * because the user supplies the value. The actual security check
+ * is jwt.verify with the server secret — once that succeeds and
+ * payload.type === "refresh", the resulting `{ id, jti }` is
+ * server-attested, not attacker-forgeable. This helper centralises
+ * that check so each route's guard is a `null` test against a
+ * verified result.
+ */
+function extractAndVerifyRefreshToken(
+  req: import("express").Request,
+): { id: number; jti: string | null } | null {
+  let value: string | undefined = req.body?.refreshToken;
+  if (!value) {
+    const cookieHeader = req.headers.cookie;
+    if (cookieHeader) {
+      const match = cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("flakey_refresh="));
+      if (match) value = match.split("=").slice(1).join("=");
+    }
+  }
+  if (!value) return null;
+  try {
+    const payload = jwt.verify(value, getJwtSecret(), { algorithms: ["HS256"] }) as any;
+    if (payload?.type !== "refresh") return null;
+    const id = Number(payload.id);
+    if (!Number.isFinite(id)) return null;
+    return {
+      id,
+      jti: typeof payload.jti === "string" ? payload.jti : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Get the user's org (first one, or create a personal org). */
 async function resolveOrg(userId: number, email: string): Promise<{ orgId: number; orgRole: string }> {
   const membership = await pool.query(
@@ -256,22 +300,9 @@ router.post("/register", async (req, res) => {
 // POST /auth/refresh — exchange refresh token for new access token
 router.post("/refresh", async (req, res) => {
   try {
-    // Check cookie first, then body
-    const cookieHeader = req.headers.cookie;
-    let refreshTokenValue = req.body.refreshToken;
-    if (!refreshTokenValue && cookieHeader) {
-      const match = cookieHeader.split(";").map((c) => c.trim()).find((c) => c.startsWith("flakey_refresh="));
-      if (match) refreshTokenValue = match.split("=").slice(1).join("=");
-    }
-
-    if (!refreshTokenValue) {
-      res.status(400).json({ error: "Refresh token required" });
-      return;
-    }
-
-    const payload = jwt.verify(refreshTokenValue, getJwtSecret(), { algorithms: ["HS256"] }) as any;
-    if (payload.type !== "refresh") {
-      res.status(401).json({ error: "Invalid refresh token" });
+    const verified = extractAndVerifyRefreshToken(req);
+    if (!verified) {
+      res.status(401).json({ error: "Invalid or expired refresh token" });
       return;
     }
 
@@ -279,13 +310,13 @@ router.post("/refresh", async (req, res) => {
     // carry a jti — those legacy tokens stay usable until their
     // natural exp (max 7d) so the upgrade doesn't sign out every
     // active user on deploy.
-    if (typeof payload.jti === "string") {
+    if (verified.jti) {
       // userScopedQuery sets app.current_user_id so the
       // revoked_refresh_tokens RLS policy (migration 040) admits the row.
       const revoked = await userScopedQuery(
-        Number(payload.id),
+        verified.id,
         "SELECT 1 FROM revoked_refresh_tokens WHERE jti = $1",
-        [payload.jti],
+        [verified.jti],
       );
       if (revoked.rowCount && revoked.rowCount > 0) {
         res.status(401).json({ error: "Refresh token has been revoked" });
@@ -295,7 +326,7 @@ router.post("/refresh", async (req, res) => {
 
     const userResult = await pool.query(
       "SELECT id, email, name, role FROM users WHERE id = $1",
-      [payload.id]
+      [verified.id]
     );
     if (userResult.rows.length === 0) {
       res.status(401).json({ error: "User not found" });
@@ -313,11 +344,11 @@ router.post("/refresh", async (req, res) => {
     // attacker captures a refresh token but the legitimate user
     // refreshes first, the attacker's subsequent /auth/refresh
     // 401s — self-detection of the compromise.
-    if (typeof payload.jti === "string") {
+    if (verified.jti) {
       await userScopedQuery(
-        Number(payload.id),
+        verified.id,
         "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
-        [payload.jti, payload.id],
+        [verified.jti, verified.id],
       );
     }
 
@@ -330,41 +361,17 @@ router.post("/refresh", async (req, res) => {
 
 // POST /auth/logout — clear cookies and revoke the current refresh token
 router.post("/logout", async (req, res) => {
-  // Try to find the refresh token in (a) the body, (b) the
-  // flakey_refresh cookie, in that order. Revoke its jti so a
-  // captured copy cannot be reused after the user logs out.
   // Logout is idempotent: a missing / invalid / legacy (no-jti)
   // token is a no-op on the revocation side; cookies are cleared
-  // regardless.
-  let refreshTokenValue: string | undefined = req.body?.refreshToken;
-  const cookieHeader = req.headers.cookie;
-  if (!refreshTokenValue && cookieHeader) {
-    const match = cookieHeader
-      .split(";")
-      .map((c) => c.trim())
-      .find((c) => c.startsWith("flakey_refresh="));
-    if (match) refreshTokenValue = match.split("=").slice(1).join("=");
-  }
-
-  if (refreshTokenValue) {
-    try {
-      const payload = jwt.verify(
-        refreshTokenValue,
-        getJwtSecret(),
-        { algorithms: ["HS256"] },
-      ) as any;
-      if (payload.type === "refresh" && typeof payload.jti === "string") {
-        await userScopedQuery(
-          Number(payload.id),
-          "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
-          [payload.jti, payload.id],
-        );
-      }
-    } catch {
-      // Invalid / expired token — nothing to revoke. Continue
-      // with the cookie clear so the caller's session state is
-      // still tidy.
-    }
+  // regardless. The helper does the server-side verify so the
+  // revocation INSERT only fires for a real, server-signed token.
+  const verified = extractAndVerifyRefreshToken(req);
+  if (verified && verified.jti) {
+    await userScopedQuery(
+      verified.id,
+      "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
+      [verified.jti, verified.id],
+    );
   }
 
   clearTokenCookies(res);
