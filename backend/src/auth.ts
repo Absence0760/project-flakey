@@ -228,8 +228,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // session cookie must reject, otherwise revocation isn't honoured
     // when the two are sent together (browser tab with a stale key).
   } else {
-    const cookieToken = parseCookie(req.headers.cookie, "flakey_token");
-    if (cookieToken) candidate = verifyToken(cookieToken);
+    // Always call verifyToken — passing "" (no cookie present) returns
+    // null via the catch, same as a malformed token. The earlier
+    // `if (cookieToken) candidate = verifyToken(...)` form gated a
+    // sensitive action on a user-controlled value, which CodeQL flags
+    // as js/user-controlled-bypass — same shape as the three b9735aa
+    // refactored away. The !candidate check below is the real gate.
+    const cookieToken = parseCookie(req.headers.cookie, "flakey_token") ?? "";
+    candidate = verifyToken(cookieToken);
   }
 
   if (!candidate) {
