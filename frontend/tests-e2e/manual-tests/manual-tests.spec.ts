@@ -59,10 +59,9 @@ test.describe("/manual-tests", () => {
     await expect(failedTab).toHaveClass(/active/);
     await expect(page.locator("table.tests tbody tr").first()).toBeVisible();
 
-    // Every visible row's status pill should read "failed".
-    const statusBadges = page.locator("table.tests tbody tr .status-badge, table.tests tbody tr td span.priority");
-    // The status column renders inside the row; we can also assert
-    // none of the rows show "passed" pill text.
+    // The status column renders inside the row; assert none of the
+    // visible rows show the pass dot — the "failed" filter tab is
+    // exclusive (no other status leaks through).
     await expect(page.locator("table.tests tbody tr .dot.pass")).toHaveCount(0);
   });
 

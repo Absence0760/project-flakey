@@ -16,7 +16,7 @@
 
 import WDIOReporter from "@wdio/reporter";
 import type { RunnerStats, SuiteStats, TestStats } from "@wdio/reporter";
-import { readFileSync, readdirSync, statSync, existsSync } from "fs";
+import { readdirSync, statSync, existsSync } from "fs";
 import { join, basename } from "path";
 import type { ReporterOptions, NormalizedRun, NormalizedSpec, NormalizedTest } from "@flakeytesting/core";
 import { ApiClient } from "@flakeytesting/core";

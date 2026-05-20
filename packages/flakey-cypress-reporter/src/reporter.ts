@@ -18,8 +18,8 @@
  *   });
  */
 
-import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from "fs";
-import { join, basename } from "path";
+import { writeFileSync, mkdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 

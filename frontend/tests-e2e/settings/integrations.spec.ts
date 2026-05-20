@@ -21,7 +21,6 @@ import { VIEWER_USER } from "../fixtures/users";
  */
 
 const BACKEND = "http://localhost:3000";
-const POLL_TIMEOUT = 10_000;
 
 async function getToken(page: Page): Promise<string> {
   return page.evaluate(() => localStorage.getItem("bt_token") ?? "");

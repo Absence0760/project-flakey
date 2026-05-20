@@ -108,16 +108,6 @@ function verifyToken(token: string): AuthUser | null {
   }
 }
 
-function verifyRefreshToken(token: string): { id: number } | null {
-  try {
-    const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS) as any;
-    if (payload.type !== "refresh") return null;
-    return { id: payload.id };
-  } catch {
-    return null;
-  }
-}
-
 async function verifyApiKey(key: string): Promise<AuthUser | null> {
   const prefix = key.slice(0, 8);
   // verify_api_key (migration 041) does the bcrypt comparison

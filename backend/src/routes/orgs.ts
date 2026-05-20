@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import pool from "../db.js";
-import { requireAuth, signToken, normalizeEmail } from "../auth.js";
+import { signToken, normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { encryptSecret } from "../crypto.js";
 import { validateWebhookUrl } from "./webhooks.js";

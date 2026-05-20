@@ -32,8 +32,6 @@ import { expect, test, type APIRequestContext, type Page } from "../fixtures/tes
  *      the same run does NOT pick it up.
  */
 
-const POLL_TIMEOUT = 10_000;
-
 async function getToken(page: Page): Promise<string> {
   return page.evaluate(() => localStorage.getItem("bt_token") ?? "");
 }

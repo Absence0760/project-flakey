@@ -10,8 +10,8 @@
  * visual replay similar to Cypress DOM snapshots.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { join, basename } from "path";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { join } from "path";
 import { gzipSync } from "zlib";
 import AdmZip from "adm-zip";
 

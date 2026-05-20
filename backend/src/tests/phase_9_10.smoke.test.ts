@@ -1556,7 +1556,7 @@ test("POST /live/start records environment and merge backfills it (issue #21)", 
     environment: "stage",
   });
   assert.equal(start.status, 201);
-  const { id: liveRunId, ci_run_id } = (await start.json()) as { id: number; ci_run_id: string };
+  const { id: liveRunId } = (await start.json()) as { id: number; ci_run_id: string };
 
   const detail = await authGet(`/runs/${liveRunId}`);
   const detailBody = (await detail.json()) as { environment?: string };

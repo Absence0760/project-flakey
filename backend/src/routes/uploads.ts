@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { basename, join } from "path";
+import { basename } from "path";
 import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";

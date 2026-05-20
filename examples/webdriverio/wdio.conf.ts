@@ -1,5 +1,4 @@
-import { readFileSync, readdirSync, existsSync, rmSync, mkdirSync } from "fs";
-import { join, basename } from "path";
+import { readFileSync, existsSync } from "fs";
 import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
 import FlakeyLiveReporter from "@flakeytesting/live-reporter/webdriverio";
 

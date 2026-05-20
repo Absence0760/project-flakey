@@ -134,14 +134,10 @@ test.describe("/releases/<id> — sessions", () => {
       await session1Details.locator("summary").first().click();
     }
 
-    // Look for the accepted-as-known-issue marker near "Ship to
-    // international address". The seed sets known_issue_ref on that
-    // result, so somewhere in the row for that test there's a link
-    // to the Jira issue (ACME-482) or the dim "accepted" tag.
-    const acceptedIndicator = page.locator(":has-text('Ship to international address')").locator(":text-matches('ACME-482|Accepted|Known issue', 'i')").first();
-    // Accept-as-known-issue is a contract — at minimum we can see the
-    // word somewhere on the page once history is expanded. If the
-    // row lookup is too brittle, just assert the page content.
+    // Accept-as-known-issue is a contract — at minimum the marker
+    // for "Ship to international address" (ACME-482, "accepted",
+    // or "known issue") is visible somewhere on the page once
+    // history is expanded.
     await expect(page.getByText(/ACME-482|Known issue|accepted/i).first()).toBeVisible({
       timeout: 5_000,
     });

@@ -1,7 +1,5 @@
 import { expect, test } from "../fixtures/test";
 
-import { ADMIN_USER } from "../fixtures/users";
-
 /**
  * /manual-tests — requirement-link CRUD on the test detail modal.
  *

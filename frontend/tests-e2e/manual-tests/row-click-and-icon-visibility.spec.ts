@@ -91,10 +91,6 @@ test.describe("/manual-tests reorder icon buttons are visible at rest", () => {
 
 test.describe("/manual-tests rows are clickable anywhere — match runs-list pattern", () => {
 
-  async function getDetailModal(page: Page) {
-    return page.locator(".modal").filter({ hasText: /^Manual test detail|Steps|Run|Test session/ }).first();
-  }
-
   test("clicking the row body (not the title) opens the detail modal", async ({ page }) => {
     test.setTimeout(30_000);
     await page.goto("/manual-tests");

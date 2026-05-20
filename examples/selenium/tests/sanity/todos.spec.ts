@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "mocha";
 import { expect } from "chai";
-import { WebDriver, By, Key, until } from "selenium-webdriver";
+import { WebDriver, By, Key } from "selenium-webdriver";
 import { createDriver, url } from "../helpers.js";
 
 describe("Todos", () => {
