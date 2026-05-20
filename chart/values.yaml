@@ -103,7 +103,13 @@ smtp:
   port: 587
   secure: true
   user: ""
-  password: ""
+  # -- SMTP password. Intentionally NOT defaulted to "" here — an empty
+  # default is what CodeQL flags as js/empty-password-in-configuration-file.
+  # The chart template only renders the SMTP_PASSWORD secret when
+  # `smtp.enabled` AND `smtp.password` are both truthy, so an unset
+  # value cleanly disables auth. For production: set this via
+  # `existingSecret` (key: smtp-password) rather than plaintext here.
+  # password: ""
   from: "Flakey <noreply@example.com>"
   # -- Use an existing secret for SMTP password (key: smtp-password)
   existingSecret: ""
