@@ -84,7 +84,7 @@ function getErrorType(node: JUnitTestCase["failure"]): string | undefined {
 function getSkipMessage(node: JUnitTestCase["skipped"]): string | undefined {
   if (node === undefined || node === null) return undefined;
   if (typeof node === "string") return node;
-  if (typeof node === "object" && node !== null) {
+  if (typeof node === "object") {
     const obj = node as { "@_message"?: string; "#text"?: string };
     return obj["@_message"] || obj["#text"] || undefined;
   }
