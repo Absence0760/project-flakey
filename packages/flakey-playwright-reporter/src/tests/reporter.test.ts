@@ -443,7 +443,7 @@ test("options win over env: explicit url/apiKey/suite override FLAKEY_* env vars
     await r.onEnd({ status: "passed" });
 
     const call = fetchMock.calls[0];
-    assert.match(call.url, /options-url\.example\.com/);
+    assert.match(call.url, /^https:\/\/options-url\.example\.com\//);
     assert.equal(call.opts.headers.Authorization, "Bearer fk_options_key");
     const payload = uploadPayload(fetchMock.calls);
     assert.equal(payload.meta.suite_name, "options-suite");
