@@ -88,16 +88,27 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Regenerate lockfile
+      - name: Regenerate root lockfile
         # --lockfile-only updates pnpm-lock.yaml without populating
         # node_modules. pnpm does not run any lifecycle scripts in this
         # mode; --ignore-scripts is redundant but explicit.
         run: pnpm install --lockfile-only --ignore-scripts
 
-      - name: Bail if lockfile unchanged
+      - name: Regenerate frontend lockfile
+        # frontend/ is NOT a workspace member (pnpm-workspace.yaml only
+        # globs packages/*), so it carries its own lockfile and the root
+        # install above ignores it. Without this step, a Dependabot bump
+        # to frontend/package.json leaves frontend/pnpm-lock.yaml stale,
+        # which fails tests.yml's `pnpm install --frozen-lockfile
+        # --ignore-workspace` step. That's what bit commit 12fd2e4 and
+        # required a manual lockfile regen on top of the bot PR.
+        working-directory: frontend
+        run: pnpm install --lockfile-only --ignore-scripts --ignore-workspace
+
+      - name: Bail if no lockfiles changed
         id: diff
         run: |
-          if git diff --quiet pnpm-lock.yaml; then
+          if git diff --quiet pnpm-lock.yaml frontend/pnpm-lock.yaml; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -107,8 +118,13 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pnpm-lock
-          path: pnpm-lock.yaml
+          # Single artifact bundles both lockfiles; upload-artifact
+          # preserves the relative paths so the push job can `cp` each
+          # one back into place.
+          name: pnpm-locks
+          path: |
+            pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
           retention-days: 1
 
   push:
@@ -142,12 +158,14 @@ jobs:
         if: steps.gate.outputs.skip == 'false'
         # actions/download-artifact returns a non-fatal error when the
         # artifact doesn't exist — that's the "no change" path from
-        # the regenerate job.
+        # the regenerate job. The artifact preserves relative paths,
+        # so this drops pnpm-lock.yaml at CWD root and
+        # frontend/pnpm-lock.yaml under a frontend/ subdir.
         id: download
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: pnpm-lock
+          name: pnpm-locks
 
       - name: Validate + push lockfile
         if: steps.gate.outputs.skip == 'false' && steps.download.outcome == 'success'
@@ -180,13 +198,19 @@ jobs:
           git fetch origin "$PR_HEAD_REF" --depth 1
           git checkout "$PR_HEAD_SHA"
 
-          # Replace the lockfile with the regenerated one.
+          # Replace each lockfile with its regenerated version. The
+          # artifact preserves relative paths, so the source files sit
+          # at $GITHUB_WORKSPACE/pnpm-lock.yaml and
+          # $GITHUB_WORKSPACE/frontend/pnpm-lock.yaml (i.e. ../ from
+          # push-workspace/). The frontend/ directory already exists
+          # in the PR-head checkout, so no mkdir is needed.
           cp ../pnpm-lock.yaml ./pnpm-lock.yaml
+          cp ../frontend/pnpm-lock.yaml ./frontend/pnpm-lock.yaml
 
-          if git diff --quiet pnpm-lock.yaml; then
-            echo "Lockfile already in sync after fetch — nothing to commit."
+          if git diff --quiet pnpm-lock.yaml frontend/pnpm-lock.yaml; then
+            echo "Lockfiles already in sync after fetch — nothing to commit."
             exit 0
           fi
-          git add pnpm-lock.yaml
-          git commit -m "chore: sync pnpm-lock.yaml"
+          git add pnpm-lock.yaml frontend/pnpm-lock.yaml
+          git commit -m "chore: sync pnpm lockfiles"
           git push origin "HEAD:${PR_HEAD_REF}"
