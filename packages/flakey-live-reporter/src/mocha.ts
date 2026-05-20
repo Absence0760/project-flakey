@@ -173,10 +173,22 @@ export function register(
               }),
             });
             if (res.ok) {
-              const data = await res.json() as { id: number; ci_run_id: string };
-              runId = data.id;
-              if (data.ci_run_id) {
-                process.env.CI_RUN_ID = data.ci_run_id;
+              const raw = await res.json() as { id?: unknown; ci_run_id?: unknown };
+              // Validate the run id is a finite positive integer
+              // before it goes anywhere near process.env or the
+              // filesystem. A compromised /live/start endpoint could
+              // otherwise return an object whose `id` field smuggles
+              // a surprising value (long string, object, NaN) into
+              // every path computed below.
+              if (typeof raw.id !== "number" || !Number.isFinite(raw.id) || raw.id <= 0) {
+                if (verbose) {
+                  console.warn("[flakey-live] /live/start returned a non-numeric id; skipping run-id handoff");
+                }
+                return;
+              }
+              runId = raw.id;
+              if (typeof raw.ci_run_id === "string") {
+                process.env.CI_RUN_ID = raw.ci_run_id;
               }
               process.env.FLAKEY_LIVE_RUN_ID = String(runId);
               try {
@@ -206,7 +218,7 @@ export function register(
                 } catch { /* ignore — the tmpdir path may still work */ }
               } catch { /* ignore */ }
               if (verbose) {
-                console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${data.ci_run_id})`);
+                console.log(`[flakey-live] Live run started: #${runId} (ci_run_id: ${typeof raw.ci_run_id === "string" ? raw.ci_run_id : ""})`);
               }
             }
           } catch (err) {
