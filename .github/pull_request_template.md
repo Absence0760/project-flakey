@@ -11,33 +11,37 @@
 
 ## Surface touched
 
-- [ ] Application code (`src/` once it lands)
-- [ ] Database migrations
+- [ ] Backend API (`backend/src/`)
+- [ ] Database migrations (`backend/migrations/`)
+- [ ] Frontend dashboard (`frontend/src/`)
+- [ ] Reporter / CLI / MCP package (`packages/*/src/`)
 - [ ] Infrastructure (`infra/`)
-- [ ] Operator scripts (`bin/`)
-- [ ] CI / GitHub Actions (`.github/`)
-- [ ] E2E tests (`tests-e2e/`)
+- [ ] CI / GitHub Actions (`.github/workflows/`)
+- [ ] E2E tests (`frontend/tests-e2e/`)
+- [ ] Examples (`examples/`)
 - [ ] Docs only
 
-## Money / data safety checklist
+## Multi-tenant / security checklist
 
 <!-- Tick what applies. Untick lines that genuinely don't apply, but
      don't delete the row — so the next reviewer can see you considered
-     it. -->
+     it. See CLAUDE.md for the four trust boundaries. -->
 
-- [ ] No new path moves money (or: the new path is idempotent and writes an audit row)
-- [ ] No new query reads tenant-scoped data without scoping (or: the scoping helper is used)
-- [ ] No new endpoint is mounted before the auth middleware
-- [ ] No PII / banking data is logged or returned to unauthenticated callers
-- [ ] No secret has a hardcoded fallback (`process.env.X || "..."`)
-- [ ] Money columns / variables use a fixed-precision type, not `float`/`number`
+- [ ] New tenant-table reads go through `tenantQuery` / `tenantTransaction` (no raw `pool.query` against `runs` / `specs` / `tests` / org-scoped tables)
+- [ ] New endpoint is mounted under the `requireAuth` middleware (or has a documented reason it's public)
+- [ ] New migration enables RLS on every new tenant table and ships matching policies
+- [ ] Uploaded-filename paths are sanitised before joining into a storage key
+- [ ] No server-only secret (`JWT_SECRET`, `FLAKEY_ENCRYPTION_KEY`, integration tokens) is read from the client bundle
+- [ ] No required secret has a hardcoded fallback (`process.env.X || "..."`)
+- [ ] User-rendered content uses `{value}` not `{@html value}` (or escaping is justified inline)
 
 ## Test plan
 
 <!-- How this was verified. Delete rows that don't apply. -->
 
-- [ ] Unit tests pass locally
-- [ ] Integration tests pass locally
+- [ ] `npm test` passes in `backend/`
+- [ ] `pnpm check` passes in `frontend/`
+- [ ] `pnpm test:e2e` passes (when the change affects routed UI)
 - [ ] Manual walkthrough on the affected surface (describe below)
 
 <!-- Manual walkthrough notes: -->
