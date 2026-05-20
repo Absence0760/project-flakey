@@ -12,6 +12,7 @@ import { getStorage } from "../storage.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import { rejectExecutableAttachments, safeUnlinkTmp, wrapMulter } from "../upload-filters.js";
 import type { NormalizedRun } from "../types.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 // Per-field size caps. Multer's `limits.fileSize` is global, so we hold
@@ -290,7 +291,7 @@ router.post("/", uploadFields, async (req, res) => {
       }
     }
   } catch (err) {
-    console.error("POST /runs/upload error:", err);
+    console.error("POST /runs/upload error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

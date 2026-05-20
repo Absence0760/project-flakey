@@ -5,6 +5,7 @@ import { tenantQuery } from "../db.js";
 import { liveEvents, type LiveTestEvent } from "../live-events.js";
 import { getStorage } from "../storage.js";
 import { safeUnlinkTmp } from "../upload-filters.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
@@ -655,7 +656,7 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
 
     res.status(200).json({ key });
   } catch (err) {
-    console.error("POST /live/:runId/snapshot error:", err);
+    console.error("POST /live/:runId/snapshot error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   } finally {
     // Always reap multer's temp file so a 4xx / 5xx / mid-loop throw
@@ -756,7 +757,7 @@ router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (
 
     res.status(200).json({ key });
   } catch (err) {
-    console.error("POST /live/:runId/screenshot error:", err);
+    console.error("POST /live/:runId/screenshot error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (file) safeUnlinkTmp(file.path);

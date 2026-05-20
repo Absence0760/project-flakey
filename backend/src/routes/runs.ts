@@ -8,6 +8,7 @@ import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import type { NormalizedRun } from "../types.js";
 import { getStorage } from "../storage.js";
 import { forgetLiveRun } from "./live.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
@@ -146,7 +147,7 @@ router.post("/", async (req, res) => {
 
     res.status(merged ? 200 : 201).json({ id: runId!, merged });
   } catch (err) {
-    console.error("POST /runs error:", err);
+    console.error("POST /runs error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

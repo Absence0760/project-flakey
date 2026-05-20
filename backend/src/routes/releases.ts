@@ -13,6 +13,7 @@ import {
 } from "../integrations/jira.js";
 import { getStorage } from "../storage.js";
 import { validateRefUrl } from "../url-validation.js";
+import { safeLog } from "../log.js";
 import { safeUnlinkTmp } from "../upload-filters.js";
 
 const evidenceUpload = multer({
@@ -1742,7 +1743,7 @@ router.post(
       );
       res.json({ added: responseAdded });
     } catch (err) {
-      console.error("POST evidence error:", err);
+      console.error("POST evidence error:", safeLog(err));
       res.status(500).json({ error: "Internal server error" });
     } finally {
       // Always reap the multer temp files — without this, every
