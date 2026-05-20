@@ -14,6 +14,14 @@ name: Security
 #
 # Pinning discipline: every action below is pinned by commit SHA with
 # the tag in a trailing comment, per the audit:deps skill's GHA pass.
+#
+# Note on CodeQL's `actions/unnecessary-use-of-advanced-config` alert:
+# we use the advanced (workflow-file) CodeQL config rather than GitHub's
+# "default setup" because this workflow is also where the Trivy
+# container scan and the per-language category splits live — features
+# default setup doesn't model. Keeping CodeQL inline keeps all SARIF
+# producers in one place. The two open alerts on the `init` steps
+# below are dismissed-by-design.
 
 on:
   push:
