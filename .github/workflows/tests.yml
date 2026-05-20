@@ -3,8 +3,12 @@ name: Tests
 # Runs the full test surface on every PR + every push to main, plus
 # on manual workflow_dispatch. Four jobs, three of them independent
 # (parallel) and one (Playwright e2e) gated on the backend suite so
-# we don't burn ~10 min of e2e spend on a PR that already failed at
-# the backend unit/smoke layer.
+# we don't burn e2e spend on a PR that already failed at the backend
+# unit/smoke layer. The e2e job itself is a 4-shard matrix — each
+# shard runs Playwright's `--shard=N/4` slice against its own
+# Postgres + backend, so spec-execution wall time is parallelized
+# across runners on top of the per-shard `workers: 4` already in
+# playwright.config.ts.
 #
 # Service containers: Postgres 16-alpine matching docker-compose.yml,
 # seeded with the same admin@example.com / demo@example.com /
@@ -14,6 +18,18 @@ name: Tests
 on:
   pull_request:
     branches: [main]
+    # Skip the full test surface on docs-only PRs — saves ~4 runner
+    # minutes per shard. If `Tests` is ever added as a required status
+    # check on `main`, the trigger-level paths-ignore would also skip
+    # the check entirely (GitHub may treat that as "Expected" and
+    # block the merge); move the filter to a gating job at that point.
+    # `push: main` stays unfiltered so the post-merge run still
+    # validates main even if the PR itself was skipped.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".claude/**"
+      - "LICENSE"
   push:
     branches: [main]
   workflow_dispatch:
@@ -39,11 +55,16 @@ jobs:
           POSTGRES_PASSWORD: flakey
           POSTGRES_DB: flakey
         ports: ["5432:5432"]
+        # Mount PGDATA on tmpfs so seed + test I/O never touches the
+        # runner's disk. Container is torn down at job end; durability
+        # is irrelevant here. `--tmpfs` with no size= uses the default
+        # (half of host RAM) which is plenty for a short-lived CI DB.
         options: >-
           --health-cmd "pg_isready -U flakey"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+          --tmpfs /var/lib/postgresql/data
     defaults:
       run:
         working-directory: backend
@@ -119,11 +140,18 @@ jobs:
       - run: pnpm check
 
   e2e:
-    name: Frontend e2e (Playwright)
+    name: Frontend e2e (Playwright) — shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    # Gate e2e on the backend suite passing so we don't burn ~10 min
-    # of Playwright spend on a PR that's already broken below.
+    # Gate e2e on the backend suite passing so we don't burn Playwright
+    # spend on a PR that's already broken below.
     needs: [backend]
+    strategy:
+      # Don't cancel sibling shards on the first failure — surfacing
+      # every failing shard's report makes triage cheaper than
+      # re-running CI to see what else broke.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16-alpine
@@ -132,11 +160,16 @@ jobs:
           POSTGRES_PASSWORD: flakey
           POSTGRES_DB: flakey
         ports: ["5432:5432"]
+        # Mount PGDATA on tmpfs so seed + test I/O never touches the
+        # runner's disk. Container is torn down at job end; durability
+        # is irrelevant here. `--tmpfs` with no size= uses the default
+        # (half of host RAM) which is plenty for a short-lived CI DB.
         options: >-
           --health-cmd "pg_isready -U flakey"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+          --tmpfs /var/lib/postgresql/data
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -147,6 +180,16 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      # `setup-node` only manages one package-manager cache per call.
+      # We chose pnpm above (frontend is the heavier install) — cache
+      # ~/.npm separately so the backend `npm ci` below hits warm too.
+      - name: Cache npm (backend)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
 
       # Backend deps + DB state. Playwright's globalSetup signs each
       # seeded user in via the real /auth/login route, so the seed must
@@ -161,11 +204,11 @@ jobs:
         working-directory: backend
         run: npm run seed
 
-      # Frontend deps. pnpm install at the workspace root pulls in the
-      # frontend (it's NOT in the workspace) only via the explicit
-      # frontend/ install below; root install is for packages/.
-      - name: Install workspace deps (pnpm)
-        run: pnpm install --frozen-lockfile
+      # Frontend deps. `--ignore-workspace` pins pnpm to frontend/'s
+      # own lockfile — frontend is NOT a workspace member and has no
+      # @flakeytesting/* dependencies, so we deliberately skip the
+      # workspace-root install (which would pull every packages/* into
+      # node_modules for nothing).
       - name: Install frontend deps (pnpm)
         working-directory: frontend
         run: pnpm install --frozen-lockfile --ignore-workspace
@@ -178,6 +221,7 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: frontend
@@ -218,12 +262,12 @@ jobs:
           cat /tmp/backend.log
           exit 1
 
-      - name: Run Playwright
+      - name: Run Playwright (shard ${{ matrix.shard }}/4)
         working-directory: frontend
         env:
           # webServer baseURL is 7778; CI flag tightens retries/reporters.
           CI: "true"
-        run: pnpm test:e2e
+        run: pnpm exec playwright test --config=tests-e2e/playwright.config.ts --shard=${{ matrix.shard }}/4
 
       - name: Backend log on failure
         if: failure()
@@ -233,6 +277,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-report
+          # Suffix with shard — 4 parallel matrix jobs would otherwise
+          # collide on the upload-artifact name.
+          name: playwright-report-shard-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 14
