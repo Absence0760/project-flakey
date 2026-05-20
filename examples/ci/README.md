@@ -27,7 +27,7 @@ All three providers need the same two variables:
 | Variable | Where to set it | Description |
 |---|---|---|
 | `FLAKEY_API_KEY` | CI secret / repo variable | Flakey API key (Profile > API Keys) |
-| `FLAKEY_API_URL` | CI secret / repo variable | Backend URL, e.g. `https://bt.yourcompany.com` |
+| `FLAKEY_API_URL` | CI secret / repo variable | Backend URL, e.g. `https://flakey.yourcompany.com` |
 
 CI metadata is passed as standard environment variables. The templates show the provider-specific names for branch, commit SHA, and run/build ID.
 
@@ -118,7 +118,7 @@ The CLI reads `FLAKEY_API_URL` from the environment (default: `http://localhost:
 
 Coverage: lines 57% (+2%)
 
-[View full run →](https://bt.yourcompany.com/runs/42)
+[View full run →](https://flakey.yourcompany.com/runs/42)
 ```
 
 The comment is posted once and updated on subsequent pushes to the same PR — it does not accumulate.

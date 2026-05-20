@@ -14,7 +14,7 @@ Then configure your MCP client (see sections below). You need:
 
 | Variable | Description |
 |---|---|
-| `FLAKEY_API_URL` | Flakey backend URL (e.g. `https://bt.yourcompany.com`) |
+| `FLAKEY_API_URL` | Flakey backend URL (e.g. `https://flakey.yourcompany.com`) |
 | `FLAKEY_API_KEY` | API key from Flakey (Profile > API Keys) |
 
 ---
@@ -25,7 +25,7 @@ Then configure your MCP client (see sections below). You need:
 
 ```bash
 claude mcp add flakey \
-  --env FLAKEY_API_URL=https://bt.yourcompany.com \
+  --env FLAKEY_API_URL=https://flakey.yourcompany.com \
   --env FLAKEY_API_KEY=fk_your_key \
   -- npx flakey-mcp
 ```
@@ -41,7 +41,7 @@ This writes a `.claude/mcp.json` entry in your project (or `~/.claude/mcp.json` 
       "command": "npx",
       "args": ["flakey-mcp"],
       "env": {
-        "FLAKEY_API_URL": "https://bt.yourcompany.com",
+        "FLAKEY_API_URL": "https://flakey.yourcompany.com",
         "FLAKEY_API_KEY": "fk_your_key"
       }
     }
@@ -75,7 +75,7 @@ To enable mutation tools (AI can trigger AI analysis of errors):
       "command": "npx",
       "args": ["flakey-mcp"],
       "env": {
-        "FLAKEY_API_URL": "https://bt.yourcompany.com",
+        "FLAKEY_API_URL": "https://flakey.yourcompany.com",
         "FLAKEY_API_KEY": "fk_your_key",
         "FLAKEY_MCP_ALLOW_MUTATIONS": "1"
       }
@@ -100,7 +100,7 @@ Add the following block to your `claude_desktop_config.json` under `mcpServers`:
       "command": "npx",
       "args": ["flakey-mcp"],
       "env": {
-        "FLAKEY_API_URL": "https://bt.yourcompany.com",
+        "FLAKEY_API_URL": "https://flakey.yourcompany.com",
         "FLAKEY_API_KEY": "fk_your_key"
       }
     }
@@ -125,7 +125,7 @@ Cursor supports MCP via a project-level `.cursor/mcp.json` file (project-level) 
       "command": "npx",
       "args": ["flakey-mcp"],
       "env": {
-        "FLAKEY_API_URL": "https://bt.yourcompany.com",
+        "FLAKEY_API_URL": "https://flakey.yourcompany.com",
         "FLAKEY_API_KEY": "fk_your_key"
       }
     }
