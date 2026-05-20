@@ -20,43 +20,43 @@ importers:
         version: 1.60.0
       '@sveltejs/adapter-static':
         specifier: 3.0.10
-        version: 3.0.10(@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0)))(svelte@5.55.7)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.0)))
+        version: 3.0.10(@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1)))(svelte@5.55.8)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.1)))
       '@sveltejs/kit':
         specifier: 2.60.1
-        version: 2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0)))(svelte@5.55.7)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.0))
+        version: 2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1)))(svelte@5.55.8)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.1))
       '@sveltejs/vite-plugin-svelte':
         specifier: 7.1.2
-        version: 7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0))
+        version: 7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1))
       '@types/node':
-        specifier: 25.9.0
-        version: 25.9.0
+        specifier: 25.9.1
+        version: 25.9.1
       '@vitest/ui':
         specifier: 4.1.6
         version: 4.1.6(vitest@4.1.6)
       mdsvex:
         specifier: ^0.12.7
-        version: 0.12.7(svelte@5.55.7)
+        version: 0.12.7(svelte@5.55.8)
       normalize.css:
         specifier: 8.0.1
         version: 8.0.1
       svelte:
-        specifier: 5.55.7
-        version: 5.55.7
+        specifier: 5.55.8
+        version: 5.55.8
       svelte-check:
         specifier: 4.4.8
-        version: 4.4.8(picomatch@4.0.4)(svelte@5.55.7)(typescript@6.0.3)
+        version: 4.4.8(picomatch@4.0.4)(svelte@5.55.8)(typescript@6.0.3)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
       unplugin-icons:
         specifier: 23.0.1
-        version: 23.0.1(svelte@5.55.7)
+        version: 23.0.1(svelte@5.55.8)
       vite:
         specifier: 8.0.13
-        version: 8.0.13(@types/node@25.9.0)
+        version: 8.0.13(@types/node@25.9.1)
       vitest:
         specifier: 4.1.6
-        version: 4.1.6(@types/node@25.9.0)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.0))
+        version: 4.1.6(@types/node@25.9.1)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.1))
 
 packages:
 
@@ -330,8 +330,8 @@ packages:
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
-  '@types/node@25.9.0':
-    resolution: {integrity: sha512-AOQwYUNolgy3VosiRqXrACUXTN8nJUtPl7FJXMqZVyxiiCLhQuG3jXKvCS1ALr+Y2OmZhzzLVlYPEqJaiqkaJQ==}
+  '@types/node@25.9.1':
+    resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -742,8 +742,8 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: '>=5.0.0'
 
-  svelte@5.55.7:
-    resolution: {integrity: sha512-ymI5ykLPwIHW839E053FQbI1G+jnRFJEw3Kv5Y4njixVWywQBx+NUFpkkKyk5LIb36Fg9DVXSYpqiGekLD0hyw==}
+  svelte@5.55.8:
+    resolution: {integrity: sha512-4D6lyrMHmDaZalQOEBMCWCCidyZjSnec14/oPn0k627G6goxcck9xqMwz1tFLlQz+ZFvtTTHfFOlUayuAz0z6Q==}
     engines: {node: '>=18'}
 
   symbol-tree@3.2.4:
@@ -1139,15 +1139,15 @@ snapshots:
     dependencies:
       acorn: 8.16.0
 
-  '@sveltejs/adapter-static@3.0.10(@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0)))(svelte@5.55.7)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.0)))':
+  '@sveltejs/adapter-static@3.0.10(@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1)))(svelte@5.55.8)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.1)))':
     dependencies:
-      '@sveltejs/kit': 2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0)))(svelte@5.55.7)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.0))
+      '@sveltejs/kit': 2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1)))(svelte@5.55.8)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.1))
 
-  '@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0)))(svelte@5.55.7)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.0))':
+  '@sveltejs/kit@2.60.1(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1)))(svelte@5.55.8)(typescript@6.0.3)(vite@8.0.13(@types/node@25.9.1))':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@sveltejs/acorn-typescript': 1.0.9(acorn@8.16.0)
-      '@sveltejs/vite-plugin-svelte': 7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0))
+      '@sveltejs/vite-plugin-svelte': 7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1))
       '@types/cookie': 0.6.0
       acorn: 8.16.0
       cookie: 0.6.0
@@ -1158,19 +1158,19 @@ snapshots:
       mrmime: 2.0.1
       set-cookie-parser: 3.1.0
       sirv: 3.0.2
-      svelte: 5.55.7
-      vite: 8.0.13(@types/node@25.9.0)
+      svelte: 5.55.8
+      vite: 8.0.13(@types/node@25.9.1)
     optionalDependencies:
       typescript: 6.0.3
 
-  '@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.7)(vite@8.0.13(@types/node@25.9.0))':
+  '@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.8)(vite@8.0.13(@types/node@25.9.1))':
     dependencies:
       deepmerge: 4.3.1
       magic-string: 0.30.21
       obug: 2.1.1
-      svelte: 5.55.7
-      vite: 8.0.13(@types/node@25.9.0)
-      vitefu: 1.1.3(vite@8.0.13(@types/node@25.9.0))
+      svelte: 5.55.8
+      vite: 8.0.13(@types/node@25.9.1)
+      vitefu: 1.1.3(vite@8.0.13(@types/node@25.9.1))
 
   '@tybys/wasm-util@0.10.1':
     dependencies:
@@ -1192,7 +1192,7 @@ snapshots:
     dependencies:
       '@types/unist': 2.0.11
 
-  '@types/node@25.9.0':
+  '@types/node@25.9.1':
     dependencies:
       undici-types: 7.24.6
 
@@ -1211,13 +1211,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.6(vite@8.0.13(@types/node@25.9.0))':
+  '@vitest/mocker@4.1.6(vite@8.0.13(@types/node@25.9.1))':
     dependencies:
       '@vitest/spy': 4.1.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.0.13(@types/node@25.9.0)
+      vite: 8.0.13(@types/node@25.9.1)
 
   '@vitest/pretty-format@4.1.6':
     dependencies:
@@ -1246,7 +1246,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vitest: 4.1.6(@types/node@25.9.0)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.0))
+      vitest: 4.1.6(@types/node@25.9.1)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.1))
 
   '@vitest/utils@4.1.6':
     dependencies:
@@ -1454,13 +1454,13 @@ snapshots:
 
   mdn-data@2.27.1: {}
 
-  mdsvex@0.12.7(svelte@5.55.7):
+  mdsvex@0.12.7(svelte@5.55.8):
     dependencies:
       '@types/mdast': 4.0.4
       '@types/unist': 2.0.11
       prism-svelte: 0.4.7
       prismjs: 1.30.0
-      svelte: 5.55.7
+      svelte: 5.55.8
       unist-util-visit: 2.0.3
       vfile-message: 2.0.4
 
@@ -1576,19 +1576,19 @@ snapshots:
 
   std-env@4.1.0: {}
 
-  svelte-check@4.4.8(picomatch@4.0.4)(svelte@5.55.7)(typescript@6.0.3):
+  svelte-check@4.4.8(picomatch@4.0.4)(svelte@5.55.8)(typescript@6.0.3):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       chokidar: 4.0.3
       fdir: 6.5.0(picomatch@4.0.4)
       picocolors: 1.1.1
       sade: 1.8.1
-      svelte: 5.55.7
+      svelte: 5.55.8
       typescript: 6.0.3
     transitivePeerDependencies:
       - picomatch
 
-  svelte@5.55.7:
+  svelte@5.55.8:
     dependencies:
       '@jridgewell/remapping': 2.3.5
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -1664,7 +1664,7 @@ snapshots:
       unist-util-is: 4.1.0
       unist-util-visit-parents: 3.1.1
 
-  unplugin-icons@23.0.1(svelte@5.55.7):
+  unplugin-icons@23.0.1(svelte@5.55.8):
     dependencies:
       '@antfu/install-pkg': 1.1.0
       '@iconify/utils': 3.1.3
@@ -1672,7 +1672,7 @@ snapshots:
       obug: 2.1.1
       unplugin: 2.3.11
     optionalDependencies:
-      svelte: 5.55.7
+      svelte: 5.55.8
 
   unplugin@2.3.11:
     dependencies:
@@ -1686,7 +1686,7 @@ snapshots:
       '@types/unist': 2.0.11
       unist-util-stringify-position: 2.0.3
 
-  vite@8.0.13(@types/node@25.9.0):
+  vite@8.0.13(@types/node@25.9.1):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -1694,17 +1694,17 @@ snapshots:
       rolldown: 1.0.1
       tinyglobby: 0.2.16
     optionalDependencies:
-      '@types/node': 25.9.0
+      '@types/node': 25.9.1
       fsevents: 2.3.3
 
-  vitefu@1.1.3(vite@8.0.13(@types/node@25.9.0)):
+  vitefu@1.1.3(vite@8.0.13(@types/node@25.9.1)):
     optionalDependencies:
-      vite: 8.0.13(@types/node@25.9.0)
+      vite: 8.0.13(@types/node@25.9.1)
 
-  vitest@4.1.6(@types/node@25.9.0)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.0)):
+  vitest@4.1.6(@types/node@25.9.1)(@vitest/ui@4.1.6)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.9.1)):
     dependencies:
       '@vitest/expect': 4.1.6
-      '@vitest/mocker': 4.1.6(vite@8.0.13(@types/node@25.9.0))
+      '@vitest/mocker': 4.1.6(vite@8.0.13(@types/node@25.9.1))
       '@vitest/pretty-format': 4.1.6
       '@vitest/runner': 4.1.6
       '@vitest/snapshot': 4.1.6
@@ -1721,10 +1721,10 @@ snapshots:
       tinyexec: 1.0.4
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 8.0.13(@types/node@25.9.0)
+      vite: 8.0.13(@types/node@25.9.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 25.9.0
+      '@types/node': 25.9.1
       '@vitest/ui': 4.1.6(vitest@4.1.6)
       jsdom: 29.1.1
     transitivePeerDependencies:
