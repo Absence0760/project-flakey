@@ -22,7 +22,7 @@ Add to `~/.claude/mcp.json` (or your project's `.mcp.json`):
 {
   "mcpServers": {
     "flakey": {
-      "command": "flakey-mcp-server",
+      "command": "flakey-mcp",
       "env": {
         "FLAKEY_API_URL": "https://flakey.your-domain.com",
         "FLAKEY_API_KEY": "fk_xxx..."
@@ -40,7 +40,7 @@ Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claud
 {
   "mcpServers": {
     "flakey": {
-      "command": "flakey-mcp-server",
+      "command": "flakey-mcp",
       "env": {
         "FLAKEY_API_URL": "https://flakey.your-domain.com",
         "FLAKEY_API_KEY": "fk_xxx..."
