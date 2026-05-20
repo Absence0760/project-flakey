@@ -64,7 +64,7 @@
 - [x] Backend Dockerfile
 - [x] Frontend static hosting on S3/CloudFront (no Docker needed)
 - [x] GitHub Actions deploy pipeline (path-filtered, backend + frontend independent)
-- [x] GitHub Actions npm publish pipeline (@flakey/cli, @flakey/cypress-snapshots)
+- [x] GitHub Actions npm publish pipeline (@flakeytesting/cli, @flakeytesting/cypress-snapshots)
 - [x] CI integration examples (GitHub Actions, Bitbucket Pipelines)
 - [x] S3 storage adapter for artifacts (currently local disk)
 - [x] Helm chart for Kubernetes
