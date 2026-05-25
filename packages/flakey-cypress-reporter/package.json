@@ -54,8 +54,8 @@
     "@flakeytesting/cypress-snapshots": "workspace:*",
     "@flakeytesting/live-reporter": "workspace:*",
     "@types/mocha": "^10.0.0",
-    "@types/node": "^25.8.0",
-    "tsx": "^4.22.1",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
 }
