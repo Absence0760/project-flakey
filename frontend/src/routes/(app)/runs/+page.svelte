@@ -3,8 +3,8 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
-  import { getAuth } from "$lib/auth";
-  import { API_URL } from "$lib/config";
+  import { getAuth } from "$lib/stores/auth";
+  import { API_URL } from "$lib/utils/config";
 
   function focusOnMount(node: HTMLElement) {
     node.focus();

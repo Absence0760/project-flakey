@@ -1,5 +1,5 @@
-import { authFetch, getToken } from "./auth";
-import { API_URL } from "./config.js";
+import { authFetch, getToken } from "./stores/auth";
+import { API_URL } from "./utils/config.js";
 
 export interface RunsSummary {
   total: number;

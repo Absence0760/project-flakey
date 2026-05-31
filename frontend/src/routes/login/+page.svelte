@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { login, register } from "$lib/auth";
+  import { login, register } from "$lib/stores/auth";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
-  import { API_URL } from "$lib/config";
+  import { API_URL } from "$lib/utils/config";
 
   let mode = $state<"login" | "register" | "forgot">("login");
   let email = $state("");

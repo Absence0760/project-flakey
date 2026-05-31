@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { replaceState } from '$app/navigation';
-	import { authFetch } from '$lib/auth';
-	import { API_URL } from '$lib/config';
-	import { toast, toastError } from '$lib/toast';
+	import { authFetch } from '$lib/stores/auth';
+	import { API_URL } from '$lib/utils/config';
+	import { toast, toastError } from '$lib/stores/toast';
 
 	interface ReleaseSummary {
 		id: number;

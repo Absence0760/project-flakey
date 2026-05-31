@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { authFetch } from "$lib/auth";
+  import { authFetch } from "$lib/stores/auth";
   import { UPLOADS_URL } from "$lib/api";
 
   type Props = {

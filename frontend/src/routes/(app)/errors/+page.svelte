@@ -3,8 +3,8 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError } from "$lib/api";
-  import ErrorModal from "$lib/components/ErrorModal.svelte";
-  import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
+  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
 
   let errors = $state<ErrorGroup[]>([]);
   let allRuns = $state<Run[]>([]);

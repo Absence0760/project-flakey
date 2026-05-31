@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { API_URL } from '$lib/config';
+  import { API_URL } from '$lib/utils/config';
 
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let error = $state('');

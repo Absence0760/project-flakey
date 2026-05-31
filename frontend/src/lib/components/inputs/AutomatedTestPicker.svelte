@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { authFetch } from '$lib/auth';
-	import { API_URL } from '$lib/config';
+	import { authFetch } from '$lib/stores/auth';
+	import { API_URL } from '$lib/utils/config';
 
 	interface Props {
 		value: string;

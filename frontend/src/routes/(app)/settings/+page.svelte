@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getAuth, subscribe } from "$lib/auth";
-  import { authFetch } from "$lib/auth";
-  import { toast, toastError } from "$lib/toast";
-  import { API_URL as apiUrl } from "$lib/config";
+  import { getAuth, subscribe } from "$lib/stores/auth";
+  import { authFetch } from "$lib/stores/auth";
+  import { toast, toastError } from "$lib/stores/toast";
+  import { API_URL as apiUrl } from "$lib/utils/config";
 
   // Reactive auth state — re-reads after refresh or org switch so that
   // orgId, isOwner, and isAdmin never go stale.

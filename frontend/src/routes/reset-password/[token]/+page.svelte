@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { API_URL } from '$lib/config';
+  import { API_URL } from '$lib/utils/config';
 
   let password = $state('');
   let confirmPassword = $state('');

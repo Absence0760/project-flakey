@@ -2,10 +2,10 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { replaceState } from '$app/navigation';
-	import { authFetch, getAuth } from '$lib/auth';
-	import AutomatedTestPicker from '$lib/components/AutomatedTestPicker.svelte';
-	import { API_URL } from '$lib/config';
-	import { isHttpUrl } from '$lib/safe-url';
+	import { authFetch, getAuth } from '$lib/stores/auth';
+	import AutomatedTestPicker from '$lib/components/inputs/AutomatedTestPicker.svelte';
+	import { API_URL } from '$lib/utils/config';
+	import { isHttpUrl } from '$lib/utils/safe-url';
 
 	interface ManualTest {
 		id: number;

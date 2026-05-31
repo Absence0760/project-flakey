@@ -3,7 +3,7 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
-  import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
 
   let tests = $state<SlowestTest[]>([]);
   let loading = $state(true);

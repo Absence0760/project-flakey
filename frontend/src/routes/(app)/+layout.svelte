@@ -2,8 +2,8 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/auth';
-	import Toasts from '$lib/components/Toasts.svelte';
+	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/stores/auth';
+	import Toasts from '$lib/components/overlays/Toasts.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children?: Snippet } = $props();

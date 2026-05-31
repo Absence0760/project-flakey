@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { isLoggedIn, acceptInvite } from "$lib/auth";
+  import { isLoggedIn, acceptInvite } from "$lib/stores/auth";
 
   let status = $state<"loading" | "success" | "error">("loading");
   let orgName = $state("");

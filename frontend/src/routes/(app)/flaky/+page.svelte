@@ -3,7 +3,7 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
-  import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
 
   let tests = $state<FlakyTest[]>([]);
   let allRuns = $state<Run[]>([]);

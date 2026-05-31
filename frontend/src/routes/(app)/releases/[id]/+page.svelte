@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { authFetch, getAuth } from '$lib/auth';
-	import { API_URL } from '$lib/config';
-	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '$lib/safe-url';
+	import { authFetch, getAuth } from '$lib/stores/auth';
+	import { API_URL } from '$lib/utils/config';
+	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '$lib/utils/safe-url';
 
 	interface ChecklistItem {
 		id: number;

@@ -3,9 +3,9 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "$lib/api";
-  import DateRangePicker from "$lib/components/DateRangePicker.svelte";
-  import TrendChart from "$lib/components/TrendChart.svelte";
-  import BarChart from "$lib/components/BarChart.svelte";
+  import DateRangePicker from "$lib/components/inputs/DateRangePicker.svelte";
+  import TrendChart from "$lib/components/charts/TrendChart.svelte";
+  import BarChart from "$lib/components/charts/BarChart.svelte";
 
   let stats = $state<DashboardStats | null>(null);
   let trends = $state<TrendsData | null>(null);

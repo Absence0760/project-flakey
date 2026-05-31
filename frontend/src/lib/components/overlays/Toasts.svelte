@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { subscribe, dismissToast, type Toast } from "$lib/toast";
+  import { subscribe, dismissToast, type Toast } from "$lib/stores/toast";
 
   let toasts = $state<Toast[]>([]);
   let unsub: (() => void) | null = null;

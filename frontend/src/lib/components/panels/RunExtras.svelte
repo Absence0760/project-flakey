@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { authFetch } from '$lib/auth';
-	import { API_URL } from '$lib/config';
+	import { authFetch } from '$lib/stores/auth';
+	import { API_URL } from '$lib/utils/config';
 	import { artifactSrc } from '$lib/api';
-	import { isHttpUrl } from '$lib/safe-url';
+	import { isHttpUrl } from '$lib/utils/safe-url';
 	import { onMount } from 'svelte';
 
 	interface Props { runId: number; }

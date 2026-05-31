@@ -3,11 +3,11 @@
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
-  import { getAuth, authFetch } from "$lib/auth";
-  import ErrorModal from "$lib/components/ErrorModal.svelte";
-  import NotesPanel from "$lib/components/NotesPanel.svelte";
-  import RunExtras from "$lib/components/RunExtras.svelte";
-  import { API_URL } from "$lib/config";
+  import { getAuth, authFetch } from "$lib/stores/auth";
+  import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
+  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
+  import RunExtras from "$lib/components/panels/RunExtras.svelte";
+  import { API_URL } from "$lib/utils/config";
 
   let run = $state<RunDetail | null>(null);
   // Previous run (for the "new failures since previous run" band).

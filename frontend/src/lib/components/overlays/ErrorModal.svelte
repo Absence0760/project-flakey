@@ -1,15 +1,15 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
-  import { authFetch } from "$lib/auth";
-  import { toast as toastSuccess, toastInfo } from "$lib/toast";
+  import { authFetch } from "$lib/stores/auth";
+  import { toast as toastSuccess, toastInfo } from "$lib/stores/toast";
   import {
     snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
     snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
     type CommandGroup as PureCommandGroup,
-  } from "$lib/snapshot-match";
-  import Lightbox from "./Lightbox.svelte";
-  import SnapshotViewer from "./SnapshotViewer.svelte";
-  import NotesPanel from "./NotesPanel.svelte";
+  } from "$lib/utils/snapshot-match";
+  import Lightbox from "../media/Lightbox.svelte";
+  import SnapshotViewer from "../media/SnapshotViewer.svelte";
+  import NotesPanel from "../panels/NotesPanel.svelte";
 
   interface Props {
     testId: number | null;
@@ -109,7 +109,7 @@
   });
   let hasCommandGherkinGroups = $derived(commandGroups.some((g) => g.headerKeyword !== "SETUP"));
 
-  // Pure mapping logic lives in $lib/snapshot-match (unit-tested via
+  // Pure mapping logic lives in $lib/utils/snapshot-match (unit-tested via
   // snapshot-match.test.ts). These wrappers bind the current
   // commandGroups + snapshotSteps so the template stays terse.
   function snapshotIdxForCommandGroup(gIdx: number): number | null {
