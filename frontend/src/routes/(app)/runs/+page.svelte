@@ -5,6 +5,7 @@
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { getAuth } from "$lib/stores/auth";
   import { API_URL } from "$lib/utils/config";
+  import StatusDot from "$lib/components/status/StatusDot.svelte";
 
   function focusOnMount(node: HTMLElement) {
     node.focus();
@@ -579,7 +580,7 @@
         <div class="pinned-list">
           {#each pinnedRuns as pr}
             <a href="/runs/{pr.id}" class="pinned-item" class:fail={pr.failed > 0}>
-              <span class="run-status-dot" class:live={liveRunIds.has(pr.id)} class:pass={pr.failed === 0} class:fail={pr.failed > 0}></span>
+              <StatusDot status={liveRunIds.has(pr.id) ? 'live' : pr.failed > 0 ? 'fail' : 'pass'} />
               <span class="pinned-id">#{pr.id}</span>
               <span class="pinned-suite">{pr.suite_name}</span>
               {#if pr.failed > 0}
@@ -650,7 +651,7 @@
               </td>
             {/if}
             <td class="col-status">
-              <span class="run-status-dot" class:live={liveRunIds.has(run.id)} class:pass={run.failed === 0 && !run.aborted} class:fail={run.failed > 0} class:aborted={run.aborted}></span>
+              <StatusDot status={liveRunIds.has(run.id) ? 'live' : run.aborted ? 'aborted' : run.failed > 0 ? 'fail' : 'pass'} />
             </td>
             <td class="col-id"><span class="run-id">#{run.id}</span></td>
             <td class="col-state">
@@ -1018,11 +1019,6 @@
   .col-started { white-space: nowrap; font-size: 0.82rem; color: var(--text-secondary); }
   .col-actions { text-align: right; padding-left: 0; }
 
-  .run-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
-  .run-status-dot.pass { background: var(--color-pass); }
-  .run-status-dot.fail { background: var(--color-fail); }
-  .run-status-dot.aborted { background: var(--text-muted); }
-  .run-status-dot.live { background: #3b82f6; animation: live-pulse 2s ease-in-out infinite; }
 
   .run-id { font-weight: 700; font-family: monospace; color: var(--text); }
   .run-suite {
