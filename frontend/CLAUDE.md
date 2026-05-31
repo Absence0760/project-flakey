@@ -12,13 +12,13 @@ SvelteKit + Svelte 5 dashboard. Package name is `better-testing` (legacy — not
 ## Conventions
 
 - **Svelte 5 runes only**: use `$state`, `$derived`, `$effect`, `$props`. Do not regress to Svelte 4 `let`/`$:`/`export let` reactivity.
-- API base URL is exported as `API_URL` from `src/lib/config.ts`. Import it from there — do not re-declare `import.meta.env.VITE_API_URL` in individual files.
-- Routes live in `src/routes/`; shared logic and components in `src/lib/`.
+- API base URL is exported as `API_URL` from `src/lib/utils/config.ts`. Import it from there — do not re-declare `import.meta.env.VITE_API_URL` in individual files.
+- Routes live in `src/routes/`; shared logic and components in `src/lib/`. Within `src/lib`: `stores/` (stateful singletons — `auth`, `toast`), `utils/` (pure helpers — `config`, `safe-url`, `snapshot-match`), `api.ts` (the central API client), and `components/` grouped by kind (`charts/`, `media/`, `inputs/`, `overlays/`, `panels/`, `status/`).
 - User-facing strings say **"Flakey"**. The earlier "Better Testing" rebrand has been reverted; keep new copy consistent with "Flakey".
 
 ## Auth module
 
-Auth state is a plain singleton in `src/lib/auth.ts` (not a Svelte store). Key exports:
+Auth state is a plain singleton in `src/lib/stores/auth.ts` (not a Svelte store). Key exports:
 
 - `authFetch(url, opts?)` — wraps `fetch` with Bearer token injection and automatic one-shot refresh on 401. Use this for all authenticated requests.
 - `restoreAuth()` — reads auth from `localStorage` (keys `bt_token`, `bt_user`, `bt_refresh`). Call it in the root layout's `onMount`.
@@ -36,7 +36,7 @@ Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapte
 
 ## Tests
 
-Vitest 4 is configured for **pure-helper unit tests only** (e.g. `src/lib/toast.test.ts`). Run with `pnpm test` (one-shot) or `pnpm test:watch`. Test files live next to the source as `*.test.ts` and run in Node environment by default — pick up `vitest.config.ts` if a test needs a different env (`jsdom`, `happy-dom`).
+Vitest 4 is configured for **pure-helper unit tests only** (e.g. `src/lib/stores/toast.test.ts`). Run with `pnpm test` (one-shot) or `pnpm test:watch`. Test files live next to the source as `*.test.ts` and run in Node environment by default — pick up `vitest.config.ts` if a test needs a different env (`jsdom`, `happy-dom`).
 
 What is **not** tested here, by design:
 
