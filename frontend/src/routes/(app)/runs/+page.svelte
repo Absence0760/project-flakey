@@ -353,9 +353,6 @@
     },
   };
 
-  // Friendly absolute string used as the `title` (tooltip) on every
-  // relative-date label. Mirrors the convention on /releases and
-  // /manual-tests — no raw ISO leaked to the UI.
 
   function copySuite(e: MouseEvent, name: string) {
     e.preventDefault();

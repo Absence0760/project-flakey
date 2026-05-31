@@ -79,10 +79,6 @@
     return `${val > 0 ? "+" : ""}${val}${suffix}`;
   }
 
-
-  // Friendly absolute string used as the `title` (tooltip) on every
-  // relative-date label. Mirrors the convention on /runs and /releases —
-  // no raw ISO leaked to the UI.
   let passRateSeries = $derived.by(() => {
     if (!trends) return [];
     return [{

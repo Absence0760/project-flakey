@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { timeAgo, absoluteDate } from "$lib/utils/format";
+	import { timeAgo, absoluteDate, calendarDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
 	import { authFetch, getAuth } from '$lib/stores/auth';
 	import { API_URL } from '$lib/utils/config';
@@ -999,7 +999,7 @@
 				{#if release.target_date}
 					<div class="kpi" class:warn={riskLevel === 'imminent'} class:bad={riskLevel === 'overdue'}>
 						<span class="kpi-label">Target</span>
-						<span class="kpi-value" title={absoluteDate(release.target_date)}>
+						<span class="kpi-value" title={calendarDate(release.target_date)}>
 							{#if daysToTarget !== null && daysToTarget < 0}
 								{-daysToTarget}d <span class="kpi-suffix">overdue</span>
 							{:else if daysToTarget !== null && daysToTarget === 0}
@@ -1308,7 +1308,7 @@
 									<span class="session-label">{inProgressSession.label}</span>
 								{/if}
 								{#if inProgressSession.target_date}
-									<span class="target-badge" title={`Target date: ${absoluteDate(inProgressSession.target_date)}`}>🎯 {relativeDate(inProgressSession.target_date)}</span>
+									<span class="target-badge" title={`Target date: ${calendarDate(inProgressSession.target_date)}`}>🎯 {relativeDate(inProgressSession.target_date)}</span>
 								{/if}
 							</div>
 							<div class="progress-wrap">
@@ -1557,7 +1557,7 @@
 											<span class="status-pill status-accepted">{s.accepted} accepted</span>
 										{/if}
 										{#if s.target_date}
-											<span class="target-badge" title={`Target date: ${absoluteDate(s.target_date)}`}>🎯 {relativeDate(s.target_date)}</span>
+											<span class="target-badge" title={`Target date: ${calendarDate(s.target_date)}`}>🎯 {relativeDate(s.target_date)}</span>
 										{/if}
 									</div>
 									<span class="dim" title={absoluteDate(s.created_at)}>{timeAgo(s.created_at)} · {expandedSessionId === s.id ? '▼' : '▶'}</span>

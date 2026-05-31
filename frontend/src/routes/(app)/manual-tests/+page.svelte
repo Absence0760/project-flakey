@@ -215,10 +215,6 @@
 		visibleCount = PAGE_SIZE;
 	});
 
-	// ── Friendly relative dates ──────────────────────────────────────
-	// Lifted from /flaky — keeps the table from leaking raw locale
-	// strings like "07/05/2026, 11:01:34". Tooltip carries the
-	// absolute form so the precise timestamp stays one hover away.
 	function loadMoreTests() {
 		visibleCount = Math.min(visibleCount + PAGE_SIZE, filteredTests.length);
 	}

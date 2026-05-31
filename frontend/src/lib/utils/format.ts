@@ -1,12 +1,9 @@
 // Shared date / duration formatting. These were previously copy-pasted
 // (and had drifted) across ~12 pages and components; this is the single
-// canonical implementation. Falsy timestamps render as an em dash so a
-// missing value reads as "—" rather than collapsing the layout.
+// canonical implementation. Empty-value contract: timeAgo renders falsy
+// input as "—" so a missing value reads cleanly inline; absoluteDate and
+// calendarDate return "" (they're used in tooltips, where blank is fine).
 
-/**
- * Relative "time ago" label, e.g. "just now", "5m ago", "yesterday",
- * "3d ago", "2mo ago", "1y ago". Falsy input → "—".
- */
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
@@ -23,10 +20,7 @@ export function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-/**
- * Absolute, locale-aware timestamp for tooltips/details, e.g.
- * "May 31, 2026, 11:48 AM". Falsy or unparseable input → "".
- */
+// Absolute timestamp with time, for tooltips on relative-date labels.
 export function absoluteDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -40,10 +34,22 @@ export function absoluteDate(iso: string | null | undefined): string {
   });
 }
 
-/**
- * Human duration from milliseconds: "850ms", "4.2s", "3m 7s", "1h 5m".
- * Trailing zero-seconds are dropped ("5m", "2h 0m" keeps minutes).
- */
+// Date without a time component, for date-only fields (e.g. target
+// dates) where a midnight time would read as noise.
+export function calendarDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+// Human duration: "850ms", "4.2s", "3m 7s", "1h 5m". Trailing
+// zero-seconds are dropped ("5m"); minutes are kept ("1h 0m").
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;

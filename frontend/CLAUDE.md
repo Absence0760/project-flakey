@@ -41,7 +41,7 @@ Vitest 4 is configured for **pure-helper unit tests only** (e.g. `src/lib/stores
 What is **not** tested here, by design:
 
 - **Svelte 5 component behaviour.** Runes-mode component testing is fiddly and the value-to-effort is poor. Component-level UX is covered by Playwright e2e (`tests-e2e/`) instead.
-- **The auth singleton (`auth.ts`)** — touches `localStorage` + `fetch`. Tested end-to-end via Playwright login flow.
+- **The auth singleton (`stores/auth.ts`)** — touches `localStorage` + `fetch`. Tested end-to-end via Playwright login flow.
 - **Route loaders / `+page.svelte` files** — covered by Playwright.
 
 Add a vitest spec only when the target is a pure function (no DOM, no global side-effects beyond the module's own state). For anything user-visible, write a Playwright test instead.

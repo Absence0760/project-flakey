@@ -63,7 +63,7 @@ pnpm test:packages
 | New migration | `backend/migrations/NNN_description.sql` (idempotent: `IF NOT EXISTS`, `OR REPLACE`, `DROP POLICY IF EXISTS` before `CREATE POLICY`) |
 | New reporter feature | `packages/flakey-<framework>-reporter/src/` + unit test in the same package |
 | New dashboard view | `frontend/src/routes/(app)/<page>/+page.svelte` |
-| Pure helper that needs testing | `frontend/src/lib/*.ts` (vitest) — component-level UX is covered by Playwright, not vitest |
+| Pure helper that needs testing | `frontend/src/lib/utils/*.ts` (vitest) — component-level UX is covered by Playwright, not vitest |
 
 ## Conventions
 

@@ -14,4 +14,10 @@ describe("passRate", () => {
   it("is 100 when all pass", () => {
     expect(passRate({ total: 5, passed: 5 })).toBe(100);
   });
+
+  it("does not clamp impossible (passed > total) data — surfaces it rather than hiding it", () => {
+    // Shouldn't occur (the API never reports more passes than tests), but
+    // pin the contract: no silent clamp to 100.
+    expect(passRate({ total: 3, passed: 5 })).toBe(167);
+  });
 });

@@ -137,8 +137,6 @@
     return `${(ms / 60000).toFixed(1)}m`;
   }
 
-  // Absolute date used as a tooltip on every `timeAgo` label. Same
-  // shape as the helpers on /flaky and /releases.
   function trendLabel(pct: number): string {
     if (pct > 5) return `+${pct}%`;
     if (pct < -5) return `${pct}%`;

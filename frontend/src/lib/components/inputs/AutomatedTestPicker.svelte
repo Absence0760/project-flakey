@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/stores/auth';
-	import { absoluteDate } from "$lib/utils/format";
+	import { absoluteDate, timeAgo } from "$lib/utils/format";
 	import { API_URL } from '$lib/utils/config';
 
 	interface Props {
@@ -134,24 +134,6 @@
 		}
 	}
 
-	function relativeDate(iso: string): string {
-		try {
-			const diff = Date.now() - new Date(iso).getTime();
-			const mins = Math.floor(diff / 60000);
-			if (mins < 1) return 'just now';
-			if (mins < 60) return `${mins}m ago`;
-			const hrs = Math.floor(mins / 60);
-			if (hrs < 24) return `${hrs}h ago`;
-			const days = Math.floor(hrs / 24);
-			if (days < 30) return `${days}d ago`;
-			const months = Math.floor(days / 30);
-			if (months < 12) return `${months}mo ago`;
-			return `${Math.floor(months / 12)}y ago`;
-		} catch {
-			return '';
-		}
-	}
-
 	// Parse the bound value back into a "selected chip" representation.
 	// Tests-mode picks set value to "<file_path> :: <full_title>"; spec-file
 	// picks set value to "<file_path>". Free text the user typed but never
@@ -264,7 +246,7 @@
 										<span class="sep">·</span>
 										<span class="suite">{test.suite_name}</span>
 										<span class="sep">·</span>
-										<span title={absoluteDate(test.last_run_at)}>{relativeDate(test.last_run_at)}</span>
+										<span title={absoluteDate(test.last_run_at)}>{timeAgo(test.last_run_at)}</span>
 									</div>
 								{:else}
 									{@const file = r as FileResult}
@@ -277,7 +259,7 @@
 										<span class="sep">·</span>
 										<span>{file.test_count} test{file.test_count === 1 ? '' : 's'}</span>
 										<span class="sep">·</span>
-										<span title={absoluteDate(file.last_run_at)}>{relativeDate(file.last_run_at)}</span>
+										<span title={absoluteDate(file.last_run_at)}>{timeAgo(file.last_run_at)}</span>
 									</div>
 								{/if}
 							</button>

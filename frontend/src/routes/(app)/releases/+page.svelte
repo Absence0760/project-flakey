@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { absoluteDate } from "$lib/utils/format";
+	import { absoluteDate, calendarDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
 	import { replaceState } from '$app/navigation';
 	import { authFetch } from '$lib/stores/auth';
@@ -280,7 +280,7 @@
 						{#if r.name}<span class="risk-name" title={r.name}>{r.name}</span>{/if}
 						<span class="risk-spacer"></span>
 						{#if r.target_date}
-							<span class="risk-target" title={absoluteDate(r.target_date)}>
+							<span class="risk-target" title={calendarDate(r.target_date)}>
 								{lvl === 'overdue' ? '⏰' : '🎯'} {relativeDate(r.target_date)}
 							</span>
 						{/if}
@@ -366,7 +366,7 @@
 								✓ Signed off {relativeDate(r.signed_off_at)}{r.signed_off_by_email ? ` · ${r.signed_off_by_email}` : ''}
 							</span>
 						{:else if r.target_date}
-							<span class="target" class:risk-text={lvl !== null} title={absoluteDate(r.target_date)}>
+							<span class="target" class:risk-text={lvl !== null} title={calendarDate(r.target_date)}>
 								🎯 Target {relativeDate(r.target_date)}
 							</span>
 						{:else}

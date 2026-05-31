@@ -154,8 +154,6 @@
     }
   }
 
-  // Friendly absolute string used as the `title` (tooltip) on every
-  // relative-date label. Mirrors /runs / /releases convention.
   function rateColor(rate: number): string {
     if (rate >= 40) return "var(--color-fail)";
     if (rate >= 20) return "#dfb317";
