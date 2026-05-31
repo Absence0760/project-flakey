@@ -55,6 +55,12 @@ There is no third option. These are forbidden because they ship the bug behind a
 
 If you spot a candidate fix that fits one of those patterns: stop, surface the underlying app issue, and either fix it in the same session or flag it explicitly. Don't half-mask it via the test.
 
+## Git workflow
+
+- **Commit each piece of work; never push.** Land every logical unit of work as its own path-scoped commit (`git commit -m "…" -- path/to/file …`) as you finish it — don't leave the tree dirty across tasks or batch unrelated changes into one commit. **Never `git push`** from an interactive session; publishing is the operator's call. (CI automation — the `claude.yml` GitHub Action described below — is exempt: it branches off `main` and opens its own draft PRs.)
+- Path-scoped commits are also required by the `.claude/hooks/git-scope-guard.py` PreToolUse hook (concurrent sessions share one checkout) — bare `git commit`, `git add -A/.`, `git commit -a`, and whole-tree ops are blocked. If a git command is denied, follow the scoped alternative in its message.
+- No `Co-Authored-By` / "Generated with" trailer in commits or PRs — write them as a human would.
+
 ## Branching & PRs
 
 - Base branch for PRs: `main`.
