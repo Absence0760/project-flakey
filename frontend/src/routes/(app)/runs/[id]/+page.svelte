@@ -7,6 +7,7 @@
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
   import RunExtras from "$lib/components/panels/RunExtras.svelte";
+  import PassRateRing from "$lib/components/status/PassRateRing.svelte";
   import { API_URL } from "$lib/utils/config";
 
   let run = $state<RunDetail | null>(null);
@@ -624,17 +625,7 @@
         </div>
 
         <!-- Progress ring -->
-        <div class="progress-ring" title="{passRate(run)}% pass rate">
-          <svg viewBox="0 0 36 36" class="ring-svg">
-            <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-            <path class="ring-fill" class:good={passRate(run) >= 90} class:warn={passRate(run) >= 50 && passRate(run) < 90} class:bad={passRate(run) < 50}
-              stroke-dasharray="{passRate(run)}, 100"
-              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-          </svg>
-          <div class="ring-label">
-            <span class="ring-pct">{passRate(run)}%</span>
-          </div>
-        </div>
+        <PassRateRing rate={passRate(run)} />
       </div>
 
       <!-- Stats bar -->
@@ -1097,52 +1088,6 @@
     transition: color 0.15s;
   }
   .copy-btn:hover { color: var(--text-primary); background: var(--bg-hover, rgba(128,128,128,0.1)); }
-
-  /* Progress ring */
-  .progress-ring {
-    position: relative;
-    width: 64px;
-    height: 64px;
-    flex-shrink: 0;
-  }
-
-  .ring-svg {
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-  }
-
-  .ring-bg {
-    fill: none;
-    stroke: var(--border);
-    stroke-width: 3;
-  }
-
-  .ring-fill {
-    fill: none;
-    stroke-width: 3;
-    stroke-linecap: round;
-    transition: stroke-dasharray 0.6s ease;
-  }
-
-  .ring-fill.good { stroke: var(--color-pass); }
-  .ring-fill.warn { stroke: var(--link); }
-  .ring-fill.bad { stroke: var(--color-fail); }
-
-  .ring-label {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .ring-pct {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: var(--text);
-  }
 
   /* Stats bar */
   .stats-bar {
