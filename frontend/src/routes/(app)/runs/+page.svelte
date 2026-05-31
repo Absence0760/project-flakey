@@ -6,6 +6,7 @@
   import { getAuth } from "$lib/stores/auth";
   import { API_URL } from "$lib/utils/config";
   import StatusDot from "$lib/components/status/StatusDot.svelte";
+  import { passRate } from "$lib/utils/stats";
 
   function focusOnMount(node: HTMLElement) {
     node.focus();
@@ -382,9 +383,6 @@
     });
   }
 
-  function passRate(r: Run): number {
-    return r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-  }
 
   function copySuite(e: MouseEvent, name: string) {
     e.preventDefault();

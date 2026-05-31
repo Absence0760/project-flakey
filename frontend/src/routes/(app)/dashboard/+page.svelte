@@ -6,6 +6,7 @@
   import DateRangePicker from "$lib/components/inputs/DateRangePicker.svelte";
   import TrendChart from "$lib/components/charts/TrendChart.svelte";
   import BarChart from "$lib/components/charts/BarChart.svelte";
+  import { passRate } from "$lib/utils/stats";
 
   let stats = $state<DashboardStats | null>(null);
   let trends = $state<TrendsData | null>(null);
@@ -85,9 +86,6 @@
     return `${val > 0 ? "+" : ""}${val}${suffix}`;
   }
 
-  function passRate(r: { total: number; passed: number }): number {
-    return r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-  }
 
   function timeAgo(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();

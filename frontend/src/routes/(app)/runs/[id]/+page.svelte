@@ -8,6 +8,7 @@
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
   import RunExtras from "$lib/components/panels/RunExtras.svelte";
   import PassRateRing from "$lib/components/status/PassRateRing.svelte";
+  import { passRate } from "$lib/utils/stats";
   import { API_URL } from "$lib/utils/config";
 
   let run = $state<RunDetail | null>(null);
@@ -410,10 +411,6 @@
     setTimeout(() => copiedFailedNames = false, 1500);
   }
 
-  function passRate(r: RunDetail): number {
-    if (r.total === 0) return 0;
-    return Math.round((r.passed / r.total) * 100);
-  }
 
   // Tests in the previous run that were already failing — used to
   // distinguish "new" failures (regressions) from "still failing"
