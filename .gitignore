@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Python bytecode (from .claude/hooks/ scripts)
+__pycache__/
+*.pyc
+
 # Build output
 dist/
 build/
