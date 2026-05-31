@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { getAuth, subscribe } from "$lib/stores/auth";
   import { authFetch } from "$lib/stores/auth";
   import { toast, toastError } from "$lib/stores/toast";
@@ -365,23 +366,6 @@
   let isOwner = $derived(authState.user?.orgRole === "owner");
   let isAdmin = $derived(authState.user?.orgRole === "admin" || isOwner);
 
-  function timeAgo(iso: string): string {
-    if (!iso) return "never";
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
-  }
-  function absoluteDate(iso: string): string {
-    if (!iso) return "";
-    return new Date(iso).toLocaleString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-  }
   function formatAction(a: string): string {
     return a.replace(".", " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
@@ -855,7 +839,7 @@
                     <span class="list-primary">{key.label}</span>
                     <span class="list-secondary mono">
                       <span title={absoluteDate(key.created_at)}>{key.key_prefix}…</span>
-                      &middot; Last used <span title={key.last_used_at ? absoluteDate(key.last_used_at) : 'Never used'}>{timeAgo(key.last_used_at ?? "")}</span>
+                      &middot; Last used <span title={key.last_used_at ? absoluteDate(key.last_used_at) : 'Never used'}>{key.last_used_at ? timeAgo(key.last_used_at) : 'never'}</span>
                       &middot; Created <span title={absoluteDate(key.created_at)}>{timeAgo(key.created_at)}</span>
                     </span>
                   </div>

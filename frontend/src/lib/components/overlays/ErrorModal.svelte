@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
+  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { authFetch } from "$lib/stores/auth";
   import { toast as toastSuccess, toastInfo } from "$lib/stores/toast";
   import {
@@ -241,30 +242,6 @@
     if (e.key === "Escape") onclose();
     if (e.key === "ArrowLeft" && test?.prev_failed_id) navigate(test.prev_failed_id);
     if (e.key === "ArrowRight" && test?.next_failed_id) navigate(test.next_failed_id);
-  }
-
-  function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-
-  function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days === 1) return "yesterday";
-    return `${days}d ago`;
-  }
-
-  function absoluteDate(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
   }
 
   // Build a best-effort rerun command for the failed test. We don't

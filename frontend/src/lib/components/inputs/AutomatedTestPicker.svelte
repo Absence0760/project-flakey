@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/stores/auth';
+	import { absoluteDate } from "$lib/utils/format";
 	import { API_URL } from '$lib/utils/config';
 
 	interface Props {
@@ -146,17 +147,6 @@
 			const months = Math.floor(days / 30);
 			if (months < 12) return `${months}mo ago`;
 			return `${Math.floor(months / 12)}y ago`;
-		} catch {
-			return '';
-		}
-	}
-
-	function absoluteDate(iso: string): string {
-		try {
-			return new Date(iso).toLocaleString(undefined, {
-				year: 'numeric', month: 'short', day: 'numeric',
-				hour: '2-digit', minute: '2-digit',
-			});
 		} catch {
 			return '';
 		}

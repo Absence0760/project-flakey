@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "$lib/api";
@@ -73,43 +74,15 @@
     return `${(ms / 60000).toFixed(1)}m`;
   }
 
-  function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.round((ms % 60000) / 1000);
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  }
-
   function formatDelta(val: number, suffix = ""): string {
     if (val === 0) return `0${suffix}`;
     return `${val > 0 ? "+" : ""}${val}${suffix}`;
   }
 
 
-  function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days === 1) return "yesterday";
-    if (days < 30) return `${days}d ago`;
-    return `${Math.floor(days / 30)}mo ago`;
-  }
-
   // Friendly absolute string used as the `title` (tooltip) on every
   // relative-date label. Mirrors the convention on /runs and /releases —
   // no raw ISO leaked to the UI.
-  function absoluteDate(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-
   let passRateSeries = $derived.by(() => {
     if (!trends) return [];
     return [{

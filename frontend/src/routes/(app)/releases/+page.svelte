@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { absoluteDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
 	import { replaceState } from '$app/navigation';
 	import { authFetch } from '$lib/stores/auth';
@@ -80,10 +81,6 @@
 		if (d < 0 && d > -7) return `${-d} days ago`;
 		return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d < -300 || d > 300 ? 'numeric' : undefined });
 	}
-	function absoluteDate(iso: string): string {
-		return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-	}
-
 	// ── At-risk detection ────────────────────────────────────────────
 	// A release is at risk when it's not yet signed off / shipped /
 	// cancelled AND either:

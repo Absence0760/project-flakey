@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { timeAgo, absoluteDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
 	import { authFetch, getAuth } from '$lib/stores/auth';
 	import { API_URL } from '$lib/utils/config';
@@ -814,29 +815,6 @@
 		return new Date(iso).toLocaleDateString(undefined, {
 			month: 'short', day: 'numeric',
 			year: d < -300 || d > 300 ? 'numeric' : undefined,
-		});
-	}
-	function timeAgo(iso: string | null | undefined): string {
-		if (!iso) return '';
-		const diff = Date.now() - new Date(iso).getTime();
-		const s = Math.floor(diff / 1000);
-		if (s < 45) return 'just now';
-		if (s < 90) return '1 min ago';
-		const m = Math.floor(s / 60);
-		if (m < 45) return `${m} min ago`;
-		if (m < 90) return '1 hour ago';
-		const h = Math.floor(m / 60);
-		if (h < 24) return `${h} hours ago`;
-		const d = Math.floor(h / 24);
-		if (d < 2) return 'yesterday';
-		if (d < 7) return `${d} days ago`;
-		return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-	}
-	function absoluteDate(iso: string | null | undefined): string {
-		if (!iso) return '';
-		return new Date(iso).toLocaleString(undefined, {
-			weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-			hour: '2-digit', minute: '2-digit',
 		});
 	}
 	// Legacy short-form date used by a couple of badges where the

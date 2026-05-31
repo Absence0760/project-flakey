@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchRun, type RunDetail, type Spec } from "$lib/api";
@@ -224,37 +225,6 @@
     cancelStatRefresh();
     if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
   });
-
-  function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-    const totalSecs = Math.floor(ms / 1000);
-    const hrs = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    const secs = totalSecs % 60;
-    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
-    return `${mins}m ${secs}s`;
-  }
-
-  function absoluteDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, {
-      month: "short", day: "numeric", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-
-  function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days === 1) return "yesterday";
-    return `${days}d ago`;
-  }
 
   function toggleSpec(specId: number) {
     const next = new Set(collapsedSpecs);

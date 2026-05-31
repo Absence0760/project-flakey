@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { timeAgo, formatDuration } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchCompare, fetchRuns, type CompareResult, type CompareEntry, type Run } from "$lib/api";
@@ -68,20 +69,6 @@
     url.searchParams.set("b", selectedB);
     replaceState(url, {});
     loadComparison(Number(selectedA), Number(selectedB));
-  }
-
-  function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${(ms / 60000).toFixed(1)}m`;
-  }
-
-  function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const hrs = Math.floor(diff / 3600000);
-    if (hrs < 1) return `${Math.floor(diff / 60000)}m ago`;
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
   }
 
   const CATEGORY_LABELS: Record<string, string> = {

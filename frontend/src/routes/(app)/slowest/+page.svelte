@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
@@ -136,24 +137,8 @@
     return `${(ms / 60000).toFixed(1)}m`;
   }
 
-  function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const days = Math.floor(diff / 86400000);
-    if (days === 0) return "today";
-    if (days === 1) return "yesterday";
-    if (days < 30) return `${days}d ago`;
-    return `${Math.floor(days / 30)}mo ago`;
-  }
-
   // Absolute date used as a tooltip on every `timeAgo` label. Same
   // shape as the helpers on /flaky and /releases.
-  function absoluteDate(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-
   function trendLabel(pct: number): string {
     if (pct > 5) return `+${pct}%`;
     if (pct < -5) return `${pct}%`;
