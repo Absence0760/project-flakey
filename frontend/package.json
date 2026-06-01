@@ -15,24 +15,24 @@
 		"test:e2e:ui": "playwright test --config=tests-e2e/playwright.config.ts --ui"
 	},
 	"devDependencies": {
-		"@iconify-json/material-symbols": "1.2.73",
+		"@iconify-json/material-symbols": "1.2.75",
 		"@playwright/test": "1.60.0",
 		"@sveltejs/adapter-static": "3.0.10",
-		"@sveltejs/kit": "2.60.1",
+		"@sveltejs/kit": "2.61.1",
 		"@sveltejs/vite-plugin-svelte": "7.1.2",
 		"@types/node": "25.9.1",
-		"@vitest/ui": "4.1.6",
+		"@vitest/ui": "4.1.8",
 		"mdsvex": "^0.12.7",
 		"normalize.css": "8.0.1",
-		"svelte": "5.55.8",
-		"svelte-check": "4.4.8",
+		"svelte": "5.56.0",
+		"svelte-check": "4.5.0",
 		"typescript": "6.0.3",
 		"unplugin-icons": "23.0.1",
-		"vite": "8.0.13",
-		"vitest": "4.1.6"
+		"vite": "8.0.16",
+		"vitest": "4.1.8"
 	},
 	"type": "module",
 	"dependencies": {
-		"isomorphic-dompurify": "^3.13.0"
+		"isomorphic-dompurify": "^3.15.0"
 	}
 }
