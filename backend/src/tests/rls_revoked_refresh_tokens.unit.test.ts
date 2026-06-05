@@ -137,3 +137,58 @@ test("user A can SELECT and INSERT their own row (positive control)", async (t) 
     client.release();
   }
 });
+
+// ── Migration 052: maintenance-scoped DELETE (retention prune) ────────────
+
+test("app.maintenance='on' can DELETE any user's aged-out row; without it, scope holds", async (t) => {
+  if (!canRun) { t.skip("DB unreachable"); return; }
+  const oldJti = `test-old-${Date.now()}`;
+
+  // Seed an aged-out row under user A's scope.
+  {
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.current_user_id', $1::text, true)", [String(userA)]);
+      await client.query(
+        "INSERT INTO revoked_refresh_tokens (jti, user_id, revoked_at) VALUES ($1, $2, NOW() - INTERVAL '30 days')",
+        [oldJti, userA]
+      );
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+  }
+
+  // User B, WITHOUT maintenance, cannot delete user A's row — per-user scope
+  // is unchanged by the new permissive policy.
+  {
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.current_user_id', $1::text, true)", [String(userB)]);
+      const res = await client.query("DELETE FROM revoked_refresh_tokens WHERE jti = $1", [oldJti]);
+      assert.equal(res.rowCount, 0, "user B must not be able to delete user A's row");
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+  }
+
+  // The maintenance path (app.maintenance='on', no user scope) prunes it.
+  {
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.maintenance', 'on', true)");
+      const res = await client.query(
+        "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days' AND jti = $1",
+        [oldJti]
+      );
+      assert.equal(res.rowCount, 1, "maintenance prune must delete the aged-out row");
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+  }
+});

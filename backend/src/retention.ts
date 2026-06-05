@@ -1,4 +1,4 @@
-import pool, { tenantQuery } from "./db.js";
+import pool, { tenantQuery, maintenanceQuery } from "./db.js";
 import { getStorage } from "./storage.js";
 
 export async function runRetentionCleanup(): Promise<void> {
@@ -35,6 +35,19 @@ export async function runRetentionCleanup(): Promise<void> {
     );
     if (invites.rowCount && invites.rowCount > 0) {
       console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
+    }
+
+    // Prune long-dead refresh-token revocation rows. A revoked jti is only
+    // useful until the token's own exp passes (max 7d), so rows older than
+    // 14 days can never gate a replay. The table is FORCE-RLS user-scoped, so
+    // this system-level prune runs via maintenanceQuery (app.maintenance='on'),
+    // which the migration-052 DELETE policy admits. Bounds table growth
+    // (the TODO from migration 037).
+    const revoked = await maintenanceQuery(
+      "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days'"
+    );
+    if (revoked.rowCount && revoked.rowCount > 0) {
+      console.log(`Retention: pruned ${revoked.rowCount} expired revoked-refresh-token row(s)`);
     }
   } catch (err) {
     console.error("Retention cleanup error:", err);

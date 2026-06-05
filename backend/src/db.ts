@@ -66,6 +66,34 @@ export async function userScopedQuery(
 }
 
 /**
+ * Run a query in a system "maintenance" context: sets app.maintenance='on'
+ * (LOCAL to the transaction) so maintenance-scoped RLS policies admit the
+ * operation — e.g. pruning aged-out revoked_refresh_tokens rows, which are
+ * otherwise locked to per-user scope (migration 052).
+ *
+ * For background jobs ONLY (retention cleanup). Never call this from a request
+ * handler: it deliberately steps outside per-user/per-org RLS scoping.
+ */
+export async function maintenanceQuery(
+  text: string,
+  params?: unknown[]
+): Promise<pg.QueryResult> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.maintenance', 'on', true)");
+    const result = await client.query(text, params);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Run multiple queries in a single transaction scoped to an organization.
  */
 export async function tenantTransaction(
