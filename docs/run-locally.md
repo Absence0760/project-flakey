@@ -29,13 +29,13 @@ Two optional services let you exercise the cloud code paths locally, behind Comp
 
 ```bash
 # S3-compatible artifact storage (MinIO) — console at http://localhost:9001
-docker compose --profile storage up -d
+pnpm storage:up
 
 # Outbound-webhook echo sink on :8080 — inspect with `docker compose logs -f webhook-sink`
-docker compose --profile integrations up -d
+pnpm webhooks:up
 
 # Everything at once
-docker compose --profile storage --profile integrations up -d
+pnpm services:up
 ```
 
 To point the backend at MinIO, set `STORAGE=s3` and the `S3_ENDPOINT` block in `backend/.env` (see the [env table](#backend) below — the example file ships the values pre-filled and commented).
@@ -179,11 +179,12 @@ npx tsx src/index.ts \
 
 | Command | Description |
 |---|---|
-| `docker compose up -d` | Start PostgreSQL + Mailpit (http://localhost:8025) |
-| `docker compose --profile storage up -d` | Also start MinIO (S3-compatible; console http://localhost:9001) |
-| `docker compose --profile integrations up -d` | Also start the webhook echo sink (:8080) |
-| `docker compose down` | Stop the services |
-| `docker compose down -v` | Stop the services and delete data (Postgres + MinIO) |
+| `pnpm db:up` | Start core services — PostgreSQL + Mailpit (http://localhost:8025) |
+| `pnpm storage:up` / `pnpm storage:down` | Start / stop MinIO (S3-compatible; console http://localhost:9001) |
+| `pnpm webhooks:up` / `pnpm webhooks:down` | Start / stop the webhook echo sink (:8080) |
+| `pnpm services:up` / `pnpm services:down` | Start / stop every local service at once |
+| `pnpm db:down` | Stop the core services |
+| `pnpm db:reset` | Stop core services, delete data, and restart |
 | `pnpm dev` | Start backend + frontend |
 | `pnpm dev:backend` | Start backend only |
 | `pnpm dev:frontend` | Start frontend only |
