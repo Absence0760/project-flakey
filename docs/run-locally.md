@@ -11,7 +11,7 @@
 ### 1. Start the local services
 
 ```bash
-docker compose up -d
+pnpm db:up
 ```
 
 This starts the services every local run needs:
@@ -87,6 +87,13 @@ This creates:
   - 5 manual tests across varied statuses (passed, failed, blocked, not run)
   - Release `v2.4.0` with a partially completed sign-off checklist
   - A weekly regression scheduled report
+- Demoable extras (for the Settings page and CLI/integration testing):
+  - A known admin API key `fk_demoadmindemoadmindemoadmindemoa` for CLI testing
+  - One webhook target (`https://example.invalid/seeded-hook`)
+  - Two quarantine entries on existing failed tests
+  - Two non-default error-group statuses (investigating, known)
+  - One pending org invite (`token: demo-invite-token-do-not-use-in-prod-aaaa`)
+- **4 worker tenants** (`admin+w{0..3}@example.com` / `worker{0..3}123`, orgs `acme-w{0..3}`) with the same playground content as Acme, so parallel Playwright workers each get a dedicated tenant. Override the count with `E2E_WORKER_TENANTS=N` (default 4; set to 0 for a slim production seed).
 
 ### 5. Start the backend and frontend
 
