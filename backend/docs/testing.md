@@ -19,6 +19,21 @@ step.
 docker compose up -d postgres
 ```
 
+### 1b. Start Mailpit (for the email-delivery tests)
+
+`email.smoke.test.ts` asserts that auth emails are *actually delivered* by
+reading them back out of [Mailpit](https://mailpit.axllent.org/), the local
+SMTP sink. `pnpm db:up` starts Mailpit alongside Postgres (SMTP on `1025`,
+web UI + API on `8025`), so the simplest one-liner for both is:
+
+```bash
+pnpm db:up   # Postgres + Mailpit
+```
+
+The email tests poll the Mailpit API until each message lands; if Mailpit
+isn't reachable they fail fast with an actionable message rather than hang.
+Override the API base with `MAILPIT_URL` if it isn't on `http://localhost:8025`.
+
 ### 2. Run the suite
 
 ```bash
@@ -123,24 +138,31 @@ that needs its own isolated state, either:
 
 ## CI
 
-Wire it into your CI as a normal pnpm script. You need Postgres running
-and all migrations applied before the step:
+The real wiring lives in `.github/workflows/tests.yml` (the `backend` job).
+You need Postgres running with all migrations applied, **and** a Mailpit
+service for the email-delivery tests, before the step:
 
 ```yaml
-# GitHub Actions example
-- uses: pnpm/action-setup@v4
-- uses: actions/setup-node@v4
-  with:
-    node-version: 20
-    cache: pnpm
-- run: docker compose up -d postgres
-- run: ./backend/migrate.sh
-- run: cd backend && npm install && npm test
-  env:
-    DB_USER: flakey_app
-    DB_PASSWORD: flakey_app
+# GitHub Actions — see .github/workflows/tests.yml for the maintained version
+services:
+  postgres:
+    image: postgres:16-alpine
+    # … env + healthcheck …
+  mailpit:                       # SMTP sink for email.smoke.test.ts
+    image: axllent/mailpit:latest
+    ports: ["1025:1025", "8025:8025"]
+    env:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+steps:
+  - run: ./backend/migrate.sh
+  - run: cd backend && npm ci && npm run seed && npm test
+    env:
+      DB_USER: flakey_app
+      DB_PASSWORD: flakey_app
 ```
 
-The suite is deterministic and does not depend on external network
-access (Jira/PagerDuty calls are not exercised — their `test` endpoints
-are checked separately in manual smoke tests).
+The suite is deterministic and does not reach the public internet:
+Jira/PagerDuty calls are not exercised (their `test` endpoints are checked
+separately in manual smoke tests), and the only network dependency is the
+local Mailpit sink, which the email tests talk to over `MAILPIT_URL`.

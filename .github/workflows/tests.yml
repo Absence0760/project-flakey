@@ -65,6 +65,18 @@ jobs:
           --health-timeout 3s
           --health-retries 10
           --tmpfs /var/lib/postgresql/data
+      # SMTP sink for the email-delivery smoke tests (email.smoke.test.ts),
+      # mirroring the Mailpit service in docker-compose.yml. SMTP on 1025
+      # (the backend's default SMTP_PORT), web/API on 8025 (default
+      # MAILPIT_URL). No health gate — the test polls Mailpit until it's up.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - "1025:1025"
+          - "8025:8025"
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: 1
+          MP_SMTP_AUTH_ALLOW_INSECURE: 1
     defaults:
       run:
         working-directory: backend
