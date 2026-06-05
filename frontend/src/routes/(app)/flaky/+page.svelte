@@ -41,10 +41,15 @@
     const w = Number(p.get("window"));
     if (w > 0) runWindow = w;
     searchQuery = p.get("q") ?? "";
+    pendingExpandKey = p.get("expanded");
   }
   let mounted = $state(false);
   $effect(() => { selectedSuite; sortBy; runWindow; searchQuery; if (mounted) syncUrl(); });
   let expandedIndex = $state<number | null>(null);
+  // ?expanded=<full_title>|<suite_name> deep-links an open detail panel. The
+  // matching row index depends on the async-loaded, filtered+sorted list, so
+  // we stash the key from the URL and resolve it to an index once data lands.
+  let pendingExpandKey = $state<string | null>(null);
 
   // Filter (search) runs before sorting. Search matches title and
   // file path — the two strings the user can read on a row.
@@ -95,6 +100,18 @@
   $effect(() => {
     selectedSuite; sortBy; runWindow; searchQuery; // tracked deps
     visibleCount = PAGE_SIZE;
+  });
+
+  // Resolve a ?expanded=<key> deep link once data has loaded and the
+  // sorted/filtered list exists. One-shot: clears the pending key after.
+  $effect(() => {
+    if (!mounted || !pendingExpandKey || sorted.length === 0) return;
+    const idx = sorted.findIndex((t) => qKey(t) === pendingExpandKey);
+    if (idx !== -1) {
+      if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
+      expandedIndex = idx;
+    }
+    pendingExpandKey = null;
   });
 
   function loadMoreFlaky() {
@@ -191,9 +208,17 @@
     }
   }
 
+  // Mirror the open row into ?expanded=<key> so the panel is deep-linkable.
+  function setExpandedParam(key: string | null) {
+    const url = new URL(window.location.href);
+    if (key) url.searchParams.set("expanded", key);
+    else url.searchParams.delete("expanded");
+    replaceState(url, {});
+  }
+
   function expandRow(test: FlakyTest, i: number) {
     expandedIndex = expandedIndex === i ? null : i;
-    void test;
+    setExpandedParam(expandedIndex === null ? null : qKey(test));
   }
 
   function scrollToTest(fullTitle: string, suiteName: string) {
@@ -203,6 +228,7 @@
     // Make sure the row is paginated in.
     if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
     expandedIndex = idx;
+    setExpandedParam(key);
     setTimeout(() => {
       const row = document.querySelectorAll("tr.flaky-row")[idx] as HTMLElement | undefined;
       row?.scrollIntoView({ block: "center", behavior: "smooth" });
