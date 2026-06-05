@@ -125,6 +125,9 @@ before(async () => {
       DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "cross-tenant-test-secret",
+      // Integration secrets must be stored as v1: ciphertext (migration 045),
+      // so the app needs a key — plaintext token writes are rejected at the DB.
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // gitleaks:allow — deterministic test fixture, not a real secret
       ALLOW_REGISTRATION: "true",
       NODE_ENV: "test",
       // Long enough that nothing in this file trips the stale-run timer.
