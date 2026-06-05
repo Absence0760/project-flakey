@@ -1,7 +1,7 @@
 import { mkdirSync, renameSync, rmSync, existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname, resolve, sep } from "path";
-import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, type S3ClientConfig, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Reject the four path-traversal primitives at the storage boundary:
@@ -124,9 +124,7 @@ class S3Storage implements Storage {
   private cdnUrl: string | null;
 
   constructor() {
-    this.client = new S3Client({
-      region: process.env.S3_REGION ?? "us-east-1",
-    });
+    this.client = new S3Client(s3ClientConfig());
     this.bucket = process.env.S3_BUCKET ?? "";
     this.prefix = process.env.S3_PREFIX ?? "";
     this.cdnUrl = process.env.CDN_URL ?? null;
@@ -213,6 +211,30 @@ class S3Storage implements Storage {
       continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
     } while (continuationToken);
   }
+}
+
+// Build the S3Client config from env. Exported (and env-injectable) so
+// the endpoint / path-style wiring can be unit-tested without standing
+// up a client.
+//
+// Against real AWS S3 you only need a region — virtual-host bucket
+// addressing and the default credential chain handle the rest. Against
+// an S3-compatible store (MinIO for local dev, also Ceph / Backblaze /
+// Wasabi), set S3_ENDPOINT: that flips on path-style addressing because
+// `<bucket>.localhost` virtual-host subdomains don't resolve. Credentials
+// still come from the standard AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+// chain (for MinIO, its root user / password).
+export function s3ClientConfig(env: NodeJS.ProcessEnv = process.env): S3ClientConfig {
+  const config: S3ClientConfig = {
+    region: env.S3_REGION ?? "us-east-1",
+  };
+  if (env.S3_ENDPOINT) {
+    config.endpoint = env.S3_ENDPOINT;
+    // Path-style is the right default for a custom endpoint; allow an
+    // explicit opt-out for stores that require virtual-host addressing.
+    config.forcePathStyle = env.S3_FORCE_PATH_STYLE !== "false";
+  }
+  return config;
 }
 
 // Exported for unit testing (storage_content_type.unit.test.ts) — the
