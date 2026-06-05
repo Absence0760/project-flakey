@@ -24,9 +24,10 @@ test.describe("/ runs list", () => {
   test("renders run rows with the expected structural pieces", async ({ page }) => {
     const firstRow = page.locator("tr.run-row").first();
 
-    // Every row has: a status dot (.run-status-dot), a run id
-    // (.run-id), and links to /runs/<id> via data-href.
-    await expect(firstRow.locator(".run-status-dot")).toBeVisible();
+    // Every row has: a status dot (rendered by the shared StatusDot
+    // component as .status-dot), a run id (.run-id), and links to
+    // /runs/<id> via data-href.
+    await expect(firstRow.locator(".status-dot")).toBeVisible();
     await expect(firstRow.locator(".run-id")).toContainText(/^#\d+$/);
     await expect(firstRow).toHaveAttribute("data-href", /^\/runs\/\d+$/);
   });
