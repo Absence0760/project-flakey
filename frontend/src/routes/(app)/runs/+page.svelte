@@ -14,7 +14,7 @@
   }
 
   let allRuns = $state<Run[]>([]);
-  let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0 });
+  let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0, incomplete: 0 });
   let hasMore = $state(false);
   let loadingMore = $state(false);
   let loading = $state(true);
@@ -384,6 +384,11 @@
       <div class="stat"><span class="stat-label">Total runs</span><span class="stat-value">{dbSummary.total}</span></div>
       <div class="stat pass"><span class="stat-label">Passed</span><span class="stat-value">{dbSummary.passed}</span></div>
       <div class="stat" class:fail={dbSummary.failed > 0}><span class="stat-label">Failed</span><span class="stat-value">{dbSummary.failed}</span></div>
+      {#if dbSummary.incomplete > 0}
+        <!-- In-progress runs (finished_at IS NULL) are excluded from
+             Passed/Failed so a not-yet-finished run can't be read as a pass. -->
+        <div class="stat"><span class="stat-label">In progress</span><span class="stat-value">{dbSummary.incomplete}</span></div>
+      {/if}
       <div class="stat" class:risk={newFailuresAcrossLoaded > 0}><span class="stat-label">New failures</span><span class="stat-value">{newFailuresAcrossLoaded}</span></div>
     </section>
   {/if}

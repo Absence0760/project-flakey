@@ -5,6 +5,11 @@ export interface RunsSummary {
   total: number;
   passed: number;
   failed: number;
+  // Runs still in progress (finished_at IS NULL — includes most aborted runs,
+  // which never merge) are excluded from `passed`/`failed` and counted here, so
+  // a not-yet-finished run never inflates the pass count. A finished-but-aborted
+  // run counts as `failed`. `passed + failed + incomplete === total`.
+  incomplete: number;
 }
 
 export async function fetchRuns(): Promise<Run[]> {
