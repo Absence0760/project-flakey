@@ -38,7 +38,7 @@ router.patch("/:name/rename", async (req, res) => {
     const oldName = decodeURIComponent(req.params.name);
     await tenantQuery(req.user!.orgId, "UPDATE runs SET suite_name = $1 WHERE suite_name = $2", [new_name, oldName]);
     await tenantQuery(req.user!.orgId,
-      "UPDATE suite_overrides SET suite_name = $1 WHERE suite_name = $2",
+      "UPDATE suite_overrides SET suite_name = $1, updated_at = NOW() WHERE suite_name = $2",
       [new_name, oldName]
     );
     await logAudit(req.user!.orgId, req.user!.id, "suite.rename", "suite", new_name, { old_name: oldName, new_name });
@@ -60,7 +60,7 @@ router.patch("/:name/archive", async (req, res) => {
     const archived = req.body.archived !== false;
     await tenantQuery(req.user!.orgId,
       `INSERT INTO suite_overrides (org_id, suite_name, archived) VALUES ($1, $2, $3)
-       ON CONFLICT (org_id, suite_name) DO UPDATE SET archived = $3`,
+       ON CONFLICT (org_id, suite_name) DO UPDATE SET archived = $3, updated_at = NOW()`,
       [req.user!.orgId, suiteName, archived]
     );
     await logAudit(req.user!.orgId, req.user!.id, archived ? "suite.archive" : "suite.unarchive", "suite", suiteName);
@@ -86,7 +86,7 @@ router.patch("/:name/rerun-template", async (req, res) => {
     }
     await tenantQuery(req.user!.orgId,
       `INSERT INTO suite_overrides (org_id, suite_name, rerun_command_template) VALUES ($1, $2, $3)
-       ON CONFLICT (org_id, suite_name) DO UPDATE SET rerun_command_template = $3`,
+       ON CONFLICT (org_id, suite_name) DO UPDATE SET rerun_command_template = $3, updated_at = NOW()`,
       [req.user!.orgId, suiteName, template || null]
     );
     res.json({ updated: true });

@@ -204,7 +204,7 @@ router.patch("/:id", async (req, res) => {
 
     params.push(req.params.id);
     await tenantQuery(req.user!.orgId,
-      `UPDATE webhooks SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`,
+      `UPDATE webhooks SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $${i} RETURNING id`,
       params
     );
     await logAudit(req.user!.orgId, req.user!.id, "webhook.update", "webhook", req.params.id);
