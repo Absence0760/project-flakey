@@ -1,0 +1,12 @@
+-- Schema-design audit finding M1: drop the legacy error_notes table.
+--
+-- error_notes was created in 013_error_tracking.sql and superseded by the
+-- universal `notes` table in 014_universal_notes.sql, which copied every row
+-- (target_type='error', target_key = error_groups.fingerprint) idempotently.
+-- No application code, type, seed, or test references error_notes — the only
+-- live reference is frontend fetchErrorNotes(), which calls
+-- GET /errors/:fingerprint/notes and reads the `notes` table (legacy name only).
+--
+-- DROP TABLE cascades the index (idx_error_notes_group) and RLS policy
+-- (error_notes_tenant); nothing else FK-references it. IF EXISTS keeps it idempotent.
+DROP TABLE IF EXISTS error_notes;
