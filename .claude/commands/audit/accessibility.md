@@ -58,6 +58,6 @@ End with a **clean** list of surfaces you confirmed pass.
 
 ## Delegate to
 
-Use the `compliance-auditor` agent: `"Audit accessibility across web + mobile + watch per WCAG 2.2 AA / EU EAA / ADA."`
+Use the `compliance-auditor` agent: `"Audit accessibility across web + mobile + watch per WCAG 2.2 AA / EU EAA / ADA. Write the report to reviews/accessibility.md."`
 
-Read-only. Findings only.
+Read-only on the codebase. The deliverable is the findings report written to **`reviews/accessibility.md`** (the agent returns a short summary of it).

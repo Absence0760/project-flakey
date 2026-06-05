@@ -75,4 +75,4 @@ For each: file:line + the invariant + the recently-fixed PR/commit if you can id
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit live-route invariants — uniqueness fences, recompute paths, screenshot/snapshot preservation, heartbeat / stale-run timing."` Read-only.
+Use the `flakey-auditor` agent: `"Audit live-route invariants — uniqueness fences, recompute paths, screenshot/snapshot preservation, heartbeat / stale-run timing. Write the report to reviews/live-flow.md."` Read-only on the codebase; the deliverable is **`reviews/live-flow.md`**.

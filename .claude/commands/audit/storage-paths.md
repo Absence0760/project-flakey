@@ -60,4 +60,4 @@ For each: file:line, the input that escapes, the resulting key.
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit filename sanitization and key scoping on every upload endpoint."` Read-only.
+Use the `flakey-auditor` agent: `"Audit filename sanitization and key scoping on every upload endpoint. Write the report to reviews/storage-paths.md."` Read-only on the codebase; the deliverable is **`reviews/storage-paths.md`**.

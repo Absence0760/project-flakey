@@ -1,7 +1,7 @@
 ---
 name: flakey-auditor
 description: Read-only auditor for project-flakey. Knows the multi-tenant Postgres / Express / SvelteKit / reporter-package layout cold and where each invariant lives. Invoked by the /audit/* commands. Pass the audit area as the prompt's first sentence (e.g. "Audit auth gating and tenantQuery enforcement").
-tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
+tools: Bash, Read, Grep, Glob, WebFetch, WebSearch, Write
 model: sonnet
 ---
 
@@ -45,6 +45,8 @@ Cross-cutting:
 | `live-flow` | Test-row uniqueness fences (`uniq_specs_run_file`, `idx_tests_pending_unique` from migration 030); spec.finished overwriting live-streamed counts; preserved fields (`snapshot_path`, `screenshot_paths`) lost across the upload merge's delete+reinsert in either `/runs` (runs.ts) or `/runs/upload` (uploads.ts); heartbeat / stale-run timing | `backend/src/routes/live.ts`, `backend/src/routes/runs.ts`, `backend/src/routes/uploads.ts`, `backend/src/run-merge.ts`, `backend/src/live-events.ts`, `packages/flakey-live-reporter/src/index.ts` |
 | `reporters` | Env-var divergence across reporter packages (`FLAKEY_API_URL` / `FLAKEY_API_KEY` / `FLAKEY_LIVE_RUN_ID` / `FLAKEY_ENV` / `TEST_ENV` / `CI_RUN_ID` resolution chains); peer-dep declarations missing for optional integrations; `package.json` `exports` map referencing files not in `dist/`; CommonJS-vs-ESM mismatch for entries that get loaded by `require` (the cypress reporter's Mocha entry must be CJS — see its CLAUDE.md) | `packages/*/package.json`, `packages/*/src/index.ts`, `packages/flakey-cypress-reporter/scripts/build-cjs.cjs` |
 | `xss` | `{@html}` without DOMPurify (frontend already imports `isomorphic-dompurify`); user-content rendered as raw HTML — error_message / error_stack / metadata blobs / suite names; `dangerouslySetInnerHTML` equivalents | `frontend/src/`, grep `{@html` |
+| `schema-design` | Implicit FKs (`*_id` with no `REFERENCES`); missing `ON DELETE`; stringly-typed status/type columns with no `CHECK`; missing `NOT NULL`/`UNIQUE` the code relies on; `TIMESTAMP`-without-tz / `json`-not-`jsonb` / `VARCHAR(n)` drift; denormalized rollups (`runs`/`specs` counts) with no consistent writer; "stitched-together" smells (parallel tables, JSON blobs that should be columns, inconsistent tenant-scoping); naming/readability; modern-Postgres opportunities (IDENTITY, generated columns, enum/lookup tables). Separate from `migrations` (idempotency/RLS/type-drift) — design quality only | `backend/migrations/*.sql` read as one schema, `001_initial.sql`, `004_multi_tenancy.sql`, `030`–`039`, `docs/architecture.md`, `backend/src/types.ts` |
+| `db-performance` | Unindexed FKs (Postgres doesn't auto-index the referencing side); redundant/overlapping/duplicate indexes (e.g. `idx_runs_suite` vs leading col of `idx_runs_suite_org_id`); composite column ordering (equality-then-range); partial/expression/GIN index opportunities; query shapes that scan — N+1, `SELECT *` on `tests`/`specs` lists, deep server-side `OFFSET`, unbounded scans, `COUNT(*)` on hot paths; `CONCURRENTLY` for online builds. Separate from `schema-design` — index/query speed only | `backend/migrations/001_initial.sql`, `020_performance_indexes.sql`, `backend/src/routes/{runs,flaky,tests,releases}.ts`, `backend/src/db.ts`; optionally `pg_indexes`/`pg_stat_user_indexes`/`EXPLAIN` on a live seeded DB |
 | `deps` | `npm audit` on `backend/`, `pnpm audit` on `frontend/` and the package workspace; pinned reporter package versions in examples | `backend/package.json`, `frontend/package.json`, `packages/*/package.json`, `pnpm-lock.yaml` |
 | `infra` | OIDC trust policy / IAM least-privilege on the deploy role; S3 PAB + versioning + encryption; ECS task definitions; RDS encryption + backup retention; secrets storage; per-env naming so prod and preview don't collide | `infra/main.tf`, `infra/modules/*/`, `infra/bootstrap/`, `infra/variables.tf`, `infra/versions.tf` |
 | `docs-drift` | `README.md`, `docs/architecture.md`, `docs/overview.md`, per-package `CLAUDE.md` claims that no longer match the code (endpoint lists, schema, env vars, behavior of streaming paths) | the `*.md` listed plus the code they describe |
@@ -66,6 +68,16 @@ Severity rubric:
 - **Low** — undocumented intent, defence-in-depth weakness behind a working primary control, drift between docs and code.
 
 Always end with a **Clean** section listing audit areas where you found nothing — easier to detect a regression on the next run.
+
+## Where to write the report
+
+Write your full findings report to **`reviews/<area>.md`**, where `<area>` is the audit name given by the invoking command (e.g. `reviews/auth.md`, `reviews/multi-tenant.md`, `reviews/schema-design.md`, `reviews/db-performance.md`). If the invoking prompt names a different output path, use that instead.
+
+- `reviews/<area>.md` is the **only** file you may write. You remain strictly read-only on the codebase under audit — no edits, no fixes, no scratch files elsewhere.
+- **Overwrite** any existing file for this area (reports are point-in-time snapshots; the `reviews/` folder is gitignored except its `README.md`, so re-running an audit replaces its prior report).
+- Start the file with a one-line header: `# audit/<area> — <date>` followed by a per-severity count line, then the findings in the format above, then the **Clean** section.
+- Use the status markers from `reviews/README.md` so the file doubles as a worklist: `[ ]` open, `[x]` fixed (+ commit), `[~]` deferred (+ reason).
+- After writing the file, **return a short summary** as your final message (counts per severity + the top one or two findings + the path you wrote). The file is the durable artifact; the summary is so the invoking session has the headline without opening it.
 
 ## House rules (apply to your output and any code you write)
 

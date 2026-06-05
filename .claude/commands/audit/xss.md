@@ -52,4 +52,4 @@ For each: file:line + the field rendered + the resulting payload that fires.
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit user-content rendering paths in the SvelteKit app for XSS-prone patterns."` Read-only.
+Use the `flakey-auditor` agent: `"Audit user-content rendering paths in the SvelteKit app for XSS-prone patterns. Write the report to reviews/xss.md."` Read-only on the codebase; the deliverable is **`reviews/xss.md`**.

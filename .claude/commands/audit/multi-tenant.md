@@ -51,4 +51,4 @@ For each: file:line, the policy/function name, what's missing, the worst-case bl
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit RLS coverage and cross-org reachability across the schema."` Read-only.
+Use the `flakey-auditor` agent: `"Audit RLS coverage and cross-org reachability across the schema. Write the report to reviews/multi-tenant.md."` Read-only on the codebase; the deliverable is **`reviews/multi-tenant.md`**.

@@ -72,4 +72,4 @@ For each: package + file + the diff to apply.
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit env-var consistency, exports map, peer-dep declarations, and CJS/ESM discipline across the @flakeytesting/* reporter packages."` Read-only.
+Use the `flakey-auditor` agent: `"Audit env-var consistency, exports map, peer-dep declarations, and CJS/ESM discipline across the @flakeytesting/* reporter packages. Write the report to reviews/reporters.md."` Read-only on the codebase; the deliverable is **`reviews/reporters.md`**.

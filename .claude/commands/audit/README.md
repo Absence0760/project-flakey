@@ -24,6 +24,21 @@ Invoke from a Claude Code session as `/audit/<name>`.
 | [/audit/live-flow](live-flow.md) | Live-route invariants: test-row uniqueness, spec.finished doesn't undercount, screenshot/snapshot preservation across upload merge, heartbeat behavior, stale-run timing |
 | [/audit/reporters](reporters.md) | Env-var consistency across reporter packages; peer-dep declarations; `exports` map; CJS-vs-ESM entry discipline |
 
+### Database
+
+| Command | What it checks |
+|---|---|
+| [/audit/schema-design](schema-design.md) | Schema design quality across `backend/migrations` — referential integrity (real FKs + `ON DELETE`), constraint discipline (`NOT NULL` / `CHECK` / `UNIQUE`), data-type appropriateness, normalization vs. deliberate denormalization, "stitched-together" smells, naming / readability, and modern Postgres best practices |
+| [/audit/db-performance](db-performance.md) | Indexing + query optimization — unindexed FKs, redundant / overlapping / unused indexes, composite-column ordering, partial / GIN index opportunities, and slow query shapes in the routes (N+1, `SELECT *`, deep `OFFSET`, unbounded scans) |
+
+> `schema-design` and `db-performance` complement — don't duplicate — `migrations` (idempotency / RLS / type-drift) and `multi-tenant` (RLS correctness). Design/readability findings go to `schema-design`; index/query-speed findings go to `db-performance`.
+
+### Accessibility
+
+| Command | What it checks |
+|---|---|
+| [/audit/accessibility](accessibility.md) | WCAG 2.2 AA + EU EAA + ADA pass across web / mobile / watch surfaces (delegates to `compliance-auditor`) |
+
 ### Health
 
 | Command | What it checks |
@@ -40,22 +55,24 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 ## Conventions
 
-- Every audit is **read-only by default**. The deliverable is a findings report, not a diff.
+- Every audit is **read-only on the codebase**. The deliverable is a findings report, not a diff.
+- **Every audit writes its report to `reviews/<name>.md`** (e.g. `/audit/auth` → `reviews/auth.md`, `/audit/schema-design` → `reviews/schema-design.md`) and returns a short summary to the calling session. The `reviews/` folder is gitignored except its `README.md`, so reports persist on disk across sessions and re-running an audit **overwrites** its file. This matches the persona bug-hunters, which write `reviews/persona-<name>.md`. See `reviews/README.md` for the status-marker worklist convention (`[ ]` / `[x]` / `[~]`).
 - Findings are grouped by severity: **Critical / High / Medium / Low**.
 - Each command is a **self-contained prompt** — runnable from a fresh session with no prior context.
 - Findings cite the file the rule lives in (`backend/CLAUDE.md`, `frontend/CLAUDE.md`, root `CLAUDE.md`, `docs/architecture.md`) so a violation can be traced to the convention it breaks.
 
 ## Agent delegation
 
-The Security and Invariants commands all delegate to the `flakey-auditor` agent (under `.claude/agents/`). That agent has the four trust boundaries baked in (DB↔caller, API↔caller, Storage↔paths, client-bundle↔runtime), the file layout, and the audit-area routing table — it picks up the project's conventions without re-reading them every run. `/audit/all` spawns one auditor instance per area in parallel.
+The Security, Invariants, and Database commands all delegate to the `flakey-auditor` agent (under `.claude/agents/`); `accessibility` delegates to `compliance-auditor`. Both agents have the project's trust boundaries / data flows baked in, are read-only on the codebase, and write only their `reviews/<area>.md` report. `/audit/all` spawns one agent instance per area in parallel.
 
-`deps`, `infra`, and `docs-drift` use the `general-purpose` agent (or `Explore` for `docs-drift`) — they're tool-running / file-reading sweeps that don't need the auditor's domain context.
+`deps` and `infra` use the `general-purpose` agent and write their own `reviews/<name>.md`. `docs-drift` uses the read-only `Explore` agent (which can't write files), so it returns the report and the invoking session persists it to `reviews/docs-drift.md`. Either way, every audit ends with its report on disk under `reviews/`.
 
 ## When to run
 
 - **Before tagging a release** — `/audit/all` once, fix Critical/High before tagging.
 - **After a sweeping refactor** — at minimum `/audit/migrations` + `/audit/live-flow` + `/audit/auth`.
-- **After a new migration** — `/audit/migrations` + `/audit/multi-tenant`.
+- **After a new migration** — `/audit/migrations` + `/audit/multi-tenant` + `/audit/schema-design`.
+- **After schema or hot-query changes** — `/audit/schema-design` + `/audit/db-performance`.
 - **After a new live-route endpoint** — `/audit/live-flow` + `/audit/auth` + `/audit/storage-paths`.
 - **After a new reporter package or option** — `/audit/reporters` + `/audit/docs-drift`.
 - **After a dependency major bump** — `/audit/deps` + `/audit/secrets`.

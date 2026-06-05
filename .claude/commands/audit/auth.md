@@ -64,6 +64,6 @@ For each: file:line, the concrete fix, the worst-case blast radius.
 
 ## Delegate to
 
-Use the `flakey-auditor` agent. Pass it the audit area as the prompt's first sentence: `"Audit auth gating and tenantQuery enforcement across the backend API."` That agent has the project's auth conventions baked in.
+Use the `flakey-auditor` agent. Pass it the audit area as the prompt's first sentence: `"Audit auth gating and tenantQuery enforcement across the backend API. Write the report to reviews/auth.md."` That agent has the project's auth conventions baked in.
 
-Read-only. Findings only.
+Read-only on the codebase. The deliverable is the findings report written to **`reviews/auth.md`** (the agent returns a short summary of it).

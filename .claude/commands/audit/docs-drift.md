@@ -72,4 +72,6 @@ For each: doc file + line + the actual reality + the change to apply.
 
 `Explore` agent (read-only, broad scan). Pass this file as the prompt; the agent's job is to compare each claim in the docs against the corresponding code path. No code edits.
 
+The `Explore` agent is read-only and **cannot Write**, so it returns the full delta report as its final message; the **invoking session then writes that report to `reviews/docs-drift.md`** (overwrite if present). End state: the report lives at `reviews/docs-drift.md` like every other audit.
+
 Read-only. Findings only.

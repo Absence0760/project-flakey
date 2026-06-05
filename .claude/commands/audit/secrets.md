@@ -72,4 +72,4 @@ For each: the env var name + the file referencing it + what should change. **Nev
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit secret handling — server-only env vars, client-bundle leakage, encryption-key fallbacks, git-history exposure."` Read-only. Recommendations only — never paste a found key into the report.
+Use the `flakey-auditor` agent: `"Audit secret handling — server-only env vars, client-bundle leakage, encryption-key fallbacks, git-history exposure. Write the report to reviews/secrets.md."` Read-only on the codebase; the deliverable is **`reviews/secrets.md`**. Recommendations only — never paste a found key into the report (identify by env-var name and location).

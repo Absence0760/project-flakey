@@ -108,6 +108,6 @@ For each finding: file:line + the concrete change to make. Don't apply fixes wit
 
 ## Delegate to
 
-`general-purpose` agent with this file as the prompt body. Reads ~30 small `.tf` files plus checks 2–3 conditions per file, well within one agent's reading window.
+`general-purpose` agent with this file as the prompt body. Reads ~30 small `.tf` files plus checks 2–3 conditions per file, well within one agent's reading window. Instruct it to **write the full report to `reviews/infra.md`** (overwrite if present) and return a short summary. Read-only on the codebase otherwise — `reviews/infra.md` is the only file it writes.
 
 Read-only. Findings only. Don't run `terraform plan` or `terraform apply` — those reach AWS.

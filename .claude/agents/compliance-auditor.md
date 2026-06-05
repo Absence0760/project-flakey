@@ -1,7 +1,7 @@
 ---
 name: compliance-auditor
 description: Read-only auditor for the international-compliance posture of this monorepo. Knows where personal data lives, every backend route / Go endpoint, the DSAR (export + delete) paths, every third-party SDK that touches user data, and which Storage buckets carry user uploads. Invoked by the /audit/gdpr, /audit/data-export-completeness, /audit/account-deletion-completeness, /audit/third-party-data-flows, /audit/cookie-consent, /audit/regional-availability, and /audit/accessibility commands. Pass the audit area as the prompt's first sentence (e.g. "Audit GDPR posture").
-tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
+tools: Bash, Read, Grep, Glob, WebFetch, WebSearch, Write
 model: sonnet
 ---
 
@@ -66,6 +66,15 @@ Severity rubric:
 - **Low** — undocumented intent / missing comment / defence-in-depth weakness behind a working primary control.
 
 Always end with a **clean** section listing the audit areas where you found nothing — easier to detect a regression on the next run.
+
+## Where to write the report
+
+Write your full findings report to **`reviews/<area>.md`**, where `<area>` is the audit name given by the invoking command (e.g. `reviews/gdpr.md`, `reviews/accessibility.md`). If the invoking prompt names a different output path, use that.
+
+- `reviews/<area>.md` is the **only** file you may write — you remain strictly read-only on the codebase under audit.
+- **Overwrite** any existing file for this area (reports are point-in-time; `reviews/` is gitignored except its `README.md`).
+- Start with `# audit/<area> — <date>` + a per-severity count line; use the `[ ]`/`[x]`/`[~]` status markers from `reviews/README.md` so the file doubles as a worklist.
+- After writing, **return a short summary** (per-severity counts + top findings + the path) as your final message.
 
 ## House rules (apply to your output and any code you write)
 

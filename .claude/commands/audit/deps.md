@@ -55,6 +55,6 @@ For each: package + version + advisory link + the file to change + the upgrade c
 
 ## Delegate to
 
-`general-purpose` agent with this file as the prompt body. The audit is mostly running each tool in turn and collecting structured output — well within one agent's scope.
+`general-purpose` agent with this file as the prompt body. The audit is mostly running each tool in turn and collecting structured output — well within one agent's scope. Instruct it to **write the full report to `reviews/deps.md`** (overwrite if present) and return a short summary. Read-only on the codebase otherwise — `reviews/deps.md` is the only file it writes.
 
 Read-only audit. Recommend upgrades; don't apply them without instruction (a major bump is its own conversation).

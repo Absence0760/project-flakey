@@ -58,4 +58,4 @@ For each: the migration filename + the columns/types diff + the file that needs 
 
 ## Delegate to
 
-Use the `flakey-auditor` agent: `"Audit migration idempotency, RLS coverage, and type-drift between schema and TypeScript types."` Read-only.
+Use the `flakey-auditor` agent: `"Audit migration idempotency, RLS coverage, and type-drift between schema and TypeScript types. Write the report to reviews/migrations.md."` Read-only on the codebase; the deliverable is **`reviews/migrations.md`**.
