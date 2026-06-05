@@ -160,6 +160,7 @@ export interface TestHistoryEntry {
 
 export interface TestHistory {
   title: string;
+  full_title: string;
   file_path: string;
   history: TestHistoryEntry[];
 }

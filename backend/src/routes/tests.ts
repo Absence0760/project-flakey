@@ -56,9 +56,13 @@ router.get("/:id/history", async (req, res) => {
     const orgId = req.user!.orgId;
     const testId = req.params.id;
 
-    // Get the test's title and file_path to find matching tests
+    // Get the test's fully-qualified title and file_path to find matching tests.
+    // Match on full_title (suite path + leaf name), not the leaf title alone —
+    // two `it('should reject invalid input')` blocks in different describe()s of
+    // the same file share a leaf title and would otherwise collapse into one
+    // bogus history. The flaky route keys on full_title for the same reason.
     const testResult = await tenantQuery(orgId,
-      `SELECT t.title, s.file_path
+      `SELECT t.title, t.full_title, s.file_path
        FROM tests t JOIN specs s ON s.id = t.spec_id
        WHERE t.id = $1`,
       [testId]
@@ -69,7 +73,7 @@ router.get("/:id/history", async (req, res) => {
       return;
     }
 
-    const { title, file_path } = testResult.rows[0];
+    const { title, full_title, file_path } = testResult.rows[0];
 
     // Find all instances of this test across runs
     const history = await tenantQuery(orgId, `
@@ -85,13 +89,14 @@ router.get("/:id/history", async (req, res) => {
       FROM tests t
       JOIN specs s ON s.id = t.spec_id
       JOIN runs r ON r.id = s.run_id
-      WHERE t.title = $1 AND s.file_path = $2
+      WHERE t.full_title = $1 AND s.file_path = $2
       ORDER BY r.created_at DESC
       LIMIT 50
-    `, [title, file_path]);
+    `, [full_title, file_path]);
 
     res.json({
       title,
+      full_title,
       file_path,
       history: history.rows,
     });
