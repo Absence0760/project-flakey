@@ -27,11 +27,11 @@ importers:
   packages/flakey-cli:
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -39,11 +39,11 @@ importers:
   packages/flakey-core:
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -67,11 +67,11 @@ importers:
         specifier: ^10.0.0
         version: 10.0.10
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -82,14 +82,14 @@ importers:
         specifier: ^24.0.0
         version: 24.0.1(@babel/core@7.29.0)(cypress@15.14.0)(typescript@6.0.3)
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       cypress:
         specifier: ^15.0.0
         version: 15.14.0
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -97,11 +97,11 @@ importers:
   packages/flakey-live-reporter:
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -116,11 +116,11 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -138,11 +138,11 @@ importers:
         version: 1.59.1
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -157,11 +157,11 @@ importers:
         specifier: ^0.5.8
         version: 0.5.8
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -179,14 +179,14 @@ importers:
         version: 9.27.1
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.0
+        specifier: ^25.9.1
+        version: 25.9.1
       '@wdio/reporter':
         specifier: ^9.27.0
         version: 9.27.0
       tsx:
-        specifier: ^4.22.1
-        version: 4.22.2
+        specifier: ^4.22.4
+        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -620,8 +620,8 @@ packages:
   '@types/node@20.19.40':
     resolution: {integrity: sha512-xxx6M2IpSTnnKcR0cMvIiohkiCx20/oRPtWGbenFygKCGl3zqUzdNjQ/1V4solq1LU+dgv0nQzeGOuqkqZGg0Q==}
 
-  '@types/node@25.9.0':
-    resolution: {integrity: sha512-AOQwYUNolgy3VosiRqXrACUXTN8nJUtPl7FJXMqZVyxiiCLhQuG3jXKvCS1ALr+Y2OmZhzzLVlYPEqJaiqkaJQ==}
+  '@types/node@25.9.1':
+    resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
@@ -3009,8 +3009,8 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tsx@4.22.2:
-    resolution: {integrity: sha512-6w9FwtT8WQqRAyTNR+Z+86kghRqpmOLjXUrBlBT6T+CQGDuIMm0VmAqaFUFBIeKDTGobE6/YSigZYLeomzBaRg==}
+  tsx@4.22.4:
+    resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3773,7 +3773,7 @@ snapshots:
 
   '@types/adm-zip@0.5.8':
     dependencies:
-      '@types/node': 25.9.0
+      '@types/node': 25.9.1
 
   '@types/mocha@10.0.10': {}
 
@@ -3781,7 +3781,7 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
-  '@types/node@25.9.0':
+  '@types/node@25.9.1':
     dependencies:
       undici-types: 7.24.6
 
@@ -3799,11 +3799,11 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.9.0
+      '@types/node': 25.9.1
 
   '@types/yauzl@2.10.3':
     dependencies:
-      '@types/node': 25.9.0
+      '@types/node': 25.9.1
     optional: true
 
   '@typescript-eslint/project-service@8.58.2(typescript@5.9.3)':
@@ -4994,7 +4994,7 @@ snapshots:
       shelljs: 0.10.0
       spec-change: 1.11.21
       tinyglobby: 0.2.16
-      tsx: 4.22.2
+      tsx: 4.22.4
     transitivePeerDependencies:
       - '@babel/core'
       - supports-color
@@ -6416,7 +6416,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsx@4.22.2:
+  tsx@4.22.4:
     dependencies:
       esbuild: 0.28.0
     optionalDependencies:

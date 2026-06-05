@@ -48,9 +48,9 @@
     "@flakeytesting/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.1",
     "@wdio/reporter": "^9.27.0",
-    "tsx": "^4.22.1",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
 }
