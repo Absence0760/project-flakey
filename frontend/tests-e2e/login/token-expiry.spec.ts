@@ -97,10 +97,14 @@ test.describe("token expiry / corruption — auth singleton recovery", () => {
     // Sidebar still hydrated with the user's identity — proves the
     // refresh + retry round-trip actually completed.
     await expect(page.locator("aside.sidebar .user-email")).toHaveText(ADMIN_USER.email);
-    // And bt_token has been replaced with a fresh one (no longer the
-    // forged value).
+    // And bt_token gets replaced with a fresh one (no longer the forged
+    // value). The sidebar above hydrates from bt_user via restoreAuth, which
+    // can land *before* the async refresh+retry settles — so poll on the real
+    // signal (the rotated token) rather than reading localStorage once.
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("bt_token")), { timeout: 10_000 })
+      .not.toEqual(FORGED_JWT);
     const tokenAfter = await page.evaluate(() => localStorage.getItem("bt_token"));
-    expect(tokenAfter).not.toEqual(FORGED_JWT);
     expect(tokenAfter, "refreshed token must be populated").toBeTruthy();
   });
 
