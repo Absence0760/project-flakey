@@ -171,3 +171,18 @@ misreports results is the worst bug it can have."*
 
 Run any of them by name or via `/persona sdet,qa-engineer,dev` (the command
 discovers them automatically).
+
+### Operator / consumer / support pack (shipped in this repo)
+
+Personas for the people who run the service, read it to make decisions, and
+support it — beyond the engineers who test against it.
+
+| Persona | Point of view |
+|---|---|
+| `persona-self-hoster` | Platform/SRE standing the app up — install, Terraform/ECS, migration safety on populated data, upgrades, backup/restore, secrets, infra-level cross-org isolation |
+| `persona-engineering-manager` | Reads the dashboard's *trends* to decide — longitudinal correctness of flake-rate/pass-rate/suite-health rollups across time, teams, and tenants; exports reconcile with the screen |
+| `persona-release-manager` | Gates ships on results — run completeness, real-vs-flaky distinction, and whether a run's status is a trustworthy go/no-go signal |
+| `persona-support-engineer` | Fields customer tickets — reproduce an org's issue, audit-log trustworthiness, and legitimate cross-tenant read that's scoped + audited, not a privacy hole |
+
+Run via `/persona self-hoster,engineering-manager,release-manager,support-engineer`
+or by name.
