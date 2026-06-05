@@ -156,3 +156,18 @@ to add: a `persona-ci-engineer` wiring a reporter package into a pipeline
 `persona-developer-triaging-flakes` (flaky-test detection accuracy, run history,
 screenshot/snapshot diffing, noise vs signal), and a `persona-self-hoster`
 (install/Helm/Terraform, upgrades, backups, multi-tenant isolation between orgs).
+
+### Engineering-role pack (shipped in this repo)
+
+Three personas that test the app from an engineering-craft point of view rather
+than an end user's — the cross-cutting theme being *"a test dashboard that
+misreports results is the worst bug it can have."*
+
+| Persona | Point of view |
+|---|---|
+| `persona-sdet` | Builds automated suites against the app + wires the `@flakeytesting/*` reporters into CI — testability primitives (readiness signals, stable selectors, seedable state), result-ingestion idempotency, flake-detection accuracy |
+| `persona-qa-engineer` | Functional + exploratory testing — end-to-end feature correctness, state transitions, edge-case data, and whether displayed counts/badges/status reconcile with the underlying rows |
+| `persona-dev` | App developer triaging a red build — shortest path to root cause (failing test + stack trace + screenshot + history), deep-linkability, error-message quality, local-dev ergonomics |
+
+Run any of them by name or via `/persona sdet,qa-engineer,dev` (the command
+discovers them automatically).
