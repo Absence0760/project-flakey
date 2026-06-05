@@ -37,6 +37,35 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - **Frontend + packages**: pnpm (workspace root is `packages/*`, see `pnpm-workspace.yaml`).
 - **Backend**: uses its own `npm` lockfile. Don't run pnpm inside `backend/`.
 
+## Guard rails
+
+Standing rules for how to work in this repo. They are not optional; when in
+doubt, follow the rule and say so.
+
+1. **Commit each piece of work.** Land every logical unit as its own
+   path-scoped commit as you finish it — never batch unrelated changes or leave
+   the tree dirty across tasks. (Detail + the scope-guard hook: see
+   [Git workflow](#git-workflow) below.)
+2. **Never push.** `git push` is the operator's call — never push from an
+   interactive session. (See [Git workflow](#git-workflow).)
+3. **Always add test coverage where possible.** A behavior change ships with
+   tests in the same session — unit / smoke / e2e as the change warrants (see
+   the per-area test conventions in `backend/`, `frontend/`, and `packages/`).
+   If something is genuinely untestable, say *why* rather than skipping
+   silently.
+4. **Code-review important code.** For non-trivial or load-bearing changes
+   (auth, tenancy/RLS, migrations, gate signals, money/PII paths), run a review
+   pass before committing — `/check`, `/safe-edit`, or the `code-reviewer`
+   agent. Don't gate trivial edits (typos, comments, dep bumps) on it.
+5. **Never code around an issue — fix the root cause.** No masking: no inflated
+   timeouts, sleeps, retries, skipped/loosened assertions, swallowed errors, or
+   try/catch that hides a real failure. If you can't fix it now, surface it
+   explicitly; don't half-mask it. (Full list for tests:
+   [Fix bugs at the source](#fix-bugs-at-the-source--never-adjust-the-test-to-hide-them).)
+6. **Always recommend the long-term solution.** When a quick patch and a
+   durable fix diverge, name the durable fix and its tradeoffs even if you also
+   ship the patch — don't let an expedient workaround pass as the answer.
+
 ## Fix bugs at the source — never adjust the test to hide them
 
 When a test fails, the only acceptable resolution paths are:
