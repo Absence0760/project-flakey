@@ -148,9 +148,12 @@ test.describe("examples — Selenium upload via mochawesome JSON", () => {
     expect(tests.filter((t: any) => t.status === "passed").length).toBe(2);
     expect(tests.filter((t: any) => t.status === "failed").length).toBe(1);
     // Mocha's `pending` state surfaces as status='pending' on the row
-    // (not 'skipped'); the run-level `skipped` counter folds them in.
+    // (not 'skipped'). Since migration 048 the run-level counters track
+    // skipped and pending disjointly — pending is NOT folded into skipped
+    // (invariant: passed + failed + skipped + pending = total).
     expect(tests.filter((t: any) => t.status === "pending").length).toBe(1);
-    expect(detail.skipped, "run-level skipped includes pending rows per the mochawesome normaliser").toBe(1);
+    expect(detail.pending, "run-level pending counts mocha's pending rows").toBe(1);
+    expect(detail.skipped, "skipped and pending are tracked disjointly (migration 048)").toBe(0);
     const failedTest = tests.find((t: any) => t.status === "failed");
     expect(failedTest.error_message).toContain("Cookie not preserved");
 
