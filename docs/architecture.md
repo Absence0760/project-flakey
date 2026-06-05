@@ -121,9 +121,11 @@ Scheduler (internal, advisory-lock coordinated):
 *Runs, tests, errors, stats:*
 - `POST /runs` — receive report payload (JSON only path; merges into a live placeholder by `ci_run_id` + `suite_name` + `org_id` when one exists)
 - `POST /runs/upload` — multipart upload with screenshots/videos
-- `GET /runs` — list runs (filtered by org via RLS); each row carries `environment` so the dashboard can group by it
+- `GET /runs` — list runs (filtered by org via RLS); each row carries `environment` so the dashboard can group by it. The `summary` separates `passed` / `failed` / `incomplete` so in-progress runs never inflate the pass count
 - `GET /runs/:id` — single run with full spec/test tree
 - `GET /runs/environments` — distinct environment values present on the org's runs (powers the runs-grid filter dropdown)
+- `GET /runs/check` — **mid-run** early-cancel gate: `?ci_run_id=X&suite=&threshold=N` → `{ should_cancel, failed, ... }`. Reads live failures from the `tests` table so it isn't fooled by the lagging `runs.failed` aggregate
+- `GET /runs/status` — **post-run** consolidated JSON ship signal: `?ci_run_id=X` or `?suite=name` → `{ status, run_id, ... }` where `status` is `"passed" | "failed" | "incomplete" | "aborted"`. A CI gate polls this instead of composing `failed` + `aborted` + `finished_at` itself or parsing the SVG badge — both derive from the same classifier (`backend/src/run-status.ts`), so they always agree. A missing run is a 404 (fails closed)
 - `GET /errors` — failures grouped by error message, filterable by suite/run
 - `PATCH /errors/:fingerprint/status` — set status on an error group (open/investigating/known/fixed)
 - `GET /errors/:fingerprint/tests` — list affected tests for an error group
