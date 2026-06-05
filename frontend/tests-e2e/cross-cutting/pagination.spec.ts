@@ -86,7 +86,14 @@ test.describe("client-side pagination — /flaky and /errors", () => {
 
   test("/flaky shows Load more when seed produces > 50 candidates", async ({ page }) => {
     test.setTimeout(30_000);
-    await page.goto("/flaky");
+    // The default 30-run window yields a flaky-candidate count that
+    // hovers right around the 50-item page size, and concurrent specs
+    // in the same worker-tenant upload runs that shift the window —
+    // tipping the count below 50 and dropping the Load-more button.
+    // Pin the widest window (?window=100, the backend cap) where the
+    // seed produces 110+ candidates per tenant, so pagination is
+    // exercised deterministically regardless of concurrent uploads.
+    await page.goto("/flaky?window=100");
     // Heatmap-table rows live under `tr.flaky-row` after the
     // 2026-05-12 redesign — earlier card-grid markup is gone.
     await waitForList(page, "tr.flaky-row");

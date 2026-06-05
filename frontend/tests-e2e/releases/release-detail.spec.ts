@@ -20,6 +20,14 @@ import { expect, test, type Page } from "../fixtures/test";
 
 async function gotoRelease(page: Page, version: string): Promise<string> {
   await page.goto("/releases");
+  // Each tenant carries 55+ releases (3 hero + 52 bulk pagination
+  // coverage) and other specs create-but-don't-clean-up releases, so
+  // a given version can land beyond the 50-per-page boundary — e.g.
+  // v2.5.0 seeds at rank ~50 and a single concurrent release bumps it
+  // onto page 2. Scope the grid to this version via the search box
+  // (mirrors findCard in releases.spec.ts) so the card is always on
+  // page 1 regardless of tenant volume or test-leftover data.
+  await page.getByPlaceholder("Search version or name…").fill(version);
   const card = page.locator(".release-card", {
     has: page.locator(".version", { hasText: version }),
   }).first();
