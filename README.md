@@ -8,15 +8,17 @@ Multi-tenant with organization-based isolation via Postgres Row-Level Security. 
 
 ### Prerequisites
 
-- [Docker](https://www.docker.com/) (for PostgreSQL)
+- [Docker](https://www.docker.com/) (for PostgreSQL + Mailpit)
 - [Node.js](https://nodejs.org/) v18+
 - [pnpm](https://pnpm.io/) (for the frontend)
 
-### 1. Start the database
+### 1. Start the local services
 
 ```bash
 docker compose up -d
 ```
+
+Starts PostgreSQL and Mailpit (a local SMTP sink — view sent mail at http://localhost:8025). Artifact storage, AI, and integrations are local-first or optional, so nothing else is required. To exercise the S3 or outbound-webhook code paths locally, opt into the bundled MinIO / webhook sink — see [docs/run-locally.md](docs/run-locally.md#1-start-the-local-services).
 
 ### 2. Install dependencies
 
@@ -335,6 +337,8 @@ after-script:
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | When `true`, registered users must verify their email (via the `SMTP_*` chain) before logging in. |
 | `STORAGE` | `local` | `local` writes uploads to `uploads/runs/{id}/...` on disk; `s3` puts them in `S3_BUCKET` and serves via signed URLs / CloudFront. |
 | `S3_BUCKET` / `S3_REGION` | — / `us-east-1` | S3 bucket name and region (only when `STORAGE=s3`). |
+| `S3_ENDPOINT` | — | Custom endpoint for an S3-compatible store (MinIO, Ceph, Backblaze). Set to `http://localhost:9000` to use the bundled MinIO (`docker compose --profile storage up -d`). Unset = real AWS S3. |
+| `S3_FORCE_PATH_STYLE` | `true` when `S3_ENDPOINT` is set | Path-style bucket addressing — required for MinIO. Set `false` to opt back out. Credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` chain (`minioadmin` / `minioadmin` for local MinIO). |
 | `NODE_ENV` | — | Set `production` to refuse boot without JWT_SECRET and FLAKEY_ENCRYPTION_KEY. CORS_ORIGINS still applies the same allow-list in any env — there's no looser dev-only fallback. |
 | `FLAKEY_ENCRYPTION_KEY` | _(required in production)_ | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Validated at boot — a malformed value refuses to start, not just an unset one. Unset = plaintext passthrough (local dev only — backend refuses to start in production). |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | — | Optional previous encryption key for rotation. Used only on the read path when the primary key fails to authenticate a v1: ciphertext. Never used for new writes. See `backend/docs/integrations.md` for the dual-key rotation procedure. |
@@ -345,8 +349,8 @@ after-script:
 | `API_RATE_LIMIT_MAX` | `600` prod / `100000` dev | Per-IP cap on the global API surface (all authenticated routes below the upload + artifact + health buckets) |
 | `ARTIFACT_RATE_LIMIT_MAX` | `3000` prod / `100000` dev | Per-IP cap on /uploads/* artifact serves (a release detail page renders dozens of screenshots — keep this high) |
 | `HEALTH_RATE_LIMIT_MAX` | `600` | Per-IP cap on /health (load balancer probes bypass other limiters but get their own bucket) |
-| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | `false` | When `true`, webhooks can target loopback / private IP ranges. Self-hosted-only escape hatch; SSRF gate stays in place for other schemes. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | — | SMTP settings for scheduled-report email delivery and auth verification/reset |
+| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | When `true`, webhooks can target loopback / private IP ranges. Dev already allows it, so the local `--profile integrations` echo sink works out of the box; set `true` explicitly to allow it in production. SSRF gate stays in place for other schemes. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | localhost / 1025 / — / — / `Flakey <noreply@example.com>` | SMTP settings for scheduled-report email delivery and auth verification/reset. Defaults target the bundled Mailpit (view sent mail at http://localhost:8025). |
 
 ### Frontend
 

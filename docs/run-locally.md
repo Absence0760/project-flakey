@@ -2,19 +2,43 @@
 
 ## Prerequisites
 
-- [Docker](https://www.docker.com/) (for PostgreSQL)
+- [Docker](https://www.docker.com/) (for PostgreSQL, Mailpit, and the optional MinIO / webhook services)
 - [Node.js](https://nodejs.org/) (v18+)
 - [pnpm](https://pnpm.io/) (for the frontend)
 
 ## Setup
 
-### 1. Start the database
+### 1. Start the local services
 
 ```bash
 docker compose up -d
 ```
 
-This starts PostgreSQL on port 5432 and runs all migrations in `backend/migrations/` automatically, including creating the `flakey_app` database role needed for RLS tenant isolation.
+This starts the services every local run needs:
+
+- **PostgreSQL** on port 5432 — runs all migrations in `backend/migrations/` automatically, including creating the `flakey_app` database role needed for RLS tenant isolation.
+- **Mailpit** — a local SMTP sink on port 1025 (the backend's default `SMTP_PORT`) with a web UI at **http://localhost:8025**. All transactional mail (email verification, password reset, scheduled reports) lands there instead of a real inbox. No backend config needed.
+
+The remaining external dependencies are local-first by default, so nothing else is required to run the app:
+
+- **Artifact storage** defaults to local disk (`uploads/`).
+- **AI analysis** is off unless you configure a provider.
+- **Integrations** (Jira, PagerDuty, git providers, webhooks) are per-org and idle until configured.
+
+Two optional services let you exercise the cloud code paths locally, behind Compose profiles so they don't start by default:
+
+```bash
+# S3-compatible artifact storage (MinIO) — console at http://localhost:9001
+docker compose --profile storage up -d
+
+# Outbound-webhook echo sink on :8080 — inspect with `docker compose logs -f webhook-sink`
+docker compose --profile integrations up -d
+
+# Everything at once
+docker compose --profile storage --profile integrations up -d
+```
+
+To point the backend at MinIO, set `STORAGE=s3` and the `S3_ENDPOINT` block in `backend/.env` (see the [env table](#backend) below — the example file ships the values pre-filled and commented).
 
 ### 2. Install dependencies
 
@@ -155,9 +179,11 @@ npx tsx src/index.ts \
 
 | Command | Description |
 |---|---|
-| `docker compose up -d` | Start PostgreSQL |
-| `docker compose down` | Stop PostgreSQL |
-| `docker compose down -v` | Stop PostgreSQL and delete data |
+| `docker compose up -d` | Start PostgreSQL + Mailpit (http://localhost:8025) |
+| `docker compose --profile storage up -d` | Also start MinIO (S3-compatible; console http://localhost:9001) |
+| `docker compose --profile integrations up -d` | Also start the webhook echo sink (:8080) |
+| `docker compose down` | Stop the services |
+| `docker compose down -v` | Stop the services and delete data (Postgres + MinIO) |
 | `pnpm dev` | Start backend + frontend |
 | `pnpm dev:backend` | Start backend only |
 | `pnpm dev:frontend` | Start frontend only |
@@ -185,16 +211,20 @@ npx tsx src/index.ts \
 | `STORAGE` | `local` | `local` or `s3` for artifact storage |
 | `S3_BUCKET` | _(none)_ | S3 bucket name (when `STORAGE=s3`) |
 | `S3_REGION` | `us-east-1` | AWS region (when `STORAGE=s3`) |
+| `S3_ENDPOINT` | _(none)_ | Custom endpoint for an S3-compatible store (e.g. `http://localhost:9000` for the bundled MinIO). Unset = real AWS S3 |
+| `S3_FORCE_PATH_STYLE` | `true` when `S3_ENDPOINT` is set | Path-style bucket addressing; required for MinIO. Set `false` to opt back out |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | S3 credentials (standard AWS chain). For local MinIO: `minioadmin` / `minioadmin` |
 | `AI_PROVIDER` | _(none)_ | `anthropic` or `openai` for AI analysis |
 | `AI_BASE_URL` | _(none)_ | API URL for OpenAI-compatible models (e.g. `http://localhost:11434/v1` for Ollama) |
 | `AI_API_KEY` | _(none)_ | API key for the AI provider |
 | `AI_MODEL` | auto | Model name (defaults to `claude-haiku-4-5-20251001` for Anthropic, `llama3.2` for OpenAI) |
-| `SMTP_HOST` | `localhost` | SMTP server for email verification + scheduled-report email delivery |
-| `SMTP_PORT` | `1025` | SMTP port |
+| `SMTP_HOST` | `localhost` | SMTP server for email verification + scheduled-report email delivery. Defaults target the bundled Mailpit (view sent mail at http://localhost:8025) |
+| `SMTP_PORT` | `1025` | SMTP port (Mailpit's SMTP listener) |
 | `SMTP_USER` | _(none)_ | SMTP username (optional, only if your relay requires auth) |
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
 | `EMAIL_FROM` | `Flakey <noreply@example.com>` | From-address used for all outgoing email |
+| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | Allow webhooks to target private / loopback hosts. Dev already permits it, so the local `--profile integrations` sink works out of the box; set `true` to allow it in production |
 | `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough (refused in `NODE_ENV=production`). See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | _(none)_ | Optional previous encryption key for rotation — read-path only, never used for new writes. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) for the dual-key rotation procedure |
 
