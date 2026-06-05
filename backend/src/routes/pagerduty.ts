@@ -31,6 +31,30 @@ router.patch("/settings", async (req, res) => {
       return;
     }
     const { integration_key, severity, auto_trigger } = req.body;
+
+    // Enabling auto-trigger requires a configured integration key — enforced
+    // at the DB layer by a CHECK constraint (migration 044). Validate it here
+    // so this knowable bad-input case returns a clean 400 with a useful
+    // message, instead of bubbling the constraint violation up as a 500.
+    if (auto_trigger) {
+      const hasKeyAfterUpdate =
+        integration_key !== undefined
+          ? Boolean(integration_key)
+          : Boolean(
+              (
+                await tenantQuery(
+                  req.user!.orgId,
+                  "SELECT pagerduty_integration_key IS NOT NULL AS has_key FROM organizations WHERE id = $1",
+                  [req.user!.orgId]
+                )
+              ).rows[0]?.has_key
+            );
+      if (!hasKeyAfterUpdate) {
+        res.status(400).json({ error: "Set a PagerDuty integration key before enabling auto-trigger" });
+        return;
+      }
+    }
+
     const sets: string[] = [];
     const params: unknown[] = [];
     let i = 1;

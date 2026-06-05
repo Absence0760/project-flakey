@@ -412,24 +412,48 @@ test.describe("integrations — PagerDuty settings + test", () => {
     test.setTimeout(15_000);
     await page.goto("/dashboard");
     const token = await getToken(page);
+    const patch = (data: Record<string, unknown>) =>
+      page.request.patch(`${BACKEND}/pagerduty/settings`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data,
+      });
 
-    await page.request.patch(`${BACKEND}/pagerduty/settings`, {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: { severity: "BOGUS-VALUE", auto_trigger: true },
-    });
+    // Seed a valid, non-'error' severity first so the normalisation below is
+    // a real state change rather than a no-op against the 'error' default.
+    // (auto_trigger is deliberately not exercised here — it requires a stored
+    // integration key, covered by the dedicated guard test below.)
+    expect((await patch({ severity: "warning" })).status()).toBeLessThan(300);
+
+    // A bogus severity must be coerced to 'error'.
+    expect((await patch({ severity: "BOGUS-VALUE" })).status()).toBeLessThan(300);
+
     const settings = (await (
       await page.request.get(`${BACKEND}/pagerduty/settings`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-    ).json()) as { pagerduty_severity: string; pagerduty_auto_trigger: boolean };
+    ).json()) as { pagerduty_severity: string };
     expect(settings.pagerduty_severity, "invalid severity must normalise to 'error'").toBe("error");
-    expect(settings.pagerduty_auto_trigger).toBe(true);
+  });
 
-    // Reset auto_trigger.
-    await page.request.patch(`${BACKEND}/pagerduty/settings`, {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: { auto_trigger: false },
-    });
+  test("PATCH /pagerduty/settings rejects enabling auto_trigger with no key (400, not 500)", async ({ page }) => {
+    test.setTimeout(15_000);
+    await page.goto("/dashboard");
+    const token = await getToken(page);
+    const patch = (data: Record<string, unknown>) =>
+      page.request.patch(`${BACKEND}/pagerduty/settings`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data,
+      });
+
+    // Ensure this tenant has no integration key set.
+    expect((await patch({ auto_trigger: false, integration_key: "" })).status()).toBeLessThan(300);
+
+    // Auto-trigger needs a key — enabling it without one is bad input, so it
+    // must come back 400 (a clean validation error), never a 500.
+    const res = await patch({ auto_trigger: true });
+    expect(res.status(), "enabling auto_trigger with no key is bad input, not a server error").toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/integration key/i);
   });
 
   test("POST /pagerduty/test returns 400 when no integration_key is set", async ({ page }) => {
