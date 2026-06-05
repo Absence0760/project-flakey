@@ -783,8 +783,11 @@ router.get("/:id/jira", async (req, res) => {
       }
     } catch (err) {
       // Jira reachable but returned an error (bad creds, project not found,
-      // etc.) — surface the error so the UI can nudge the user to settings.
-      res.json({ configured: true, error: (err as Error).message });
+      // etc.) — nudge the user to settings without echoing the raw exception,
+      // which can carry the configured base URL or auth fragments. Log the
+      // detail server-side for diagnosis.
+      console.error("GET /releases/:id/jira-match error:", err);
+      res.json({ configured: true, error: "Jira returned an error — check your Jira settings." });
       return;
     }
 
@@ -1608,8 +1611,10 @@ router.post("/:id/sessions/:sessionId/results/:testId/file-bug", async (req, res
     );
     res.json({ key: issue.key, url: issue.url, already_filed: false });
   } catch (err) {
+    // Generic message — the raw error can carry Jira base URL / auth / cipher
+    // detail. Logged server-side for diagnosis.
     console.error("POST file-bug error:", err);
-    res.status(500).json({ error: (err as Error).message ?? "Internal server error" });
+    res.status(500).json({ error: "Failed to create Jira issue" });
   }
 });
 

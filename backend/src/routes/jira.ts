@@ -159,8 +159,12 @@ router.post("/issues", async (req, res) => {
     await logAudit(req.user!.orgId, req.user!.id, "jira.issue.create", "jira_issue", issue.key);
     res.json(issue);
   } catch (err) {
+    // Don't echo the raw exception to the client — createJiraIssue / fetch
+    // errors and decryptSecret failures can carry the configured base URL,
+    // auth fragments, or cipher detail. Log server-side, return generic.
+    // Matches the redaction the POST /jira/test handler already does.
     console.error("POST /jira/issues error:", err);
-    res.status(500).json({ error: (err as Error).message });
+    res.status(500).json({ error: "Failed to create Jira issue" });
   }
 });
 
