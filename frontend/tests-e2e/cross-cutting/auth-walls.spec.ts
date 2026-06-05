@@ -17,7 +17,6 @@ import { expect, test } from "@playwright/test";
  */
 
 const PROTECTED_ROUTES = [
-  "/",
   "/dashboard",
   "/flaky",
   "/slowest",

@@ -5,27 +5,24 @@ import { expect, test } from "../fixtures/test";
  * Two routes, two contracts:
  *
  *   1. `/` — auth-aware REDIRECT-ONLY route. Authenticated → /dashboard,
- *      unauthenticated → /login. No marketing copy. This is what
- *      self-hosters want their internal URL to do.
+ *      unauthenticated → /welcome (the public marketing page, which
+ *      carries its own sign-in CTAs). No marketing copy lives at `/`
+ *      itself; it's purely a redirect.
  *
  *   2. `/welcome` — public marketing landing page. Always renders; never
  *      redirects. Authenticated visitors who hit /welcome explicitly
  *      stay on /welcome — they asked for the marketing page. The hosted
  *      SaaS at flakey.io can either redirect the public root to /welcome
  *      at the CDN layer or link to /welcome from external marketing.
- *
- * Splitting the two means every protected route (including /) gates on
- * auth, and the auth-walls.spec contract — "every route under (app)
- * redirects to /login when unauthenticated" — holds for `/` too.
  */
 
 test.describe("/ — auth-aware redirect", () => {
   test.describe("unauthenticated", () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
-    test("unauthenticated visit to / redirects to /login (the self-host default)", async ({ page }) => {
+    test("unauthenticated visit to / redirects to /welcome (the landing page)", async ({ page }) => {
       await page.goto("/");
-      await expect(page).toHaveURL(/\/login/);
+      await expect(page).toHaveURL(/\/welcome/);
     });
   });
 

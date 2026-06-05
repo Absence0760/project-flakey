@@ -3,19 +3,15 @@
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth } from '$lib/stores/auth';
 
-	// The root URL is an auth-aware redirect, NOT a marketing page.
-	// Self-hosters deploy this app for their internal use — landing
-	// on the URL should drop them straight into the product (signed
-	// in) or the sign-in form (signed out), not a sales pitch.
-	//
-	// Marketing copy for visitors who don't yet have an account lives
-	// at /welcome — a separate, optional route. Hosted-SaaS operators
-	// (flakey.io) can redirect their public root to /welcome at the
-	// CDN layer; self-hosters serve their root as the app entry.
+	// The root URL is an auth-aware redirect, NOT a page of its own.
+	// Signed-in visitors drop straight into the product; signed-out
+	// visitors land on the /welcome marketing page (which carries its
+	// own "Sign in" / "Create an account" CTAs), rather than being
+	// dumped directly at the bare sign-in form.
 	onMount(() => {
 		restoreAuth();
 		const auth = getAuth();
-		goto(auth.token && auth.user ? '/dashboard' : '/login');
+		goto(auth.token && auth.user ? '/dashboard' : '/welcome');
 	});
 </script>
 
