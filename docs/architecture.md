@@ -136,6 +136,15 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs)
 - `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests
 - `GET /quarantine/check` — check whether a test is currently quarantined
+
+> **Quarantine is reporter-side only.** Quarantining a test is *advisory*: it
+> has **no** effect on `runs.failed`, the `/runs` pass/fail summary, the badge,
+> or `/runs/check`. A quarantined test that still fails in CI counts as a
+> failure everywhere in the dashboard. The only enforcement path is a reporter
+> that calls `GET /quarantine/check` before running and skips the listed tests
+> itself. "Isolate flaky tests so they don't block CI" therefore requires
+> reporter cooperation — the server does not exclude quarantined tests from any
+> gate signal.
 - `GET /compare` — diff two runs (added/removed/changed status, duration delta)
 - `GET /compare/suites` — list suites available for comparison
 - `GET /audit` — read the audit log (org-scoped)
