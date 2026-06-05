@@ -5,6 +5,7 @@ import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
+import { classifyRunStatus } from "../run-status.js";
 import type { NormalizedRun } from "../types.js";
 import { getStorage } from "../storage.js";
 import { forgetLiveRun } from "./live.js";
@@ -299,6 +300,85 @@ router.get("/check", async (req, res) => {
     });
   } catch (err) {
     console.error("GET /runs/check error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /runs/status — consolidated JSON ship signal for a run.
+// Query: ?ci_run_id=X[&suite=name]  OR  ?suite=name
+// Returns: { status, run_id, suite_name, total, passed, failed, skipped,
+//            finished_at, aborted } where status is one of
+//            "passed" | "failed" | "incomplete" | "aborted".
+//
+// This is the post-run ship gate a CI job polls instead of composing failed +
+// aborted + finished_at itself, or parsing the SVG badge. It derives status
+// from the same classifyRunStatus() the badge uses, so the two always agree.
+// Identify the run either by ci_run_id (the specific run — like /runs/check)
+// or by suite (the latest run for that suite, regardless of state — same
+// `ORDER BY created_at DESC LIMIT 1` the badge uses, so if a newer run is live
+// you get "incomplete", not the previous completed run); pass both to
+// disambiguate a ci_run_id that spans multiple suites. A missing run is a 404:
+// for a ship gate "no such run" should fail loud, and a naive script reading
+// `.status` off the error body gets null, which fails closed.
+//
+// Unlike /runs/check (the mid-run early-cancel gate, which reads live failures
+// from the tests table), this reports the run's finished aggregate — the
+// finished_at guard in classifyRunStatus means an unfinished run reports
+// "incomplete" regardless, so a lagging aggregate can't leak a false "passed".
+router.get("/status", async (req, res) => {
+  try {
+    const ciRunId = req.query.ci_run_id as string | undefined;
+    const suite = req.query.suite as string | undefined;
+
+    if (!ciRunId && !suite) {
+      res.status(400).json({ error: "ci_run_id or suite is required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    if (ciRunId) {
+      params.push(ciRunId);
+      conds.push(`ci_run_id = $${params.length}`);
+    }
+    if (suite) {
+      params.push(suite);
+      conds.push(`suite_name = $${params.length}`);
+    }
+
+    const result = await tenantQuery(
+      orgId,
+      `SELECT id, suite_name, total, passed, failed, skipped, finished_at,
+              EXISTS (
+                SELECT 1 FROM live_events le
+                WHERE le.run_id = runs.id AND le.event_type = 'run.aborted'
+              ) AS aborted
+       FROM runs
+       WHERE ${conds.join(" AND ")}
+       ORDER BY created_at DESC LIMIT 1`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "No run found for the given ci_run_id/suite" });
+      return;
+    }
+
+    const run = result.rows[0];
+    res.json({
+      status: classifyRunStatus(run),
+      run_id: run.id,
+      suite_name: run.suite_name,
+      total: run.total,
+      passed: run.passed,
+      failed: run.failed,
+      skipped: run.skipped,
+      finished_at: run.finished_at,
+      aborted: run.aborted,
+    });
+  } catch (err) {
+    console.error("GET /runs/status error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import pool, { tenantQuery } from "../db.js";
+import { classifyRunStatus } from "../run-status.js";
 
 const router = Router();
 
@@ -94,32 +95,37 @@ router.get("/:orgSlug/:suiteName", async (req, res) => {
 
     const { total, passed, failed, skipped, finished_at, aborted } = result.rows[0];
 
+    // Single source of truth shared with GET /runs/status. The badge renders
+    // green EXACTLY when classifyRunStatus returns "passed", so the badge and
+    // the JSON ship signal can never give a CI job contradictory answers.
+    const status = classifyRunStatus({ failed, aborted, finished_at, total, passed, skipped });
+
     let message: string;
     let color: string;
 
-    if (failed > 0) {
+    if (status === "failed") {
       message = `${failed} failed`;
       color = "#e05d44"; // red
-    } else if (aborted) {
+    } else if (status === "aborted") {
       // Aborted with no recorded failure is still not a pass — the run never
       // completed. Distinct orange so a gate doesn't read it as green.
       message = "aborted";
       color = "#fe7d37"; // orange
-    } else if (finished_at === null) {
+    } else if (status === "incomplete" && finished_at === null) {
       // Live / partially-merged run: failed=0 only means "no failures yet".
       message = "in progress";
       color = "#9f9f9f"; // grey
-    } else if (passed + skipped === total) {
-      // Every test accounted for and none failed. Skipped tests are
-      // intentional exclusions, not failures, so passed+skipped===total is
-      // a clean run — render green, not yellow.
-      message = skipped > 0 ? `${passed}/${total} passed` : `${passed} passed`;
-      color = "#4c1"; // green
-    } else {
-      // Some tests neither passed, skipped, nor failed (e.g. pending) in a
-      // finished run — surface it as yellow rather than implying all-clear.
+    } else if (status === "incomplete") {
+      // Finished but some tests have no terminal result (pending). Not a clean
+      // pass — yellow, never green. Same "incomplete" status as the JSON API.
       message = `${passed}/${total} passed`;
       color = "#dfb317"; // yellow
+    } else {
+      // status === "passed": finished, no failures, every test accounted for
+      // (passed + skipped === total). Skipped tests are intentional exclusions,
+      // so this is a clean run — green.
+      message = skipped > 0 ? `${passed}/${total} passed` : `${passed} passed`;
+      color = "#4c1"; // green
     }
 
     res.send(makeBadge("tests", message, color));
