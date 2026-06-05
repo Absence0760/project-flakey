@@ -190,14 +190,34 @@ router.get("/", async (req, res) => {
        FROM runs r ORDER BY r.created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
+    // The summary feeds the dashboard's pass/fail tiles and any CI script
+    // that polls /runs for a ship signal, so "passed" must mean a *trusted*
+    // pass: the run finished (finished_at IS NOT NULL — live/in-progress runs
+    // and partially-merged sharded runs carry NULL, migration 050) and was
+    // not aborted. A live run with no failures yet, or an aborted run that
+    // died before any test failed, both have failed=0 but are NOT passes —
+    // they belong in `incomplete`, never in `passed`. An aborted-but-finished
+    // run counts as failed. `total` stays the full row count so pagination's
+    // hasMore math is unaffected.
     const countResult = await tenantQuery(
       req.user!.orgId,
       `SELECT count(*)::int AS total,
-              count(*) FILTER (WHERE failed = 0)::int AS passed,
-              count(*) FILTER (WHERE failed > 0)::int AS failed
-       FROM runs`
+              count(*) FILTER (
+                WHERE r.finished_at IS NOT NULL AND r.failed = 0 AND NOT ab.aborted
+              )::int AS passed,
+              count(*) FILTER (
+                WHERE r.finished_at IS NOT NULL AND (r.failed > 0 OR ab.aborted)
+              )::int AS failed,
+              count(*) FILTER (WHERE r.finished_at IS NULL)::int AS incomplete
+       FROM runs r
+       LEFT JOIN LATERAL (
+         SELECT EXISTS (
+           SELECT 1 FROM live_events le
+           WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+         ) AS aborted
+       ) ab ON true`
     );
-    const summary = countResult.rows[0] ?? { total: 0, passed: 0, failed: 0 };
+    const summary = countResult.rows[0] ?? { total: 0, passed: 0, failed: 0, incomplete: 0 };
     res.json({ runs: result.rows, summary, hasMore: offset + result.rows.length < summary.total });
   } catch (err) {
     console.error("GET /runs error:", err);
@@ -225,6 +245,16 @@ router.get("/environments", async (req, res) => {
 // GET /runs/check — check failure count for a CI run (auto-cancellation)
 // Query: ?ci_run_id=X&suite=name&threshold=3
 // Returns: { should_cancel, failed, threshold, run_id }
+//
+// This is the *mid-run* early-cancel gate, so — unlike the badge and the
+// /runs summary — it intentionally reads in-progress (finished_at IS NULL)
+// runs. The catch is that the `runs.failed` aggregate lags the live event
+// stream: it's only rewritten when a shard uploads (recalculateRunStats) or
+// when a live spec finishes (recomputeSpecAndRunStats). A run that has live
+// failures streamed in but no completed spec/upload yet would report a stale
+// `runs.failed`. So we count failures directly from the `tests` table, which
+// the live path keeps current per test-event — the gate then reflects the
+// real current failure count, not the last-flushed aggregate.
 router.get("/check", async (req, res) => {
   try {
     const ciRunId = req.query.ci_run_id as string | undefined;
@@ -237,15 +267,19 @@ router.get("/check", async (req, res) => {
     }
 
     const orgId = req.user!.orgId;
-    let query = "SELECT id, failed, total, passed, skipped FROM runs WHERE ci_run_id = $1";
+    let query = `SELECT r.id, r.total, r.passed, r.skipped,
+      (SELECT count(*)::int FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+        WHERE s.run_id = r.id AND t.status = 'failed') AS failed
+      FROM runs r WHERE r.ci_run_id = $1`;
     const params: unknown[] = [ciRunId];
 
     if (suite) {
-      query += " AND suite_name = $2";
+      query += " AND r.suite_name = $2";
       params.push(suite);
     }
 
-    query += " ORDER BY created_at DESC LIMIT 1";
+    query += " ORDER BY r.created_at DESC LIMIT 1";
 
     const result = await tenantQuery(orgId, query, params);
 

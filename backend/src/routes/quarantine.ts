@@ -2,6 +2,13 @@ import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 
+// Quarantine is an ADVISORY, reporter-side mechanism — it is NOT a server-side
+// gate exemption. Nothing in the upload/stats path (run-merge.ts) or the gate
+// signals (badge.ts, /runs summary, /runs/check) references quarantined_tests:
+// a quarantined test that still fails counts as a failure everywhere. The only
+// enforcement is a reporter calling GET /quarantine/check and skipping the
+// listed tests itself before they run. Don't assume quarantining a test makes
+// a run green — it doesn't, unless the reporter cooperates.
 const router = Router();
 
 // GET /quarantine — list quarantined tests

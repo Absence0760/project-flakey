@@ -63,9 +63,22 @@ router.get("/:orgSlug/:suiteName", async (req, res) => {
     // `org_id = ''::integer` and errors, causing every badge to render
     // "error" even for valid suite names.  The explicit AND filter is
     // kept as defense-in-depth alongside RLS.
+    // A badge is a ship-gate signal: a green badge means "safe to merge".
+    // So it must reflect only a *completed, non-aborted* run. `finished_at`
+    // is NULL for live/in-progress runs (POST /live/start inserts the row
+    // before the suite finishes — migration 050) and for partially-merged
+    // sharded runs where only some shards have uploaded; an `aborted` run is
+    // one with a `run.aborted` live_events row (a CI kill / OOM / network
+    // drop). Both states can carry `failed = 0`, so without these guards a
+    // not-yet-finished or aborted run renders a false green.
     const result = await tenantQuery(
       org.rows[0].id,
-      `SELECT total, passed, failed, skipped FROM runs
+      `SELECT total, passed, failed, skipped, finished_at,
+              EXISTS (
+                SELECT 1 FROM live_events le
+                WHERE le.run_id = runs.id AND le.event_type = 'run.aborted'
+              ) AS aborted
+       FROM runs
        WHERE suite_name = $1 AND org_id = $2
        ORDER BY created_at DESC LIMIT 1`,
       [suiteName, org.rows[0].id]
@@ -79,7 +92,7 @@ router.get("/:orgSlug/:suiteName", async (req, res) => {
       return;
     }
 
-    const { total, passed, failed, skipped } = result.rows[0];
+    const { total, passed, failed, skipped, finished_at, aborted } = result.rows[0];
 
     let message: string;
     let color: string;
@@ -87,12 +100,26 @@ router.get("/:orgSlug/:suiteName", async (req, res) => {
     if (failed > 0) {
       message = `${failed} failed`;
       color = "#e05d44"; // red
-    } else if (passed === total) {
-      message = `${passed} passed`;
+    } else if (aborted) {
+      // Aborted with no recorded failure is still not a pass — the run never
+      // completed. Distinct orange so a gate doesn't read it as green.
+      message = "aborted";
+      color = "#fe7d37"; // orange
+    } else if (finished_at === null) {
+      // Live / partially-merged run: failed=0 only means "no failures yet".
+      message = "in progress";
+      color = "#9f9f9f"; // grey
+    } else if (passed + skipped === total) {
+      // Every test accounted for and none failed. Skipped tests are
+      // intentional exclusions, not failures, so passed+skipped===total is
+      // a clean run — render green, not yellow.
+      message = skipped > 0 ? `${passed}/${total} passed` : `${passed} passed`;
       color = "#4c1"; // green
     } else {
+      // Some tests neither passed, skipped, nor failed (e.g. pending) in a
+      // finished run — surface it as yellow rather than implying all-clear.
       message = `${passed}/${total} passed`;
-      color = skipped > 0 ? "#dfb317" : "#4c1"; // yellow if skipped, green otherwise
+      color = "#dfb317"; // yellow
     }
 
     res.send(makeBadge("tests", message, color));
