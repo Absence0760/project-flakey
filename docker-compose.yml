@@ -17,5 +17,71 @@ services:
       timeout: 3s
       retries: 5
 
+  # Local SMTP sink for transactional mail (email verification, password
+  # reset, scheduled reports). The backend defaults to localhost:1025,
+  # which is exactly Mailpit's SMTP port — no backend config needed.
+  # View captured mail at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: flakey-mailpit
+    ports:
+      - "1025:1025" # SMTP — matches the backend's default SMTP_PORT
+      - "8025:8025" # web UI
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  # S3-compatible object store for exercising the STORAGE=s3 code path
+  # locally. Opt-in — only starts with `--profile storage` — because the
+  # default STORAGE=local (disk) needs nothing. Console: http://localhost:9001
+  # (minioadmin / minioadmin).
+  minio:
+    image: minio/minio:latest
+    container_name: flakey-minio
+    profiles: ["storage"]
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000" # S3 API (point S3_ENDPOINT here)
+      - "9001:9001" # web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+
+  # One-shot: create the artifact bucket the backend writes to, then exit.
+  # The `until` loop is the readiness wait — MinIO has no lightweight
+  # healthcheck that works without a configured mc alias.
+  minio-init:
+    image: minio/mc:latest
+    container_name: flakey-minio-init
+    profiles: ["storage"]
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+        mc mb --ignore-existing local/flakey-artifacts;
+        mc anonymous set download local/flakey-artifacts;
+
+  # Echo server for inspecting outbound webhooks / PR-comment posts
+  # locally. Opt-in via `--profile integrations`. Point a webhook target
+  # at http://localhost:8080 and read payloads with
+  # `docker compose logs -f webhook-sink`. (Dev already allows private
+  # webhook targets; prod needs WEBHOOK_ALLOW_PRIVATE_TARGETS=true.)
+  webhook-sink:
+    image: mendhak/http-https-echo:latest
+    container_name: flakey-webhook-sink
+    profiles: ["integrations"]
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: 8080
+
 volumes:
   pgdata:
+  miniodata:
