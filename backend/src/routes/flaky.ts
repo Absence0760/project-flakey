@@ -45,8 +45,7 @@ router.get("/", async (req, res) => {
           r.suite_name,
           t.status,
           r.created_at AS run_date,
-          r.id AS run_id,
-          ROW_NUMBER() OVER (PARTITION BY t.full_title, r.suite_name ORDER BY r.created_at DESC) AS rn
+          r.id AS run_id
         FROM tests t
         JOIN specs s ON s.id = t.spec_id
         JOIN recent_runs r ON r.id = s.run_id
