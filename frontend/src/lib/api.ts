@@ -1,6 +1,19 @@
 import { authFetch, getToken } from "./stores/auth";
 import { API_URL } from "./utils/config.js";
 
+// Prefer the server's `{ error }` message over a bare status code so users see
+// "Run not found" instead of "Failed to fetch run: 404". Falls back to the
+// status when the body isn't the expected JSON shape.
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.clone().json();
+    if (body && typeof body.error === "string" && body.error.trim()) return body.error;
+  } catch {
+    /* non-JSON body — fall through to the status */
+  }
+  return `${fallback}: ${res.status}`;
+}
+
 export interface RunsSummary {
   total: number;
   passed: number;
@@ -27,7 +40,7 @@ export async function fetchRunsWithSummary(offset = 0, limit = 50): Promise<{ ru
 
 export async function fetchRun(id: number): Promise<RunDetail> {
   const res = await authFetch(`${API_URL}/runs/${id}`);
-  if (!res.ok) throw new Error(`Failed to fetch run: ${res.status}`);
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to fetch run"));
   return res.json();
 }
 

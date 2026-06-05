@@ -569,7 +569,7 @@
               {run.branch || "—"}
             </span>
             {#if run.environment}
-              <a class="meta-item env-chip" href="/?env={encodeURIComponent(run.environment)}" title="Environment — click to filter the runs grid">
+              <a class="meta-item env-chip" href="/runs?env={encodeURIComponent(run.environment)}" title="Environment — click to filter the runs grid">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8a6 6 0 0112 0M2 8a6 6 0 0012 0M2 8h12M8 2c1.5 1.7 2.3 3.8 2.3 6S9.5 12.3 8 14M8 2C6.5 3.7 5.7 5.8 5.7 8S6.5 12.3 8 14"/></svg>
                 {run.environment}
               </a>
