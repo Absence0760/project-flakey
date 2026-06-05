@@ -78,7 +78,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
     Statement = [{
       Action   = ["secretsmanager:GetSecretValue"]
       Effect   = "Allow"
-      Resource = [var.db_password_arn, var.jwt_secret_arn]
+      Resource = [var.db_password_arn, var.db_app_password_arn, var.jwt_secret_arn, var.encryption_key_arn]
     }]
   })
 }
@@ -338,13 +338,20 @@ resource "aws_ecs_task_definition" "backend" {
     ]
 
     secrets = [
-      # `:password::` is the JMESPath fragment that plucks the `password`
-      # key out of the RDS-managed master secret JSON
-      # ({"username":"...","password":"..."}). The DB_USER env var above
-      # is the read/write app role, distinct from the master user.
-      { name = "DB_PASSWORD", valueFrom = "${var.db_password_arn}:password::" },
+      # DB_PASSWORD authenticates the app as the non-superuser DB_USER
+      # (flakey_app). It comes from the dedicated app-password secret (a plain
+      # string, so no JMESPath fragment); entrypoint.sh ALTERs the flakey_app
+      # role's password to this value on boot so the two always agree.
+      { name = "DB_PASSWORD", valueFrom = var.db_app_password_arn },
+      # `:password::` is the JMESPath fragment that plucks the `password` key
+      # out of the RDS-managed master secret JSON ({"username":..,"password":..}).
+      # The migration role IS the master/superuser (needed to create roles,
+      # RLS, and run the app-role password ALTER).
       { name = "DB_MIGRATION_PASSWORD", valueFrom = "${var.db_password_arn}:password::" },
       { name = "JWT_SECRET", valueFrom = var.jwt_secret_arn },
+      # Encrypts integration secrets at rest; the backend exits in production
+      # if this is unset.
+      { name = "FLAKEY_ENCRYPTION_KEY", valueFrom = var.encryption_key_arn },
     ]
 
     logConfiguration = {
