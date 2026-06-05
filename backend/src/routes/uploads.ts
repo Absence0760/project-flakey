@@ -158,15 +158,35 @@ router.post("/", uploadFields, async (req, res) => {
         screenshotMap.set(name, relPath);
       }
 
-      let videoPath: string | null = null;
+      // Move each uploaded video and remember it by filename. Do NOT collapse
+      // to a single "last video wins" path: a multi-spec upload (or a sharded
+      // run) carries one video per spec, and assigning the last one to every
+      // test strands the others and mislabels every test's video. Cypress
+      // names each video after its spec file (login.cy.ts.mp4), so we match a
+      // spec to its video by filename below.
+      const videoFilesList: { name: string; relPath: string }[] = [];
       for (const file of videoFiles) {
         const name = fixFilename(file.originalname);
         const relPath = `runs/${runId}/videos/${name}`;
         await storage.put(file.path, relPath);
-        videoPath = relPath;
+        videoFilesList.push({ name, relPath });
       }
+      // Resolve the video belonging to a spec by matching the uploaded video
+      // name against the spec's file basename. Falls back to the sole uploaded
+      // video when there's exactly one (the common single-spec Cypress run),
+      // and to null when nothing matches in a multi-video upload.
+      const videoForSpec = (filePath: string): string | null => {
+        const specBase = basename(filePath).toLowerCase();
+        const match = videoFilesList.find((v) => {
+          const vbase = v.name.toLowerCase().replace(/\.(mp4|webm)$/, "");
+          return vbase === specBase || vbase.includes(specBase) || specBase.includes(vbase);
+        });
+        if (match) return match.relPath;
+        return videoFilesList.length === 1 ? videoFilesList[0].relPath : null;
+      };
 
       for (const spec of run.specs) {
+        const specVideo = videoForSpec(spec.file_path);
         // Upsert against uniq_specs_run_file (migration 030). The live path
         // may have already created this spec row during spec.started; this
         // upload is the authoritative stats snapshot, so overwrite.
@@ -266,7 +286,7 @@ router.post("/", uploadFields, async (req, res) => {
             [specId, test.title, test.full_title, test.status, test.duration_ms,
              test.error?.message ?? null, test.error?.stack ?? null,
              finalScreenshots,
-             videoPath ?? test.video_path ?? null,
+             specVideo ?? test.video_path ?? null,
              test.test_code ?? null,
              test.command_log ? JSON.stringify(test.command_log) : null,
              test.metadata ? JSON.stringify(test.metadata) : null,
