@@ -19,7 +19,10 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 
 - `pnpm dev` — start backend (3000) and frontend (7778) concurrently
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
-- `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — docker-compose Postgres lifecycle
+- `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025)
+- `pnpm storage:up` / `pnpm storage:down` — opt-in MinIO (S3-compatible store; console http://localhost:9001) for exercising `STORAGE=s3` locally
+- `pnpm webhooks:up` / `pnpm webhooks:down` — opt-in webhook echo sink (:8080) for inspecting outbound webhooks
+- `pnpm services:up` / `pnpm services:down` — bring up / tear down every local service at once
 - `pnpm install:backend` — runs `npm install` inside `backend/` (the only workspace outside the pnpm tree)
 - `pnpm build` — builds packages → backend → frontend (build:packages first so reporter dist/ is fresh)
 - `pnpm build:backend` / `pnpm build:frontend` / `pnpm build:packages` — one at a time
@@ -65,6 +68,39 @@ doubt, follow the rule and say so.
 6. **Always recommend the long-term solution.** When a quick patch and a
    durable fix diverge, name the durable fix and its tradeoffs even if you also
    ship the patch — don't let an expedient workaround pass as the answer.
+7. **Local-first.** Every part of the app must run on a dev laptop with no
+   cloud account. External dependencies ship with a local equivalent (Postgres
+   + Mailpit by default; MinIO + a webhook sink behind opt-in Compose profiles)
+   *and* a code default that points at it (`STORAGE=local`, `SMTP_PORT=1025`, AI
+   off unless configured). When you add a dependency on an external service, add
+   its local equivalent and a safe local default in the *same* change — never
+   make `pnpm dev` require a real SaaS credential. (See
+   [docs/run-locally.md](docs/run-locally.md).)
+8. **A pnpm script per service.** Every service or long-running process a
+   contributor starts in dev gets a root `package.json` script — don't make
+   anyone memorize raw `docker compose --profile …` / tool invocations
+   (`pnpm db:up`, `pnpm storage:up`, `pnpm webhooks:up`, `pnpm services:up`).
+   Add the script in the same change you add the service.
+9. **Reusable Svelte components.** Build UI from shared components in
+   `frontend/src/lib/components/` (grouped by kind — `charts/`, `media/`,
+   `inputs/`, `overlays/`, `panels/`, `status/`) instead of copy-pasting markup
+   across routes; extract a component the second time you'd duplicate it.
+   Svelte 5 runes only (`$state`/`$derived`/`$effect`/`$props`) — see
+   [frontend/CLAUDE.md](frontend/CLAUDE.md).
+10. **Organize files by responsibility.** Put code in the file/dir its siblings
+    already establish (backend: `src/routes/`, `src/integrations/`,
+    `src/git-providers/`, `src/normalizers/`; frontend: `src/lib/{stores,utils,
+    components}` + `api.ts`). Don't dump unrelated logic into a file just because
+    it's open — create or extend the file that owns that responsibility. Read the
+    per-subdirectory `CLAUDE.md` before editing, and respect each area's package
+    manager (npm in `backend/`, pnpm in `frontend/` + `packages/`).
+11. **Never bypass tenant isolation.** The backend runs as the non-superuser
+    `flakey_app` so Postgres RLS applies; route tenant-scoped data through
+    `tenantQuery`/`tenantTransaction`, and add an RLS policy in the *same*
+    migration that adds a tenant table. Don't connect as a superuser or reach
+    around RLS with bare `pool.query` on tenant data. (Established in
+    [backend/CLAUDE.md](backend/CLAUDE.md); enforced by the `/audit/multi-tenant`
+    sweep.)
 
 ## Fix bugs at the source — never adjust the test to hide them
 
