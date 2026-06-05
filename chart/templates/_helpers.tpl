@@ -3,6 +3,9 @@
 {{- if and (not .Values.auth.existingSecret) (eq .Values.auth.jwtSecret "change-me-in-production") -}}
 {{- fail "auth.jwtSecret must be changed from the default. Set auth.jwtSecret or use auth.existingSecret." -}}
 {{- end -}}
+{{- if and (not .Values.app.existingEncryptionSecret) (not .Values.app.encryptionKey) -}}
+{{- fail "app.encryptionKey is required — the backend refuses to boot in production without it. Set app.encryptionKey (e.g. `openssl rand -hex 32`) or app.existingEncryptionSecret." -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "flakey.name" -}}
@@ -62,5 +65,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- .Values.database.existingSecret -}}
 {{- else -}}
 {{- include "flakey.fullname" . -}}-db
+{{- end -}}
+{{- end -}}
+
+{{/* Encryption-key secret name */}}
+{{- define "flakey.encryptionSecretName" -}}
+{{- if .Values.app.existingEncryptionSecret -}}
+{{- .Values.app.existingEncryptionSecret -}}
+{{- else -}}
+{{- include "flakey.fullname" . -}}-encryption
 {{- end -}}
 {{- end -}}

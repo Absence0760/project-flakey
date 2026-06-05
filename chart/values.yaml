@@ -47,6 +47,14 @@ app:
   allowRegistration: true
   # -- Require email verification on registration
   requireEmailVerification: false
+  # -- Encryption key for integration secrets at rest (FLAKEY_ENCRYPTION_KEY).
+  # REQUIRED: the backend refuses to boot (NODE_ENV=production) without it.
+  # 32 bytes as 64 hex chars or base64 — generate with `openssl rand -hex 32`.
+  # Keep it STABLE across upgrades; changing it makes previously stored
+  # integration secrets (Jira tokens, PagerDuty keys) undecryptable.
+  encryptionKey: ""
+  # -- Use an existing secret for the encryption key instead (key: encryption-key)
+  existingEncryptionSecret: ""
 
 # -- Auth secrets
 auth:

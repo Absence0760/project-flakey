@@ -49,6 +49,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "flakey.dbSecretName" . }}
                   key: migration-password
+            - name: FLAKEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flakey.encryptionSecretName" . }}
+                  key: encryption-key
             {{- if and .Values.smtp.enabled .Values.smtp.password }}
             - name: SMTP_PASSWORD
               valueFrom:
