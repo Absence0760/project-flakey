@@ -282,6 +282,99 @@ for the full format reference.
 
 ---
 
+## CI ship gate
+
+Once test results are uploaded, a CI job often needs a single yes/no answer:
+**is this run shippable?** Rather than have every pipeline re-derive that from
+the raw `failed` / `aborted` / `finished_at` fields (and get it subtly wrong —
+a live or aborted run can sit at `failed = 0`), Flakey exposes one consolidated
+signal.
+
+### `GET /runs/status` — consolidated ship signal
+
+Authenticated (`Authorization: Bearer $FLAKEY_API_KEY`). Identify the run by
+either its CI run id or its suite:
+
+```bash
+# By the CI run id you tagged the upload with (the specific run):
+curl -H "Authorization: Bearer $FLAKEY_API_KEY" \
+  "http://localhost:3000/runs/status?ci_run_id=$CI_RUN_ID"
+
+# Or by suite (the latest run for that suite, whatever state it's in):
+curl -H "Authorization: Bearer $FLAKEY_API_KEY" \
+  "http://localhost:3000/runs/status?suite=checkout-e2e"
+```
+
+Pass both to disambiguate a `ci_run_id` that spans multiple suites. The
+response:
+
+```json
+{
+  "status": "passed",
+  "run_id": 42,
+  "suite_name": "checkout-e2e",
+  "total": 120,
+  "passed": 118,
+  "failed": 0,
+  "skipped": 2,
+  "finished_at": "2026-06-05T20:31:00Z",
+  "aborted": false
+}
+```
+
+`status` is exactly one of:
+
+| status | meaning | ship? |
+|---|---|---|
+| `passed` | finished, not aborted, no failures, every test accounted for | ✅ |
+| `failed` | one or more tests failed | ❌ |
+| `aborted` | run was killed mid-flight (CI cancel / OOM / network drop) | ❌ |
+| `incomplete` | still in progress, **or** finished with pending (un-run) tests | ❌ |
+
+Only `passed` means shippable. The precedence when more than one could apply is
+`failed` → `aborted` → `incomplete` → `passed`, so the most actionable signal
+wins (a run with failures reports `failed` even if it was also aborted).
+
+**Fail-closed by design.** A `ci_run_id` / `suite` with no matching run returns
+**404**, not a fake "pending" — a missing run should fail your gate loud. A
+naive `jq -r '.status'` against the 404 body reads `null`, which is `!= passed`,
+so even a script that ignores the HTTP code holds the release.
+
+**Agrees with the badge.** The SVG badge (`GET /badge/:orgSlug/:suiteName`,
+public, no auth) and this endpoint derive from the same classifier, so the
+badge is green **exactly when** `status` is `passed`. Use the badge for a
+human-readable widget, this endpoint for a machine gate.
+
+### Gating a pipeline
+
+```bash
+status=$(curl -s -H "Authorization: Bearer $FLAKEY_API_KEY" \
+  "$FLAKEY_URL/runs/status?ci_run_id=$CI_RUN_ID" | jq -r '.status')
+
+if [ "$status" != "passed" ]; then
+  echo "Run not shippable (status: ${status:-unknown}) — holding release."
+  exit 1
+fi
+echo "Run passed — proceeding."
+```
+
+Poll this only after the final upload (the last shard, end-of-run). An
+in-progress run correctly reports `incomplete`, so a premature check holds
+rather than ships — but it also won't flip to `passed` until every shard has
+reported.
+
+### `GET /runs/check` — mid-run early cancel (distinct)
+
+`/runs/status` is the *post-run* gate. For the opposite question — *"have
+enough tests already failed that I should cancel this run early?"* — use
+`GET /runs/check?ci_run_id=X&suite=&threshold=N`, which returns
+`{ should_cancel, failed, ... }`. It is the only signal that reads **live**
+failures (from the per-test rows) rather than the post-merge aggregate, so it
+works mid-run. Call it from each shard before doing expensive work; call
+`/runs/status` once at the end to decide whether to ship.
+
+---
+
 ## Audit trail
 
 Every integration mutation writes an entry to the `audit_log` table:
