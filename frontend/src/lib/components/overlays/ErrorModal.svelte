@@ -295,13 +295,17 @@
   }
   function copyMarkdown() {
     if (!test) return;
+    // Deep link straight back to this test (the run page reads ?test=<id>) so
+    // a reviewer reading the pasted report can click through to the evidence
+    // instead of hunting through the run for the failure.
+    const runUrl = `${window.location.origin}/runs/${test.run_id}?test=${test.id}`;
     const lines = [
       `### ${test.full_title}`,
       ``,
       `- **Status:** ${test.status}`,
       `- **Spec:** \`${test.file_path}\``,
       `- **Duration:** ${formatDuration(test.duration_ms)}`,
-      `- **Run:** #${test.run_id}`,
+      `- **Run:** [#${test.run_id}](${runUrl})`,
       ``,
     ];
     if (test.error_message) {

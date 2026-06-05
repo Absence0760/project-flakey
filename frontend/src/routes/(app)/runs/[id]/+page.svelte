@@ -170,6 +170,23 @@
     replaceState(url, {});
   }
 
+  // Open/close the test-detail modal AND mirror it into the URL as ?test=<id>
+  // so a specific failure is deep-linkable — paste the URL into a PR comment
+  // and the reviewer lands on the same open test, not just the run.
+  function openTest(id: number) {
+    modalTestId = id;
+    const url = new URL(window.location.href);
+    url.searchParams.set("test", String(id));
+    replaceState(url, {});
+  }
+
+  function closeTest() {
+    modalTestId = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("test");
+    replaceState(url, {});
+  }
+
   onMount(async () => {
     const id = Number($page.params.id);
 
@@ -196,6 +213,15 @@
         collapsedSpecs = new Set(
           run.specs.filter((s) => s.failed === 0).map((s) => s.id)
         );
+
+        // Deep link: ?test=<id> opens that test's modal on load, but only if
+        // the id actually belongs to this run — a stale id from an old link
+        // should leave the modal closed rather than open an empty one.
+        const urlTest = Number($page.url.searchParams.get("test"));
+        if (Number.isFinite(urlTest) && urlTest > 0
+            && run.specs.some((s) => s.tests.some((t) => t.id === urlTest))) {
+          modalTestId = urlTest;
+        }
 
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
@@ -654,8 +680,8 @@
               class="at-risk-row"
               role="button"
               tabindex="0"
-              onclick={() => modalTestId = test.id}
-              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); modalTestId = test.id; } }}
+              onclick={() => openTest(test.id)}
+              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTest(test.id); } }}
             >
               <span class="at-risk-dot"></span>
               <span class="at-risk-test">{test.title}</span>
@@ -815,7 +841,7 @@
               <li class="test-row">
                 <div class="test-main">
                   <span class="test-status-dot {test.status}"></span>
-                  <button class="test-name clickable" onclick={() => modalTestId = test.id}>
+                  <button class="test-name clickable" onclick={() => openTest(test.id)}>
                     {test.title}
                   </button>
                   {#if newFailureIds.has(test.id)}
@@ -830,7 +856,7 @@
                   </button>
                   <div class="test-meta">
                     {#if test.video_path}
-                      <button class="test-badge video-badge" title="View video" onclick={() => modalTestId = test.id}>
+                      <button class="test-badge video-badge" title="View video" onclick={() => openTest(test.id)}>
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5"/><path d="M10.5 6l4-2v8l-4-2"/></svg>
                       </button>
                     {/if}
@@ -865,8 +891,8 @@
                     class="test-error-bar"
                     role="button"
                     tabindex="0"
-                    onclick={() => modalTestId = test.id}
-                    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); modalTestId = test.id; } }}
+                    onclick={() => openTest(test.id)}
+                    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTest(test.id); } }}
                   >
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 10.5v.5"/></svg>
                     <span class="error-text">{test.error_message}</span>
@@ -894,7 +920,7 @@
   {/if}
 </div>
 
-<ErrorModal testId={modalTestId} onclose={() => modalTestId = null} />
+<ErrorModal testId={modalTestId} onclose={closeTest} />
 
 <style>
   .page {
