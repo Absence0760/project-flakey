@@ -23,6 +23,7 @@ Invoke from a Claude Code session as `/audit/<name>`.
 | [/audit/migrations](migrations.md) | Migrations are idempotent; every table has `ENABLE ROW LEVEL SECURITY`; type drift between `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the actual columns |
 | [/audit/live-flow](live-flow.md) | Live-route invariants: test-row uniqueness, spec.finished doesn't undercount, screenshot/snapshot preservation across upload merge, heartbeat behavior, stale-run timing |
 | [/audit/reporters](reporters.md) | Env-var consistency across reporter packages; peer-dep declarations; `exports` map; CJS-vs-ESM entry discipline |
+| [/audit/api-contract](api-contract.md) | Hand-synced route↔client contract (no codegen) — typed fields a route never returns, params the client sends that routes ignore, body-key / path / method / status drift, enum-union skew between `backend/src/types.ts` and `frontend/src/lib/api.ts` |
 
 ### Database
 
@@ -30,20 +31,24 @@ Invoke from a Claude Code session as `/audit/<name>`.
 |---|---|
 | [/audit/schema-design](schema-design.md) | Schema design quality across `backend/migrations` — referential integrity (real FKs + `ON DELETE`), constraint discipline (`NOT NULL` / `CHECK` / `UNIQUE`), data-type appropriateness, normalization vs. deliberate denormalization, "stitched-together" smells, naming / readability, and modern Postgres best practices |
 | [/audit/db-performance](db-performance.md) | Indexing + query optimization — unindexed FKs, redundant / overlapping / unused indexes, composite-column ordering, partial / GIN index opportunities, and slow query shapes in the routes (N+1, `SELECT *`, deep `OFFSET`, unbounded scans) |
+| [/audit/migration-locks](migration-locks.md) | Production-DDL safety — which migrations take blocking / `ACCESS EXCLUSIVE` locks or rewrite tables and would cause downtime against a populated prod RDS; recommends online-safe rewrites (`NOT VALID`+`VALIDATE`, `CONCURRENTLY`, batched backfills) |
+| [/audit/seed-integrity](seed-integrity.md) | Seed data as a source of e2e flakes — fixtures parked at the 50-item pagination boundary, non-deterministic per-tenant ordering, additive re-seed pollution, worker-tenant asymmetry |
 
-> `schema-design` and `db-performance` complement — don't duplicate — `migrations` (idempotency / RLS / type-drift) and `multi-tenant` (RLS correctness). Design/readability findings go to `schema-design`; index/query-speed findings go to `db-performance`.
+> The Database commands complement — don't duplicate — `migrations` (idempotency / RLS / type-drift) and `multi-tenant` (RLS correctness). Design/readability → `schema-design`; index/query speed → `db-performance`; prod-lock impact → `migration-locks`; flake-prone fixtures → `seed-integrity`.
 
-### Accessibility
+### Compliance
 
 | Command | What it checks |
 |---|---|
 | [/audit/accessibility](accessibility.md) | WCAG 2.2 AA + EU EAA + ADA pass across web / mobile / watch surfaces (delegates to `compliance-auditor`) |
+| [/audit/pii-in-logs](pii-in-logs.md) | SOC 2 / GovRAMP — PII or secrets leaking into log lines or HTTP error responses across the backend's logging + error-handling paths (delegates to `compliance-auditor`) |
 
 ### Health
 
 | Command | What it checks |
 |---|---|
 | [/audit/deps](deps.md) | `npm audit` on backend, `pnpm audit` on frontend + package workspace; floating GitHub Actions refs |
+| [/audit/licenses](licenses.md) | Dependency **license** compliance (distinct from `deps`' vulnerability scan) — copyleft / unknown / attribution-missing licenses across all three toolchains and the published `@flakeytesting/*` packages |
 | [/audit/infra](infra.md) | AWS Terraform stacks under `infra/` — IAM least-privilege, S3 / RDS encryption, secrets handling, per-env naming |
 | [/audit/docs-drift](docs-drift.md) | `README.md`, `docs/*.md`, and per-package `CLAUDE.md` vs reality (endpoints, schema, env vars, streaming behavior) |
 
@@ -51,7 +56,16 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 | Command | What it does |
 |---|---|
-| [/audit/all](all.md) | Spawns the full sweep in parallel and consolidates a report. Optional arg: `security` / `invariants` / `health` to limit scope. |
+| [/audit/all](all.md) | Spawns the full sweep in parallel and consolidates a report. Optional arg: `security` / `invariants` / `database` / `health` to limit scope. |
+
+### Related top-level commands (not part of `/audit/all`)
+
+These live at `.claude/commands/` (not under `audit/`) because they **act**, not just report — so they're invoked deliberately, never as part of the sweep:
+
+| Command | What it does |
+|---|---|
+| [/flake-doctor](../flake-doctor.md) | Reproduces, root-causes, and **source-fixes** a flaky / failing Playwright e2e test (delegates to the `flake-doctor` agent). Brings up the stack, fixes the real cause, verifies — never masks. Writes `reviews/flake-<scope>.md`. |
+| [/endpoint-inventory](../endpoint-inventory.md) | Generates a canonical backend HTTP-API inventory from the Express routes → `reviews/endpoint-inventory.md` (feeds integrators + gives `/audit/docs-drift` a ground-truth list). |
 
 ## Conventions
 
@@ -63,16 +77,19 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 ## Agent delegation
 
-The Security, Invariants, and Database commands all delegate to the `flakey-auditor` agent (under `.claude/agents/`); `accessibility` delegates to `compliance-auditor`. Both agents have the project's trust boundaries / data flows baked in, are read-only on the codebase, and write only their `reviews/<area>.md` report. `/audit/all` spawns one agent instance per area in parallel.
+The Security, Invariants, and Database commands all delegate to the `flakey-auditor` agent (under `.claude/agents/`) — including `api-contract`, `seed-integrity`, and `migration-locks`, which have routing-table rows there. The Compliance commands (`accessibility`, `pii-in-logs`) delegate to `compliance-auditor`. Both agents have the project's trust boundaries / data flows baked in, are read-only on the codebase, and write only their `reviews/<area>.md` report. `/audit/all` spawns one agent instance per area in parallel.
 
-`deps` and `infra` use the `general-purpose` agent and write their own `reviews/<name>.md`. `docs-drift` uses the read-only `Explore` agent (which can't write files), so it returns the report and the invoking session persists it to `reviews/docs-drift.md`. Either way, every audit ends with its report on disk under `reviews/`.
+`deps`, `licenses`, and `infra` use the `general-purpose` agent and write their own `reviews/<name>.md`. `docs-drift` uses the read-only `Explore` agent (which can't write files), so it returns the report and the invoking session persists it to `reviews/docs-drift.md`. Either way, every audit ends with its report on disk under `reviews/`.
 
 ## When to run
 
 - **Before tagging a release** — `/audit/all` once, fix Critical/High before tagging.
 - **After a sweeping refactor** — at minimum `/audit/migrations` + `/audit/live-flow` + `/audit/auth`.
-- **After a new migration** — `/audit/migrations` + `/audit/multi-tenant` + `/audit/schema-design`.
+- **After a new migration** — `/audit/migrations` + `/audit/multi-tenant` + `/audit/schema-design` + `/audit/migration-locks` (before it touches prod).
 - **After schema or hot-query changes** — `/audit/schema-design` + `/audit/db-performance`.
+- **After a new / changed endpoint** — `/audit/api-contract` + `/endpoint-inventory` (then `/audit/docs-drift`).
+- **After editing the seed or seeing e2e flakes** — `/audit/seed-integrity`; for a specific failing spec, `/flake-doctor <spec>`.
+- **Before any international / public launch** — `/audit/pii-in-logs` + `/audit/accessibility` + `/audit/licenses`.
 - **After a new live-route endpoint** — `/audit/live-flow` + `/audit/auth` + `/audit/storage-paths`.
 - **After a new reporter package or option** — `/audit/reporters` + `/audit/docs-drift`.
 - **After a dependency major bump** — `/audit/deps` + `/audit/secrets`.
