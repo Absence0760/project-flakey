@@ -386,6 +386,16 @@ Every integration mutation writes an entry to the `audit_log` table:
 - `coverage.upload`
 - `scheduled_report.create` / `.update` / `.delete`
 
+Account and data-lifecycle events are audited too:
+
+- `auth.login` / `auth.logout` — successful authentication / sign-out (token
+  refresh is deliberately *not* audited; it fires every ~15 min per session)
+- `auth.password_reset_requested` / `auth.password_reset` — reset email
+  requested (known email) / password actually changed
+- `auth.api_key.create` / `auth.api_key.delete` — API-key issuance / revocation
+- `org.member.remove` / `org.member.role_change`
+- `run.delete` — a run (and its specs, tests, artifacts) removed
+
 View the audit log under **Settings → Audit log**, or query it directly:
 
 ```sql

@@ -289,3 +289,76 @@ test("PATCH /orgs/:id/members/:userId writes an audit_log row with action='org.m
     "detail must record the new role — viewer→admin is the privilege-elevation event a reviewer most needs to see",
   );
 });
+
+// ── Run deletion is audited ────────────────────────────────────────────
+
+test("DELETE /runs/:id writes an audit_log row with action='run.delete' and the suite name", async () => {
+  // Upload a run, then delete it.
+  const suiteName = `audit-rundel-${Date.now()}`;
+  const fd = new FormData();
+  fd.append("payload", JSON.stringify({
+    meta: { suite_name: suiteName, branch: "main", commit_sha: "abc", ci_run_id: `ci-${Date.now()}`,
+      started_at: "2026-04-10T00:00:00Z", finished_at: "2026-04-10T00:00:30Z", reporter: "mochawesome" },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 100 },
+    specs: [{ file_path: "a.cy.ts", title: "a", stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 100 },
+      tests: [{ title: "t", full_title: "a > t", status: "passed", duration_ms: 100, screenshot_paths: [] }] }],
+  }));
+  const up = await fetch(`${BASE}/runs/upload`, {
+    method: "POST", headers: { Authorization: `Bearer ${owner.token}` }, body: fd,
+  });
+  const runId = ((await up.json()) as { id: number }).id;
+
+  const del = await fetch(`${BASE}/runs/${runId}`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${owner.token}` },
+  });
+  assert.equal(del.status, 200);
+
+  const audit = await dbAdmin.query(
+    `SELECT action, user_id, target_type, detail
+     FROM audit_log
+     WHERE org_id = $1 AND action = 'run.delete' AND target_id = $2
+     ORDER BY id DESC LIMIT 1`,
+    [owner.orgId, String(runId)],
+  );
+  assert.equal(audit.rows.length, 1, "run.delete must write an audit row");
+  assert.equal(audit.rows[0].user_id, owner.userId, "audit must record the acting user");
+  assert.equal(audit.rows[0].target_type, "run");
+  assert.equal(audit.rows[0].detail.suite_name, suiteName, "detail must record which run was deleted");
+});
+
+// ── Authentication events are audited ──────────────────────────────────
+
+test("POST /auth/login and /auth/logout write audit_log rows", async () => {
+  const login = await fetch(`${BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: owner.email, password: "testpass123" }),
+  });
+  assert.equal(login.status, 200);
+  const { token: sessionToken, refreshToken } = (await login.json()) as { token: string; refreshToken: string };
+
+  const loginAudit = await dbAdmin.query(
+    `SELECT action, user_id FROM audit_log
+     WHERE org_id = $1 AND action = 'auth.login' AND user_id = $2
+     ORDER BY id DESC LIMIT 1`,
+    [owner.orgId, owner.userId],
+  );
+  assert.equal(loginAudit.rows.length, 1, "auth.login must write an audit row");
+
+  // logout reads the refresh token from the body (or cookie); fetch doesn't
+  // carry cookies, so pass it explicitly.
+  const logout = await fetch(`${BASE}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: JSON.stringify({ refreshToken }),
+  });
+  assert.equal(logout.status, 200);
+
+  const logoutAudit = await dbAdmin.query(
+    `SELECT action FROM audit_log
+     WHERE org_id = $1 AND action = 'auth.logout' AND user_id = $2
+     ORDER BY id DESC LIMIT 1`,
+    [owner.orgId, owner.userId],
+  );
+  assert.equal(logoutAudit.rows.length, 1, "auth.logout must write an audit row");
+});

@@ -59,6 +59,18 @@ function extractAndVerifyRefreshToken(
 }
 
 /** Get the user's org (first one, or create a personal org). */
+// Resolve a user's primary org so an auth event can be written to the
+// org-scoped audit_log (RLS requires a concrete org_id). Returns null when
+// the user has no membership yet — the caller skips the audit rather than
+// inventing an org.
+async function primaryOrgId(userId: number): Promise<number | null> {
+  const r = await pool.query(
+    "SELECT org_id FROM org_members WHERE user_id = $1 ORDER BY joined_at LIMIT 1",
+    [userId],
+  );
+  return r.rows[0]?.org_id ?? null;
+}
+
 async function resolveOrg(userId: number, email: string): Promise<{ orgId: number; orgRole: string }> {
   const membership = await pool.query(
     "SELECT org_id, role FROM org_members WHERE user_id = $1 ORDER BY joined_at LIMIT 1",
@@ -211,6 +223,10 @@ router.post("/login", async (req, res) => {
     const refreshToken = signRefreshToken(user.id);
 
     setTokenCookie(res, token, refreshToken);
+    // Audit successful authentication so an account-compromise ticket can be
+    // reconstructed. Refresh (/auth/refresh) is intentionally NOT audited — it
+    // fires every ~15 min per active session and would drown the signal.
+    await logAudit(orgId, user.id, "auth.login", "user", String(user.id), { email: user.email });
     res.json({ token, refreshToken, user: authUser });
   } catch (err) {
     console.error("POST /auth/login error:", err);
@@ -372,6 +388,10 @@ router.post("/logout", async (req, res) => {
       "INSERT INTO revoked_refresh_tokens (jti, user_id) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
       [verified.jti, verified.id],
     );
+  }
+  if (verified) {
+    const orgId = await primaryOrgId(verified.id);
+    if (orgId) await logAudit(orgId, verified.id, "auth.logout", "user", String(verified.id));
   }
 
   clearTokenCookies(res);
@@ -592,6 +612,10 @@ router.post("/forgot-password", async (req, res) => {
     sendPasswordResetEmail(email, token).catch((err) => {
       console.error("Failed to send password reset email:", err);
     });
+    {
+      const orgId = await primaryOrgId(result.rows[0].id);
+      if (orgId) await logAudit(orgId, result.rows[0].id, "auth.password_reset_requested", "user", String(result.rows[0].id));
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error("POST /auth/forgot-password error:", err);
@@ -629,6 +653,10 @@ router.post("/reset-password", async (req, res) => {
       [hash, result.rows[0].id]
     );
 
+    {
+      const orgId = await primaryOrgId(result.rows[0].id);
+      if (orgId) await logAudit(orgId, result.rows[0].id, "auth.password_reset", "user", String(result.rows[0].id));
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error("POST /auth/reset-password error:", err);

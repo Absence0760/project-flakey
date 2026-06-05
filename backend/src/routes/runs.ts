@@ -457,13 +457,21 @@ router.delete("/:id", async (req, res) => {
     }
     const result = await tenantQuery(
       orgId,
-      "DELETE FROM runs WHERE id = $1 RETURNING id",
+      "DELETE FROM runs WHERE id = $1 RETURNING id, suite_name, branch",
       [runId],
     );
     if (!result.rowCount) {
       res.status(404).json({ error: "Run not found" });
       return;
     }
+    // Audit the destructive action — every other delete route (suite,
+    // member, api_key) writes one, and a "where did this run go?" support
+    // ticket has no trail without it.
+    const deleted = result.rows[0];
+    await logAudit(orgId, req.user!.id, "run.delete", "run", String(runId), {
+      suite_name: deleted.suite_name,
+      branch: deleted.branch,
+    });
     // Drop every in-memory trace of the run BEFORE we ack the delete,
     // so the stale-detection timer can't race the response and try to
     // emit a run.aborted event for a row that's already gone (which
