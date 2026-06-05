@@ -53,7 +53,46 @@ type UploadOpts = {
   environment?: string;
   failed?: number;
   passed?: number;
+  // Override the auth token so a test can drive a freshly-registered org
+  // with predictable, un-polluted org-wide summary counts.
+  token?: string;
 };
+
+// Register a fresh org so org-wide summary counts are predictable (the
+// shared `token` org accumulates runs across every test in this file).
+// Returns the org's token and slug (slug powers the public badge route).
+async function registerOrg(): Promise<{ token: string; slug: string }> {
+  const reg = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: `runs-fresh+${Date.now()}-${Math.round(performance.now())}@test.local`,
+      password: "testpass123",
+      name: "Runs Fresh",
+      org_name: `RunsFreshOrg-${Date.now()}-${Math.round(performance.now())}`,
+    }),
+  });
+  if (!reg.ok) throw new Error(`register failed: ${reg.status}`);
+  const freshToken = ((await reg.json()) as { token: string }).token;
+  const me = await fetch(`${BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${freshToken}` },
+  });
+  const slug = ((await me.json()) as { orgs: Array<{ slug: string }> }).orgs[0].slug;
+  return { token: freshToken, slug };
+}
+
+// Start a live (in-progress) run via /live/start. It inserts a run row with
+// finished_at = NULL and failed = 0 and never uploads, mimicking a sharded
+// suite mid-flight.
+async function liveStart(suite: string, ciRunId: string, authToken: string): Promise<number> {
+  const res = await fetch(`${BASE}/live/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+    body: JSON.stringify({ suite, ciRunId }),
+  });
+  if (!res.ok) throw new Error(`live/start failed: ${res.status}`);
+  return ((await res.json()) as { id: number }).id;
+}
 
 async function uploadRun(opts: UploadOpts): Promise<number> {
   const passed = opts.passed ?? 1;
@@ -97,7 +136,7 @@ async function uploadRun(opts: UploadOpts): Promise<number> {
   );
   const res = await fetch(`${BASE}/runs/upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${opts.token ?? token}` },
     body: fd,
   });
   if (!res.ok) {
@@ -267,4 +306,57 @@ test("GET /runs/check with an unknown ci_run_id returns should_cancel=false (gra
   assert.equal(body.should_cancel, false);
   assert.equal(body.failed, 0);
   assert.equal(body.run_id, null, "unknown ci_run_id returns run_id=null — workflows treat that as no-cancel");
+});
+
+// ── 4. /runs summary excludes in-progress runs from the pass count ───
+//
+// The release-manager gate trusts summary.passed to mean "completed, no
+// failures". A live run (POST /live/start, finished_at NULL, failed=0)
+// must NOT inflate the pass bucket — it belongs in `incomplete`. Run in a
+// fresh org so the org-wide counts are exact.
+
+test("GET /runs summary: a live (in-progress) run counts as incomplete, never as passed", async () => {
+  const { token: t } = await registerOrg();
+
+  // One genuinely-completed passing run.
+  await uploadRun({ suite: "gate", ciRunId: `gate-done-${Date.now()}`, passed: 2, failed: 0, token: t });
+  // One live run that never uploads — finished_at stays NULL, failed=0.
+  await liveStart("gate-live", `gate-live-${Date.now()}`, t);
+
+  const res = await fetch(`${BASE}/runs`, { headers: { Authorization: `Bearer ${t}` } });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    summary: { total: number; passed: number; failed: number; incomplete: number };
+  };
+  assert.equal(body.summary.total, 2, "both runs are in the org");
+  assert.equal(body.summary.passed, 1, "only the completed run is a pass — the live run must NOT count as passed");
+  assert.equal(body.summary.failed, 0, "no completed run failed");
+  assert.equal(body.summary.incomplete, 1, "the live run is incomplete, not passed");
+});
+
+// ── 5. Public badge reflects completion/abort state, not a false green ──
+
+test("GET /badge: a suite whose latest run is live renders 'in progress', not green", async () => {
+  const { token: t, slug } = await registerOrg();
+  // Latest run for this suite is live (finished_at NULL, failed=0). Before
+  // the fix this rendered a green '0 passed'/'passed' badge.
+  await liveStart("badge-live", `badge-live-${Date.now()}`, t);
+
+  const res = await fetch(`${BASE}/badge/${slug}/badge-live`);
+  assert.equal(res.status, 200);
+  const svg = await res.text();
+  assert.match(svg, /in progress/, "a live run's badge must say 'in progress'");
+  assert.ok(!/passed/.test(svg), "a live run's badge must not claim any tests passed");
+  assert.ok(!svg.includes("#4c1"), "a live run's badge must not be green (#4c1)");
+});
+
+test("GET /badge: a completed all-pass run renders green", async () => {
+  const { token: t, slug } = await registerOrg();
+  await uploadRun({ suite: "badge-green", ciRunId: `badge-green-${Date.now()}`, passed: 3, failed: 0, token: t });
+
+  const res = await fetch(`${BASE}/badge/${slug}/badge-green`);
+  assert.equal(res.status, 200);
+  const svg = await res.text();
+  assert.match(svg, /3 passed/, "a completed all-pass run shows the pass count");
+  assert.ok(svg.includes("#4c1"), "a completed all-pass run is green (#4c1)");
 });
