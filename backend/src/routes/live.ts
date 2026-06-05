@@ -135,8 +135,11 @@ router.post("/start", async (req, res) => {
     // deliberate no-op set so RETURNING fires on the conflict path.
     // xmax = 0 distinguishes inserted-now from already-existed.
     const result = await tenantQuery(orgId,
-      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, finished_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
-       VALUES ($1, $2, $3, $4, 'live', NOW(), NOW(), 0, 0, 0, 0, 0, 0, $5, $6)
+      // finished_at is intentionally omitted so it stays NULL ("not yet
+      // finished") until the run merges/completes (migration 050). The old
+      // NOW() here was a meaningless INSERT-time value later overwritten.
+      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
+       VALUES ($1, $2, $3, $4, 'live', NOW(), 0, 0, 0, 0, 0, 0, $5, $6)
        ON CONFLICT (org_id, suite_name, ci_run_id) WHERE ci_run_id <> ''
        DO UPDATE SET reporter = runs.reporter
        RETURNING id, (xmax = 0) AS inserted`,
@@ -411,8 +414,8 @@ async function findOrCreateSpec(orgId: number, runId: number, specPath: string):
   // the existing row's id without a second SELECT, closing the race where
   // two concurrent events would each create a separate spec.
   const upserted = await tenantQuery(orgId,
-    `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-     VALUES ($1, $2, $3, 0, 0, 0, 0, 0)
+    `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, pending, duration_ms)
+     VALUES ($1, $2, $3, 0, 0, 0, 0, 0, 0)
      ON CONFLICT (run_id, file_path) DO UPDATE SET file_path = EXCLUDED.file_path
      RETURNING id`,
     [runId, specPath, specPath.split("/").pop() ?? specPath]
@@ -485,6 +488,7 @@ async function updateLiveSpecStats(orgId: number, runId: number, event: LiveTest
         passed     = (SELECT COALESCE(SUM(passed),     0) FROM specs WHERE run_id = $1),
         failed     = (SELECT COALESCE(SUM(failed),     0) FROM specs WHERE run_id = $1),
         skipped    = (SELECT COALESCE(SUM(skipped),    0) FROM specs WHERE run_id = $1),
+        pending    = (SELECT COALESCE(SUM(pending),    0) FROM specs WHERE run_id = $1),
         duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM specs WHERE run_id = $1)
       WHERE id = $1`,
       [runId]
@@ -580,7 +584,8 @@ async function recomputeSpecAndRunStats(orgId: number, runId: number, specId: nu
       total = (SELECT COUNT(*) FROM tests WHERE spec_id = $1),
       passed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'passed'),
       failed = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'failed'),
-      skipped = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status IN ('skipped', 'pending')),
+      skipped = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'skipped'),
+      pending = (SELECT COUNT(*) FROM tests WHERE spec_id = $1 AND status = 'pending'),
       duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM tests WHERE spec_id = $1)
     WHERE id = $1`,
     [specId]
@@ -591,6 +596,7 @@ async function recomputeSpecAndRunStats(orgId: number, runId: number, specId: nu
       passed = (SELECT COALESCE(SUM(passed), 0) FROM specs WHERE run_id = $1),
       failed = (SELECT COALESCE(SUM(failed), 0) FROM specs WHERE run_id = $1),
       skipped = (SELECT COALESCE(SUM(skipped), 0) FROM specs WHERE run_id = $1),
+      pending = (SELECT COALESCE(SUM(pending), 0) FROM specs WHERE run_id = $1),
       duration_ms = (SELECT COALESCE(SUM(duration_ms), 0) FROM specs WHERE run_id = $1)
     WHERE id = $1`,
     [runId]

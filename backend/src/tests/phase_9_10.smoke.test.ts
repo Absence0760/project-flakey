@@ -94,6 +94,9 @@ before(async () => {
       DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "smoke-test-secret",
+      // Integration secrets must be stored as v1: ciphertext (migration 045),
+      // so the app needs a key — plaintext token writes are rejected at the DB.
+      FLAKEY_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // gitleaks:allow — deterministic test fixture, not a real secret
       ALLOW_REGISTRATION: "true",
       NODE_ENV: "test",
       // Short stale-run timeout so the abort tests don't have to wait
@@ -899,17 +902,19 @@ test("test.started then test.passed transitions pending → passed in run totals
 
   await authPost(`/live/${liveRunId}/events`, [{ type: "test.started", spec, test: fullTitle }]);
 
-  // After test.started, the test row has status='pending' which counts under skipped
+  // After test.started, the test row has status='pending' which counts under
+  // the dedicated pending bucket (disjoint from skipped).
   const mid = await waitFor(
     async () => {
       const d = await authGet(`/runs/${liveRunId}`);
-      return (await d.json()) as { passed: number; failed: number; skipped: number; total: number };
+      return (await d.json()) as { passed: number; failed: number; skipped: number; pending: number; total: number };
     },
     (r) => r.total >= 1
   );
   assert.equal(mid.passed, 0, "no passed yet");
   assert.equal(mid.failed, 0);
-  assert.ok(mid.skipped >= 1, `pending should count as skipped mid-run, got ${mid.skipped}`);
+  assert.equal(mid.skipped, 0, "a pending test must not count as skipped");
+  assert.ok(mid.pending >= 1, `pending test should count under pending mid-run, got ${mid.pending}`);
 
   // Now send test.passed — pending row should transition, passed should tick up
   await authPost(`/live/${liveRunId}/events`, [
@@ -919,13 +924,14 @@ test("test.started then test.passed transitions pending → passed in run totals
   const final = await waitFor(
     async () => {
       const d = await authGet(`/runs/${liveRunId}`);
-      return (await d.json()) as { passed: number; failed: number; skipped: number; total: number };
+      return (await d.json()) as { passed: number; failed: number; skipped: number; pending: number; total: number };
     },
     (r) => r.passed === 1
   );
   assert.equal(final.passed, 1, "passed should increment after test.passed");
   assert.equal(final.failed, 0);
-  assert.equal(final.skipped, 0, "pending bucket should drain when test finishes");
+  assert.equal(final.skipped, 0);
+  assert.equal(final.pending, 0, "pending bucket should drain when test finishes");
 });
 
 // ─── Spec upsert on /runs upload ──────────────────────────────────────

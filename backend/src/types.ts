@@ -37,6 +37,7 @@ export interface NormalizedSpec {
     passed: number;
     failed: number;
     skipped: number;
+    pending: number;
     duration_ms: number;
   };
   tests: NormalizedTest[];

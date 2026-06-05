@@ -804,7 +804,7 @@
           <div class="spec-badges">
             {#if spec.passed > 0}<span class="spec-badge pass">{spec.passed}</span>{/if}
             {#if spec.failed > 0}<span class="spec-badge fail">{spec.failed}</span>{/if}
-            {#if spec.skipped > 0}<span class="spec-badge skip">{spec.skipped}</span>{/if}
+            {#if spec.skipped + spec.pending > 0}<span class="spec-badge skip">{spec.skipped + spec.pending}</span>{/if}
             <span class="spec-duration">{formatDuration(spec.duration_ms)}</span>
           </div>
         </div>

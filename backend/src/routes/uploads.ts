@@ -171,17 +171,20 @@ router.post("/", uploadFields, async (req, res) => {
         // may have already created this spec row during spec.started; this
         // upload is the authoritative stats snapshot, so overwrite.
         const specResult = await client.query(
-          `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, duration_ms)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          `INSERT INTO specs (run_id, file_path, title, total, passed, failed, skipped, pending, duration_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            ON CONFLICT (run_id, file_path) DO UPDATE SET
              title       = EXCLUDED.title,
              total       = EXCLUDED.total,
              passed      = EXCLUDED.passed,
              failed      = EXCLUDED.failed,
              skipped     = EXCLUDED.skipped,
+             pending     = EXCLUDED.pending,
              duration_ms = EXCLUDED.duration_ms
            RETURNING id`,
-          [runId, spec.file_path, spec.title, spec.stats.total, spec.stats.passed, spec.stats.failed, spec.stats.skipped, spec.stats.duration_ms]
+          // pending ?? 0: the direct {meta,stats,specs} payload path accepts
+          // pre-normalized JSON from reporters that predate spec-level pending.
+          [runId, spec.file_path, spec.title, spec.stats.total, spec.stats.passed, spec.stats.failed, spec.stats.skipped, spec.stats.pending ?? 0, spec.stats.duration_ms]
         );
         const specId = specResult.rows[0].id;
 

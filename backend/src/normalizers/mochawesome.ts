@@ -119,7 +119,8 @@ export function parseMochawesome(
 
     const passed = tests.filter((t) => t.status === "passed").length;
     const failed = tests.filter((t) => t.status === "failed").length;
-    const skipped = tests.filter((t) => t.status === "skipped" || t.status === "pending").length;
+    const skipped = tests.filter((t) => t.status === "skipped").length;
+    const pending = tests.filter((t) => t.status === "pending").length;
     const filePath = result.file ?? result.fullFile ?? "";
 
     return {
@@ -130,6 +131,7 @@ export function parseMochawesome(
         passed,
         failed,
         skipped,
+        pending,
         duration_ms: tests.reduce((sum, t) => sum + t.duration_ms, 0),
       },
       tests,

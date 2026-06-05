@@ -170,7 +170,8 @@ function parseSuite(suite: JUnitTestSuite): NormalizedSpec {
 
   const passed = tests.filter((t) => t.status === "passed").length;
   const failed = tests.filter((t) => t.status === "failed").length;
-  const skipped = tests.filter((t) => t.status === "skipped" || t.status === "pending").length;
+  const skipped = tests.filter((t) => t.status === "skipped").length;
+  const pending = tests.filter((t) => t.status === "pending").length;
 
   return {
     file_path: filePath,
@@ -180,6 +181,7 @@ function parseSuite(suite: JUnitTestSuite): NormalizedSpec {
       passed,
       failed,
       skipped,
+      pending,
       duration_ms: tests.reduce((sum, t) => sum + t.duration_ms, 0),
     },
     tests,

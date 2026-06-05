@@ -113,7 +113,8 @@ function parseSuite(suite: JestSuiteResult): NormalizedSpec {
 
   const passed = tests.filter((t) => t.status === "passed").length;
   const failed = tests.filter((t) => t.status === "failed").length;
-  const skipped = tests.filter((t) => t.status === "skipped" || t.status === "pending").length;
+  const skipped = tests.filter((t) => t.status === "skipped").length;
+  const pending = tests.filter((t) => t.status === "pending").length;
 
   // Strip workspace root from path for cleaner display
   const filePath = suite.testFilePath.replace(/^.*?(?=src\/|tests?\/|__tests__|spec\/)/, "") || suite.testFilePath;
@@ -133,6 +134,7 @@ function parseSuite(suite: JestSuiteResult): NormalizedSpec {
       passed,
       failed,
       skipped,
+      pending,
       duration_ms: suite.perfStats?.runtime ?? tests.reduce((s, t) => s + t.duration_ms, 0),
     },
     tests,

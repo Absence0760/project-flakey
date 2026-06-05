@@ -336,11 +336,10 @@ test("parseMochawesome: spec.stats reflects only that spec's tests", () => {
   assert.equal(out.stats.total, 4);
 });
 
-test("parseMochawesome: run.stats.skipped includes both skipped AND pending tests at spec level", () => {
-  // Spec-level skipped is "skipped + pending" (combined); run-level
-  // skipped is the sum-of-spec-skipped, so it also includes pending.
-  // run.stats.pending is read separately from stats.pending in the
-  // report — that's what the run.pending column is for.
+test("parseMochawesome: skipped and pending are disjoint at the spec level", () => {
+  // Skipped and pending are tracked as separate, non-overlapping counts at
+  // both spec and run level (mirroring how runs has always tracked pending),
+  // so passed + failed + skipped + pending === total holds at every level.
   const out = parseMochawesome({
     results: [{
       file: "s.cy.ts",
@@ -354,8 +353,11 @@ test("parseMochawesome: run.stats.skipped includes both skipped AND pending test
     }],
     stats: { pending: 1 },
   }, META);
-  assert.equal(out.specs[0].stats.skipped, 2, "spec.skipped should include skipped+pending");
+  assert.equal(out.specs[0].stats.skipped, 1, "spec.skipped counts only skipped tests");
+  assert.equal(out.specs[0].stats.pending, 1, "spec.pending counts only pending tests");
   assert.equal(out.stats.pending, 1, "run.pending reads from raw stats.pending");
+  const s = out.specs[0].stats;
+  assert.equal(s.passed + s.failed + s.skipped + s.pending, s.total, "spec counts sum to total");
 });
 
 // ── Stress ───────────────────────────────────────────────────────────────

@@ -34,7 +34,9 @@ export interface Run {
   ci_run_id: string;
   reporter: string;
   started_at: string;
-  finished_at: string;
+  // null until the run merges/completes (migration 050) — live runs start
+  // with no finish time. The runs/[id] page guards with `if (run.finished_at)`.
+  finished_at: string | null;
   total: number;
   passed: number;
   failed: number;
@@ -172,6 +174,7 @@ export interface Spec {
   passed: number;
   failed: number;
   skipped: number;
+  pending: number;
   duration_ms: number;
   tests: TestResult[];
 }
