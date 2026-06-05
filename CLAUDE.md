@@ -13,6 +13,23 @@ Product is branded as **"Flakey"** in the UI (the earlier "Better Testing" rebra
 
 Each subdirectory has its own CLAUDE.md — read it before editing.
 
+## Where to look first
+
+Start from the entry point for your task — don't rediscover what's already written down.
+
+| If you're working on… | Read first |
+|---|---|
+| Getting the app running locally | [docs/run-locally.md](docs/run-locally.md) |
+| System design, request flow, trust boundaries | [docs/architecture.md](docs/architecture.md) |
+| Backend routes / auth / tenancy / RLS | [backend/CLAUDE.md](backend/CLAUDE.md) |
+| A Postgres migration | [backend/docs/migrations.md](backend/docs/migrations.md) + the `/safe-migration` skill |
+| Integrations (Jira, PagerDuty, git providers, webhooks) | [backend/docs/integrations.md](backend/docs/integrations.md) |
+| A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
+| Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
+| Tests (unit / smoke / e2e conventions) | [backend/docs/testing.md](backend/docs/testing.md), [frontend/tests-e2e/README.md](frontend/tests-e2e/README.md) |
+| Publishing an `@flakeytesting/*` package | [backend/docs/releases.md](backend/docs/releases.md) + the `Publish flow` section below |
+| AWS infra | [infra/](infra/) (Terraform) |
+
 ## Root commands
 
 Run everything from the repo root via pnpm — no need to `cd` into a workspace.
@@ -35,10 +52,38 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - `pnpm test:e2e` — Playwright e2e (needs full stack running + seeded DB)
 - `pnpm test:examples` — runs the shared example fixtures against a live backend
 
+## Local ports
+
+One reference so new services don't collide. Defaults — override via env where noted.
+
+| Port | Service | Notes |
+|---|---|---|
+| 3000 | Backend API | `PORT`; health probe `GET /health` |
+| 7778 | Frontend (Vite dev) | `pnpm dev:frontend` |
+| 8888 | Frontend preview | `pnpm --filter frontend preview` |
+| 5432 | Postgres | docker-compose; `DB_PORT` |
+| 1025 | Mailpit SMTP | backend default `SMTP_PORT` |
+| 8025 | Mailpit web UI | view captured mail |
+| 9000 | MinIO S3 API | opt-in (`pnpm storage:up`); `S3_ENDPOINT` |
+| 9001 | MinIO console | opt-in; `minioadmin` / `minioadmin` |
+| 8080 | Webhook echo sink | opt-in (`pnpm webhooks:up`) |
+
 ## Package manager
 
 - **Frontend + packages**: pnpm (workspace root is `packages/*`, see `pnpm-workspace.yaml`).
 - **Backend**: uses its own `npm` lockfile. Don't run pnpm inside `backend/`.
+
+## Gotchas
+
+Footguns that have bitten before — check here before assuming something's broken.
+
+- **Two package managers.** `backend/` uses **npm** (its own lockfile, outside the pnpm workspace); `frontend/` + `packages/` use **pnpm**. Don't cross them.
+- **`pnpm db:up` now also starts Mailpit** (not just Postgres) — the script name is historical. `pnpm services:up` adds the opt-in MinIO + webhook sink.
+- **No type codegen.** Types are hand-synced across `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the DB. A schema change means editing all the relevant sides yourself — use the `/safe-migration` skill, which surfaces the edits.
+- **RLS runs as a non-superuser.** The backend connects as `flakey_app` so Row-Level Security applies. Connecting as a superuser silently bypasses tenant isolation — don't.
+- **Encryption key falls back to plaintext.** With `FLAKEY_ENCRYPTION_KEY` unset, integration secrets are stored as plaintext (local-dev only — the backend refuses to boot this way in production).
+- **`bt_*` localStorage keys are intentional.** The brand is "Flakey" but auth keys keep the `bt_` prefix (a Better-Testing holdover) so existing sessions survive — don't "fix" them.
+- **e2e needs the full stack + seed.** `pnpm test:e2e` and `pnpm test:backend` require `pnpm db:up` and a seeded DB (`cd backend && npm run seed`); they don't spin services up for you.
 
 ## Guard rails
 
@@ -101,6 +146,12 @@ doubt, follow the rule and say so.
     around RLS with bare `pool.query` on tenant data. (Established in
     [backend/CLAUDE.md](backend/CLAUDE.md); enforced by the `/audit/multi-tenant`
     sweep.)
+12. **Docs-as-code — update docs in the same turn as the change.** A behaviour,
+    command, env var, port, or convention change updates its docs in the same
+    commit, not "later" — deferred docs are drift. Touch the affected
+    `README.md` / `docs/*` / per-area `CLAUDE.md`, and add a new convention here
+    or in the relevant `CLAUDE.md`. The `doc-hygiene-checker` agent and `/check`
+    enforce this; don't make them do the catching.
 
 ## Fix bugs at the source — never adjust the test to hide them
 
@@ -135,3 +186,7 @@ If you spot a candidate fix that fits one of those patterns: stop, surface the u
 ## Publish flow
 
 `publish.yml` publishes packages to npm when a GitHub release is published with a matching tag (`<package>@<version>`, e.g. `core@1.2.3`; use `all@<version>` for all packages). To publish: bump the version in the package's `package.json`, merge to `main`, then create a GitHub release with the matching tag.
+
+## If this file is wrong, fix it
+
+This file is the orientation other sessions start from — an out-of-date one is worse than none. If you find a command, port, path, or convention here that no longer matches reality, correct it in the same change (per guard rail 12), don't work around it.
