@@ -360,3 +360,101 @@ test("GET /badge: a completed all-pass run renders green", async () => {
   assert.match(svg, /3 passed/, "a completed all-pass run shows the pass count");
   assert.ok(svg.includes("#4c1"), "a completed all-pass run is green (#4c1)");
 });
+
+// ── 6. /runs/status — consolidated JSON ship signal ──────────────────
+//
+// The endpoint a CI ship-gate polls instead of composing failed + aborted +
+// finished_at itself. Statuses: passed | failed | incomplete | aborted.
+
+async function getStatus(query: string, authToken: string) {
+  const res = await fetch(`${BASE}/runs/status?${query}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+  return res;
+}
+
+test("GET /runs/status: a completed all-pass run reports status=passed", async () => {
+  const { token: t } = await registerOrg();
+  const ciRunId = `status-pass-${Date.now()}`;
+  await uploadRun({ suite: "status-pass", ciRunId, passed: 3, failed: 0, token: t });
+
+  const res = await getStatus(`ci_run_id=${ciRunId}`, t);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; run_id: number; failed: number; finished_at: string | null };
+  assert.equal(body.status, "passed");
+  assert.equal(body.failed, 0);
+  assert.ok(body.run_id, "a real run id is returned");
+  assert.ok(body.finished_at, "a completed run carries finished_at");
+});
+
+test("GET /runs/status: a run with failures reports status=failed", async () => {
+  const { token: t } = await registerOrg();
+  const ciRunId = `status-fail-${Date.now()}`;
+  await uploadRun({ suite: "status-fail", ciRunId, passed: 1, failed: 2, token: t });
+
+  const res = await getStatus(`ci_run_id=${ciRunId}`, t);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; failed: number };
+  assert.equal(body.status, "failed");
+  assert.equal(body.failed, 2);
+});
+
+test("GET /runs/status: a live (in-progress) run reports status=incomplete, never passed", async () => {
+  const { token: t } = await registerOrg();
+  const ciRunId = `status-live-${Date.now()}`;
+  await liveStart("status-live", ciRunId, t);
+
+  const res = await getStatus(`ci_run_id=${ciRunId}`, t);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; finished_at: string | null };
+  assert.equal(body.status, "incomplete", "a live run is incomplete, not passed");
+  assert.equal(body.finished_at, null, "a live run has no finish time");
+});
+
+test("GET /runs/status: identifies the latest run by suite when no ci_run_id is given", async () => {
+  const { token: t } = await registerOrg();
+  // Two completed runs for the same suite under different ci_run_ids; the
+  // status must reflect the latest (the second, with failures).
+  await uploadRun({ suite: "status-suite", ciRunId: `status-suite-a-${Date.now()}`, passed: 2, failed: 0, token: t });
+  await uploadRun({ suite: "status-suite", ciRunId: `status-suite-b-${Date.now()}`, passed: 1, failed: 1, token: t });
+
+  const res = await getStatus(`suite=status-suite`, t);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; suite_name: string };
+  assert.equal(body.suite_name, "status-suite");
+  assert.equal(body.status, "failed", "the latest run for the suite carried a failure");
+});
+
+test("GET /runs/status: badge and JSON status agree — green iff status=passed", async () => {
+  const { token: t, slug } = await registerOrg();
+
+  // Case 1: a live run — status "incomplete", badge "in progress", not green.
+  await liveStart("status-agree", `status-agree-${Date.now()}`, t);
+  const liveStatus = (await (await getStatus(`suite=status-agree`, t)).json()) as { status: string };
+  const liveBadge = await (await fetch(`${BASE}/badge/${slug}/status-agree`)).text();
+  assert.equal(liveStatus.status, "incomplete");
+  assert.match(liveBadge, /in progress/);
+  assert.ok(!liveBadge.includes("#4c1"), "badge must not be green when status is incomplete");
+
+  // Case 2: a completed all-pass run — status "passed", badge green. This is
+  // the load-bearing direction: badge is green EXACTLY when status is passed.
+  await uploadRun({ suite: "status-agree-pass", ciRunId: `status-agree-pass-${Date.now()}`, passed: 3, failed: 0, token: t });
+  const passStatus = (await (await getStatus(`suite=status-agree-pass`, t)).json()) as { status: string };
+  const passBadge = await (await fetch(`${BASE}/badge/${slug}/status-agree-pass`)).text();
+  assert.equal(passStatus.status, "passed");
+  assert.ok(passBadge.includes("#4c1"), "badge must be green exactly when status is passed");
+});
+
+test("GET /runs/status: unknown ci_run_id is a 404 (ship gate fails loud / closed)", async () => {
+  const { token: t } = await registerOrg();
+  const res = await getStatus(`ci_run_id=status-nope-${Date.now()}`, t);
+  assert.equal(res.status, 404);
+  const body = (await res.json()) as { status?: string };
+  assert.equal(body.status, undefined, "no status field on a 404 — a naive jq .status reads null and fails closed");
+});
+
+test("GET /runs/status: 400 when neither ci_run_id nor suite is supplied", async () => {
+  const { token: t } = await registerOrg();
+  const res = await getStatus(``, t);
+  assert.equal(res.status, 400);
+});
