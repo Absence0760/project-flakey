@@ -83,7 +83,10 @@ terraform plan
 terraform apply
 ```
 
-No passwords to configure — they're auto-generated and stored in Secrets Manager.
+`acm_certificate_arn` (ALB cert), `budget_alert_email`, and `csp_connect_src`
+have no defaults in `variables.tf` — `terraform plan`/`apply` fails until you
+supply all three (via `terraform.tfvars`). No passwords to configure — they're
+auto-generated and stored in Secrets Manager.
 
 ### 3. Set up GitHub secrets
 
@@ -92,7 +95,7 @@ Add these to your GitHub repository (Settings > Secrets > Actions):
 | Secret | Value | How to get it |
 |---|---|---|
 | `AWS_ROLE_ARN` | IAM role ARN | `cd bootstrap && terraform output github_actions_role_arn` |
-| `API_URL` | Backend URL | `terraform output alb_dns_name` (prefix with `http://`) |
+| `API_URL` | Backend URL | `terraform output alb_dns_name` (prefix with `https://`) — the ALB serves HTTPS on 443 and 301-redirects 80→443, so this needs the ACM cert (`acm_certificate_arn`) and a custom domain pointed at the ALB. |
 | `FRONTEND_BUCKET` | S3 bucket name | `terraform output frontend_bucket` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront ID | `terraform output cloudfront_distribution_id` |
 | `NPM_TOKEN` | npm access token | https://www.npmjs.com/settings/tokens (only if publishing packages) |
@@ -132,13 +135,17 @@ yourself (e.g. `aws secretsmanager create-secret`) and pass its ARN; rotate or
 delete it once the first admin exists. If you skip the bootstrap entirely,
 register the first user through the UI instead.
 
-### 4. Push to deploy
+### 4. Release to deploy
+
+`deploy.yml` runs on a **published GitHub release tagged `app@<version>`** (or a
+manual `workflow_dispatch`) — a plain push to `main` does **not** deploy. The
+`check-tag` job gates the run on the tag matching `app@*`.
 
 ```bash
-git push origin main
+gh release create app@1.2.3 --title "app@1.2.3" --notes "…"
 ```
 
-GitHub Actions will:
+GitHub Actions will (deploy-backend, then deploy-frontend — sequential):
 1. Build Docker image → push to ECR
 2. Deploy to ECS → container starts → migrations run (a failed migration aborts startup) → app-role password aligned with the managed secret → app starts
 3. ALB health check verifies DB connectivity before routing traffic
@@ -156,25 +163,28 @@ Register the first user (or seed data via a bastion connection).
 ## Deploy flow (after initial setup)
 
 ```
-Push to main
+Publish a GitHub release tagged app@<version>  (or run deploy.yml via workflow_dispatch)
     |
-    +-- backend/** changed?
+    +-- check-tag gate (tag matches app@* ?)
+    |
+    +-- deploy-backend
     |     Build Docker image
     |     Push to ECR
-    |     ECS force-new-deployment
+    |     Register new task-def revision → ECS update-service
     |     Container starts:
     |       1. Run migrations (as superuser)
     |       2. Start app (as flakey_app)
     |     ALB health check (GET /health, checks DB)
     |     Old task drains
     |
-    +-- frontend/** changed?
+    +-- deploy-frontend  (needs deploy-backend)
           pnpm build (static files)
           aws s3 sync to bucket
           CloudFront cache invalidation
 ```
 
-Zero manual steps after initial setup.
+Both jobs always run on a passing `app@*` release (no per-path filter);
+deploy-frontend runs after deploy-backend. Cut a release to ship.
 
 ## Upgrades and rollbacks
 
@@ -319,8 +329,8 @@ restored instance.
 
 | Workflow | Triggers on | What it does |
 |---|---|---|
-| `deploy.yml` | `backend/**` or `frontend/**` changes | Backend: Docker → ECR → ECS. Frontend: build → S3 → CloudFront |
-| `publish.yml` | `packages/**` changes | Publishes npm packages (`@flakeytesting/cli`, `@flakeytesting/core`, `@flakeytesting/cypress-reporter`, `@flakeytesting/cypress-snapshots`, `@flakeytesting/live-reporter`, `@flakeytesting/mcp-server`, `@flakeytesting/playwright-reporter`, `@flakeytesting/playwright-snapshots`, `@flakeytesting/webdriverio-reporter`) |
+| `deploy.yml` | Published release tagged `app@<version>` (or manual `workflow_dispatch`); gated by `check-tag` | Backend: Docker → ECR → ECS. Frontend (after backend): build → S3 → CloudFront |
+| `publish.yml` | Published release tagged `<package>@<version>` / `all@<version>` (or manual `workflow_dispatch`) | Publishes npm packages (`@flakeytesting/cli`, `@flakeytesting/core`, `@flakeytesting/cypress-reporter`, `@flakeytesting/cypress-snapshots`, `@flakeytesting/live-reporter`, `@flakeytesting/mcp-server`, `@flakeytesting/playwright-reporter`, `@flakeytesting/playwright-snapshots`, `@flakeytesting/webdriverio-reporter`) |
 
 ## Monitoring
 
@@ -369,7 +379,7 @@ Subscribe to the SNS topic `flakey-production-alerts` for email/Slack notificati
 | `ecr` | Backend ECR repository with lifecycle policy |
 | `secrets` | Auto-generated passwords in Secrets Manager |
 | `s3` | Artifacts bucket + frontend static hosting + CloudFront CDN |
-| `rds` | PostgreSQL 16 instance, security group, subnet group |
+| `rds` | PostgreSQL 16 (pinned 16.4) instance, security group, subnet group |
 | `ecs` | Fargate cluster, task def, service, ALB, auto-scaling, CloudWatch alarms |
 | `budget` | Monthly AWS budget with 80%/100%/forecasted email alerts |
 
