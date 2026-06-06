@@ -112,7 +112,7 @@
   });
 </script>
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
   {#if selecting}
     <div class="select-card">
       <h2>Compare Runs</h2>

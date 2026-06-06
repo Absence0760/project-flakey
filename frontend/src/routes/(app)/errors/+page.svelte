@@ -217,7 +217,7 @@
   }
 </script>
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
   <!-- Description sits on its own line; filters get their own
        full-width row below so the status tabs aren't pushed far to
        the right on a wide monitor. -->

@@ -2072,7 +2072,10 @@
 				<label class="req-toggle">
 					<input type="checkbox" bind:checked={newItemRequired} /> required
 				</label>
-				<button class="btn-primary" onclick={addItem}>Add</button>
+				<!-- Disabled on empty input so the no-op is enforced in the UI
+				     (not just guarded inside addItem). Gives synchronous
+				     feedback and a deterministic signal for e2e. -->
+				<button class="btn-primary" onclick={addItem} disabled={!newItemLabel.trim()}>Add</button>
 			</div>
 		</section>
 

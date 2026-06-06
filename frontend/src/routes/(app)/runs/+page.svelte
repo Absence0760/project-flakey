@@ -20,6 +20,11 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let liveRunIds = $state<Set<number>>(new Set());
+  // Flips true once the /live/stream EventSource delivers its first message
+  // (the backend sends a `snapshot` on connect). Surfaced as
+  // data-sse-connected on the page root so e2e can wait on a real handshake
+  // signal instead of sleeping before firing /live/start.
+  let sseConnected = $state(false);
   let liveStream: EventSource | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedSuite = $state("all");
@@ -263,6 +268,9 @@
     liveStream = es;
 
     es.onmessage = (e) => {
+      // Any delivered message means the EventSource handshake is complete;
+      // the backend's first message is always the `snapshot`.
+      sseConnected = true;
       try {
         const msg = JSON.parse(e.data) as
           | { type: "snapshot"; runs: number[] }
@@ -296,6 +304,7 @@
     es.onerror = () => {
       es.close();
       liveStream = null;
+      sseConnected = false;
       if (!reconnectTimer) {
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
@@ -375,7 +384,11 @@
   }
 </script>
 
-<div class="page">
+<!-- data-ready flips once the onMount fetch settles (loaded OR error);
+     data-sse-connected flips once the live-stream EventSource handshake
+     completes. Both are content-agnostic readiness gates for e2e — see
+     frontend/tests-e2e/README.md § "Readiness signals". -->
+<div class="page" data-ready={!loading ? "true" : undefined} data-sse-connected={sseConnected ? "true" : undefined}>
   <!-- Summary tile strip — mirrors /releases and /manual-tests. Uses
        the database-wide totals so the numbers don't jump around when
        the user filters the list below. -->

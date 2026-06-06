@@ -136,6 +136,23 @@ The suite runs four workers in parallel (`fullyParallel: true`), each bound to i
 
 When a test fails, **fix the app — don't soften the assertion**. The whole point of the suite is to catch regressions; a test that's been bent to pass against broken behaviour is worse than no test. If a test's premise is genuinely wrong (wrong selector, wrong API path, misunderstood spec), say so explicitly in the commit before editing the spec.
 
+## Readiness signals (don't sleep)
+
+`page.waitForTimeout(...)` is banned (see the root `CLAUDE.md` guard rail). Wait on a real signal instead. Each `(app)` route exposes two content-agnostic readiness attributes on its top-level `.page` element:
+
+- **`data-ready="true"`** — flips once the route's `onMount` fetch has settled (resolved **or** errored) and the page has rendered. Use it instead of probing for content that may legitimately be empty (e.g. `/flaky` with no flaky tests, a freshly-registered worker tenant with no runs). The attribute is absent until ready, so both `[data-ready]` (presence) and `[data-ready="true"]` match only when ready.
+- **`data-sse-connected="true"`** — on `/runs` only; flips once the `/live/stream` EventSource has delivered its first message (the backend sends a `snapshot` on connect). Wait on it before firing `/live/start` so an add/remove delta can't race a not-yet-open stream. It resets to absent if the stream drops.
+
+Example:
+
+```ts
+await page.goto("/flaky");
+await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
+// …now assert on the rendered listing
+```
+
+When you add a new route, add `data-ready` (and `data-sse-connected` if it opens a live stream) in the same change so specs have a stable gate. For UI elements whose only honest "done" signal is a disabled/enabled state (e.g. a submit button guarded on a non-empty field), assert that state directly rather than clicking and sleeping.
+
 ## CI
 
 Not yet wired into CI. The workflow will need to:

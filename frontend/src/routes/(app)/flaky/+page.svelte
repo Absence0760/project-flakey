@@ -236,7 +236,7 @@
   }
 </script>
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
   <!-- Summary tile strip — mirrors /runs / /releases / /manual-tests.
        Numbers come from the full unfiltered `tests` set so the strip
        stays stable as the user narrows the table below. -->

@@ -172,7 +172,7 @@
   }
 </script>
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
   <!-- Summary tile strip — same shape as /flaky / /releases / /runs.
        Counts read from the full `tests` set so the strip stays stable
        as the user filters / searches below. -->

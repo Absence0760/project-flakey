@@ -24,6 +24,11 @@
   let aiTesting = $state(false);
   let aiStatus = $state<{ enabled: boolean } | null>(null);
 
+  // Flips true once the onMount loaders have all settled. Surfaced as
+  // data-ready on the page root so e2e can gate on a real load-complete
+  // signal rather than sleeping or probing for content that may be empty.
+  let ready = $state(false);
+
   async function testDB() {
     dbTesting = true; dbTest = null;
     try { const r = await authFetch(`${apiUrl}/connectivity/database`, { method: "POST" }); dbTest = await r.json(); } catch { dbTest = { ok: false, error: "Request failed" }; }
@@ -415,8 +420,13 @@
   }
 
   onMount(() => {
-    loadMembers(); loadSuites(); loadKeys(); loadRetention(); loadAIStatus();
-    if (isAdmin) { loadWebhooks(); loadGitProvider(); loadAudit(); }
+    // Fire the loaders concurrently; flip `ready` once they've all settled
+    // (resolved or rejected — a failed load still means the page is done
+    // loading). Kept synchronous so the scroll-listener cleanup below can
+    // still be returned from onMount.
+    const loaders = [loadMembers(), loadSuites(), loadKeys(), loadRetention(), loadAIStatus()];
+    if (isAdmin) { loaders.push(loadWebhooks(), loadGitProvider(), loadAudit()); }
+    void Promise.allSettled(loaders).then(() => { ready = true; });
 
     const onScroll = () => updateActiveSection();
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -443,7 +453,7 @@
 
 <svelte:window onkeydown={handleEsc} />
 
-<div class="page">
+<div class="page" data-ready={ready ? "true" : undefined}>
   <h1 class="page-title sr-only">Settings</h1>
 
   <div class="settings-layout">

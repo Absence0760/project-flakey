@@ -732,7 +732,7 @@
 
 <svelte:window onkeydown={handleEsc} />
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
 	<!-- No <h1> — the sidebar nav already labels this page, and
 	     /manual-tests in the URL is its own anchor. Subtitle moves
 	     under the actions row so the header is just an action bar. -->

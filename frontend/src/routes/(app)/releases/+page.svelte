@@ -252,7 +252,7 @@
 
 <svelte:window onkeydown={handleEsc} />
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
 	<!-- No <h1> — sidebar nav + URL already label the page. The action
 	     button hangs on the right of the filter row instead of needing
 	     its own header. -->

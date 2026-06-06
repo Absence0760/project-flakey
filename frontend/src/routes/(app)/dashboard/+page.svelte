@@ -149,7 +149,7 @@
   });
 </script>
 
-<div class="page">
+<div class="page" data-ready={!loading ? "true" : undefined}>
   <header class="page-header">
     <p class="subtitle">Overview of automated and manual test health for your selected window.</p>
     <DateRangePicker from={fromDate} to={toDate} onchange={handleDateChange} />
