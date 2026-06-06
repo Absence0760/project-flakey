@@ -28,7 +28,7 @@ Auth state is a plain singleton in `src/lib/stores/auth.ts` (not a Svelte store)
 
 ## URL-state sync pattern
 
-Several pages keep filter state in the URL using `$page.url.searchParams` and write it back with `history.replaceState`. This avoids full navigation for filter changes while keeping views bookmarkable and shareable. See `src/routes/(app)/flaky/+page.svelte` for the canonical example.
+Several pages keep filter state in the URL using `$page.url.searchParams` and write it back with SvelteKit's `replaceState` from `$app/navigation`. This avoids full navigation for filter changes while keeping views bookmarkable and shareable. See `src/routes/(app)/flaky/+page.svelte` for the canonical example.
 
 ## Deployment
 

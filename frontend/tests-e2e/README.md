@@ -66,7 +66,7 @@ If the backend is on a different host, set `E2E_BACKEND_URL`:
 E2E_BACKEND_URL=https://api.staging.example.com pnpm test:e2e
 ```
 
-`VITE_API_URL` is propagated to the dev server from that env var so `frontend/src/lib/config.ts` resolves the right base.
+`VITE_API_URL` is propagated to the dev server from that env var so `frontend/src/lib/utils/config.ts` resolves the right base.
 
 ## Seed credentials
 
@@ -93,7 +93,7 @@ Source of truth: `backend/src/seed.ts`. If the seed changes (number of worker te
 
 ## Parallelism
 
-Playwright runs four workers by default (`workers: 4`, `fullyParallel: true`). Each worker (`parallelIndex` 0..3) signs in as its matching `WORKER_USERS[i]` admin and operates exclusively on `acme-w<i>` — fully populated by `npm run seed` with the same 81 runs / 55 releases / 78 manual tests as Acme. Write-heavy specs no longer collide because no two workers share a tenant.
+Playwright runs four workers by default (`workers: 4`, `fullyParallel: true`). Each worker (`parallelIndex` 0..3) signs in as its matching `WORKER_USERS[i]` admin and operates exclusively on `acme-w<i>` — fully populated by `npm run seed` with the same ~85 runs / 55 releases / 78 manual tests as Acme. Write-heavy specs no longer collide because no two workers share a tenant.
 
 How it works:
 
