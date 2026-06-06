@@ -1,3 +1,21 @@
+# Shared env for the Authentik server + worker (idp-scim profile). The secret
+# key / bootstrap creds here are DEV-ONLY throwaway values for a local,
+# opt-in IdP — same class as the flakey/flakey + minioadmin creds elsewhere in
+# this file. Never reuse them anywhere real.
+x-authentik-env: &authentik-env
+  AUTHENTIK_SECRET_KEY: "dev-only-authentik-secret-key-do-not-use-in-prod-0000"
+  AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: authentik
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_REDIS__HOST: authentik-redis
+  AUTHENTIK_BOOTSTRAP_PASSWORD: akadminpassword
+  AUTHENTIK_BOOTSTRAP_TOKEN: flakey-authentik-dev-token
+  AUTHENTIK_BOOTSTRAP_EMAIL: akadmin@example.com
+  AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+  AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+  AUTHENTIK_AVATARS: "none"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -90,6 +108,85 @@ services:
     volumes:
       - ./infra/keycloak/flakey-realm.json:/opt/keycloak/data/import/flakey-realm.json:ro
 
+  # ---- Authentik IdP + SCIM provisioning (idp-scim profile) -----------------
+  # Authentik covers OIDC/SAML AND acts as a SCIM *provider* (pushes users/
+  # groups to a target) — the half Keycloak can't do out of the box. Used to
+  # e2e-test Flakey's future inbound SCIM endpoint (Phase 14) against a real
+  # IdP, with the scim-target below standing in until that endpoint exists.
+  # Opt-in via `pnpm idp:scim:up`. Heavier than Keycloak (its own pg + redis +
+  # server + worker), so it's a separate profile from the lightweight `idp`.
+  authentik-postgres:
+    image: postgres:16-alpine
+    container_name: flakey-authentik-db
+    profiles: ["idp-scim"]
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: authentik
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  authentik-redis:
+    image: redis:7-alpine
+    container_name: flakey-authentik-redis
+    profiles: ["idp-scim"]
+    command: --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2025.10
+    container_name: flakey-authentik
+    profiles: ["idp-scim"]
+    command: server
+    environment: *authentik-env
+    ports:
+      - "9002:9000" # web UI / API — admin akadmin / akadminpassword
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2025.10
+    container_name: flakey-authentik-worker
+    profiles: ["idp-scim"]
+    command: worker
+    environment: *authentik-env
+    # The worker runs the SCIM sync tasks.
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+  # Mock SCIM 2.0 target — stands in for Flakey's future /scim/v2 endpoint so
+  # Authentik has somewhere to provision to. Records every push at
+  # http://localhost:8082/_captured for the e2e test to assert against. Pure
+  # node:http, one mounted file (infra/scim-target/server.mjs) — no build.
+  scim-target:
+    image: node:22-alpine
+    container_name: flakey-scim-target
+    profiles: ["idp-scim"]
+    command: ["node", "/app/server.mjs"]
+    working_dir: /app
+    environment:
+      PORT: "8082"
+      SCIM_TOKEN: flakey-scim-dev-token
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./infra/scim-target/server.mjs:/app/server.mjs:ro
+
   # Echo server for inspecting outbound webhooks / PR-comment posts
   # locally. Opt-in via `--profile integrations`. Point a webhook target
   # at http://localhost:8080 and read payloads with
@@ -107,3 +204,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  authentik-pgdata:
