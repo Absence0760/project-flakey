@@ -18,15 +18,25 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { flakeyReporter } from "../plugin.ts";
+// Isolate this file's buffer dirs from reporter.test.ts. `node --test` runs the
+// two files in parallel processes that share the real $TMPDIR/flakey-reporter
+// base, and reporter.test.ts wipes that whole base in its hooks — without our
+// own TMPDIR, that concurrent wipe races our spec-buffer write. Point TMPDIR at
+// a per-process dir BEFORE importing the plugin, so the plugin's module-load
+// `tmpdir()` (which it caches into FLAKEY_BASE_DIR) resolves under our dir.
+const MY_TMP = join(tmpdir(), `flakey-fc-test-${process.pid}`);
+mkdirSync(MY_TMP, { recursive: true });
+process.env.TMPDIR = MY_TMP;
+
+const { flakeyReporter } = await import("../plugin.ts");
 
 const URL = "https://api.example.com";
 const API_KEY = "fk_test_secret";
 const RUN_ID = "8642";
 
-const REPORTER_DIR = join(tmpdir(), "flakey-reporter");
-const FC_DIR = join(tmpdir(), "flakey-failure-context");
-const CMD_DIR = join(tmpdir(), "flakey-commands");
+const REPORTER_DIR = join(MY_TMP, "flakey-reporter");
+const FC_DIR = join(MY_TMP, "flakey-failure-context");
+const CMD_DIR = join(MY_TMP, "flakey-commands");
 
 const originalFetch = globalThis.fetch;
 
