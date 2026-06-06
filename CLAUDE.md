@@ -25,6 +25,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 | A Postgres migration | [backend/docs/migrations.md](backend/docs/migrations.md) + the `/safe-migration` skill |
 | Integrations (Jira, PagerDuty, git providers, webhooks) | [backend/docs/integrations.md](backend/docs/integrations.md) |
 | A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
+| The pytest (Python) reporter | [packages/flakey-pytest-reporter/CLAUDE.md](packages/flakey-pytest-reporter/CLAUDE.md) (uv/hatchling — **not** in the pnpm workspace) |
 | Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
 | Tests (unit / smoke / e2e conventions) | [backend/docs/testing.md](backend/docs/testing.md), [frontend/tests-e2e/README.md](frontend/tests-e2e/README.md) |
 | Publishing an `@flakeytesting/*` package | [backend/docs/releases.md](backend/docs/releases.md) + the `Publish flow` section below |
