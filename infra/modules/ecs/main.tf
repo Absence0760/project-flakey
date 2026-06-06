@@ -76,9 +76,18 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action   = ["secretsmanager:GetSecretValue"]
-      Effect   = "Allow"
-      Resource = [var.db_password_arn, var.db_app_password_arn, var.jwt_secret_arn, var.encryption_key_arn]
+      Action = ["secretsmanager:GetSecretValue"]
+      Effect = "Allow"
+      # The optional bootstrap-admin password secret is included only when
+      # var.bootstrap_admin_password_arn is set, so the execution role can
+      # resolve the FLAKEY_BOOTSTRAP_ADMIN_PASSWORD `secrets` entry above.
+      Resource = compact([
+        var.db_password_arn,
+        var.db_app_password_arn,
+        var.jwt_secret_arn,
+        var.encryption_key_arn,
+        var.bootstrap_admin_password_arn,
+      ])
     }]
   })
 }
@@ -321,7 +330,7 @@ resource "aws_ecs_task_definition" "backend" {
       protocol      = "tcp"
     }]
 
-    environment = [
+    environment = concat([
       { name = "PORT", value = "3000" },
       { name = "NODE_ENV", value = "production" },
       { name = "DB_HOST", value = var.db_host },
@@ -335,9 +344,15 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "STORAGE", value = "s3" },
       { name = "S3_BUCKET", value = var.s3_bucket },
       { name = "S3_REGION", value = var.aws_region },
-    ]
+      ],
+      # First-admin bootstrap email (optional). entrypoint.sh creates the
+      # first admin on a fresh DB; no default credentials ship. The password
+      # is injected via `secrets` below, not here.
+      var.bootstrap_admin_email != "" ? [
+        { name = "FLAKEY_BOOTSTRAP_ADMIN_EMAIL", value = var.bootstrap_admin_email },
+    ] : [])
 
-    secrets = [
+    secrets = concat([
       # DB_PASSWORD authenticates the app as the non-superuser DB_USER
       # (flakey_app). It comes from the dedicated app-password secret (a plain
       # string, so no JMESPath fragment); entrypoint.sh ALTERs the flakey_app
@@ -352,7 +367,12 @@ resource "aws_ecs_task_definition" "backend" {
       # Encrypts integration secrets at rest; the backend exits in production
       # if this is unset.
       { name = "FLAKEY_ENCRYPTION_KEY", valueFrom = var.encryption_key_arn },
-    ]
+      ],
+      # First-admin bootstrap password (optional, sourced from Secrets
+      # Manager so it never lands in state or the plaintext environment).
+      var.bootstrap_admin_password_arn != "" ? [
+        { name = "FLAKEY_BOOTSTRAP_ADMIN_PASSWORD", valueFrom = var.bootstrap_admin_password_arn },
+    ] : [])
 
     logConfiguration = {
       logDriver = "awslogs"

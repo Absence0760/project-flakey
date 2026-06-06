@@ -7,9 +7,13 @@ on:
 
 env:
   AWS_REGION: ap-southeast-2
-  ECR_BACKEND: flakey-backend
-  ECS_CLUSTER: flakey-production
-  ECS_SERVICE_BACKEND: flakey-production-backend
+  # Resource names default to the app_name=flakey naming; override via
+  # repo-level Actions `vars` (Settings > Secrets and variables > Actions >
+  # Variables) when you deploy with a non-default `app_name`. See
+  # infra/README.md "Set up GitHub secrets".
+  ECR_BACKEND: ${{ vars.ECR_BACKEND || 'flakey-backend' }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'flakey-production' }}
+  ECS_SERVICE_BACKEND: ${{ vars.ECS_SERVICE_BACKEND || 'flakey-production-backend' }}
 
 permissions:
   id-token: write
@@ -83,7 +87,7 @@ jobs:
       - name: Deploy to ECS (new task-definition revision with SHA image)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          TASK_FAMILY: flakey-production-backend
+          TASK_FAMILY: ${{ vars.TASK_FAMILY || 'flakey-production-backend' }}
         run: |
           # Fetch the current task definition, swap the backend image URI
           # to the SHA-tagged digest, register the result as a new

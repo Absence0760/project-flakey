@@ -52,6 +52,20 @@ docker compose up -d     # recreates and runs all migrations
 npm run seed             # optional: re-seed sample data
 ```
 
+## Forward-only contract
+
+Migrations are **forward-only** — there are no down/rollback files, and a
+migration is never edited once it has run anywhere. To change schema, add the
+next-numbered migration; don't reverse an applied one.
+
+This has a direct operational consequence: **a rollback that crosses a
+destructive migration (a dropped column/table, a narrowed type, a backfilled
+rewrite) cannot be undone by redeploying the previous image.** Once such a
+migration has run, restoring the prior schema means a database restore — see
+"Upgrades and rollbacks" in `infra/README.md` for the point-in-time-restore
+procedure. Prefer expand/contract (additive change first, destructive cleanup
+in a later release once the old code is gone) so a one-step rollback stays safe.
+
 ## Writing new migrations
 
 1. Create a new file: `backend/migrations/NNN_description.sql`

@@ -39,3 +39,18 @@ variable "cpu_architecture" {
   type        = string
   default     = "ARM64"
 }
+
+# --- First-admin bootstrap (optional) ---
+# No default credentials ship; the old admin@example.com/admin seed was
+# removed. Set these to have entrypoint.sh create the first admin on a
+# fresh database. Both are rendered into the task definition only when set.
+variable "bootstrap_admin_email" {
+  description = "Optional first-admin email (FLAKEY_BOOTSTRAP_ADMIN_EMAIL). Empty = no bootstrap admin is injected."
+  type        = string
+  default     = ""
+}
+variable "bootstrap_admin_password_arn" {
+  description = "Optional ARN of a Secrets Manager secret holding the first-admin password (FLAKEY_BOOTSTRAP_ADMIN_PASSWORD). Empty = no bootstrap password is injected. Use a secret rather than a plaintext variable so the password never lands in state or the task-definition environment."
+  type        = string
+  default     = ""
+}

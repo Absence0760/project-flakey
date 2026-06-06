@@ -97,6 +97,41 @@ Add these to your GitHub repository (Settings > Secrets > Actions):
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront ID | `terraform output cloudfront_distribution_id` |
 | `NPM_TOKEN` | npm access token | https://www.npmjs.com/settings/tokens (only if publishing packages) |
 
+#### Optional: repository variables for a non-default `app_name`
+
+`deploy.yml` targets resources whose names derive from `app_name`. The defaults
+match `app_name=flakey`, so the stock fork needs none of these. If you deployed
+with a different `app_name`, set these repo-level **Actions variables** (Settings
+> Secrets and variables > Actions > **Variables**, not Secrets) so the workflow
+points at your resources:
+
+| Variable | Default (`app_name=flakey`) | What it is |
+|---|---|---|
+| `ECR_BACKEND` | `flakey-backend` | Backend ECR repository name |
+| `ECS_CLUSTER` | `flakey-production` | ECS cluster name (`<app_name>-<environment>`) |
+| `ECS_SERVICE_BACKEND` | `flakey-production-backend` | ECS service name |
+| `TASK_FAMILY` | `flakey-production-backend` | ECS task-definition family |
+
+Each is read as `${{ vars.NAME || '<default>' }}`, so leaving a variable unset
+keeps the `app_name=flakey` behavior unchanged.
+
+#### Optional: first-admin bootstrap
+
+No default credentials ship — the old `admin@example.com` / `admin` seed was
+removed. To have the backend create the first admin on a **fresh** database, set
+the two Terraform variables on the `ecs` module; `entrypoint.sh` reads them into
+the running container:
+
+| Variable | Maps to env | Notes |
+|---|---|---|
+| `bootstrap_admin_email` | `FLAKEY_BOOTSTRAP_ADMIN_EMAIL` | Plain string; rendered as a task-definition `environment` entry only when non-empty. |
+| `bootstrap_admin_password_arn` | `FLAKEY_BOOTSTRAP_ADMIN_PASSWORD` | ARN of a Secrets Manager secret holding the password; injected via the task definition's `secrets` so it never lands in Terraform state or the plaintext environment. The execution role is granted read access to this ARN only when it's set. |
+
+Both default to empty (no bootstrap admin injected). Create the password secret
+yourself (e.g. `aws secretsmanager create-secret`) and pass its ARN; rotate or
+delete it once the first admin exists. If you skip the bootstrap entirely,
+register the first user through the UI instead.
+
 ### 4. Push to deploy
 
 ```bash
@@ -140,6 +175,145 @@ Push to main
 ```
 
 Zero manual steps after initial setup.
+
+## Upgrades and rollbacks
+
+### Migrate-then-deploy ordering (the guarantee)
+
+The backend container runs migrations in `entrypoint.sh` **before** the app
+process starts. So on every release the schema is brought current first, and a
+task that fails its migrations never reaches the ALB health check — the rollout
+stalls on the old, healthy task rather than serving traffic against a
+half-migrated DB. You do not run migrations as a separate step; deploying the
+image *is* the migration.
+
+### Rolling back
+
+Frontend rollbacks are clean: re-sync the prior `frontend/build` to the bucket
+and invalidate CloudFront.
+
+The backend is **not** symmetrically reversible. Migrations are forward-only
+(see [backend/docs/migrations.md](../backend/docs/migrations.md) → "Forward-only
+contract"):
+
+- **If the new release only added additive migrations** (new tables/columns the
+  old code ignores), you can roll back the image: register a task-definition
+  revision pointing at the previous image digest and `aws ecs update-service`
+  onto it. The old code simply doesn't use the new columns.
+- **If the release ran a destructive or incompatible migration** (dropped/renamed
+  a column, narrowed a type, rewrote data), redeploying the previous image will
+  crash or corrupt — the old code expects schema that no longer exists. There is
+  no migration to "undo" it. Recovering the prior schema requires a **database
+  restore** (see "Backup and restore" below), which means accepting data loss
+  back to the restore point. Prefer expand/contract migrations so most rollbacks
+  stay in the safe, additive case.
+
+### Helm rollback (Kubernetes chart)
+
+If you run the Helm chart (`chart/`) instead of ECS, `helm rollback <release>
+<revision>` reverts the Kubernetes objects (image tag, env, replicas) to a prior
+release. The same migration caveat applies: `helm rollback` rolls back the
+*container*, not the database — if the forward release crossed a destructive
+migration, a Helm rollback alone leaves the old image pointed at incompatible
+schema, and you still need a DB restore.
+
+## Backup and restore
+
+RDS and the S3 artifacts bucket are backed up independently. Read the
+consistency caveat below before relying on a restore.
+
+### RDS (Postgres) — automated backups + point-in-time restore
+
+`infra/modules/rds/main.tf` sets `backup_retention_period = 7`, so AWS keeps
+automated daily snapshots plus transaction logs for the last **7 days**, giving
+point-in-time restore (PITR) to any second in that window. `deletion_protection`
+is on and `skip_final_snapshot = false` (a final snapshot named
+`<app_name>-<environment>-final` is taken on destroy), so the instance can't be
+deleted out from under its backups.
+
+PITR restores into a **new** instance (you can't restore in place):
+
+```bash
+# Restore to a timestamp (UTC). Creates flakey-production-restore.
+aws rds restore-db-instance-to-point-in-time \
+  --source-db-instance-identifier flakey-production \
+  --target-db-instance-identifier flakey-production-restore \
+  --restore-time 2026-06-05T14:00:00Z \
+  --no-multi-az
+
+# ...or restore from a specific automated/manual snapshot:
+aws rds restore-db-instance-from-db-snapshot \
+  --db-instance-identifier flakey-production-restore \
+  --db-snapshot-identifier <snapshot-id>
+```
+
+The restored instance comes up with its own endpoint, a fresh master secret, and
+**no** custom security group. To cut over, either point the app's `DB_HOST` at the
+new endpoint (re-attach the RDS security group + subnet group first) or rename
+instances so the old name resolves to the restored data. Re-run the
+`entrypoint.sh` migration/role-password alignment against the restored DB after
+cutover.
+
+### S3 artifacts bucket — versioning + version rollback
+
+The artifacts bucket (screenshots, videos, DOM snapshots) has **versioning
+enabled** in the S3 module, so overwrites and deletes are recoverable. A "delete"
+writes a delete marker rather than destroying the object; an overwrite keeps the
+prior version.
+
+```bash
+# List versions (and delete markers) for an object.
+aws s3api list-object-versions \
+  --bucket <artifacts-bucket> --prefix path/to/object
+
+# Roll back a deletion: remove the delete marker.
+aws s3api delete-object \
+  --bucket <artifacts-bucket> --key path/to/object \
+  --version-id <delete-marker-version-id>
+
+# Roll back an overwrite: copy the prior version over the current key.
+aws s3api copy-object \
+  --bucket <artifacts-bucket> \
+  --copy-source <artifacts-bucket>/path/to/object?versionId=<prior-version-id> \
+  --key path/to/object
+```
+
+### Consistency boundary (read this)
+
+**RDS and S3 are not snapshotted atomically.** A PITR to one timestamp and an S3
+version rollback are independent operations, so a restore can leave the two
+stores inconsistent:
+
+- Restore the **DB** to an earlier point and the S3 bucket keeps newer objects →
+  orphaned artifacts (files no DB row references). Harmless but they consume
+  storage; they age out via the retention policy.
+- Restore the DB **forward of** (or without rolling back) S3 deletions → DB rows
+  reference artifacts that no longer exist → broken screenshot/video links in the
+  UI. The app degrades gracefully (a missing-artifact placeholder) but the
+  evidence is gone.
+
+There is no transaction spanning the two. When you must restore, pick the DB
+restore point first, then reconcile S3 toward it, and expect some skew at the
+boundary. For anything compliance-relevant, **loop in the CISO / Security
+Analyst before restoring** and record the restore point + reconciliation in the
+incident log.
+
+### Example restore drill
+
+A quarterly drill to prove backups actually restore:
+
+1. Note a known-good timestamp (e.g. just before a test write).
+2. PITR into `flakey-production-restore` at that timestamp (command above).
+3. Connect to the restored instance (bastion or temporary SG) and sanity-check
+   row counts / a recent run: `psql -h <restore-endpoint> -U flakey -d flakey`.
+4. Spot-check a handful of artifact keys from restored DB rows against the S3
+   bucket to observe the consistency boundary firsthand.
+5. Tear the restored instance down (`aws rds delete-db-instance
+   --db-instance-identifier flakey-production-restore --skip-final-snapshot`)
+   and record the drill result.
+
+Run this without touching production; the drill never points the live app at the
+restored instance.
 
 ## CI/CD Pipelines
 
