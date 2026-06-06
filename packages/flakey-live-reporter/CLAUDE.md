@@ -36,6 +36,10 @@ All three adapters (mocha, playwright, webdriverio) read these from `process.env
 
 `LiveClient` ticks an `unref`'d 30s interval that calls `flush({ allowEmpty: true })` — even with an empty queue the request POSTs `[]` so the backend's `/live/:runId/events` handler updates `lastEventAt` via `LiveEventBus.touch()`. This stops the stale-run detector (default 10-minute timeout) from auto-aborting a still-running suite during long quiet stretches (a slow Cucumber scenario, large `cy.wait`, etc.). Configurable via the `heartbeatIntervalMs` option (set to `0` to disable). Adapters (mocha/playwright/wdio) call `client.stop()` alongside `flush()` at end-of-run so heartbeats don't tick past `run.finished`.
 
+## Delivery semantics
+
+Live events are **best-effort but not lossy on a transient blip**. `flush()` POSTs the queued batch; if delivery fails — a thrown request (network error / `AbortSignal.timeout`, default 10s) or a non-2xx response — the batch is re-queued ahead of anything that arrived mid-flight (preserving order) and a 500ms retry is scheduled (`unref`'d, so it never holds the process open past end-of-run). Retained events are capped at `MAX_QUEUE` (1000); a sustained outage drops the **oldest** beyond the cap, keeping the most recent state. The authoritative record is still the end-of-run `/runs` upload — live events are the real-time view, the upload reconciles the truth. `stop()` clears both the heartbeat and any pending retry.
+
 ## Consumer wiring
 
 Loaded as an optional peer by `@flakeytesting/cypress-reporter`. Standalone users import the subpath matching their framework directly.

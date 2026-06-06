@@ -258,8 +258,15 @@ test("send() during an in-flight flush is retained for the next batch, not dropp
   client.stop();
 });
 
-test("a 5xx response does not reject flush(); the run continues but the batch is dropped (best-effort, no retry)", async () => {
-  const fetchMock = mock.fn(async () => new Response("upstream boom", { status: 503 }));
+test("a 5xx response does not reject flush(); the batch is retained and retried on the next flush", async () => {
+  // First call fails with a 503, second succeeds — models a transient blip.
+  let calls = 0;
+  const fetchMock = mock.fn(async () => {
+    calls += 1;
+    return calls === 1
+      ? new Response("upstream boom", { status: 503 })
+      : new Response("{}", { status: 200 });
+  });
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 
   const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
@@ -269,21 +276,27 @@ test("a 5xx response does not reject flush(); the run continues but the batch is
   await assert.doesNotReject(() => client.flush(), "a 5xx response must not crash the run");
   assert.equal(fetchMock.mock.callCount(), 1);
 
-  // Contract check: the source `splice(0)`s the queue BEFORE the request and
-  // never re-enqueues on a non-2xx response, so a failed flush silently
-  // discards that batch with no retry. A subsequent flush has nothing to send.
+  // A non-2xx response means the batch was NOT delivered, so it's retained.
+  // The next flush retries it — and this time the backend is back, so the
+  // originally-queued event is delivered (not silently lost to a transient blip).
   await client.flush();
-  assert.equal(fetchMock.mock.callCount(), 1,
-    "no automatic retry — the 5xx batch is gone, not re-sent on the next flush");
+  assert.equal(fetchMock.mock.callCount(), 2, "the retained batch is retried on the next flush");
+  const retried = JSON.parse(fetchMock.mock.calls[1].arguments[1].body as string) as Array<{ test: string }>;
+  assert.deepEqual(retried.map((e) => e.test), ["x"], "the retried batch carries the original event");
 
   client.stop();
 });
 
-test("a mid-flush abort (fetch throws AbortError) is swallowed and the dropped batch is not retried", async () => {
+test("a mid-flush abort (fetch throws AbortError) is swallowed and the batch is retained for retry", async () => {
+  let calls = 0;
   const fetchMock = mock.fn(async () => {
-    const err = new Error("The operation was aborted");
-    err.name = "AbortError";
-    throw err;
+    calls += 1;
+    if (calls === 1) {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    }
+    return new Response("{}", { status: 200 });
   });
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -293,9 +306,42 @@ test("a mid-flush abort (fetch throws AbortError) is swallowed and the dropped b
   await assert.doesNotReject(() => client.flush(), "an aborted request must not crash the run");
   assert.equal(fetchMock.mock.callCount(), 1);
 
-  // The batch was spliced out before the throw, so it's lost — nothing to resend.
+  // A thrown request also leaves the batch undelivered → retained, then resent.
   await client.flush();
-  assert.equal(fetchMock.mock.callCount(), 1, "the aborted batch is dropped, not retried");
+  assert.equal(fetchMock.mock.callCount(), 2, "the aborted batch is retried, not lost");
+  const retried = JSON.parse(fetchMock.mock.calls[1].arguments[1].body as string) as Array<{ test: string }>;
+  assert.deepEqual(retried.map((e) => e.test), ["aborted-batch"]);
+
+  client.stop();
+});
+
+test("retained events are bounded — a sustained outage drops the oldest, keeping the most recent MAX_QUEUE", async () => {
+  // Backend is down for the whole test: every flush fails.
+  const fetchMock = mock.fn(async () => new Response("down", { status: 503 }));
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+
+  // Send well past the 1000-event cap, flushing along the way so the failed
+  // batches get re-queued and bounded rather than growing without limit.
+  const TOTAL = 1500;
+  for (let i = 0; i < TOTAL; i++) {
+    client.send({ type: "test.passed", test: `t${i}` });
+    if (i % 100 === 0) await client.flush();
+  }
+  await client.flush();
+
+  // The next (still-failing) flush sends whatever is retained; assert it's
+  // capped at 1000 and holds the MOST RECENT events (oldest dropped first).
+  const callsBefore = fetchMock.mock.callCount();
+  await client.flush();
+  const lastBody = JSON.parse(
+    fetchMock.mock.calls[fetchMock.mock.callCount() - 1].arguments[1].body as string,
+  ) as Array<{ test: string }>;
+  assert.ok(callsBefore >= 1);
+  assert.equal(lastBody.length, 1000, "retained queue is bounded to MAX_QUEUE (1000)");
+  assert.equal(lastBody[lastBody.length - 1].test, `t${TOTAL - 1}`, "most recent event is kept");
+  assert.equal(lastBody[0].test, `t${TOTAL - 1000}`, "oldest beyond the cap is dropped");
 
   client.stop();
 });

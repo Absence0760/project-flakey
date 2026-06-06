@@ -26,6 +26,14 @@ export interface LiveReporterOptions {
   heartbeatIntervalMs?: number;
 }
 
+/**
+ * Cap on events retained while the backend is unreachable, so a sustained
+ * outage can't grow the queue without bound. Oldest events are dropped first.
+ */
+const MAX_QUEUE = 1000;
+/** Abort a flush that hangs so a stuck backend can't stall the test run. */
+const FLUSH_TIMEOUT_MS = 10_000;
+
 export class LiveClient {
   private url: string;
   private apiKey: string;
@@ -75,25 +83,53 @@ export class LiveClient {
     if (this.queue.length === 0 && !opts.allowEmpty) return;
 
     const events = this.queue.splice(0);
+    let delivered = false;
     try {
-      await fetch(`${this.url}/live/${this.runId}/events`, {
+      const res = await fetch(`${this.url}/live/${this.runId}/events`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify(events),
+        signal: AbortSignal.timeout(FLUSH_TIMEOUT_MS),
       });
+      delivered = res.ok;
     } catch {
-      // Silently drop — live events are best-effort
+      // Network error or timeout — fall through and retain the batch.
+    }
+
+    // Live events are best-effort, but a transient blip (5xx / dropped
+    // connection) shouldn't lose a whole window of state when the next flush
+    // would land. Re-queue the failed batch ahead of anything that arrived
+    // mid-flight (preserving chronological order), bound memory by dropping the
+    // oldest beyond MAX_QUEUE, and schedule a retry. An empty heartbeat batch
+    // has nothing to retain, so it stays fire-and-forget.
+    if (!delivered && events.length > 0) {
+      this.queue.unshift(...events);
+      if (this.queue.length > MAX_QUEUE) {
+        this.queue.splice(0, this.queue.length - MAX_QUEUE);
+      }
+      if (!this.flushTimer) {
+        this.flushTimer = setTimeout(() => this.flush().catch(() => {}), 500);
+        // Don't let retries against a down backend keep the process alive past
+        // end-of-run — best-effort means we give up when nothing else runs.
+        if (typeof (this.flushTimer as { unref?: () => void }).unref === "function") {
+          (this.flushTimer as { unref: () => void }).unref();
+        }
+      }
     }
   }
 
-  /** Stop the heartbeat timer. Idempotent. */
+  /** Stop the heartbeat timer and any pending retry. Idempotent. */
   stop(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
   }
 
