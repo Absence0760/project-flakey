@@ -212,6 +212,22 @@ export function register(
                 // Home-dir singleton — works even when TMPDIR and cwd diverge
                 // across Cypress's process tree. This is the fallback the
                 // Mocha reporter relies on in Cypress 15+.
+                //
+                // KNOWN LIMITATION (not safe to "fix" by deleting): two
+                // `cypress run` invocations sharing a UID (e.g. a GitHub
+                // Actions matrix on one runner) write the same singleton path,
+                // so the last writer wins and a Mocha reporter that falls back
+                // to the singleton can read the other run's id. The per-pid
+                // ancestor-walk files above are the primary, collision-free
+                // path and carry no less information — but the singleton is the
+                // ONLY handoff when the Mocha reporter shares no ancestor PID
+                // with setupNodeEvents (observed in Cypress 15.14), and in that
+                // case there is no per-invocation key both processes can
+                // independently derive. A durable fix needs a different handoff
+                // keyed on something both sides compute (e.g. suite+ci_run_id)
+                // or an env var the Mocha process tree actually inherits — a
+                // design change, not a deletion. Until then the per-pid files
+                // win whenever the ancestor walk succeeds, which is the norm.
                 try {
                   mkdirSync(FLAKEY_HOME_DIR, { recursive: true, mode: 0o700 });
                   safeHandoffWrite(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
