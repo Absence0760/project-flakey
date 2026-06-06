@@ -27,6 +27,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 | A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
 | The pytest (Python) reporter | [packages/flakey-pytest-reporter/CLAUDE.md](packages/flakey-pytest-reporter/CLAUDE.md) (uv/hatchling — **not** in the pnpm workspace) |
 | Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
+| The API contract / generated client types | [backend/openapi.yaml](backend/openapi.yaml) → `pnpm openapi:generate` → `frontend/src/lib/api-generated.ts`; `pnpm openapi:check` flags drift |
 | Tests (unit / smoke / e2e conventions) | [backend/docs/testing.md](backend/docs/testing.md), [frontend/tests-e2e/README.md](frontend/tests-e2e/README.md) |
 | Publishing an `@flakeytesting/*` package | [backend/docs/releases.md](backend/docs/releases.md) + the `Publish flow` section below |
 | AWS infra | [infra/](infra/) (Terraform) |
@@ -85,7 +86,7 @@ Footguns that have bitten before — check here before assuming something's brok
 
 - **Two package managers.** `backend/` uses **npm** (its own lockfile, outside the pnpm workspace); `frontend/` + `packages/` use **pnpm**. Don't cross them.
 - **`pnpm db:up` now also starts Mailpit** (not just Postgres) — the script name is historical. `pnpm services:up` adds the opt-in MinIO + webhook sink.
-- **No type codegen.** Types are hand-synced across `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the DB. A schema change means editing all the relevant sides yourself — use the `/safe-migration` skill, which surfaces the edits.
+- **Type codegen is partial (migration in progress).** `backend/openapi.yaml` is the API contract source of truth and generates `frontend/src/lib/api-generated.ts` via `pnpm openapi:generate` (openapi-typescript). It currently covers the **core** surface (runs/tests/errors/stats/flaky/compare/auth); the rest of `frontend/src/lib/api.ts` + `backend/src/types.ts` are still **hand-synced** with the DB. So: a schema change still means editing all relevant sides yourself (use `/safe-migration`), AND — if the route is in the spec — updating `openapi.yaml` in the same commit (`pnpm openapi:check` flags drift). Extend the spec as you touch routes; don't let it rot.
 - **RLS runs as a non-superuser.** The backend connects as `flakey_app` so Row-Level Security applies. Connecting as a superuser silently bypasses tenant isolation — don't.
 - **Encryption key falls back to plaintext.** With `FLAKEY_ENCRYPTION_KEY` unset, integration secrets are stored as plaintext (local-dev only — the backend refuses to boot this way in production).
 - **`bt_*` localStorage keys are intentional.** The brand is "Flakey" but auth keys keep the `bt_` prefix (a Better-Testing holdover) so existing sessions survive — don't "fix" them.

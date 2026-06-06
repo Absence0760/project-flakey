@@ -1,0 +1,572 @@
+openapi: 3.1.0
+info:
+  title: Flakey API
+  version: 0.1.0
+  description: |
+    HTTP API for the Flakey test-reporting dashboard.
+
+    **This is the source of truth for the API contract.** `frontend/src/lib/api-generated.ts`
+    is generated from it via `pnpm openapi:generate` (openapi-typescript). When you
+    add or change a route, update this spec **in the same commit** — the
+    `pnpm openapi:check` drift check (and CI) flags a stale spec.
+
+    Scope: this is a **seed** covering the core, integrator-facing surface (runs,
+    tests, errors, stats, flaky, compare, auth, health). Remaining routes
+    (integrations, releases, manual tests, live SSE, uploads, quarantine, views,
+    coverage, support) are TODO — add them here as the contract is migrated off
+    the hand-synced `frontend/src/lib/api.ts`. Run `pnpm endpoint-inventory` (the
+    skill) for the full route list to work through.
+
+    Auth: every endpoint except `/health`, `/auth/login`, and `/auth/register`
+    requires a Bearer token — a JWT from login, or a `fk_…` API key. All
+    tenant-scoped responses are filtered to the caller's org by Postgres RLS
+    (not expressible in OpenAPI; see docs/architecture.md §4).
+servers:
+  - url: "{baseUrl}"
+    description: Backend API origin (FLAKEY_API_URL / VITE_API_URL)
+    variables:
+      baseUrl:
+        default: http://localhost:3000
+
+tags:
+  - name: auth
+  - name: runs
+  - name: tests
+  - name: errors
+  - name: analytics
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [analytics]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Exchange email + password for tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user + personal org (when registration is enabled)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string }
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /runs:
+    get:
+      tags: [runs]
+      summary: List recent runs (org-scoped)
+      parameters:
+        - { name: suite, in: query, schema: { type: string } }
+        - { name: branch, in: query, schema: { type: string } }
+        - { name: environment, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: Run list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [runs]
+      summary: Ingest a test run
+      description: |
+        Accepts either a pre-normalized run (`{meta, stats, specs}`, as the
+        first-class reporters send) or `{raw, meta}` for a vendor format the
+        backend normalizes. `multipart/form-data` to `/runs/upload` is used when
+        shipping artifacts; this JSON path is for results only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NormalizedRunInput" }
+      responses:
+        "200":
+          description: Run created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /runs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [runs]
+      summary: Get one run with its specs + tests
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [runs]
+      summary: Delete a run (cascades to specs/tests/artifacts)
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tests/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [tests]
+      summary: Get one test with artifacts + navigation
+      responses:
+        "200":
+          description: Test detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tests/{id}/history:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [tests]
+      summary: Pass/fail timeline for a test across runs
+      responses:
+        "200":
+          description: History
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  title: { type: string }
+                  full_title: { type: string }
+                  file_path: { type: string }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        test_id: { type: integer }
+                        status: { $ref: "#/components/schemas/TestStatus" }
+                        duration_ms: { type: integer }
+                        error_message: { type: [string, "null"] }
+                        run_id: { type: integer }
+                        suite_name: { type: string }
+                        branch: { type: string }
+                        created_at: { type: string, format: date-time }
+
+  /errors:
+    get:
+      tags: [errors]
+      summary: Recurring failures grouped by error fingerprint
+      parameters:
+        - { name: suite, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Error groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ErrorGroup" }
+
+  /flaky:
+    get:
+      tags: [analytics]
+      summary: Tests that alternate pass/fail
+      parameters:
+        - { name: suite, in: query, schema: { type: string } }
+        - { name: runs, in: query, schema: { type: integer, default: 30 } }
+      responses:
+        "200":
+          description: Flaky tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FlakyTest" }
+
+  /stats:
+    get:
+      tags: [analytics]
+      summary: Dashboard statistics
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardStats" }
+
+  /compare:
+    get:
+      tags: [analytics]
+      summary: Compare two runs (newly-failed / fixed / flipped)
+      parameters:
+        - { name: a, in: query, required: true, schema: { type: integer } }
+        - { name: b, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Comparison
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary: { type: object, additionalProperties: true }
+                  comparisons:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A login JWT or an `fk_…` API key.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found (or not visible to this org)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+    TestStatus:
+      type: string
+      enum: [passed, failed, skipped, pending]
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        refreshToken: { type: string }
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            email: { type: string, format: email }
+            name: { type: [string, "null"] }
+
+    Run:
+      type: object
+      required: [id, suite_name, total, passed, failed, skipped, pending, duration_ms]
+      properties:
+        id: { type: integer }
+        suite_name: { type: string }
+        branch: { type: string }
+        commit_sha: { type: string }
+        ci_run_id: { type: string }
+        reporter: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+          description: null until the run merges/completes (live runs start with no finish time)
+        total: { type: integer }
+        passed: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        pending: { type: integer }
+        duration_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+        spec_count: { type: integer }
+        spec_files: { type: [array, "null"], items: { type: string } }
+        new_failures: { type: integer }
+        aborted: { type: boolean }
+        environment:
+          type: string
+          description: "'' when no environment label is set (NOT NULL DEFAULT '')"
+
+    RunDetail:
+      allOf:
+        - $ref: "#/components/schemas/Run"
+        - type: object
+          properties:
+            specs:
+              type: array
+              items: { $ref: "#/components/schemas/Spec" }
+            prev_id: { type: [integer, "null"] }
+            next_id: { type: [integer, "null"] }
+
+    Spec:
+      type: object
+      properties:
+        id: { type: integer }
+        run_id: { type: integer }
+        file_path: { type: string }
+        title: { type: string }
+        total: { type: integer }
+        passed: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        pending: { type: integer }
+        duration_ms: { type: integer }
+        tests:
+          type: array
+          items: { $ref: "#/components/schemas/TestResult" }
+
+    TestResult:
+      type: object
+      required: [id, title, full_title, status, duration_ms]
+      properties:
+        id: { type: integer }
+        spec_id: { type: integer }
+        title: { type: string }
+        full_title: { type: string }
+        status: { $ref: "#/components/schemas/TestStatus" }
+        duration_ms: { type: integer }
+        error_message: { type: [string, "null"] }
+        error_stack: { type: [string, "null"] }
+        screenshot_paths: { type: array, items: { type: string } }
+        video_path: { type: [string, "null"] }
+        test_code: { type: [string, "null"] }
+        command_log:
+          type: [array, "null"]
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              message: { type: string }
+              state: { type: string }
+        snapshot_path: { type: [string, "null"] }
+        failure_context:
+          oneOf:
+            - { $ref: "#/components/schemas/FailureContext" }
+            - { type: "null" }
+
+    FailureContext:
+      type: object
+      description: Cypress failure-context capture (Phase 13).
+      properties:
+        commands_tail:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              message: { type: string }
+              state: { type: string }
+        browser_console: { type: array, items: { type: string } }
+        uncaught_errors: { type: array, items: { type: string } }
+        network_failures: { type: array, items: { type: string } }
+        retry_errors:
+          type: array
+          items:
+            type: object
+            properties:
+              attempt: { type: integer }
+              message: { type: string }
+              stack: { type: string }
+        resolved_stack:
+          type: array
+          items:
+            type: object
+            properties:
+              file: { type: string }
+              line: { type: integer }
+              column: { type: integer }
+              function: { type: string }
+        code_frame:
+          type: object
+          properties:
+            file: { type: string }
+            line: { type: integer }
+            column: { type: integer }
+            frame: { type: string }
+
+    TestDetail:
+      allOf:
+        - $ref: "#/components/schemas/TestResult"
+        - type: object
+          properties:
+            file_path: { type: string }
+            run_id: { type: integer }
+            spec_title: { type: string }
+            prev_failed_id: { type: [integer, "null"] }
+            next_failed_id: { type: [integer, "null"] }
+            failed_index: { type: integer }
+            failed_total: { type: integer }
+
+    ErrorGroup:
+      type: object
+      properties:
+        fingerprint: { type: string }
+        error_message: { type: string }
+        occurrence_count: { type: integer }
+        affected_tests: { type: integer }
+        affected_runs: { type: integer }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        latest_run_id: { type: integer }
+        latest_test_id: { type: [integer, "null"] }
+        test_titles: { type: array, items: { type: string } }
+        file_paths: { type: array, items: { type: string } }
+        suite_name: { type: string }
+        group_id: { type: [integer, "null"] }
+        status: { type: string }
+        note_count: { type: integer }
+
+    FlakyTest:
+      type: object
+      properties:
+        full_title: { type: string }
+        file_path: { type: string }
+        suite_name: { type: string }
+        flaky_rate: { type: number }
+        flip_count: { type: integer }
+        total_runs: { type: integer }
+
+    DashboardStats:
+      type: object
+      properties:
+        automated:
+          type: object
+          properties:
+            total_runs: { type: integer }
+            total_tests: { type: integer }
+            total_passed: { type: integer }
+            total_failed: { type: integer }
+            pass_rate: { type: number }
+            recent_runs:
+              type: array
+              items: { $ref: "#/components/schemas/Run" }
+        manual:
+          type: object
+          additionalProperties: true
+
+    NormalizedRunInput:
+      type: object
+      description: A pre-normalized run as the first-class reporters POST it.
+      required: [meta, stats, specs]
+      properties:
+        meta:
+          type: object
+          required: [suite_name, branch, commit_sha, ci_run_id, started_at, finished_at, reporter]
+          properties:
+            suite_name: { type: string }
+            branch: { type: string }
+            commit_sha: { type: string }
+            ci_run_id: { type: string }
+            started_at: { type: string }
+            finished_at: { type: string }
+            reporter: { type: string }
+            release: { type: string }
+            environment: { type: string }
+        stats: { $ref: "#/components/schemas/RunStats" }
+        specs:
+          type: array
+          items:
+            type: object
+            required: [file_path, title, stats, tests]
+            properties:
+              file_path: { type: string }
+              title: { type: string }
+              stats: { $ref: "#/components/schemas/RunStats" }
+              tests:
+                type: array
+                items:
+                  type: object
+                  required: [title, full_title, status, duration_ms]
+                  properties:
+                    title: { type: string }
+                    full_title: { type: string }
+                    status: { $ref: "#/components/schemas/TestStatus" }
+                    duration_ms: { type: integer }
+                    error:
+                      type: object
+                      properties:
+                        message: { type: string }
+                        stack: { type: string }
+                    screenshot_paths: { type: array, items: { type: string } }
+                    video_path: { type: string }
+                    test_code: { type: string }
+                    command_log: { type: array, items: { type: object, additionalProperties: true } }
+                    metadata: { type: object, additionalProperties: true }
+                    failure_context: { $ref: "#/components/schemas/FailureContext" }
+
+    RunStats:
+      type: object
+      required: [total, passed, failed, skipped, pending, duration_ms]
+      properties:
+        total: { type: integer }
+        passed: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        pending: { type: integer }
+        duration_ms: { type: integer }

@@ -28,6 +28,8 @@
     "check:backend": "cd backend && npx tsc --noEmit",
     "check:frontend": "cd frontend && pnpm check",
     "check": "pnpm check:backend && pnpm check:frontend",
+    "openapi:generate": "cd backend && npm run openapi:generate",
+    "openapi:check": "pnpm openapi:generate && git diff --exit-code -- frontend/src/lib/api-generated.ts",
     "test:backend": "cd backend && npm test",
     "test:frontend": "cd frontend && pnpm test",
     "test:packages": "pnpm -r --workspace-concurrency=1 --filter \"@flakeytesting/*\" --if-present test",

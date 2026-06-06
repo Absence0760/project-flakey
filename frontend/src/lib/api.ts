@@ -1,3 +1,9 @@
+// NOTE: these request/response types are HAND-SYNCED with backend/src/types.ts +
+// the DB. A typed contract is being migrated to OpenAPI: backend/openapi.yaml is
+// the source of truth and generates ./api-generated.ts via `pnpm openapi:generate`
+// (it covers the core routes today). New/changed routes that are in the spec must
+// update openapi.yaml in the same commit (`pnpm openapi:check` flags drift);
+// prefer importing the generated types here as routes are migrated.
 import { authFetch, getToken } from "./stores/auth";
 import { API_URL } from "./utils/config.js";
 
