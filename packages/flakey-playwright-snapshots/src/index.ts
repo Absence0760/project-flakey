@@ -116,10 +116,14 @@ export function parseTrace(
   let viewportWidth = 1280;
   let viewportHeight = 720;
 
+  // Collect candidate library traces, then pick deterministically below.
+  // (The library trace holds the page actions; network/stacks/test-* traces
+  // are excluded.)
+  const traceCandidates = new Map<string, Buffer>();
   for (const entry of zip.getEntries()) {
     const name = entry.entryName;
-    if (name === "0-trace.trace" || (name.endsWith(".trace") && !name.includes("network") && !name.includes("stacks") && !name.startsWith("test"))) {
-      traceData = entry.getData().toString("utf8");
+    if (name.endsWith(".trace") && !name.includes("network") && !name.includes("stacks") && !name.startsWith("test")) {
+      traceCandidates.set(name, entry.getData());
     }
     if (name.startsWith("resources/") && (name.endsWith(".jpeg") || name.endsWith(".jpg") || name.endsWith(".png"))) {
       // Store by both the full path and just the filename (SHA1 references vary)
@@ -127,6 +131,16 @@ export function parseTrace(
       resources.set(fileName, entry.getData());
       resources.set(name, entry.getData());
     }
+  }
+
+  // Prefer the canonical 0-trace.trace; otherwise take the lowest-sorted match
+  // so a zip with multiple library traces resolves deterministically instead
+  // of by zip iteration order (which is what "last write wins" gave us before).
+  const traceName = traceCandidates.has("0-trace.trace")
+    ? "0-trace.trace"
+    : [...traceCandidates.keys()].sort()[0];
+  if (traceName) {
+    traceData = traceCandidates.get(traceName)!.toString("utf8");
   }
 
   if (!traceData) {

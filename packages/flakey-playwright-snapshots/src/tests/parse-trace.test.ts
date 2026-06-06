@@ -446,6 +446,47 @@ test("falls back to a non-network .trace when 0-trace.trace is absent", () => {
   assert.equal(commandLog[0].message, "http://fallback.test");
 });
 
+test("0-trace.trace always wins over another library trace, regardless of zip order", () => {
+  // Insert a decoy 1-trace.trace BEFORE 0-trace.trace. Selection by zip
+  // iteration order (the old last-write-wins behaviour) would pick the decoy;
+  // the parser must canonicalise on 0-trace.trace.
+  const path = buildMultiTraceZip({
+    "1-trace.trace": [
+      { type: "before", callId: "d1", class: "Page", method: "goto", params: { url: "http://decoy.test" }, startTime: 10 },
+      { type: "after", callId: "d1", endTime: 20 },
+    ],
+    "0-trace.trace": [
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "http://canonical.test" }, startTime: 30 },
+      { type: "after", callId: "c1", endTime: 40 },
+    ],
+  });
+
+  const { commandLog } = parseTrace(path, "x", "x.spec.ts");
+  assert.equal(commandLog.length, 1);
+  assert.equal(commandLog[0].message, "http://canonical.test",
+    "0-trace.trace must be selected even when a later library trace exists");
+});
+
+test("with multiple non-canonical library traces, selection is deterministic (lowest-sorted name)", () => {
+  // No 0-trace.trace; two library traces. Order them so zip iteration would
+  // surface 2-trace.trace last — the parser must still pick 1-trace.trace.
+  const path = buildMultiTraceZip({
+    "2-trace.trace": [
+      { type: "before", callId: "b1", class: "Page", method: "goto", params: { url: "http://two.test" }, startTime: 10 },
+      { type: "after", callId: "b1", endTime: 20 },
+    ],
+    "1-trace.trace": [
+      { type: "before", callId: "a1", class: "Page", method: "goto", params: { url: "http://one.test" }, startTime: 30 },
+      { type: "after", callId: "a1", endTime: 40 },
+    ],
+  });
+
+  const { commandLog } = parseTrace(path, "x", "x.spec.ts");
+  assert.equal(commandLog.length, 1);
+  assert.equal(commandLog[0].message, "http://one.test",
+    "the lowest-sorted library trace is chosen deterministically, not by zip order");
+});
+
 test("an empty (truncated) image resource is base64'd as-is and still produces a step — no throw", () => {
   // A real trace can reference a frame whose resource file was written
   // empty (run killed mid-flush). adm-zip returns a zero-length Buffer;
