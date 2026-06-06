@@ -54,6 +54,24 @@ spec:
                 secretKeyRef:
                   name: {{ include "flakey.encryptionSecretName" . }}
                   key: encryption-key
+            {{- if .Values.app.encryptionKeyOld }}
+            - name: FLAKEY_ENCRYPTION_KEY_OLD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flakey.encryptionSecretName" . }}
+                  key: encryption-key-old
+            {{- end }}
+            {{- if .Values.app.bootstrapAdminEmail }}
+            - name: FLAKEY_BOOTSTRAP_ADMIN_EMAIL
+              value: {{ .Values.app.bootstrapAdminEmail | quote }}
+            {{- end }}
+            {{- if or .Values.app.bootstrapAdminPassword .Values.app.existingBootstrapSecret }}
+            - name: FLAKEY_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flakey.bootstrapSecretName" . }}
+                  key: bootstrap-admin-password
+            {{- end }}
             {{- if and .Values.smtp.enabled .Values.smtp.password }}
             - name: SMTP_PASSWORD
               valueFrom:

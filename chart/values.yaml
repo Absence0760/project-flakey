@@ -55,6 +55,24 @@ app:
   encryptionKey: ""
   # -- Use an existing secret for the encryption key instead (key: encryption-key)
   existingEncryptionSecret: ""
+  # -- Old encryption key (FLAKEY_ENCRYPTION_KEY_OLD), for dual-key rotation only.
+  # Set this ALONGSIDE a new encryptionKey to run a rolling rotation: deploy with
+  # both keys, run `npm run rotate-keys` in the backend, then clear this and
+  # redeploy. The backend uses it ONLY as a read fallback. Leave empty otherwise.
+  # See backend/docs/integrations.md § Secrets encryption → Rotation for the steps.
+  encryptionKeyOld: ""
+  # -- When existingEncryptionSecret is set, the old key is read from its
+  # `encryption-key-old` key (optional — only consumed during rotation).
+
+  # -- First-admin bootstrap (OPTIONAL). When both are set the backend seeds a
+  # single admin account on first boot. No default credentials ship — leave
+  # these empty to disable bootstrap entirely. The password is sourced from a
+  # Secret, never a ConfigMap.
+  bootstrapAdminEmail: ""
+  bootstrapAdminPassword: ""
+  # -- Use an existing secret for the bootstrap admin password instead
+  # (key: bootstrap-admin-password)
+  existingBootstrapSecret: ""
 
 # -- Auth secrets
 auth:

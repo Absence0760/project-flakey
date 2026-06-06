@@ -76,3 +76,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "flakey.fullname" . -}}-encryption
 {{- end -}}
 {{- end -}}
+
+{{/* Bootstrap-admin secret name */}}
+{{- define "flakey.bootstrapSecretName" -}}
+{{- if .Values.app.existingBootstrapSecret -}}
+{{- .Values.app.existingBootstrapSecret -}}
+{{- else -}}
+{{- include "flakey.fullname" . -}}-bootstrap
+{{- end -}}
+{{- end -}}
