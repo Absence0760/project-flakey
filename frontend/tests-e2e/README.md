@@ -164,3 +164,24 @@ Wired into [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml) �
 5. Uploads each shard's `playwright-report/` as an artifact (`playwright-report-shard-N`, 14-day retention).
 
 `retries: 1` on CI (see `playwright.config.ts`) still absorbs incidental dev-server/HMR noise. With the `data-ready` / `data-sse-connected` readiness signals now in place (see above), the SSE-timing class of flake it was covering is gone; dropping to `0` is a reasonable next step once a stretch of green shard runs confirms no residual flake.
+
+## SSO proof (Keycloak — Phase 14 prototype)
+
+`tests-e2e/sso/` is a self-contained proof that enterprise SSO is e2e-testable
+against a local Keycloak, with no online signup. It has its **own** config
+(`tests-e2e/sso/playwright.sso.config.ts`) — no `globalSetup`, no `webServer` —
+because it drives Keycloak's OIDC endpoints directly and needs neither the
+Flakey app nor a seeded Postgres, only the IdP:
+
+```bash
+pnpm idp:up                 # repo root — Keycloak on :8081, realm `flakey` seeded
+cd frontend && pnpm test:e2e:sso
+```
+
+`keycloak-oidc.spec.ts` runs a full Authorization-Code + PKCE flow through
+Keycloak's hosted login UI (fills the form, follows the redirect, exchanges the
+code, asserts `email` + `flakey_roles` on the token), plus a negative
+bad-credentials path. SSO itself is **not built yet** (see
+[docs/proposals/phase-14-sso.md](../../docs/proposals/phase-14-sso.md)); when it
+lands, the app-facing SSO specs move under the main config (they need the app up)
+and this Keycloak-only config stays as the IdP-contract proof.
