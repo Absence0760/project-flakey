@@ -1,5 +1,8 @@
-import type { GitProvider, GitProviderConfig, CommitStatusParams } from "./types.js";
+import type { GitProvider, GitProviderConfig, CommitStatusParams, CheckRunParams } from "./types.js";
 import { COMMENT_MARKER } from "./comment.js";
+
+// GitHub's Checks API accepts at most 50 annotations per create/update request.
+const MAX_ANNOTATIONS_PER_REQUEST = 50;
 
 export function createGitHubProvider(config: GitProviderConfig): GitProvider {
   const [owner, repo] = config.repo.split("/");
@@ -86,6 +89,53 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
           context: params.context,
         }),
       });
+    },
+
+    // Create a completed check-run with per-failure inline annotations. The
+    // Checks API caps annotations at 50/request, so the first batch is sent on
+    // create and any remainder is PATCHed onto the same check-run id (GitHub
+    // accumulates annotations across updates). Requires a token with
+    // `checks:write` — a fine-grained PAT or GitHub App installation token;
+    // a classic repo-scoped token does NOT grant it (surfaced as 403 here).
+    async postChecksAnnotations(params: CheckRunParams) {
+      const batches: CheckRunParams["annotations"][] = [];
+      for (let i = 0; i < params.annotations.length; i += MAX_ANNOTATIONS_PER_REQUEST) {
+        batches.push(params.annotations.slice(i, i + MAX_ANNOTATIONS_PER_REQUEST));
+      }
+      // Always create the check-run, even with zero annotations (a green run
+      // still reports a passing check). The output object is required by the API.
+      const output = (annotations: CheckRunParams["annotations"]) => ({
+        title: params.title,
+        summary: params.summary,
+        annotations,
+      });
+
+      const createRes = await api(`/repos/${owner}/${repo}/check-runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: params.name,
+          head_sha: params.commitSha,
+          status: "completed",
+          conclusion: params.conclusion,
+          details_url: params.detailsUrl,
+          output: output(batches[0] ?? []),
+        }),
+      });
+      if (!createRes.ok) {
+        const body = await createRes.text().catch(() => "");
+        throw new Error(`GitHub POST /check-runs → ${createRes.status}: ${body.slice(0, 200)}`);
+      }
+      const { id } = await createRes.json() as { id: number };
+
+      // Remaining batches update the same check-run.
+      for (let b = 1; b < batches.length; b++) {
+        await apiOrThrow(`/repos/${owner}/${repo}/check-runs/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output: output(batches[b]) }),
+        });
+      }
     },
   };
 }

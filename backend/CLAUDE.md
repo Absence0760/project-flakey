@@ -19,7 +19,7 @@ Use **npm** here, not pnpm. The backend has its own lockfile and is intentionall
 ## Layout
 
 - `src/integrations/` — Jira, PagerDuty, coverage-gate logic; scheduled reports live in `src/scheduled-reports.ts`
-- `src/git-providers/` — GitHub/GitLab/Bitbucket PR-comment + commit-status adapters
+- `src/git-providers/` — GitHub/GitLab/Bitbucket PR-comment + commit-status adapters. GitHub also posts per-failure inline diff annotations via the Checks API (`postChecksAnnotations` in `github.ts`; annotation derivation in `annotations.ts`) — needs a `checks:write` token. See `docs/integrations.md`.
 
 Everything else (`src/routes/`, `src/normalizers/`, `src/tests/`) is self-describing.
 

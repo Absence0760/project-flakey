@@ -2,6 +2,7 @@ import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import type { NormalizedRun } from "../types.js";
 import type { GitProvider, GitProviderConfig, GitPlatform } from "./types.js";
+import { buildCheckAnnotations } from "./annotations.js";
 import { createGitHubProvider } from "./github.js";
 import { createGitLabProvider } from "./gitlab.js";
 import { createBitbucketProvider } from "./bitbucket.js";
@@ -63,6 +64,30 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
         });
       } catch (err) {
         console.error("Commit status error:", err);
+      }
+
+      // Rich per-failure annotations on the diff (GitHub only — the Checks API).
+      // Independent of PR existence (annotations attach to the commit). Best-
+      // effort + fire-and-forget, like the status above; a token without
+      // checks:write surfaces here as a logged 403 and never blocks the upload.
+      if (provider.postChecksAnnotations) {
+        try {
+          const annotations = buildCheckAnnotations(run);
+          const passRate = run.stats.total > 0 ? ((run.stats.passed / run.stats.total) * 100).toFixed(1) : "0";
+          await provider.postChecksAnnotations({
+            commitSha: meta.commit_sha,
+            name: `flakey/${meta.suite_name}`,
+            title: run.stats.failed > 0
+              ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
+              : `${run.stats.passed} passed (${passRate}%)`,
+            summary: `[View the full run in Flakey](${frontendUrl}/runs/${runId})`,
+            conclusion: run.stats.failed > 0 ? "failure" : "success",
+            detailsUrl: `${frontendUrl}/runs/${runId}`,
+            annotations,
+          });
+        } catch (err) {
+          console.error("Checks annotations error:", err);
+        }
       }
     }
 

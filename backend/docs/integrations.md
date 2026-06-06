@@ -266,6 +266,36 @@ Because this uses commit statuses rather than PR comments, coverage
 gating works even before a PR exists — the status attaches to the
 commit and is picked up whenever a PR is opened.
 
+## GitHub Checks annotations (per-failure, inline on the diff)
+
+On top of the PR comment + commit status, a GitHub-configured org also gets
+**inline annotations** on the PR diff — each failed test is pinned to the file
+and line it threw at, via the GitHub Checks API. This is GitHub-only (the Checks
+API has no GitLab/Bitbucket equivalent); those providers omit it.
+
+**How it works.** When a run is uploaded, `postPRComment` (`src/git-providers/index.ts`)
+also calls the provider's `postChecksAnnotations` (when present). It creates a
+**completed check-run** on `meta.commit_sha` with conclusion `failure`/`success`,
+and one annotation per failed test built by `buildCheckAnnotations`
+(`src/git-providers/annotations.ts`):
+
+- The file + line are **best-effort**, derived from whatever the reporter
+  captured — Playwright's `metadata.location`, or Cypress's source-map-resolved
+  `failure_context.code_frame` (Phase 13). Reporters that carry no location
+  (mochawesome / JUnit) still show in the PR comment but produce no inline
+  annotation, and a known file with no line falls back to line 1.
+- Annotations are **capped at 100** per run and **batched 50/request** (the
+  Checks API limit) — the first 50 on the create call, the rest PATCHed onto the
+  same check-run.
+- It's **fire-and-forget**: like the commit status, any error is logged and
+  never blocks the upload response.
+
+**Token scope.** The Checks API needs `checks:write`, which a classic
+repo-scoped PAT does **not** grant — use a fine-grained PAT (Checks: read/write)
+or a GitHub App installation token. Without it the create returns **403**, which
+surfaces as a logged `Checks annotations error` and is otherwise harmless (the
+comment + status still post).
+
 ### 3. Uploading coverage from CI
 
 Use the CLI subcommand from a post-test step in your pipeline:

@@ -504,3 +504,122 @@ test("bitbucket: missing `values` key yields null (no crash)", async () => {
     restore();
   }
 });
+
+// ── GitHub Checks annotations (Phase 14) ────────────────────────────────────
+
+import { buildCheckAnnotations, MAX_ANNOTATIONS } from "../git-providers/annotations.js";
+import type { NormalizedRun } from "../types.js";
+
+function runWith(tests: NormalizedRun["specs"][number]["tests"]): NormalizedRun {
+  const failed = tests.filter((t) => t.status === "failed").length;
+  return {
+    meta: { suite_name: "s", branch: "main", commit_sha: "abc", ci_run_id: "1", started_at: "", finished_at: "", reporter: "playwright" },
+    stats: { total: tests.length, passed: tests.length - failed, failed, skipped: 0, pending: 0, duration_ms: 0 },
+    specs: [{ file_path: "spec.ts", title: "Spec", stats: { total: tests.length, passed: tests.length - failed, failed, skipped: 0, pending: 0, duration_ms: 0 }, tests }],
+  };
+}
+
+test("buildCheckAnnotations: derives path+line from Playwright metadata.location", () => {
+  const run = runWith([
+    { title: "a", full_title: "S > a", status: "failed", duration_ms: 1, screenshot_paths: [],
+      error: { message: "expected 1 to equal 2\n  at thing" },
+      metadata: { location: { file: "tests/login.spec.ts", line: 42, column: 3 } } },
+    { title: "b", full_title: "S > b", status: "passed", duration_ms: 1, screenshot_paths: [] },
+  ]);
+  const ann = buildCheckAnnotations(run);
+  assert.equal(ann.length, 1, "only the failed test is annotated");
+  assert.equal(ann[0].path, "tests/login.spec.ts");
+  assert.equal(ann[0].start_line, 42);
+  assert.equal(ann[0].annotation_level, "failure");
+  assert.equal(ann[0].title, "S > a");
+  assert.match(ann[0].message, /expected 1 to equal 2/);
+});
+
+test("buildCheckAnnotations: falls back to Cypress failure_context.code_frame", () => {
+  const run = runWith([
+    { title: "c", full_title: "S > c", status: "failed", duration_ms: 1, screenshot_paths: [],
+      error: { message: "boom" },
+      failure_context: { code_frame: { file: "./cypress/e2e/auth.cy.ts", line: 7 } } },
+  ]);
+  const ann = buildCheckAnnotations(run);
+  assert.equal(ann[0].path, "cypress/e2e/auth.cy.ts", "leading ./ stripped");
+  assert.equal(ann[0].start_line, 7);
+});
+
+test("buildCheckAnnotations: skips failed tests with no known location (mochawesome/JUnit)", () => {
+  const run = runWith([
+    { title: "d", full_title: "S > d", status: "failed", duration_ms: 1, screenshot_paths: [], error: { message: "x" } },
+  ]);
+  assert.equal(buildCheckAnnotations(run).length, 0);
+});
+
+test("buildCheckAnnotations: caps at MAX_ANNOTATIONS", () => {
+  const tests = Array.from({ length: MAX_ANNOTATIONS + 25 }, (_, i) => ({
+    title: `t${i}`, full_title: `S > t${i}`, status: "failed" as const, duration_ms: 1, screenshot_paths: [],
+    error: { message: "e" }, metadata: { location: { file: "f.ts", line: i + 1 } },
+  }));
+  assert.equal(buildCheckAnnotations(runWith(tests)).length, MAX_ANNOTATIONS);
+});
+
+test("github: postChecksAnnotations creates a completed check-run with the failure conclusion", async () => {
+  const calls: Array<{ url: string; method?: string; body: any }> = [];
+  const restore = mockFetch(async (url, init) => {
+    calls.push({ url: String(url), method: init?.method, body: init?.body ? JSON.parse(init.body as string) : null });
+    return jsonRes(201, { id: 999 });
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await p.postChecksAnnotations!({
+      commitSha: "deadbeef", name: "flakey/suite", title: "1 failed", summary: "s",
+      conclusion: "failure", detailsUrl: "http://x/runs/1",
+      annotations: [{ path: "a.ts", start_line: 1, end_line: 1, annotation_level: "failure", message: "m" }],
+    });
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/repos\/o\/r\/check-runs$/);
+    assert.equal(calls[0].body.head_sha, "deadbeef");
+    assert.equal(calls[0].body.status, "completed");
+    assert.equal(calls[0].body.conclusion, "failure");
+    assert.equal(calls[0].body.output.annotations.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("github: postChecksAnnotations batches >50 annotations into create + PATCH(es)", async () => {
+  const calls: Array<{ url: string; method?: string; count: number }> = [];
+  const restore = mockFetch(async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body as string) : {};
+    calls.push({ url: String(url), method: init?.method, count: body.output?.annotations?.length ?? 0 });
+    return jsonRes(init?.method === "POST" ? 201 : 200, { id: 7 });
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const annotations = Array.from({ length: 120 }, (_, i) => ({
+      path: "a.ts", start_line: i + 1, end_line: i + 1, annotation_level: "failure" as const, message: "m",
+    }));
+    await p.postChecksAnnotations!({
+      commitSha: "sha", name: "n", title: "t", summary: "s", conclusion: "failure", detailsUrl: "u", annotations,
+    });
+    // 120 → create(50) + patch(50) + patch(20) = 3 calls
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].method, "POST"); assert.equal(calls[0].count, 50);
+    assert.equal(calls[1].method, "PATCH"); assert.equal(calls[1].count, 50);
+    assert.equal(calls[2].method, "PATCH"); assert.equal(calls[2].count, 20);
+    assert.match(calls[1].url, /\/check-runs\/7$/, "PATCHes target the created check-run id");
+  } finally {
+    restore();
+  }
+});
+
+test("github: postChecksAnnotations throws on 403 (token lacks checks:write)", async () => {
+  const restore = mockFetch(async () => jsonRes(403, { message: "Resource not accessible" }));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await assert.rejects(
+      () => p.postChecksAnnotations!({ commitSha: "s", name: "n", title: "t", summary: "s", conclusion: "neutral", detailsUrl: "u", annotations: [] }),
+      /403/,
+    );
+  } finally {
+    restore();
+  }
+});
