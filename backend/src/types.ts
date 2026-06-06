@@ -43,6 +43,32 @@ export interface NormalizedSpec {
   tests: NormalizedTest[];
 }
 
+export interface CommandEntry {
+  name: string;
+  message: string;
+  state: string;
+}
+
+// Cypress failure-context capture (Phase 13). Browser-side runtime context for
+// a failing test, gathered by the cypress-reporter support file and merged in
+// by its plugin before upload. Every field is optional — only what was
+// actually observed is sent. The Cypress counterpart to the Playwright
+// trace -> command-log captured in NormalizedTest.metadata.retries.
+export interface FailureContext {
+  // Tail of cy.* commands before the failure (capped reporter-side).
+  commands_tail?: CommandEntry[];
+  // Browser console output, level-prefixed (e.g. "error: …", "warn: …").
+  browser_console?: string[];
+  // Uncaught exceptions + unhandled promise rejections at failure time.
+  uncaught_errors?: string[];
+  // Failed fetch/XHR requests around the failure (e.g. "GET /api/x → 500").
+  network_failures?: string[];
+  // Per-attempt error trail for retried tests. Non-final attempts stay
+  // uncounted (reporter.ts skips them) — this just retains their errors so a
+  // pass/fail delta across attempts is available to classify the flake.
+  retry_errors?: { attempt: number; message: string; stack?: string }[];
+}
+
 export interface NormalizedTest {
   title: string;
   full_title: string;
@@ -57,4 +83,5 @@ export interface NormalizedTest {
   test_code?: string;
   command_log?: object[];
   metadata?: Record<string, unknown>;
+  failure_context?: FailureContext;
 }

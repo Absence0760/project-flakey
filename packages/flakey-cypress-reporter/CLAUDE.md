@@ -41,6 +41,31 @@ If a consumer needs the local screenshots preserved for their own debugging, the
 
 The end-of-run merge (both `/runs` and `/runs/upload`) preserves the streamed `screenshot_paths` and `snapshot_path` across the test delete+reinsert by snapshotting them before the `DELETE` and unioning them with whatever the upload payload supplies.
 
+## Failure-context capture (Phase 13)
+
+Alongside the command log, the support file captures the runtime context a
+Cypress red actually needs — the Cypress counterpart to the Playwright trace.
+It lands on `tests.failure_context` (JSONB, migration `054`) and is exposed on
+the API as `TestResult.failure_context`.
+
+Captured browser-side (`src/support.ts`), all on the **application** window
+(hooked via `Cypress.on("window:before:load")`, a different realm from the
+spec):
+
+- **`commands_tail`** — last `MAX_COMMANDS_TAIL` (50) `cy.*` commands before the failure (reuses the existing `log:added`/`log:changed` buffer).
+- **`browser_console`** — last 100 `console.log/info/warn/error` lines, level-prefixed.
+- **`uncaught_errors`** — uncaught exceptions + unhandled rejections, via `Cypress.on("uncaught:exception")`. The listener **returns nothing** — returning `false` would suppress Cypress's default fail-the-test behavior, and capture must never change pass/fail.
+- **`network_failures`** — `fetch`/`XHR` responses with status ≥ 400 or network errors (`"POST /api/login → 500"`). `fetch` and `XMLHttpRequest` are wrapped on the app window; we record, never swallow.
+- **`retry_errors`** — per-attempt error trail, keyed by leaf title so a retried-then-passing test still carries every attempt's error. Non-final attempts stay **uncounted** by the reporter (the `addTest` guard in `reporter.ts` is untouched); this only *retains* their errors so a pass/fail delta is available to classify the flake.
+
+Wire path mirrors the command log exactly: the support file ships each test's
+context via `cy.task("flakey:saveFailureContext", …)`; the plugin buffers it to
+`$TMPDIR/flakey-failure-context/run-<liveRunId>/` (keyed `spec::test`) and, in
+`after:run`, merges it onto the matching test row before upload. The support
+file re-sends the full (accumulating) context on every attempt; the plugin's
+task overwrites so the final write wins. A test that captured nothing sends no
+task and uploads with `failure_context` absent.
+
 ## Environment label
 
 `reporterOptions.environment` (third-arg or via `setupFlakey`) takes precedence; otherwise the reporter resolves it lazily at upload time, walking `process.env.FLAKEY_ENV` → `process.env.TEST_ENV` → `config.env.environment` → `config.env.name`. The last two cover Cypress's own `cypress run --env environment=qa` / `--env name=qa` conventions. Whichever resolves first lands on the run as `meta.environment`. Resolution is lazy because `setupNodeEvents` merges `--env` after the plugin registers — capturing at registration would always see the empty value.

@@ -118,6 +118,18 @@ export interface TestResult {
   command_log: CommandLogEntry[] | null;
   metadata: TestMetadata | null;
   snapshot_path: string | null;
+  failure_context: FailureContext | null;
+}
+
+// Cypress failure-context capture (Phase 13). Browser-side runtime context for
+// a failing test — the Cypress counterpart to Playwright's metadata.retries.
+// Every field is optional; only what was observed is present.
+export interface FailureContext {
+  commands_tail?: CommandLogEntry[];
+  browser_console?: string[];
+  uncaught_errors?: string[];
+  network_failures?: string[];
+  retry_errors?: { attempt: number; message: string; stack?: string }[];
 }
 
 export interface TestMetadata {

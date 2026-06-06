@@ -47,6 +47,7 @@ function safeBufferWrite(path: string, data: string): void {
 // they never collide.
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
 const FLAKEY_CMD_BASE_DIR = join(tmpdir(), "flakey-commands");
+const FLAKEY_FC_BASE_DIR = join(tmpdir(), "flakey-failure-context");
 
 function getAncestorPids(startPid: number, maxDepth = 12): number[] {
   const chain = [startPid];
@@ -93,6 +94,7 @@ function getBufferDirs() {
   return {
     tmp: suffix ? join(FLAKEY_BASE_DIR, suffix) : FLAKEY_BASE_DIR,
     cmd: suffix ? join(FLAKEY_CMD_BASE_DIR, suffix) : FLAKEY_CMD_BASE_DIR,
+    fc: suffix ? join(FLAKEY_FC_BASE_DIR, suffix) : FLAKEY_FC_BASE_DIR,
     runId: id,
   };
 }
@@ -110,6 +112,7 @@ interface NormalizedSpec {
     screenshot_paths: string[];
     video_path?: string;
     command_log?: object[];
+    failure_context?: Record<string, unknown>;
   }[];
 }
 
@@ -216,13 +219,25 @@ export function flakeyReporter(
   const videosDir = opts.videosDir ?? "cypress/videos";
   const snapshotsDir = opts.snapshotsDir ?? "cypress/snapshots";
 
-  // Register task for saving command logs from the support file
+  // Register tasks for saving command logs + failure context from the support
+  // file. Each writes its own temp file keyed by spec::test so the after:run
+  // batch can merge them back onto the matching test result.
   on("task", {
     "flakey:saveCommandLog"(data: { testTitle: string; specFile: string; commands: object[] }) {
       const { cmd } = getBufferDirs();
       mkdirSync(cmd, { recursive: true, mode: 0o700 });
       const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
       safeBufferWrite(join(cmd, `${safeName}.json`), JSON.stringify(data));
+      return null;
+    },
+    "flakey:saveFailureContext"(data: { testTitle: string; specFile: string; failureContext: object }) {
+      const { fc } = getBufferDirs();
+      mkdirSync(fc, { recursive: true, mode: 0o700 });
+      const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
+      // The support file accumulates the retry trail and re-sends on every
+      // attempt; the final write wins and carries the complete context.
+      try { unlinkSync(join(fc, `${safeName}.json`)); } catch { /* first write */ }
+      safeBufferWrite(join(fc, `${safeName}.json`), JSON.stringify(data));
       return null;
     },
   });
@@ -285,7 +300,7 @@ export function flakeyReporter(
 
   // Collect all buffered specs and upload after the entire run
   const afterRunHandler = async (results: any) => {
-    const { tmp: tmpDir, cmd: cmdDir } = getBufferDirs();
+    const { tmp: tmpDir, cmd: cmdDir, fc: fcDir } = getBufferDirs();
     if (!existsSync(tmpDir)) {
       console.warn("  [flakey] No spec results found — nothing to upload");
       return;
@@ -323,6 +338,25 @@ export function flakeyReporter(
         }
       }
       rmSync(cmdDir, { recursive: true, force: true });
+    }
+
+    // Merge failure context into test results (same keying as command logs)
+    if (existsSync(fcDir)) {
+      const fcFiles = readdirSync(fcDir).filter((f) => f.endsWith(".json"));
+      const fcMap = new Map<string, object>();
+      for (const f of fcFiles) {
+        try {
+          const data = JSON.parse(readFileSync(join(fcDir, f), "utf-8"));
+          fcMap.set(`${data.specFile}::${data.testTitle}`, data.failureContext);
+        } catch {}
+      }
+      for (const spec of specs) {
+        for (const test of spec.tests) {
+          const ctx = fcMap.get(`${spec.file_path}::${test.title}`);
+          if (ctx) test.failure_context = ctx as Record<string, unknown>;
+        }
+      }
+      rmSync(fcDir, { recursive: true, force: true });
     }
 
     // Clean up temp files
