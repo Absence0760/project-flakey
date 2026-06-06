@@ -59,6 +59,24 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + "\u2026" : str;
 }
 
+// Slack rejects a section block whose text exceeds 3000 chars, and a
+// section with too many lines makes for an unusable message. Cap how many
+// test rows we render per list, then guard the joined text against Slack's
+// hard limit so the payload always stays valid.
+const SLACK_LIST_CAP = 10;
+const SLACK_SECTION_TEXT_LIMIT = 3000;
+
+function slackSectionText(lines: string[], total: number): string {
+  const shown = lines.slice(0, SLACK_LIST_CAP);
+  if (total > SLACK_LIST_CAP) {
+    shown.push(`\u2026and ${total - SLACK_LIST_CAP} more`);
+  }
+  const text = shown.join("\n");
+  return text.length > SLACK_SECTION_TEXT_LIMIT
+    ? text.slice(0, SLACK_SECTION_TEXT_LIMIT - 1) + "\u2026"
+    : text;
+}
+
 function shortSha(sha: string): string {
   return sha ? sha.slice(0, 7) : "n/a";
 }
@@ -139,7 +157,7 @@ function formatSlack(p: WebhookRunPayload): object {
     });
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: lines.join("\n") },
+      text: { type: "mrkdwn", text: slackSectionText(lines, p.new_failures.length) },
     });
   }
 
@@ -155,7 +173,7 @@ function formatSlack(p: WebhookRunPayload): object {
     );
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: lines.join("\n") },
+      text: { type: "mrkdwn", text: slackSectionText(lines, p.flaky_tests.length) },
     });
   }
 
@@ -177,7 +195,7 @@ function formatSlack(p: WebhookRunPayload): object {
       });
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: lines.join("\n") },
+        text: { type: "mrkdwn", text: slackSectionText(lines, p.failed_tests.length) },
       });
     }
   }

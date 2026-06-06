@@ -170,6 +170,143 @@ for (const platform of PLATFORMS) {
   });
 }
 
+// ── Large-array truncation (Slack payload-size protection) ───────────────
+//
+// Flakey dispatches flaky.detected / new.failures webhooks to Slack. Slack
+// rejects a section block whose text exceeds 3000 chars and renders a huge
+// list unusably; the formatter must cap the rendered rows (first 10 + an
+// "and N more" overflow line) and keep each section's text under Slack's
+// hard limit. Teams/Discord must not throw on the same large payload.
+
+const SLACK_SECTION_TEXT_LIMIT = 3000; // Slack Block Kit section text max
+const SLACK_LIST_CAP = 10;
+
+// Recursively collect every Block Kit section's mrkdwn text so we can assert
+// the per-section limit (Slack enforces it per block, not on the whole payload).
+function slackSectionTexts(out: unknown): string[] {
+  const blocks = (out as { blocks?: Array<Record<string, unknown>> }).blocks ?? [];
+  const texts: string[] = [];
+  for (const b of blocks) {
+    if (b.type === "section" && b.text && typeof b.text === "object") {
+      const t = (b.text as { text?: unknown }).text;
+      if (typeof t === "string") texts.push(t);
+    }
+  }
+  return texts;
+}
+
+test("slack: flaky.detected with 30 flaky tests caps the list at 10 + overflow", () => {
+  const flaky_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Suite > flaky case ${i}`,
+    file_path: `spec_${i}.cy.ts`,
+    flaky_rate: 25 + i,
+    flip_count: i,
+    fail_count: i % 5,
+    total_runs: 100,
+  }));
+  const out = formatPayload("slack", basePayload({ event: "flaky.detected", flaky_tests }));
+  JSON.parse(JSON.stringify(out)); // serializable
+
+  const texts = slackSectionTexts(out);
+  // Find the section that lists the flaky rows (the one containing rate lines).
+  const listSection = texts.find((t) => t.includes("% flaky"));
+  assert.ok(listSection, "expected a section rendering the flaky list");
+
+  // Exactly the first 10 rows are rendered; the 11th and beyond are not.
+  assert.ok(listSection.includes("flaky case 0"), "first row missing");
+  assert.ok(listSection.includes("flaky case 9"), "10th row missing");
+  assert.ok(!listSection.includes("flaky case 10"), "11th row should be capped out");
+  assert.ok(!listSection.includes("flaky case 29"), "last row should be capped out");
+
+  // Overflow indicator names the remaining count.
+  assert.ok(
+    listSection.includes(`…and ${30 - SLACK_LIST_CAP} more`),
+    `expected overflow indicator for the ${30 - SLACK_LIST_CAP} hidden rows`,
+  );
+});
+
+test("slack: new.failures shows new-failure section AND all-failures heading, ordered correctly", () => {
+  // Many regressions plus a larger total failed set.
+  const new_failures = Array.from({ length: 12 }, (_, i) => ({
+    full_title: `Regressed ${i}`,
+    error_message: `boom ${i}`,
+    spec_file: `reg_${i}.cy.ts`,
+  }));
+  const failed_tests = Array.from({ length: 25 }, (_, i) => ({
+    full_title: `Failure ${i}`,
+    error_message: null,
+    spec_file: `fail_${i}.cy.ts`,
+  }));
+  const out = formatPayload("slack", basePayload({ event: "new.failures", new_failures, failed_tests }));
+  JSON.parse(JSON.stringify(out));
+
+  const texts = slackSectionTexts(out);
+  const blob = texts.join("\n");
+
+  // Both sections present: the "N New Failures" heading and the "All N failures:" heading.
+  const newHeadingIdx = blob.indexOf(`${new_failures.length} New Failure`);
+  const allHeadingIdx = blob.indexOf(`All ${failed_tests.length} failures:`);
+  assert.ok(newHeadingIdx >= 0, "new-failures heading missing");
+  assert.ok(allHeadingIdx >= 0, "all-failures heading missing");
+  // Ordering: new failures appear before the all-failures heading.
+  assert.ok(newHeadingIdx < allHeadingIdx, "new failures must be rendered before the all-failures heading");
+
+  // The new-failures list section is capped at 10 + overflow.
+  const newListSection = texts.find((t) => t.includes("Regressed 0"));
+  assert.ok(newListSection, "new-failures list section missing");
+  assert.ok(newListSection.includes("Regressed 9"), "10th new failure missing");
+  assert.ok(!newListSection.includes("Regressed 10"), "11th new failure should be capped");
+  assert.ok(newListSection.includes(`…and ${12 - SLACK_LIST_CAP} more`), "new-failures overflow indicator missing");
+});
+
+test("slack: every section text stays within Slack's 3000-char limit on a large payload", () => {
+  // 30 flaky rows, each with a deliberately long title, would blow past
+  // 3000 chars if joined verbatim. The formatter must keep each section
+  // under the limit.
+  const longTitle = "y".repeat(400);
+  const flaky_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `${longTitle} ${i}`,
+    file_path: `${"z".repeat(200)}_${i}.cy.ts`,
+    flaky_rate: 50,
+    flip_count: i,
+    fail_count: 1,
+    total_runs: 10,
+  }));
+  const out = formatPayload("slack", basePayload({ event: "flaky.detected", flaky_tests }));
+  JSON.parse(JSON.stringify(out));
+
+  for (const text of slackSectionTexts(out)) {
+    assert.ok(
+      text.length <= SLACK_SECTION_TEXT_LIMIT,
+      `section text length ${text.length} exceeds Slack's ${SLACK_SECTION_TEXT_LIMIT}-char limit`,
+    );
+  }
+});
+
+test("teams and discord do not throw on the same large flaky payload", () => {
+  const flaky_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Suite > flaky case ${"q".repeat(200)} ${i}`,
+    file_path: `spec_${i}.cy.ts`,
+    flaky_rate: 30,
+    flip_count: i,
+    fail_count: 2,
+    total_runs: 10,
+  }));
+  const payload = basePayload({ event: "flaky.detected", flaky_tests });
+
+  for (const platform of ["teams", "discord"] as const) {
+    const out = formatPayload(platform, payload);
+    const json = JSON.stringify(out); // must be serializable
+    JSON.parse(json);
+    assert.ok(out, `${platform}: returned nullish on large payload`);
+  }
+
+  // Discord caps its embed description at 4000 chars — verify it never exceeds that.
+  const discordOut = formatPayload("discord", payload) as { embeds?: Array<{ description?: string }> };
+  const desc = discordOut.embeds?.[0]?.description ?? "";
+  assert.ok(desc.length <= 4000, `discord description length ${desc.length} exceeds the 4000-char cap`);
+});
+
 // ── Unknown platform falls through to generic ────────────────────────────
 
 test("formatPayload: unknown platform falls through to generic format", () => {
