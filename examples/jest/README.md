@@ -83,7 +83,7 @@ RUN_ID=43 FLAKEY_API_KEY=fk_your_key node scripts/upload-coverage.js --coverage-
 pnpm test:flaky
 ```
 
-The flaky suite is excluded from `test:smoke` and `test:regression` via `testPathIgnorePatterns` in `jest.config.ts`. Run it separately to see the ~30% failure rate appear as a flaky pattern in the Flakey dashboard after a few uploads.
+The flaky suite is excluded from `test:smoke` and `test:regression` via `testPathIgnorePatterns` in `jest.config.js`. Run it separately to see the ~30% failure rate appear as a flaky pattern in the Flakey dashboard after a few uploads.
 
 ## How the upload path works
 
@@ -91,7 +91,7 @@ The flaky suite is excluded from `test:smoke` and `test:regression` via `testPat
 
 Jest does not have a built-in Flakey reporter. Instead:
 
-1. `jest-junit` writes a JUnit XML file to `reports/junit.xml` after each run (configured in `jest.config.ts`).
+1. `jest-junit` writes a JUnit XML file to `reports/junit.xml` after each run (configured in `jest.config.js`).
 2. `flakey-upload` reads that XML and POSTs it to `/runs` (or `/runs/upload` when artifacts are present):
 
 ```

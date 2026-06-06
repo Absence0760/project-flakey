@@ -37,8 +37,8 @@ examples/
       index.html      ← Login, Todos, Users table, Form
       serve.js        ← Node HTTP server (no dependencies)
     package.json
-  cypress/            ← Cypress example with 4 suites (smoke, sanity, regression, live)
-  playwright/         ← Playwright example with 3 suites
+  cypress/            ← Cypress example with 6 suites (smoke, sanity, regression, live, a11y, flaky)
+  playwright/         ← Playwright example with 6 suites (smoke, sanity, regression, a11y, visual, flaky)
   selenium/           ← Selenium + Mocha example with CLI upload
   webdriverio/        ← WebdriverIO example
   cypress-cucumber/   ← Cypress with Cucumber syntax

@@ -7,7 +7,7 @@
 #
 # Required GitHub secrets (Settings > Secrets and variables > Actions):
 #   FLAKEY_API_KEY      — Flakey API key (Profile > API Keys)
-#   FLAKEY_API_URL      — Flakey backend URL (e.g. https://bt.yourcompany.com)
+#   FLAKEY_API_URL      — Flakey backend URL (e.g. https://flakey.yourcompany.com)
 #   GITHUB_TOKEN        — Already provided by GitHub; used for PR status and comments.
 #                         The backend's GitHub integration uses its own stored token
 #                         (configured in Flakey Settings > Integrations), not

@@ -8,7 +8,7 @@ Runs against the shared todo app at `http://localhost:4444` (see `examples/share
 
 - Node.js 18+, pnpm
 - Chrome / Chromium in PATH
-- Shared app running: `cd examples/shared/app && pnpm dev`
+- Shared app running: `cd examples/shared && pnpm start`
 - Copy `.env.example` to `.env` and fill in `FLAKEY_API_KEY`
 
 ## Scripts
@@ -22,7 +22,7 @@ Runs against the shared todo app at `http://localhost:4444` (see `examples/share
 | `pnpm test:visual` | Visual regression compare against baselines |
 | `pnpm test:visual:update` | Regenerate visual baselines |
 | `pnpm test:flaky` | Intentionally flaky tests (for flaky-detection demo) |
-| `pnpm coverage:upload` | Upload `coverage/coverage-summary.json` to Flakey |
+| `pnpm coverage:upload --run-id <run-id>` | Upload `coverage/coverage-summary.json` to Flakey (attaches to an existing run) |
 
 ## Features exercised
 
@@ -87,5 +87,6 @@ pnpm test:a11y
 pnpm test:visual
 # Flaky suite — run multiple times to build up signal:
 for i in {1..5}; do pnpm test:flaky; done
-pnpm coverage:upload
+# Coverage attaches to an existing run — pass the run id from an earlier upload:
+pnpm coverage:upload --run-id <run-id>
 ```

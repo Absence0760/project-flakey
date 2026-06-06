@@ -11,7 +11,7 @@ Flakey dashboard as a JUnit test run.
 - `TARGET_URL` set to the OpenAPI spec URL of the system under test
 
 ```sh
-cp .env.example .env   # then fill in FLAKEY_API_KEY and TARGET_URL
+# Create a .env with FLAKEY_API_KEY and TARGET_URL (or export them inline)
 pnpm install
 ```
 

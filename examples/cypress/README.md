@@ -50,12 +50,13 @@ strict mode once the app's violations are resolved.
 not instrumented — see the script for real-coverage setup steps).  To upload coverage for a run:
 
 ```
-FLAKEY_RUN_ID=<run-id> pnpm coverage:upload
+pnpm coverage:upload --run-id <run-id>
 ```
 
 The `coverage:upload` script generates the summary then calls
-`flakey-upload coverage --run-id $FLAKEY_RUN_ID --file coverage/coverage-summary.json` which
-POSTs to `POST /coverage` on the Flakey backend.
+`flakey-upload coverage --file coverage/coverage-summary.json`; pnpm forwards the trailing
+`--run-id <run-id>` to the CLI (which requires it), and the CLI POSTs to `POST /coverage` on
+the Flakey backend. Coverage attaches to an existing run.
 
 ### Live run streaming
 `@flakeytesting/live-reporter` streams per-test events to the backend in real time.  Results
