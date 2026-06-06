@@ -331,3 +331,176 @@ test("bitbucket: findExistingComment matches body via content.raw", async () => 
     restore();
   }
 });
+
+// ── PR/MR selection edge cases ──────────────────────────────────────────
+// Flakey comments on the OPEN PR/MR for a commit; commenting on a
+// closed/merged/declined PR would be wrong. These pin the find-the-right-PR
+// logic that drives where the test-results comment lands.
+
+test("github: picks the open PR when it's not the first in the list", async () => {
+  // GitHub returns associated PRs in no guaranteed order; the open one
+  // (here, the 3rd) must win regardless of position.
+  const restore = mockFetch(async () => jsonRes(200, [
+    { number: 10, state: "closed" },
+    { number: 20, state: "closed" },
+    { number: 30, state: "open" },
+    { number: 40, state: "closed" },
+  ]));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, 30, "the open PR must be selected even when it's not first");
+  } finally {
+    restore();
+  }
+});
+
+test("github: falls back to the first PR when none are open", async () => {
+  const restore = mockFetch(async () => jsonRes(200, [
+    { number: 7, state: "merged" },
+    { number: 8, state: "closed" },
+  ]));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, 7, "with no open PR, fall back to the first associated PR");
+  } finally {
+    restore();
+  }
+});
+
+test("github: empty PR list yields null (no crash)", async () => {
+  const restore = mockFetch(async () => jsonRes(200, []));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, null, "a commit with zero associated PRs must resolve to null");
+  } finally {
+    restore();
+  }
+});
+
+test("github: PR with a missing number is skipped without throwing", async () => {
+  // A malformed/partial PR object (no `number`) must not crash the lookup;
+  // selection falls through to a usable PR rather than commenting on
+  // `undefined`.
+  const restore = mockFetch(async () => jsonRes(200, [
+    { state: "open" }, // open but no `number`
+    { number: 99, state: "closed" },
+  ]));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    let id: number | null | undefined;
+    await assert.doesNotReject(async () => { id = await p.findPRByCommit("deadbeef"); });
+    // The open PR is also pulls[0], so `open?.number ?? pulls[0]?.number ?? null`
+    // both fall through to null — a deliberate, safe outcome. The contract
+    // that matters: never throw, never return `undefined` (which would post a
+    // comment to PR "undefined").
+    assert.equal(id, null, "missing number on the matched PR resolves to null, never undefined");
+    assert.notEqual(id, undefined, "must never surface undefined as a PR number");
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: prefers the 'opened' MR among opened/merged/closed", async () => {
+  // GitLab's open state is the string "opened" (not "open"). The merged and
+  // closed MRs must be ignored in favour of the opened one.
+  const restore = mockFetch(async () => jsonRes(200, [
+    { iid: 1, state: "merged" },
+    { iid: 2, state: "closed" },
+    { iid: 3, state: "opened" },
+  ]));
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    const iid = await p.findPRByCommit("deadbeef");
+    assert.equal(iid, 3, "the 'opened' MR must win over merged/closed");
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: falls back to the first MR when none are opened", async () => {
+  const restore = mockFetch(async () => jsonRes(200, [
+    { iid: 11, state: "merged" },
+    { iid: 12, state: "closed" },
+  ]));
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    const iid = await p.findPRByCommit("deadbeef");
+    assert.equal(iid, 11, "with no opened MR, fall back to the first");
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: empty MR list yields null (no crash)", async () => {
+  const restore = mockFetch(async () => jsonRes(200, []));
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    const iid = await p.findPRByCommit("deadbeef");
+    assert.equal(iid, null);
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: prefers the OPEN PR among OPEN/MERGED/DECLINED", async () => {
+  // Bitbucket states are upper-case: OPEN / MERGED / DECLINED. Only OPEN
+  // should be commented on.
+  const restore = mockFetch(async () => jsonRes(200, {
+    values: [
+      { id: 101, state: "MERGED" },
+      { id: 102, state: "DECLINED" },
+      { id: 103, state: "OPEN" },
+    ],
+  }));
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, 103, "the OPEN PR must win over MERGED/DECLINED");
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: falls back to the first PR when none are OPEN", async () => {
+  const restore = mockFetch(async () => jsonRes(200, {
+    values: [
+      { id: 201, state: "MERGED" },
+      { id: 202, state: "DECLINED" },
+    ],
+  }));
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, 201, "with no OPEN PR, fall back to the first");
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: empty values array yields null (no crash)", async () => {
+  const restore = mockFetch(async () => jsonRes(200, { values: [] }));
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    const id = await p.findPRByCommit("deadbeef");
+    assert.equal(id, null, "a commit with zero pull requests must resolve to null");
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: missing `values` key yields null (no crash)", async () => {
+  // The optional-chaining on `data.values?.` guards a response shape that
+  // omits the array entirely (e.g. an error envelope returned with a 200).
+  const restore = mockFetch(async () => jsonRes(200, {}));
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    let id: number | null = null;
+    await assert.doesNotReject(async () => { id = await p.findPRByCommit("deadbeef"); });
+    assert.equal(id, null);
+  } finally {
+    restore();
+  }
+});

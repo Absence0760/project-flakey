@@ -177,6 +177,192 @@ test("parseMochawesome: hook failure (before each) is surfaced as a failed test"
   assert.ok(out.specs[0].tests[0].error?.message?.includes("TypeError"));
 });
 
+test("parseMochawesome: 3-level nesting with a failing beforeEach hook keeps the full ancestor path and counts both the hook and the real test", () => {
+  // Client workflow: a Cypress spec nests describe blocks 3 deep and the
+  // innermost `beforeEach` throws.  Mochawesome emits a synthetic hook
+  // entry (fail: true) ALONGSIDE the real test (which Cypress marks as
+  // failed/skipped).  Both must survive normalization, the synthesized
+  // full_title for entries lacking fullTitle must include every ancestor
+  // (Outer > Mid > Inner > …), and nothing may be double-counted.
+  const out = parseMochawesome({
+    results: [{
+      file: "nested-hook.cy.ts",
+      suites: [{
+        title: "Outer",
+        tests: [],
+        suites: [{
+          title: "Mid",
+          tests: [],
+          suites: [{
+            title: "Inner",
+            tests: [
+              // Synthetic hook entry — note: no fullTitle, so the parser
+              // must synthesize it from the suite chain.
+              {
+                title: '"before each" hook for "loads dashboard"',
+                fail: true,
+                duration: 0,
+                err: { message: "TypeError: cy.login is not a function" },
+              },
+              // The real test that the hook was guarding.
+              {
+                title: "loads dashboard",
+                fail: true,
+                duration: 12,
+                err: { message: "TypeError: cy.login is not a function" },
+              },
+            ],
+          }],
+        }],
+      }],
+    }],
+  }, META);
+
+  const tests = out.specs[0].tests;
+  assert.equal(tests.length, 2, "both the hook entry and the real test must be present");
+
+  const hook = tests.find((t) => t.title.includes("before each"))!;
+  const real = tests.find((t) => t.title === "loads dashboard")!;
+  assert.ok(hook, "hook entry should not be dropped");
+  assert.ok(real, "real test should not be dropped");
+
+  // Full ancestor path synthesized from the suite chain for BOTH entries.
+  for (const t of [hook, real]) {
+    assert.ok(t.full_title.includes("Outer"), `${t.title}: missing Outer ancestor`);
+    assert.ok(t.full_title.includes("Mid"), `${t.title}: missing Mid ancestor`);
+    assert.ok(t.full_title.includes("Inner"), `${t.title}: missing Inner ancestor`);
+  }
+  assert.ok(real.full_title.endsWith("loads dashboard"));
+
+  // Neither dropped nor double-counted: exactly 2 failures, no extras.
+  assert.equal(out.specs[0].stats.failed, 2, "hook + real test = 2 failed, no double-count");
+  assert.equal(out.specs[0].stats.total, 2);
+  assert.equal(out.stats.failed, 2, "run-level failed rolls up to exactly 2");
+  assert.equal(out.stats.total, 2);
+});
+
+test("parseMochawesome: hook failures in different nested suites are counted separately", () => {
+  // Two independent beforeEach failures in two sibling sub-suites under a
+  // shared root.  Each must be collected with its own correct ancestor
+  // path and counted independently — a flattening bug that reused the
+  // wrong suite chain or collapsed siblings would lose one.
+  const out = parseMochawesome({
+    results: [{
+      file: "two-hooks.cy.ts",
+      suites: [{
+        title: "Root",
+        tests: [],
+        suites: [
+          {
+            title: "Auth",
+            tests: [{
+              title: '"before each" hook for "logs in"',
+              fail: true,
+              duration: 0,
+              err: { message: "AuthError: missing token" },
+            }],
+          },
+          {
+            title: "Billing",
+            tests: [{
+              title: '"before each" hook for "renders invoice"',
+              fail: true,
+              duration: 0,
+              err: { message: "BillingError: no subscription" },
+            }],
+          },
+        ],
+      }],
+    }],
+  }, META);
+
+  const tests = out.specs[0].tests;
+  assert.equal(tests.length, 2, "both hook failures must be present");
+  assert.equal(out.specs[0].stats.failed, 2, "two hook failures counted separately");
+
+  const auth = tests.find((t) => t.error?.message?.includes("AuthError"))!;
+  const billing = tests.find((t) => t.error?.message?.includes("BillingError"))!;
+  assert.ok(auth, "Auth-suite hook failure present");
+  assert.ok(billing, "Billing-suite hook failure present");
+
+  // Each carries its own distinct ancestor path — no cross-contamination.
+  assert.ok(auth.full_title.includes("Root"));
+  assert.ok(auth.full_title.includes("Auth"));
+  assert.ok(!auth.full_title.includes("Billing"), "Auth hook must not pick up the Billing suite");
+  assert.ok(billing.full_title.includes("Root"));
+  assert.ok(billing.full_title.includes("Billing"));
+  assert.ok(!billing.full_title.includes("Auth"), "Billing hook must not pick up the Auth suite");
+});
+
+// ── Run-level vs spec-level pending aggregation ──────────────────────────
+
+test("parseMochawesome: run.pending reads raw stats.pending even when it disagrees with per-test pending counts", () => {
+  // Documented seam: spec-level pending is computed from per-test statuses,
+  // but run-level pending is taken verbatim from raw stats.pending (mirroring
+  // how the runs table has always tracked the reporter's own pending count).
+  // When the reporter's stats.pending disagrees with the test bodies, the run
+  // total trusts stats.pending — pin that so a refactor doesn't silently swap
+  // to summing spec pending.
+  const out = parseMochawesome({
+    results: [{
+      file: "pending-disagree.cy.ts",
+      suites: [{
+        tests: [
+          { title: "p1", pending: true },
+          { title: "p2", pending: true },
+          { title: "ok", pass: true, duration: 1 },
+        ],
+      }],
+    }],
+    // Reporter claims only 1 pending, but two test bodies are pending.
+    stats: { pending: 1 },
+  }, META);
+
+  assert.equal(out.specs[0].stats.pending, 2, "spec pending counts the actual pending test bodies");
+  assert.equal(out.stats.pending, 1, "run pending trusts raw stats.pending verbatim");
+});
+
+test("parseMochawesome: run.pending is 0 when stats.pending is absent, even with pending tests", () => {
+  // When the reporter omits stats.pending entirely, run-level pending
+  // defaults to 0 — the per-spec pending counts still reflect reality, so
+  // this is a known asymmetry, not silent data loss at the spec level.
+  const out = parseMochawesome({
+    results: [{
+      file: "pending-absent.cy.ts",
+      suites: [{
+        tests: [
+          { title: "p1", pending: true },
+          { title: "ok", pass: true, duration: 1 },
+        ],
+      }],
+    }],
+    // No stats.pending key at all.
+    stats: { passes: 1 },
+  }, META);
+
+  assert.equal(out.specs[0].stats.pending, 1, "spec pending still counts pending test bodies");
+  assert.equal(out.stats.pending, 0, "run pending defaults to 0 when stats.pending is absent");
+});
+
+test("parseMochawesome: run.pending honors a present stats.pending that matches the test bodies", () => {
+  const out = parseMochawesome({
+    results: [{
+      file: "pending-consistent.cy.ts",
+      suites: [{
+        tests: [
+          { title: "p1", pending: true },
+          { title: "p2", pending: true },
+          { title: "ok", pass: true, duration: 1 },
+        ],
+      }],
+    }],
+    stats: { pending: 2 },
+  }, META);
+
+  assert.equal(out.specs[0].stats.pending, 2);
+  assert.equal(out.stats.pending, 2, "run pending reflects the consistent raw stats.pending");
+});
+
 // ── Tests directly on result (no enclosing suite) ────────────────────────
 
 test("parseMochawesome: tests on result.tests (no suite) are included", () => {

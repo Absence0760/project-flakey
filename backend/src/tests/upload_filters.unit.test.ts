@@ -20,6 +20,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { safeUnlinkTmp } from "../upload-filters.js";
+import { fixFilename } from "../routes/uploads.js";
+
+// Multer decodes the multipart `filename` header as Latin-1, but browsers send
+// it as UTF-8. To reproduce a real upload we take the original UTF-8 name,
+// encode it to bytes, and re-read those bytes as Latin-1 — exactly the mangling
+// fixFilename's first pass has to undo.
+function asMulterReceives(originalName: string): string {
+  return Buffer.from(originalName, "utf-8").toString("latin1");
+}
+const NUL = String.fromCharCode(0);
 
 test("safeUnlinkTmp removes a file that lives inside uploads/tmp/", () => {
   mkdirSync("uploads/tmp", { recursive: true });
@@ -83,4 +93,67 @@ test("safeUnlinkTmp refuses a sibling-prefix path (uploads/tmpfoo/...)", () => {
   } finally {
     rmSync(outsideDir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// fixFilename (routes/uploads.ts)
+//
+// Protects the reporter upload workflow: multer hands us a Latin-1-mangled
+// filename, and fixFilename has to (1) recover the original UTF-8 characters
+// and (2) sanitize away every path-traversal / null-byte trick before the
+// name is joined into a storage key. These tests assert both passes.
+// ---------------------------------------------------------------------------
+
+test("fixFilename round-trips an accented name multer mangled to Latin-1", () => {
+  assert.equal(fixFilename(asMulterReceives("café.png")), "café.png");
+});
+
+test("fixFilename round-trips an emoji name", () => {
+  assert.equal(fixFilename(asMulterReceives("rocket\u{1F680}.png")), "rocket\u{1F680}.png");
+});
+
+test("fixFilename round-trips a CJK name", () => {
+  assert.equal(fixFilename(asMulterReceives("スクリーンショット.png")), "スクリーンショット.png");
+});
+
+test("fixFilename leaves a plain ASCII name untouched", () => {
+  assert.equal(fixFilename("login-failure.png"), "login-failure.png");
+});
+
+test("fixFilename strips an embedded NUL byte", () => {
+  // A NUL injected mid-name (e.g. "shot\0evil.png") must be removed so it
+  // can't truncate the path downstream at the syscall boundary.
+  const out = fixFilename("shot" + NUL + "evil.png");
+  assert.equal(out.includes(NUL), false);
+  assert.equal(out, "shotevil.png");
+});
+
+test("fixFilename reduces a POSIX traversal path to its basename", () => {
+  assert.equal(fixFilename("../../etc/passwd"), "passwd");
+});
+
+test("fixFilename reduces a Windows backslash path to its basename", () => {
+  assert.equal(fixFilename("C:\\Users\\evil\\..\\shot.png"), "shot.png");
+});
+
+test("fixFilename strips traversal even when combined with a NUL byte", () => {
+  assert.equal(fixFilename("../../etc/pas" + NUL + "swd"), "passwd");
+});
+
+test("fixFilename truncates a name longer than 200 chars", () => {
+  const long = "a".repeat(250) + ".png";
+  const out = fixFilename(long);
+  assert.equal(out.length, 200);
+  assert.equal(out, "a".repeat(200));
+});
+
+test("fixFilename falls back to the original string when the bytes aren't valid UTF-8", () => {
+  // "ÿþ.png" as a JS string is U+00FF U+00FE — Buffer.from(_, "latin1") yields
+  // bytes 0xFF 0xFE, which is not a legal UTF-8 sequence. The fatal decoder
+  // throws and the helper must fall back to the original string rather than
+  // throw out of the request handler.
+  const name = "ÿþ.png";
+  let out: string | undefined;
+  assert.doesNotThrow(() => { out = fixFilename(name); });
+  assert.equal(out, "ÿþ.png");
 });

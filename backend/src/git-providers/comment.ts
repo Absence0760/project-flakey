@@ -2,7 +2,7 @@ import type { NormalizedRun } from "../types.js";
 
 export const COMMENT_MARKER = "<!-- flakey-pr-comment -->";
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
