@@ -1,0 +1,325 @@
+/**
+ * Smoke tests for the AI-analysis routes (src/routes/analyze.ts).
+ *
+ * Protects the client workflow behind the error/flaky panel: the frontend
+ * asks for AI analysis (cached per org) and for a "similar failures" list.
+ *
+ * The AI provider is OFF in the test environment (no AI_PROVIDER /
+ * ANTHROPIC_API_KEY set), so the two AI endpoints cannot produce a real
+ * result — and we do NOT mock one. We assert their *honest* disabled
+ * behavior instead:
+ *
+ *   - POST /analyze/error/:fingerprint and POST /analyze/flaky check
+ *     isAIEnabled() FIRST (before any validation or fingerprint lookup —
+ *     see analyze.ts), so with AI off they short-circuit to 503 with the
+ *     documented "AI analysis requires ANTHROPIC_API_KEY to be configured"
+ *     message. The 400 (missing field) and 404 (unknown fingerprint)
+ *     branches sit *behind* that guard and are therefore unreachable while
+ *     AI is disabled — asserting them as 400/404 here would be aspirational,
+ *     so we assert what the code actually returns: 503.
+ *
+ *   - POST /analyze/similar/:fingerprint is fully deterministic: it uses
+ *     computeSimilarity() over stored error fingerprints (NOT the AI
+ *     provider), so it works regardless of AI config. This file exercises
+ *     the real similarity contract end to end: threshold (> 0.3, strict),
+ *     boundary (exactly 0.3 excluded), DESC ordering, DISTINCT-ON dedup,
+ *     and 404 for an unknown fingerprint.
+ *
+ * Each test creates its own org + uploads its own runs, so assertions are
+ * deterministic and independent of seed data and of other test agents.
+ */
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import crypto from "node:crypto";
+
+const PORT = 3950;
+const BASE = `http://localhost:${PORT}`;
+
+let server: ChildProcess;
+let token: string;
+let suiteName: string;
+
+// Error messages crafted against computeSimilarity (Jaccard-ish:
+// intersection / max(|tokensA|, |tokensB|), tokens lowercased + punctuation
+// stripped). The target has 5 unique tokens.
+const TARGET_MSG = "alpha beta gamma delta epsilon"; // 5 tokens
+// vs target: intersection {alpha,beta,delta,epsilon}=4, max=5 => 0.8  (included)
+const HIGH_MSG = "alpha beta delta epsilon zeta";
+// vs target: intersection {alpha,beta}=2, max=5 => 0.4  (included, just above 0.3)
+const JUST_ABOVE_MSG = "alpha beta one two three";
+// vs target: intersection {alpha,beta,gamma}=3, max=10 => 0.3 exactly
+//            (EXCLUDED — filter is strictly > 0.3)
+const BOUNDARY_MSG = "alpha beta gamma w1 w2 w3 w4 w5 w6 w7";
+// vs target: no shared tokens => 0.0  (excluded)
+const ZERO_MSG = "zzz yyy xxx www vvv";
+
+function fingerprintOf(message: string, suite: string): string {
+  return crypto.createHash("md5").update(`${message}|${suite}`).digest("hex");
+}
+
+async function waitForHealth(maxMs = 10000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    try {
+      const res = await fetch(`${BASE}/health`);
+      if (res.ok) return;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error("Backend did not become healthy in time");
+}
+
+function post(path: string, body: unknown) {
+  return fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+}
+
+// Upload one run whose failed tests carry the given error messages.
+// Each failed test gets a distinct full_title so they're real, separate rows.
+async function uploadFailures(messages: string[]): Promise<void> {
+  const fd = new FormData();
+  const tests = messages.map((message, i) => ({
+    title: `case ${i}`,
+    full_title: `Suite > case ${i} ${crypto.randomUUID()}`,
+    status: "failed",
+    duration_ms: 10,
+    screenshot_paths: [],
+    error: { message, stack: "at line 1" },
+  }));
+  fd.append(
+    "payload",
+    JSON.stringify({
+      meta: {
+        suite_name: suiteName,
+        branch: "main",
+        commit_sha: crypto.randomUUID().slice(0, 8),
+        ci_run_id: `ci-analyze-${crypto.randomUUID()}`,
+        started_at: "2026-04-10T00:00:00Z",
+        finished_at: "2026-04-10T00:00:30Z",
+        reporter: "mochawesome",
+      },
+      stats: {
+        total: messages.length,
+        passed: 0,
+        failed: messages.length,
+        skipped: 0,
+        pending: 0,
+        duration_ms: 30000,
+      },
+      specs: [
+        {
+          file_path: "analyze.cy.ts",
+          title: "analyze",
+          stats: { total: messages.length, passed: 0, failed: messages.length, skipped: 0, duration_ms: 30000 },
+          tests,
+        },
+      ],
+    })
+  );
+  const up = await fetch(`${BASE}/runs/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  if (!up.ok) throw new Error(`upload failed: ${up.status} ${await up.text().catch(() => "")}`);
+}
+
+before(async () => {
+  server = spawn("node", ["--import", "tsx", "src/index.ts"], {
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      DB_USER: process.env.DB_USER ?? "flakey_app",
+      DB_PASSWORD: process.env.DB_PASSWORD ?? "flakey_app",
+      DB_NAME: process.env.DB_NAME ?? "flakey",
+      JWT_SECRET: "analyze-test-secret",
+      ALLOW_REGISTRATION: "true",
+      NODE_ENV: "test",
+      // Defensively force AI off regardless of any ambient env, so the
+      // "AI disabled" assertions are deterministic for this process.
+      AI_PROVIDER: "",
+      ANTHROPIC_API_KEY: "",
+      AI_BASE_URL: "",
+      AI_API_KEY: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  server.stdout?.on("data", () => {});
+  server.stderr?.on("data", (d) => process.stderr.write(d));
+  await waitForHealth();
+
+  // Fresh org so we own all the error data we query.
+  const email = `analyze+${Date.now()}@test.local`;
+  const reg = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      password: "testpass123",
+      name: "Analyze",
+      org_name: `AnalyzeOrg-${Date.now()}`,
+    }),
+  });
+  if (!reg.ok) throw new Error(`register failed: ${reg.status} ${await reg.text().catch(() => "")}`);
+  token = ((await reg.json()) as { token: string }).token;
+
+  suiteName = `analyze-suite-${Date.now()}`;
+
+  // First upload: the target plus the four comparison messages, one each.
+  await uploadFailures([TARGET_MSG, HIGH_MSG, JUST_ABOVE_MSG, BOUNDARY_MSG, ZERO_MSG]);
+  // Second upload: a duplicate of HIGH_MSG in another run. Since /similar
+  // uses DISTINCT ON (error_message), this must NOT produce a second
+  // HIGH_MSG row in the result — proving dedup.
+  await uploadFailures([HIGH_MSG]);
+});
+
+after(async () => {
+  if (server && !server.killed) {
+    server.kill("SIGTERM");
+    await once(server, "exit").catch(() => {});
+  }
+});
+
+// ── AI status (sanity: confirms AI really is OFF in this env) ─────────────
+
+test("GET /analyze/status reports AI disabled in the test env", async () => {
+  const res = await fetch(`${BASE}/analyze/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(res.status, 200);
+  const data = (await res.json()) as { enabled: boolean };
+  assert.equal(data.enabled, false, "AI must be disabled in the test env for these assertions to hold");
+});
+
+// ── POST /analyze/error/:fingerprint (AI off → 503 short-circuit) ─────────
+
+test("POST /analyze/error/:fingerprint returns 503 with the documented message when AI is off", async () => {
+  // Use a real, existing fingerprint to prove the 503 fires BEFORE the
+  // fingerprint lookup — the isAIEnabled() guard is the first statement.
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const res = await post(`/analyze/error/${fp}`, {});
+  assert.equal(res.status, 503);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
+});
+
+test("POST /analyze/error/:fingerprint with an unknown fingerprint still returns 503 (guard precedes the 404 path)", async () => {
+  // The 404 "Error not found" branch is unreachable while AI is disabled
+  // because isAIEnabled() is checked first. Assert what the code actually
+  // does, not the aspirational 404.
+  const res = await post(`/analyze/error/${"0".repeat(32)}`, {});
+  assert.equal(res.status, 503);
+});
+
+// ── POST /analyze/flaky (AI off → 503 short-circuit) ──────────────────────
+
+test("POST /analyze/flaky returns 503 with the documented message when AI is off", async () => {
+  const res = await post(`/analyze/flaky`, {
+    fullTitle: "Suite > some flaky test",
+    suiteName,
+  });
+  assert.equal(res.status, 503);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
+});
+
+test("POST /analyze/flaky with a missing fullTitle still returns 503 (guard precedes the 400 path)", async () => {
+  // The 400 "fullTitle is required" validation sits behind the isAIEnabled()
+  // guard, so with AI off the 503 wins. Assert the real behavior.
+  const res = await post(`/analyze/flaky`, { suiteName });
+  assert.equal(res.status, 503);
+});
+
+// ── POST /analyze/similar/:fingerprint (deterministic, no AI) ─────────────
+
+test("POST /analyze/similar/:fingerprint returns similar failures with similarity in (0.3, 1.0)", async () => {
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const res = await post(`/analyze/similar/${fp}`, {});
+  assert.equal(res.status, 200);
+  const rows = (await res.json()) as Array<{
+    fingerprint: string;
+    error_message: string;
+    suite_name: string;
+    occurrence_count: number;
+    similarity: number;
+    status: string;
+  }>;
+  assert.ok(Array.isArray(rows), "response must be an array");
+
+  // HIGH_MSG (0.8) must appear.
+  const high = rows.find((r) => r.error_message === HIGH_MSG);
+  assert.ok(high, "the high-similarity failure (0.8) should be returned");
+  assert.ok(high!.similarity > 0.3 && high!.similarity < 1.0,
+    `similarity should be in (0.3, 1.0), got ${high!.similarity}`);
+
+  // The target itself must NOT appear (its own fingerprint is excluded).
+  assert.ok(!rows.some((r) => r.error_message === TARGET_MSG),
+    "the target error must be excluded from its own similar list");
+
+  // Result rows carry the documented shape.
+  assert.equal(typeof high!.fingerprint, "string");
+  assert.equal(high!.suite_name, suiteName);
+  assert.ok(Number.isFinite(high!.occurrence_count));
+  assert.equal(typeof high!.status, "string");
+});
+
+test("POST /analyze/similar enforces the 0.3 threshold: just-above included, exactly-0.3 excluded", async () => {
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const res = await post(`/analyze/similar/${fp}`, {});
+  assert.equal(res.status, 200);
+  const rows = (await res.json()) as Array<{ error_message: string }>;
+
+  // JUST_ABOVE_MSG has similarity 0.4 (> 0.3) → included.
+  assert.ok(rows.some((r) => r.error_message === JUST_ABOVE_MSG),
+    "the 0.4-similarity failure should be included (strictly above the 0.3 threshold)");
+
+  // BOUNDARY_MSG has similarity exactly 0.3 → excluded (filter is `> 0.3`).
+  assert.ok(!rows.some((r) => r.error_message === BOUNDARY_MSG),
+    "the exactly-0.3 failure should be excluded (threshold is strictly greater-than)");
+
+  // ZERO_MSG shares no tokens (0.0) → excluded.
+  assert.ok(!rows.some((r) => r.error_message === ZERO_MSG),
+    "the zero-similarity failure should be excluded");
+});
+
+test("POST /analyze/similar returns results sorted by similarity DESC", async () => {
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const res = await post(`/analyze/similar/${fp}`, {});
+  assert.equal(res.status, 200);
+  const rows = (await res.json()) as Array<{ similarity: number; error_message: string }>;
+
+  for (let i = 1; i < rows.length; i++) {
+    assert.ok(rows[i - 1].similarity >= rows[i].similarity,
+      `results must be DESC by similarity: ${rows[i - 1].similarity} < ${rows[i].similarity}`);
+  }
+  // Concretely, HIGH_MSG (0.8) must rank before JUST_ABOVE_MSG (0.4).
+  const idxHigh = rows.findIndex((r) => r.error_message === HIGH_MSG);
+  const idxAbove = rows.findIndex((r) => r.error_message === JUST_ABOVE_MSG);
+  assert.ok(idxHigh !== -1 && idxAbove !== -1, "both similar failures should be present");
+  assert.ok(idxHigh < idxAbove, "the more-similar failure should sort first");
+});
+
+test("POST /analyze/similar dedups identical error messages via DISTINCT ON", async () => {
+  // HIGH_MSG was uploaded in two separate runs. DISTINCT ON (error_message)
+  // must collapse it to a single row in the result.
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const res = await post(`/analyze/similar/${fp}`, {});
+  assert.equal(res.status, 200);
+  const rows = (await res.json()) as Array<{ error_message: string }>;
+  const highCount = rows.filter((r) => r.error_message === HIGH_MSG).length;
+  assert.equal(highCount, 1, "duplicate error messages must be collapsed to one row");
+});
+
+test("POST /analyze/similar/:fingerprint returns 404 for a non-existent fingerprint", async () => {
+  const res = await post(`/analyze/similar/${"f".repeat(32)}`, {});
+  assert.equal(res.status, 404);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "Error not found");
+});
