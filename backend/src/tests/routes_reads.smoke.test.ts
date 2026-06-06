@@ -218,6 +218,18 @@ test("GET /flaky returns array (possibly empty for a one-run org)", async () => 
   assert.ok(Array.isArray(data));
 });
 
+test("GET /flaky surfaces window-truncation headers", async () => {
+  // The body stays a plain array; the run-window math is reported via
+  // headers so direct API callers know when they're seeing a capped window.
+  // This org uploaded one run in setup and asks for a 500-run window, so the
+  // window covers everything: 1 run analyzed, neither cap hit.
+  const res = await get("/flaky?runs=500&limit=200");
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-flaky-runs-analyzed"), "1");
+  assert.equal(res.headers.get("x-flaky-run-window-truncated"), "false");
+  assert.equal(res.headers.get("x-flaky-results-truncated"), "false");
+});
+
 // ── /quarantine ─────────────────────────────────────────────────────────
 
 test("POST/GET/DELETE /quarantine round-trip", async () => {

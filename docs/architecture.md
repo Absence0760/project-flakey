@@ -135,7 +135,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /tests/:id/history` — pass/fail timeline for one test across recent runs
 - `GET /tests/slowest` — slowest tests with P50/P95/P99 percentiles, trend direction, and duration timeline
 - `GET /tests/search/list?q=` — type-ahead search for tests
-- `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs)
+- `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs). Query: `?suite=&runs=&limit=` — `runs` is the recent-run window (default 30, max 500), `limit` caps output rows (default 50, max 200). The JSON body is a plain array; window/cap math is surfaced in response headers (`X-Flaky-Runs-Analyzed`, `X-Flaky-Run-Window-Truncated`, `X-Flaky-Results-Truncated`) so a CI/integrator caller can tell when the classification ran over a truncated window.
 - `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests
 - `GET /quarantine/check` — check whether a test is currently quarantined
 

@@ -8,7 +8,12 @@ const router = Router();
 router.get("/", async (req, res) => {
   try {
     const suite = req.query.suite as string | undefined;
-    const runLimit = Math.min(Number(req.query.runs) || 30, 100);
+    // Run window: how many recent runs feed the classification. Default 30
+    // (recent-flakiness view); ceiling raised 100 -> 500 so a caller that
+    // wants a deeper analysis can ask for it instead of silently getting a
+    // truncated window. The actual window used and whether it truncated the
+    // available runs are surfaced via response headers below.
+    const runLimit = Math.min(Number(req.query.runs) || 30, 500);
     const resultLimit = Math.min(Number(req.query.limit) || 50, 200);
     const orgId = req.user!.orgId;
 
@@ -75,11 +80,35 @@ router.get("/", async (req, res) => {
       FROM flaky_candidates
       ORDER BY flaky_rate DESC, fail_count DESC
       LIMIT $${paramIndex++}`,
-      [...params, runLimit, resultLimit]
+      // Fetch one extra row so we can tell whether the output was capped at
+      // resultLimit without a second COUNT over the whole CTE.
+      [...params, runLimit, resultLimit + 1]
     );
 
+    // How many runs the org actually has for this filter — lets us report
+    // whether the run window truncated the available history.
+    const runsAvailableResult = await tenantQuery(orgId,
+      `SELECT COUNT(*)::int AS n FROM runs WHERE TRUE ${runFilter}`,
+      suite ? [suite] : []
+    );
+    const runsAvailable = runsAvailableResult.rows[0].n as number;
+    const runsAnalyzed = Math.min(runLimit, runsAvailable);
+    const runWindowTruncated = runsAvailable > runLimit;
+
+    // Trim the +1 probe row back to the requested page size.
+    const resultsTruncated = result.rows.length > resultLimit;
+    const pageRows = resultsTruncated ? result.rows.slice(0, resultLimit) : result.rows;
+
+    // Surface the window math in headers so direct API / integrator callers
+    // (CI scripts, the MCP server) can tell when the classification ran over
+    // a truncated window — the JSON body stays a plain array so existing
+    // consumers (frontend, MCP server) don't break.
+    res.setHeader("X-Flaky-Runs-Analyzed", String(runsAnalyzed));
+    res.setHeader("X-Flaky-Run-Window-Truncated", String(runWindowTruncated));
+    res.setHeader("X-Flaky-Results-Truncated", String(resultsTruncated));
+
     // Compute flip count from timeline
-    const rows = result.rows.map((row) => {
+    const rows = pageRows.map((row) => {
       const timeline: string[] = row.timeline;
       let flipCount = 0;
       for (let i = 1; i < timeline.length; i++) {
