@@ -2,6 +2,8 @@
 
 Terraform configuration for deploying Flakey to AWS. Designed to be as touchless as possible — secrets are auto-generated, migrations run automatically on deploy, and monitoring is built in.
 
+> **Operating it:** backup/restore, disaster recovery, and the encryption-at-rest + secret-rotation posture are documented in [docs/operations/backup-and-dr.md](../docs/operations/backup-and-dr.md).
+
 ## Architecture
 
 ```
