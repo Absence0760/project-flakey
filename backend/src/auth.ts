@@ -61,7 +61,30 @@ export interface AuthUser {
   role: string;
   orgId: number;
   orgRole: string;
+  // Set only for a support "view as org" session (see signSupportToken /
+  // routes/support.ts). When true: `id` is the support actor, `orgId` is the
+  // org being viewed (the actor is NOT a member of it), and requireAuth
+  // restricts the request to GET on an allow-listed read surface.
+  isSupportRead?: boolean;
+  supportReason?: string;
 }
+
+// A support session is intentionally brief — long enough to triage one
+// ticket, short enough that a leaked token is low-value.
+const SUPPORT_EXPIRY = "30m";
+
+// The ONLY resources a read-only support session may touch — the diagnostic /
+// repro surface. Deny-by-default: anything not listed (integration config and
+// secrets under /jira /pagerduty /connectivity /orgs, /auth, /support itself,
+// /webhooks, the upload + live write paths) is refused even for GET, so a
+// support token can't read an org's secrets or escalate. Keyed on the router
+// mount prefix, which Express exposes as req.baseUrl inside requireAuth.
+const SUPPORT_READ_BASEURLS = new Set([
+  "/runs", "/errors", "/flaky", "/stats", "/tests", "/suites", "/compare",
+  "/audit", "/releases", "/manual-tests", "/manual-test-groups", "/notes",
+  "/quarantine", "/views", "/coverage", "/a11y", "/visual", "/security",
+  "/ui-coverage", "/predict",
+]);
 
 declare global {
   namespace Express {
@@ -76,6 +99,24 @@ export function signToken(user: AuthUser): string {
     { id: user.id, email: user.email, name: user.name, role: user.role, orgId: user.orgId, orgRole: user.orgRole },
     JWT_SECRET,
     { expiresIn: ACCESS_EXPIRY }
+  );
+}
+
+/**
+ * Mint a short-lived, read-only support session token: the actor (a platform
+ * support user) "views as" the target org. `id` stays the support actor (so
+ * the audit trail attributes reads to a real person), `orgId` is the org being
+ * viewed. requireAuth enforces read-only + the allow-listed surface; this
+ * function only encodes the claim.
+ */
+export function signSupportToken(actor: AuthUser, targetOrgId: number, reason: string): string {
+  return jwt.sign(
+    {
+      id: actor.id, email: actor.email, name: actor.name, role: actor.role,
+      orgId: targetOrgId, orgRole: "support", supportRead: true, reason,
+    },
+    JWT_SECRET,
+    { expiresIn: SUPPORT_EXPIRY }
   );
 }
 
@@ -102,6 +143,15 @@ function verifyToken(token: string): AuthUser | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTS) as any;
     if (payload.type === "refresh") return null; // Don't accept refresh tokens as access tokens
+    if (payload.supportRead === true) {
+      // Read-only support session. Mark it so requireAuth validates the actor
+      // is still a support user (not org membership) and clamps the surface.
+      return {
+        id: payload.id, email: payload.email, name: payload.name, role: payload.role,
+        orgId: payload.orgId, orgRole: "support",
+        isSupportRead: true, supportReason: typeof payload.reason === "string" ? payload.reason : "",
+      };
+    }
     return payload as AuthUser;
   } catch {
     return null;
@@ -248,7 +298,48 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // that path resolves orgRole from the live row, so its candidate
   // is non-stale by construction. The JWT/cookie paths carry
   // sign-time claims and need the re-read.
-  if (!authedViaApiKey) {
+  if (candidate.isSupportRead) {
+    // Support "view as org" session: the actor is NOT a member of the org
+    // being viewed, so the membership re-read above doesn't apply. Re-validate
+    // the platform support flag instead, so revoking is_support kills live
+    // support sessions on their next request (same staleness guarantee).
+    // Fail closed (500) on a DB error rather than hang the request — this is
+    // an async middleware, so a thrown error wouldn't reach an error handler.
+    let sup;
+    try {
+      sup = await pool.query("SELECT 1 FROM users WHERE id = $1 AND is_support = true", [candidate.id]);
+    } catch (err) {
+      console.error("requireAuth: support re-validation query failed:", err);
+      res.status(500).json({ error: "Internal server error" });
+      return;
+    }
+    if (sup.rows.length === 0) {
+      res.status(401).json({ error: "Support access is no longer valid" });
+      return;
+    }
+    // Clamp the surface: read-only, allow-listed resources only. The active
+    // org-scoping is enforced downstream by RLS via tenantQuery(candidate.orgId).
+    //
+    // NOTE: this GET/HEAD-only check is the AUTHORITATIVE write gate for a
+    // support session. Route handlers guard writes with `orgRole === "viewer"`,
+    // which a support session (orgRole "support") does NOT trip — so do not
+    // rely on those route-level guards to block support writes. If you add a
+    // resource to SUPPORT_READ_BASEURLS, this check (not the route) is what
+    // keeps the session read-only.
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.status(403).json({ error: "Support sessions are read-only" });
+      return;
+    }
+    if (!SUPPORT_READ_BASEURLS.has(req.baseUrl)) {
+      res.status(403).json({ error: "This resource is not available in a support session" });
+      return;
+    }
+  } else if (!authedViaApiKey) {
+    // Session-staleness check: re-read org_members on every request.
+    // Skip only when the candidate actually came from verifyApiKey —
+    // that path resolves orgRole from the live row, so its candidate
+    // is non-stale by construction. The JWT/cookie paths carry
+    // sign-time claims and need the re-read.
     const member = await pool.query(
       "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2",
       [candidate.orgId, candidate.id],

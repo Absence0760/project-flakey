@@ -33,6 +33,7 @@ import uiCoverageRouter from "./routes/ui-coverage.js";
 import manualTestsRouter from "./routes/manual-tests.js";
 import manualTestGroupsRouter from "./routes/manual-test-groups.js";
 import releasesRouter from "./routes/releases.js";
+import supportRouter from "./routes/support.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -381,6 +382,10 @@ app.use("/ui-coverage", requireAuth, uiCoverageRouter);
 app.use("/manual-tests", requireAuth, manualTestsRouter);
 app.use("/manual-test-groups", requireAuth, manualTestGroupsRouter);
 app.use("/releases", requireAuth, releasesRouter);
+// Cross-org support access (mint a read-only "view as org" token). requireAuth
+// blocks isSupportRead sessions from reaching this router (not on the read
+// allow-list + POST-only), so only a normal support-user session can mint.
+app.use("/support", requireAuth, supportRouter);
 // Live events — POST requires normal auth, GET stream accepts token as query param (for EventSource)
 app.use("/live", (req, res, next) => {
   if (req.query.token && !req.headers.authorization) {

@@ -268,6 +268,13 @@ Supported reporters:
 - Roles: owner, admin, viewer
 - New users without an invite get a personal organization automatically
 
+**Cross-org support access (`users.is_support` + `/support`):**
+- A platform-level `users.is_support` flag (migration 053), distinct from the per-org roles, lets a support engineer triage a customer ticket without joining their org.
+- It is **set out-of-band by an operator** (`UPDATE users SET is_support = true …`) — there is deliberately no API to grant it, since a self-serve grant would be a cross-tenant privilege-escalation path. Default `false`, so a stock install has no standing cross-org access.
+- `POST /support/orgs/:orgId/token` (support users only; a normal owner gets 403) mints a 30-minute **read-only "view as org"** JWT and writes a `support.session.start` row into the **target org's** audit log first — the token isn't issued if that audit write fails, so there is no unaudited access.
+- `requireAuth` enforces the boundary for an `isSupportRead` session: it re-validates `is_support` live (so revoking the flag kills live sessions on the next request), allows only `GET`/`HEAD`, and restricts the request to an allow-listed diagnostic read surface (runs/errors/flaky/stats/tests/audit/releases/… — **never** the integration-config/secrets routes under `/jira`, `/pagerduty`, `/connectivity`, `/orgs`). Org scoping still rides on RLS via `tenantQuery(orgId)`.
+- There is no user-impersonation primitive — a support session reads org data, it does not act as a specific user. Note: enabling cross-org support access is a control change; review with the CISO / Security Analyst before turning it on in a SOC 2 / GovRAMP environment.
+
 ### 5. PostgreSQL schema
 
 ```sql
