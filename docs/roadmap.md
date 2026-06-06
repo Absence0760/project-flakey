@@ -148,24 +148,29 @@ skills below it.
 Gaps that matter most for a self-hosted product run in a SOC 2 / GovRAMP
 context, plus the one change that removes the repo's biggest internal footgun.
 
+> **Status (this pass):** the non-compliance-gated items are landed; the SOC 2 /
+> GovRAMP-scoped auth + logging controls and the high-risk migration are
+> deliberately **deferred pending CISO / Security Analyst (and ops) review** —
+> see [docs/proposals/phase-14-sso.md](proposals/phase-14-sso.md).
+
 ### Compliance & enterprise auth
 
-- [ ] **SSO — SAML / OIDC login + SCIM provisioning.** Auth today is JWT + API keys + email/password only (`backend/src/routes/auth.ts`). Add IdP-backed single sign-on and automated user/role provisioning so enterprise and GovRAMP buyers can onboard against their own directory. Biggest single gap for that segment.
-- [ ] **Audit-log export / SIEM streaming.** There's already an audit log (every mutation) + per-org retention; add streaming/export to S3 / CloudWatch / a customer SIEM, with tamper-evidence (append-only / hash-chained), to satisfy SOC 2 and GovRAMP logging controls directly.
-- [ ] **Self-hoster backup & DR runbook + at-rest posture.** Document backup/restore and disaster recovery for the RDS + S3 footprint, the encryption-at-rest story, and add a secret-rotation UI on top of the existing `npm run rotate-keys` CLI.
+- [ ] **SSO — SAML / OIDC login + SCIM provisioning.** Auth today is JWT + API keys + email/password only (`backend/src/routes/auth.ts`). Add IdP-backed single sign-on and automated user/role provisioning so enterprise and GovRAMP buyers can onboard against their own directory. Biggest single gap for that segment. *(Deferred — CISO sign-off required. Design + local Keycloak/Authentik IdPs + passing OIDC & SCIM e2e proofs are committed — see [proposal](proposals/phase-14-sso.md) and `frontend/tests-e2e/sso/`.)*
+- [ ] **Audit-log export / SIEM streaming.** There's already an audit log (every mutation) + per-org retention; add streaming/export to S3 / CloudWatch / a customer SIEM, with tamper-evidence (append-only / hash-chained), to satisfy SOC 2 and GovRAMP logging controls directly. *(Deferred — CISO sign-off required.)*
+- [~] **Self-hoster backup & DR runbook + at-rest posture.** Document backup/restore and disaster recovery for the RDS + S3 footprint, the encryption-at-rest story, and add a secret-rotation UI on top of the existing `npm run rotate-keys` CLI. *(Runbook + at-rest posture **done** — [docs/operations/backup-and-dr.md](operations/backup-and-dr.md). Secret-rotation UI deferred — security review.)*
 
 ### API contract
 
-- [ ] **Publish an OpenAPI spec + generate the client types.** The repo's documented footgun is "no type codegen — types are hand-synced across `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the DB." An OpenAPI source-of-truth with a generated client eliminates that whole drift class (the `endpoint-inventory` skill exists today precisely because there is no published spec) and gives external integrators a real contract.
+- [~] **Publish an OpenAPI spec + generate the client types.** The repo's documented footgun is "no type codegen — types are hand-synced across `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the DB." An OpenAPI source-of-truth with a generated client eliminates that whole drift class (the `endpoint-inventory` skill exists today precisely because there is no published spec) and gives external integrators a real contract. *(**Done (seed):** `backend/openapi.yaml` + `pnpm openapi:generate`/`openapi:check` → `frontend/src/lib/api-generated.ts`, covering the core routes. Extend the spec to the remaining routes + migrate call sites as follow-up.)*
 
 ### Broader adoption
 
-- [ ] **More native reporters: pytest, Go `test`, .NET (xUnit / NUnit), RSpec.** The current set is JS-centric (mochawesome / JUnit / Playwright / Jest / WebdriverIO). JUnit XML covers some non-JS runners, but first-class reporters (live events + artifacts) win those ecosystems.
-- [ ] **Rich GitHub Checks annotations.** Beyond the existing PR status check + summary comment, surface per-failure inline annotations on the diff via the Checks API so failures land at the offending line.
+- [~] **More native reporters: pytest, Go `test`, .NET (xUnit / NUnit), RSpec.** The current set is JS-centric (mochawesome / JUnit / Playwright / Jest / WebdriverIO). JUnit XML covers some non-JS runners, but first-class reporters (live events + artifacts) win those ecosystems. *(**pytest done** as the reference — `packages/flakey-pytest-reporter/`. Go / .NET / RSpec follow-up.)*
+- [x] **Rich GitHub Checks annotations.** Beyond the existing PR status check + summary comment, surface per-failure inline annotations on the diff via the Checks API so failures land at the offending line.
 
 ### Scale
 
-- [ ] **Artifact lifecycle / TTL on S3 + table partitioning for `runs`/`tests`.** Keep storage cost bounded (artifact TTL/dedup aligned with per-org retention) and keep queries fast on large orgs (time-based partitioning of the high-volume tables).
+- [~] **Artifact lifecycle / TTL on S3 + table partitioning for `runs`/`tests`.** Keep storage cost bounded (artifact TTL/dedup aligned with per-org retention) and keep queries fast on large orgs (time-based partitioning of the high-volume tables). *(**Artifact TTL done** — configurable S3 lifecycle + abort-incomplete-uploads, aligned with the existing per-org retention delete. Table partitioning deferred — downtime-class migration, ops review.)*
 
 ## What this will not do (by design)
 
