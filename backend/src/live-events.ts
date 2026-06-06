@@ -1,4 +1,13 @@
 import { EventEmitter } from "events";
+import { randomUUID } from "crypto";
+import pool from "./db.js";
+import type pg from "pg";
+
+// Postgres channel for cross-task live fan-out. Every server process
+// LISTENs here and re-emits remote notifications to its own SSE
+// subscribers, so a reporter POSTing events to one ECS task reaches a
+// dashboard client parked on a different task.
+const LIVE_CHANNEL = "flakey_live";
 
 export interface LiveTestEvent {
   type: "run.started" | "test.started" | "test.passed" | "test.failed" | "test.skipped" | "spec.started" | "spec.finished" | "run.finished" | "run.aborted";
@@ -36,6 +45,114 @@ class LiveEventBus {
   // subscriber; kept idle (not deleted) when the last listener leaves
   // since EventEmitters with zero listeners are essentially free.
   private orgEmitters = new Map<number, EventEmitter>();
+
+  // Cross-task fan-out state. `crossTask` stays false until startListener()
+  // runs, so pure unit contexts (no DB) never broadcast. `instanceId` tags
+  // our own NOTIFYs so we ignore them on the way back in (we already
+  // delivered them locally). `listenClient` is a dedicated, never-released
+  // pool connection that holds the LISTEN.
+  private crossTask = false;
+  private readonly instanceId = randomUUID();
+  private listenClient: pg.PoolClient | null = null;
+
+  /**
+   * Begin cross-task fan-out: open a dedicated LISTEN connection and
+   * re-emit remote notifications to local subscribers. Call once at
+   * server startup. Idempotent. Until it runs, emit()/active deltas stay
+   * process-local — which is exactly right for single-process unit tests.
+   */
+  startListener(): void {
+    if (this.crossTask) return;
+    this.crossTask = true;
+    void this.connectListener();
+  }
+
+  private async connectListener(): Promise<void> {
+    let client: pg.PoolClient | null = null;
+    try {
+      client = await pool.connect();
+      const c = client;
+      c.on("notification", (msg) => {
+        if (!msg.payload) return;
+        try {
+          this.applyRemote(JSON.parse(msg.payload));
+        } catch {
+          /* ignore malformed payloads */
+        }
+      });
+      await c.query(`LISTEN ${LIVE_CHANNEL}`);
+      // Only publish the client AFTER LISTEN succeeds. Assigning it earlier
+      // would leak this connection if LISTEN throws: scheduleReconnect would
+      // acquire a second client and overwrite the pointer, and the
+      // reconnectListener guard (listenClient !== client) would never release
+      // the first. A dropped backend connection surfaces as 'error'/'end';
+      // reconnect so the listener self-heals.
+      this.listenClient = c;
+      c.on("error", () => this.reconnectListener(c));
+      (c as unknown as EventEmitter).on("end", () => this.reconnectListener(c));
+    } catch {
+      // DB not ready yet, or a transient drop — destroy the half-open client
+      // (if we got one) so it doesn't leak from the pool, then retry shortly.
+      if (client) { try { client.release(true); } catch { /* already gone */ } }
+      this.scheduleReconnect();
+    }
+  }
+
+  private reconnectListener(client: pg.PoolClient): void {
+    if (this.listenClient !== client) return; // already replaced
+    this.listenClient = null;
+    try { client.release(true); } catch { /* already gone */ }
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    const t = setTimeout(() => { void this.connectListener(); }, 2000);
+    t.unref?.();
+  }
+
+  /**
+   * Broadcast a payload to every task (including self — self is ignored on
+   * receipt). No-ops until startListener() has enabled cross-task mode.
+   */
+  private broadcast(payload: Record<string, unknown>): void {
+    if (!this.crossTask) return;
+    let json = JSON.stringify({ o: this.instanceId, ...payload });
+    if (json.length > 7500) {
+      // pg_notify caps payloads near 8000 bytes. The event error message
+      // is the only unbounded field — trim it so a huge failure stack
+      // can't break cross-task delivery. The full error is still persisted
+      // and served via the REST API.
+      const ev = (payload as { event?: { error?: unknown } }).event;
+      if (ev && ev.error !== undefined) {
+        const trimmed = { ...payload, event: { ...ev, error: String(ev.error).slice(0, 2000) + "…[truncated]" } };
+        json = JSON.stringify({ o: this.instanceId, ...trimmed });
+      }
+      if (json.length > 7900) return; // pathological single event — skip cross-task delivery
+    }
+    pool.query("SELECT pg_notify($1, $2)", [LIVE_CHANNEL, json]).catch(() => { /* best-effort */ });
+  }
+
+  /**
+   * Apply a notification from ANOTHER task to local subscribers only — no
+   * state mutation, no re-broadcast. The originating task owns the run's
+   * active-set / staleness state; remote tasks just deliver to whichever
+   * SSE clients they happen to be holding.
+   */
+  private applyRemote(payload: {
+    o?: string;
+    k?: string;
+    runId?: number;
+    orgId?: number;
+    event?: LiveTestEvent;
+    delta?: ActiveRunsDelta;
+  }): void {
+    if (payload.o === this.instanceId) return; // our own broadcast — already delivered locally
+    if (payload.k === "event" && typeof payload.runId === "number" && payload.event) {
+      this.emitters.get(payload.runId)?.emit("event", payload.event);
+    } else if (payload.k === "active" && typeof payload.orgId === "number" && payload.delta) {
+      this.orgEmitters.get(payload.orgId)?.emit("delta", payload.delta);
+    }
+  }
 
   /** Register a run with its org ID so stale detection can work. Call when run.started. */
   registerRun(runId: number, orgId: number): void {
@@ -131,6 +248,10 @@ class LiveEventBus {
         this.runMeta.delete(runId);
       }, 5000);
     }
+
+    // Fan the event out to other tasks' SSE subscribers. Local delivery
+    // already happened above; remote tasks deliver to their own listeners.
+    this.broadcast({ k: "event", runId, event });
   }
 
   /** Check if anyone is listening for a run. */
@@ -202,7 +323,9 @@ class LiveEventBus {
     this.activeRuns.add(runId);
     const orgId = this.runMeta.get(runId)?.orgId;
     if (orgId !== undefined) {
-      this.orgEmitters.get(orgId)?.emit("delta", { type: "active.add", runId });
+      const delta: ActiveRunsDelta = { type: "active.add", runId };
+      this.orgEmitters.get(orgId)?.emit("delta", delta);
+      this.broadcast({ k: "active", orgId, delta });
     }
   }
 
@@ -212,7 +335,9 @@ class LiveEventBus {
     this.activeRuns.delete(runId);
     const orgId = this.runMeta.get(runId)?.orgId;
     if (orgId !== undefined) {
-      this.orgEmitters.get(orgId)?.emit("delta", { type: "active.remove", runId });
+      const delta: ActiveRunsDelta = { type: "active.remove", runId };
+      this.orgEmitters.get(orgId)?.emit("delta", delta);
+      this.broadcast({ k: "active", orgId, delta });
     }
   }
 

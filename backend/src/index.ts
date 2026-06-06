@@ -39,6 +39,8 @@ import { runRetentionCleanup } from "./retention.js";
 import { runScheduledReports } from "./scheduled-reports.js";
 import { getStorage } from "./storage.js";
 import { validateConfiguredKeys } from "./crypto.js";
+import { bootstrapAdmin } from "./bootstrap-admin.js";
+import { liveEvents } from "./live-events.js";
 
 // Fix 1: Refuse to start without JWT_SECRET in production
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -390,6 +392,21 @@ app.use("/live", (req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Flakey API running on http://localhost:${PORT}`);
   if (IS_PROD) console.log(`CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
+
+  // Cross-task live fan-out: open the Postgres LISTEN connection so live
+  // events + active-set deltas reach SSE clients on any ECS task (the bus
+  // is otherwise in-process only). Safe with a single task too — a task
+  // ignores its own NOTIFYs.
+  liveEvents.startListener();
+
+  // Env-gated first-admin bootstrap. No-ops unless both
+  // FLAKEY_BOOTSTRAP_ADMIN_EMAIL and FLAKEY_BOOTSTRAP_ADMIN_PASSWORD are
+  // set (see src/bootstrap-admin.ts). Run after migrations would have
+  // applied; a failure here is surfaced loudly but doesn't take the
+  // server down — the rest of the API stays available.
+  bootstrapAdmin(pool).catch((err) => {
+    console.error("Bootstrap admin failed:", err);
+  });
 
   // Run retention cleanup daily
   setTimeout(runRetentionCleanup, 10000);

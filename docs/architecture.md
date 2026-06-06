@@ -391,6 +391,40 @@ dispatcher takes a Postgres session-scoped advisory lock
 (`pg_try_advisory_lock(0x666c616b79)`) before running, so multi-replica
 backends do not double-fire.
 
+### 7a. Live event bus (`backend/src/live-events.ts`)
+
+`LiveEventBus` fans live test events to the per-run SSE stream
+(`GET /live/:runId/stream`) and active-set deltas to the org-scoped stream
+(`GET /live/stream`). It holds in-process `EventEmitter`s, so on its own it
+only reaches SSE clients connected to the *same* backend process.
+
+To stay correct when ECS runs more than one task, the bus also broadcasts
+over Postgres `LISTEN`/`NOTIFY` on the `flakey_live` channel: every process
+opens one dedicated `LISTEN` connection at startup (`startListener()`), and
+each `emit()` / active-set delta also `pg_notify`s the payload (tagged with a
+per-process id so a task ignores its own notifications). A task receiving a
+remote notification re-emits it to *its* local SSE subscribers only — no
+shared state, no re-broadcast. So a reporter POSTing events to task A reaches
+a dashboard client parked on task B. Payloads are capped under the ~8 KB
+`NOTIFY` limit (a giant error message is trimmed; the full text is still
+persisted and served via REST).
+
+Two pieces of state are deliberately **not** replicated across tasks:
+
+- **The active-run snapshot** sent on `/live/stream` connect (and `/live/active`)
+  is read from the DB (`runs.finished_at IS NULL AND` no `run.aborted` event),
+  not from in-memory state — so it's correct on whichever task serves the
+  connection.
+- **Stale-run detection** (the inactivity timer that aborts a run whose
+  reporter died) runs per task against the in-memory `lastEventAt`. A run is
+  tracked by whichever task receives its events; with keep-alive reporter
+  connections that's a single task, so this is correct in practice. If a task
+  dies mid-run the run is orphaned until an operator clears it — the same
+  outcome as the single-task deployment. Fully task-independent stale
+  detection would need a DB-backed `last_event_at` swept under an advisory
+  lock (as the scheduled-reports dispatcher does); that's the path to take if
+  this ever proves insufficient.
+
 ### 8. Secrets encryption (`backend/src/crypto.ts`)
 
 AES-256-GCM envelope encryption for secrets stored on the `organizations`

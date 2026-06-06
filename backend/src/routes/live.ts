@@ -39,12 +39,40 @@ const screenshotUpload = multer({
 });
 
 /**
- * GET /live/active — list run IDs that are currently receiving live events.
+ * Active run ids for an org, computed from the DB rather than in-memory
+ * bus state. A run is "active" while it has no finish time and has not
+ * been aborted. DB-authoritative so the answer is correct on ANY task —
+ * the in-memory active set only knows about runs whose events landed on
+ * this particular task, which is wrong once ECS runs more than one.
+ * tenantQuery scopes the read to the caller's org via RLS.
  */
-router.get("/active", (req, res) => {
+async function activeRunIdsForOrg(orgId: number): Promise<number[]> {
+  const result = await tenantQuery(orgId,
+    `SELECT r.id
+       FROM runs r
+      WHERE r.finished_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM live_events le
+          WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+        )
+      ORDER BY r.id`,
+    []
+  );
+  return result.rows.map((row) => row.id as number);
+}
+
+/**
+ * GET /live/active — list run IDs that are currently in progress.
+ */
+router.get("/active", async (req, res) => {
   // Scope to the caller's org — without this, any authenticated user
   // can enumerate every other org's in-progress run ids.
-  res.json({ runs: liveEvents.getActiveRunIds(req.user!.orgId) });
+  try {
+    res.json({ runs: await activeRunIdsForOrg(req.user!.orgId) });
+  } catch (err) {
+    console.error("GET /live/active error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 /**
@@ -61,12 +89,23 @@ router.get("/active", (req, res) => {
  * Bearer header before requireAuth runs. EventSource on the browser
  * side can't set headers, hence the query-param fallback.
  *
- * Tenancy: getActiveRunIds(orgId) filters by runMeta orgId, and
- * subscribeOrg keys its emitter on orgId, so a subscriber for org A
+ * Tenancy: activeRunIdsForOrg(orgId) reads via tenantQuery (RLS-scoped),
+ * and subscribeOrg keys its emitter on orgId, so a subscriber for org A
  * never receives deltas for runs in org B.
  */
-router.get("/stream", (req, res) => {
+router.get("/stream", async (req, res) => {
   const orgId = req.user!.orgId;
+
+  // Compute the snapshot from the DB BEFORE writing headers so a query
+  // error still produces a clean 500 rather than a half-open stream.
+  let snapshotRuns: number[];
+  try {
+    snapshotRuns = await activeRunIdsForOrg(orgId);
+  } catch (err) {
+    console.error("GET /live/stream snapshot error:", err);
+    res.status(500).json({ error: "Internal server error" });
+    return;
+  }
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -77,10 +116,12 @@ router.get("/stream", (req, res) => {
   });
 
   // Initial snapshot so the client can render in-progress runs
-  // immediately on connect / reconnect, then react to deltas.
+  // immediately on connect / reconnect, then react to deltas. Sourced
+  // from the DB so it's correct regardless of which task serves this
+  // connection (the active run may have been started on another task).
   res.write(`data: ${JSON.stringify({
     type: "snapshot",
-    runs: liveEvents.getActiveRunIds(orgId),
+    runs: snapshotRuns,
   })}\n\n`);
 
   const unsubscribe = liveEvents.subscribeOrg(orgId, (delta) => {
