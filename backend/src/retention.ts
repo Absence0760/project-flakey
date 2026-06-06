@@ -1,5 +1,6 @@
 import pool, { tenantQuery, maintenanceQuery } from "./db.js";
 import { getStorage } from "./storage.js";
+import { logAudit } from "./audit.js";
 
 export async function runRetentionCleanup(): Promise<void> {
   try {
@@ -27,6 +28,17 @@ export async function runRetentionCleanup(): Promise<void> {
 
       if (runs.rows.length > 0) {
         console.log(`Retention: deleted ${runs.rows.length} run(s) older than ${org.retention_days}d for org ${org.id}`);
+        // System-initiated cleanup has no acting user: pass userId null so the
+        // FK stays valid and the UI renders it as "System". logAudit is scoped
+        // to this org so its tenantQuery satisfies the audit_log RLS policy.
+        await logAudit(
+          org.id,
+          null,
+          "retention.cleanup",
+          "run",
+          "",
+          { deleted_count: runs.rows.length, retention_days: org.retention_days }
+        );
       }
     }
     // Clean up expired org invites
