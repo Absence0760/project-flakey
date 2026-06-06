@@ -160,22 +160,18 @@ test.describe("/releases/<id> — checklist CRUD", () => {
     const addBtn = addRow.getByRole("button", { name: /^Add$/ });
     const input = addRow.getByPlaceholder("Add checklist item…");
 
-    // The route's addItem() guards on `newItemLabel.trim()` — so the
-    // POST won't fire on empty. We check the button doesn't trigger
-    // a list change when clicked with empty input.
     const before = await page.locator("section", {
       has: page.getByRole("heading", { name: "Checklist" }),
     }).locator("ul.items > li").count();
 
-    await addBtn.click();
-    await page.waitForTimeout(300);
-    const after = await page.locator("section", {
-      has: page.getByRole("heading", { name: "Checklist" }),
-    }).locator("ul.items > li").count();
-    expect(after).toBe(before);
+    // Empty input → the Add button is disabled in the UI (not merely
+    // guarded inside addItem). Asserting the disabled state is the
+    // deterministic contract — no click, no POST, nothing to wait on.
+    await expect(addBtn).toBeDisabled();
 
-    // Then prove the form DOES work after typing.
+    // Then prove the form enables and DOES work after typing.
     await input.fill(`x-${Date.now().toString(36)}`);
+    await expect(addBtn).toBeEnabled();
     await addBtn.click();
     await expect(
       page.locator("section", { has: page.getByRole("heading", { name: "Checklist" }) })

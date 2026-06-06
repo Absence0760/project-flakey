@@ -221,11 +221,13 @@ test.describe("XSS through ingested test data", () => {
   test("/flaky tolerates XSS-laden test names in its listing", async ({ page }) => {
     const fired = installXssTraps(page);
     await page.goto("/flaky");
-    // /flaky may or may not have our run yet (it surfaces tests that
-    // have flipped pass/fail across runs — a single run won't qualify).
-    // Either way the render path must not execute the payload — give
-    // the page a moment to render, then assert the trap is clean.
-    await page.waitForTimeout(2000);
+    // /flaky may or may not have our run yet (it surfaces tests that have
+    // flipped pass/fail across runs — a single run won't qualify), so we
+    // can't wait on the payload text appearing. Wait on the page's
+    // data-ready signal instead: it flips true once the listing fetch has
+    // settled and the rows have rendered. Any payload that the render path
+    // mishandled would have executed by then.
+    await expect(page.locator('.page[data-ready="true"]')).toBeVisible({ timeout: 10_000 });
     await assertNoXssFired(page, fired);
   });
 });

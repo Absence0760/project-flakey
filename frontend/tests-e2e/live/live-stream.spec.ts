@@ -27,6 +27,19 @@ async function getToken(page: Page): Promise<string> {
   return page.evaluate(() => localStorage.getItem("bt_token") ?? "");
 }
 
+// Deterministic gate for "the /live/stream EventSource is open". The runs
+// page flips data-sse-connected="true" the moment the EventSource delivers
+// its first message — the backend always sends a `snapshot` on connect — so
+// this replaces the old "wait for a row, then sleep and hope the handshake
+// finished" pattern with a real readiness signal. Waiting on it also implies
+// the page has hydrated and connectLiveStream() has run.
+async function waitForLiveStream(page: Page): Promise<void> {
+  await expect(
+    page.locator('.page[data-sse-connected="true"]'),
+    "runs page must signal an open /live/stream EventSource via data-sse-connected",
+  ).toBeVisible({ timeout: 15_000 });
+}
+
 async function startLive(page: Page, token: string, suite: string): Promise<number> {
   const res = await page.request.post("http://localhost:3000/live/start", {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -57,13 +70,9 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     test.setTimeout(45_000);
 
     await page.goto("/runs");
-    // Wait for hydration so the connectLiveStream() EventSource is
-    // open. The first-row visibility check is just a hydration probe.
-    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
-    // Brief settle so the EventSource handshake completes before we
-    // fire /live/start. The SSE response is streamed, so there's no
-    // single deterministic event we can wait on from the client side.
-    await page.waitForTimeout(500);
+    // Gate on the real SSE-handshake signal before firing /live/start so
+    // the add-delta can't race a not-yet-open EventSource.
+    await waitForLiveStream(page);
 
     const token = await getToken(page);
     const suite = `live-stream-add-${Date.now().toString(36)}`;
@@ -90,8 +99,7 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     test.setTimeout(45_000);
 
     await page.goto("/runs");
-    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(500);
+    await waitForLiveStream(page);
 
     const token = await getToken(page);
     const suite = `live-stream-remove-${Date.now().toString(36)}`;
@@ -151,14 +159,17 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     }
   });
 
-  test("the dashboard does NOT poll /live/active (no polling requests after initial load)", async ({
+  test("the dashboard does NOT poll /live/active (updates arrive via SSE, not polling)", async ({
     page,
   }) => {
-    // Regression guard against a future refactor accidentally
-    // restoring the poll loop. We watch the network for any GET to
-    // /live/active during a 7 s window — pre-SSE this would see at
-    // least one poll tick (the original interval was 5 s).
-    test.setTimeout(30_000);
+    // Regression guard against a future refactor accidentally restoring
+    // the poll loop. Rather than sleeping for a poll cycle and hoping a
+    // tick would have fired, we drive a real start→appear→abort→remove
+    // round-trip — both deltas must arrive over the EventSource — and
+    // assert /live/active was never requested across the whole cycle. If
+    // a poll loop crept back in, either the badge wouldn't appear via the
+    // SSE delta or a /live/active request would be captured.
+    test.setTimeout(45_000);
 
     const polledUrls: string[] = [];
     page.on("request", (req) => {
@@ -167,10 +178,19 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     });
 
     await page.goto("/runs");
-    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
+    await waitForLiveStream(page);
 
-    // Watch for one full pre-SSE polling cycle plus padding.
-    await page.waitForTimeout(7000);
+    const token = await getToken(page);
+    const suite = `live-stream-nopoll-${Date.now().toString(36)}`;
+    const runId = await startLive(page, token, suite);
+    const row = page.locator(`tr.run-row[data-run-id="${runId}"]`);
+
+    // Appears via the SSE add-delta...
+    await expect(row.locator(".live-badge")).toBeVisible({ timeout: 2500 });
+    // ...and clears via the SSE remove-delta.
+    await abortRun(page, token, runId, "no-poll cleanup");
+    await expect(row.locator(".live-badge")).toHaveCount(0, { timeout: 2500 });
+    await deleteRun(page, token, runId);
 
     assert(
       polledUrls.length === 0,
@@ -189,9 +209,10 @@ test.describe("/live/stream — org-scoped SSE drives the dashboard runs list", 
     });
 
     await page.goto("/runs");
-    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 15_000 });
-    // Allow the connectLiveStream() handshake to complete.
-    await page.waitForTimeout(1500);
+    // data-sse-connected only flips once the EventSource has delivered a
+    // message, which guarantees the /live/stream request was made and
+    // captured by the listener above.
+    await waitForLiveStream(page);
 
     assert(
       streamRequests.length >= 1,
