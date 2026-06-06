@@ -341,24 +341,33 @@ router.patch("/:id/settings", async (req, res) => {
 
     const sets: string[] = [];
     const params: unknown[] = [];
+    // Record which fields changed. Non-sensitive values (retention_days) may be
+    // included for forensic clarity; secrets (git_token) record NAME only,
+    // never the value.
+    const changed: Record<string, unknown> = {};
     let i = 1;
 
     if (req.body.retention_days !== undefined) {
       const value = req.body.retention_days === null || req.body.retention_days === "" ? null : Number(req.body.retention_days);
       sets.push(`retention_days = $${i++}`);
       params.push(value);
+      changed.retention_days = value;
     }
     if (req.body.git_provider !== undefined) {
       sets.push(`git_provider = $${i++}`);
       params.push(req.body.git_provider || null);
+      changed.git_provider = req.body.git_provider || null;
     }
     if (req.body.git_token !== undefined) {
       sets.push(`git_token = $${i++}`);
       params.push(req.body.git_token ? encryptSecret(req.body.git_token) : null);
+      // Secret: record that it changed, never the value.
+      changed.git_token = req.body.git_token ? "set" : "cleared";
     }
     if (req.body.git_repo !== undefined) {
       sets.push(`git_repo = $${i++}`);
       params.push(req.body.git_repo || null);
+      changed.git_repo = req.body.git_repo || null;
     }
     if (req.body.git_base_url !== undefined) {
       // /connectivity/git later fetch()es this; gate it through the
@@ -374,6 +383,7 @@ router.patch("/:id/settings", async (req, res) => {
       }
       sets.push(`git_base_url = $${i++}`);
       params.push(raw || null);
+      changed.git_base_url = raw || null;
     }
 
     if (sets.length === 0) {
@@ -386,7 +396,7 @@ router.patch("/:id/settings", async (req, res) => {
       `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`,
       params
     );
-    await logAudit(req.user!.orgId, req.user!.id, "settings.update", "settings", "org", {});
+    await logAudit(req.user!.orgId, req.user!.id, "settings.update", "settings", "org", { changed });
     res.json({ updated: true });
   } catch (err) {
     console.error("PATCH /orgs/:id/settings error:", err);

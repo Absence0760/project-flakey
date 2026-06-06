@@ -50,15 +50,22 @@ router.patch("/settings", async (req, res) => {
 
     const sets: string[] = [];
     const params: unknown[] = [];
+    // Track which fields changed by NAME for the audit detail. Never record
+    // secret VALUES (api_token) — field names only.
+    const updated: string[] = [];
     let i = 1;
-    const push = (col: string, val: unknown) => { sets.push(`${col} = $${i++}`); params.push(val); };
+    const push = (col: string, name: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      params.push(val);
+      updated.push(name);
+    };
 
-    if (base_url !== undefined) push("jira_base_url", base_url || null);
-    if (email !== undefined) push("jira_email", email || null);
-    if (api_token !== undefined) push("jira_api_token", api_token ? encryptSecret(api_token) : null);
-    if (project_key !== undefined) push("jira_project_key", project_key || null);
-    if (issue_type !== undefined) push("jira_issue_type", issue_type || "Bug");
-    if (auto_create !== undefined) push("jira_auto_create", !!auto_create);
+    if (base_url !== undefined) push("jira_base_url", "base_url", base_url || null);
+    if (email !== undefined) push("jira_email", "email", email || null);
+    if (api_token !== undefined) push("jira_api_token", "api_token", api_token ? encryptSecret(api_token) : null);
+    if (project_key !== undefined) push("jira_project_key", "project_key", project_key || null);
+    if (issue_type !== undefined) push("jira_issue_type", "issue_type", issue_type || "Bug");
+    if (auto_create !== undefined) push("jira_auto_create", "auto_create", !!auto_create);
 
     if (sets.length === 0) {
       res.status(400).json({ error: "Nothing to update" });
@@ -67,7 +74,7 @@ router.patch("/settings", async (req, res) => {
 
     params.push(req.user!.orgId);
     await tenantQuery(req.user!.orgId, `UPDATE organizations SET ${sets.join(", ")} WHERE id = $${i}`, params);
-    await logAudit(req.user!.orgId, req.user!.id, "jira.settings.update", "settings", "jira");
+    await logAudit(req.user!.orgId, req.user!.id, "jira.settings.update", "settings", "jira", { updated });
     res.json({ updated: true });
   } catch (err) {
     console.error("PATCH /jira/settings error:", err);
