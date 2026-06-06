@@ -6,7 +6,7 @@ Run a pre-tag readiness audit before publishing a GitHub release. Report a green
 
 ## Why this exists
 
-Releases here are **release-gated**: publishing a GitHub release fires three deploy workflows in parallel (`deploy-frontend.yml`, `deploy-backend.yml`, `deploy-studio.yml`), each with a skip-if-unchanged check that compares the new tag to the previous one. Cutting a tag with the working tree dirty, CI red, or unpushed commits means the deploy doesn't match what you think it does.
+Releases here are **release-gated**: publishing a GitHub release with an `app@<version>` tag fires a single `deploy.yml` workflow whose jobs run sequentially (`check-tag` → `deploy-backend` → `deploy-frontend`); `check-tag` gates the deploy on the tag matching `app@*`. Cutting a tag with the working tree dirty, CI red, or unpushed commits means the deploy doesn't match what you think it does.
 
 The gates are scattered (CI status, working tree, push state, last-tag delta per workspace) and the human-eyeball version is unreliable. This command runs them in one shot.
 
@@ -47,7 +47,7 @@ git rev-list --count HEAD..origin/main
 git rev-list --count origin/main..HEAD
 ```
 
-Both `0` → green. Behind → red. Ahead → red ("local main has unpushed commits — push first, wait for CI, then re-run"). Note: `git push` is on the `.claude/settings.json` deny list by default; surface this as a manual step.
+Both `0` → green. Behind → red. Ahead → red ("local main has unpushed commits — push first, wait for CI, then re-run"). Note: bare `git push` isn't on the `.claude/settings.json` deny list (only `git push --force`/`-f` are) — it's blocked by convention (root CLAUDE.md "Never push"), so surface it as a manual operator step.
 
 #### 2c. Latest CI run on main is green
 
@@ -57,7 +57,7 @@ gh run list --branch main --limit 1 --json status,conclusion,workflowName,headSh
 
 `status=completed` and `conclusion=success` → green. Anything else → red ("CI on the head commit is `<status>/<conclusion>` — wait for green or investigate").
 
-Also check the most recent runs of `ci.yml`, `codeql.yml`, and `audit.yml` — if any of those have an open failed run, surface as an amber row (informational; doesn't block but worth knowing).
+Also check the most recent runs of `tests.yml`, `security.yml` (CodeQL runs inside it), and `audit.yml` — if any of those have an open failed run, surface as an amber row (informational; doesn't block but worth knowing).
 
 If the user has `gh` but isn't logged in, recommend `gh auth login` and skip — don't fail the whole report.
 
@@ -66,7 +66,7 @@ If the user has `gh` but isn't logged in, recommend `gh auth login` and skip —
 Find the last release tag:
 
 ```
-git describe --tags --match 'v[0-9]*' --abbrev=0
+git describe --tags --match 'app@*' --abbrev=0
 ```
 
 For each workspace, list the commits + files changed since that tag. The release workflows skip-if-unchanged per workspace; this section makes the "what will actually deploy" picture explicit.
@@ -79,9 +79,6 @@ git diff --stat <last-tag>..HEAD -- frontend/
 # Backend
 git log --oneline <last-tag>..HEAD -- backend/
 git diff --stat <last-tag>..HEAD -- backend/
-
-# Studio
-git log --oneline <last-tag>..HEAD -- studio/
 
 # Infra (not a workspace, but matters for any deploy)
 git log --oneline <last-tag>..HEAD -- infra/
@@ -124,7 +121,7 @@ Either present → amber ("plaintext SOPS sibling exists locally — confirm it'
 ### 5. Build the report
 
 ```
-# Release readiness — proposed `v<x.y.z>`
+# Release readiness — proposed `app@<x.y.z>`
 
 ## Universal gates
 
@@ -135,13 +132,12 @@ Either present → amber ("plaintext SOPS sibling exists locally — confirm it'
 | main pushed + in sync with origin | ✓ / ✗ | ... |
 | CI green on HEAD | ✓ / ✗ | ... |
 
-## Per-workspace deltas since `v<last>`
+## Per-workspace deltas since `app@<last>`
 
 | Workspace | Commits since | Will deploy | Notes |
 |---|---|---|---|
 | Frontend | <n> | Yes / No | <one-line> |
 | Backend | <n> | Yes / No | <one-line> |
-| Studio | <n> | Yes / No | <one-line> |
 | Infra | <n> | n/a | <one-line> |
 
 ## Open audit signals
@@ -150,7 +146,7 @@ Either present → amber ("plaintext SOPS sibling exists locally — confirm it'
 - CodeQL alerts open: <count>
 - Dependabot alerts open: <count>
 
-## Changelog draft (commits since `v<last>`)
+## Changelog draft (commits since `app@<last>`)
 
 - abcd123 commit subject
 - ...
@@ -158,7 +154,7 @@ Either present → amber ("plaintext SOPS sibling exists locally — confirm it'
 ## Verdict
 
 <ALL GREEN — ready to publish a release with:
-  gh release create v<x.y.z> --title "v<x.y.z> - <short summary>" --notes "<...>">
+  gh release create app@<x.y.z> --title "app@<x.y.z> - <short summary>" --notes "<...>">
 
 or
 
@@ -172,9 +168,9 @@ End with:
 > If everything's green, the next step is:
 > ```
 > git push origin main      # if you have commits ahead
-> gh release create v<x.y.z> --title "..." --notes "..."
+> gh release create app@<x.y.z> --title "..." --notes "..."
 > ```
-> I won't run those — `git push` and `gh release create` are both on the deny list by default. That's your call.
+> I won't run those — `git push` and `gh release create` are left to the operator by convention (root CLAUDE.md "Never push"; only `git push --force`/`-f` are on the `.claude/settings.json` deny list). That's your call.
 
 **Do not tag, do not push, do not create a release, do not auto-fix any of the red gates.** This command is read-only.
 

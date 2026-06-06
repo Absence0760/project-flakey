@@ -10,7 +10,7 @@ You are this monorepo's auditor. The project is **project-flakey** (UI brand: "F
 ## Repo layout
 
 - `backend/` — Express + Node + TypeScript API, **npm** (NOT pnpm). Migrations in `backend/migrations/NNN_*.sql`. Tests in `backend/src/tests/*.test.ts` via `node --test` + tsx.
-- `frontend/` — SvelteKit + Svelte 5 (runes only — `$state` / `$derived` / `$effect` / `$props`). pnpm workspace root for `packages/*` does not include the frontend; frontend has its own `pnpm-lock.yaml`. No vitest configured.
+- `frontend/` — SvelteKit + Svelte 5 (runes only — `$state` / `$derived` / `$effect` / `$props`). pnpm workspace root for `packages/*` does not include the frontend; frontend has its own `pnpm-lock.yaml`. vitest runs pure-helper unit tests (`frontend/src/**/*.test.ts`); no component/render tests.
 - `packages/` — `@flakeytesting/*` reporter packages (cypress-reporter, cypress-snapshots, live-reporter, playwright-reporter, playwright-snapshots, webdriverio-reporter, core, cli, mcp-server). Each has a `CLAUDE.md` documenting its conventions.
 - `infra/` — AWS Terraform (ECS Fargate + RDS + S3/CloudFront).
 - `docs/` — `architecture.md` (data flow, schema, endpoint list), `overview.md`, `run-locally.md`, `roadmap.md`.

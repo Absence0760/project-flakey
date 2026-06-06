@@ -129,7 +129,7 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 
 ### `test-gap-checker`
 
-[`.claude/agents/test-gap-checker.md`](agents/test-gap-checker.md) — invoked by `/check`. Reads the working diff and reports which `*.unit.test.ts` / `*.smoke.test.ts` should ship with each modified backend source file. Frontend has **no tests by design**; the agent does not flag missing frontend tests. Skips trivial diffs. Reports only — does not write tests.
+[`.claude/agents/test-gap-checker.md`](agents/test-gap-checker.md) — invoked by `/check`. Reads the working diff and reports which `*.unit.test.ts` / `*.smoke.test.ts` should ship with each modified backend source file. Frontend has pure-helper vitest unit tests (`frontend/src/**/*.test.ts`); the agent does not flag missing frontend component/render tests. Skips trivial diffs. Reports only — does not write tests.
 
 ### `doc-hygiene-checker`
 
