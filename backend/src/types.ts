@@ -67,6 +67,12 @@ export interface FailureContext {
   // uncounted (reporter.ts skips them) — this just retains their errors so a
   // pass/fail delta across attempts is available to classify the flake.
   retry_errors?: { attempt: number; message: string; stack?: string }[];
+  // Source-map-resolved stack frames (Phase 13). Surfaced from Cypress's own
+  // resolution (err.parsedStack) so a failure points at the real spec line
+  // rather than bundled webpack coordinates. Captured reporter-side.
+  resolved_stack?: { file: string; line?: number; column?: number; function?: string }[];
+  // The resolved failure origin + source snippet (from Cypress's err.codeFrame).
+  code_frame?: { file: string; line?: number; column?: number; frame?: string };
 }
 
 export interface NormalizedTest {

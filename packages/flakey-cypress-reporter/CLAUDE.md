@@ -66,6 +66,24 @@ file re-sends the full (accumulating) context on every attempt; the plugin's
 task overwrites so the final write wins. A test that captured nothing sends no
 task and uploads with `failure_context` absent.
 
+### Source-map stack resolution
+
+Two more `failure_context` fields — **`resolved_stack`** and **`code_frame`** —
+make a failure point at the real spec line instead of bundled `webpack://`
+coordinates. These are captured **reporter-side** (`reporter.ts`
+`extractResolvedStack`), not in the support file: Cypress bundles specs and then
+*already* resolves the failure against the bundle's source maps, hanging the
+result off the error object (`err.codeFrame`, `err.parsedStack`). We surface
+that resolution rather than re-deriving it — the backend normalizer only ever
+sees the stack *string* (not the bundle or its map), so re-doing it server-side
+would be both speculative and less accurate than Cypress's own.
+
+Because the reporter writes these onto the row directly while the support file's
+context arrives via the task, the plugin's `after:run` merge **spreads** the
+support-side context onto whatever the reporter already set (rather than
+replacing it) — so `resolved_stack`/`code_frame` and `browser_console`/
+`network_failures` coexist on the same row.
+
 ## Environment label
 
 `reporterOptions.environment` (third-arg or via `setupFlakey`) takes precedence; otherwise the reporter resolves it lazily at upload time, walking `process.env.FLAKEY_ENV` → `process.env.TEST_ENV` → `config.env.environment` → `config.env.name`. The last two cover Cypress's own `cypress run --env environment=qa` / `--env name=qa` conventions. Whichever resolves first lands on the run as `meta.environment`. Resolution is lazy because `setupNodeEvents` merges `--env` after the plugin registers — capturing at registration would always see the empty value.

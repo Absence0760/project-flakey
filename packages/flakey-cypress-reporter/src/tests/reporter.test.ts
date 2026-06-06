@@ -261,6 +261,80 @@ test("retry handling: a failed test with currentRetry < retries is DROPPED so no
     "non-final retry failures must not pollute the failed count");
 });
 
+test("source-map resolution: a Cypress error's codeFrame + parsedStack land in failure_context", () => {
+  const { runner, handlers } = fakeRunner();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  new (FlakeyCypressReporter as any)(runner, {
+    reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+  });
+
+  const failed = fakeTest({
+    title: "shows dashboard after login",
+    specFile: "cypress/e2e/auth.cy.ts",
+    specTitle: "Auth",
+    duration: 80,
+  });
+  // Cypress hangs its already-source-map-resolved location off the error:
+  // codeFrame (the origin) + parsedStack (frames). The reporter must surface
+  // these, not the bundled webpack:// stack.
+  const cyErr: any = {
+    message: "expected 'Login' to equal 'Dashboard'",
+    stack: "AssertionError\n    at Context.eval (webpack:///./cypress/e2e/auth.cy.ts:42:7)",
+    codeFrame: {
+      relativeFile: "cypress/e2e/auth.cy.ts",
+      absoluteFile: "/repo/cypress/e2e/auth.cy.ts",
+      line: 42,
+      column: 7,
+      frame: "  40 | cy.get('h1')\n  41 |   .should('have.text', 'Dashboard')",
+    },
+    parsedStack: [
+      { message: "AssertionError" }, // message-only entry — must be skipped
+      { relativeFile: "cypress/e2e/auth.cy.ts", originalFile: "cypress/e2e/auth.cy.ts", line: 42, column: 7, function: "Context.eval" },
+      { fileUrl: "http://localhost/__cypress/runner.js", line: 100, column: 3 }, // runner frame, still kept (has line + fileUrl)
+    ],
+  };
+
+  handlers.get("test")!(failed);
+  handlers.get("fail")!(failed, cyErr);
+  handlers.get("end")!();
+
+  const row = readBufferedSpecs()[0].tests[0];
+  assert.equal(row.error.message, "expected 'Login' to equal 'Dashboard'");
+  const fc = row.failure_context;
+  assert.ok(fc, "failure_context must carry the resolved location");
+  assert.equal(fc.code_frame.file, "cypress/e2e/auth.cy.ts");
+  assert.equal(fc.code_frame.line, 42);
+  assert.ok(fc.code_frame.frame.includes("Dashboard"));
+  // The message-only parsedStack entry is dropped; the two frames with a line remain.
+  assert.equal(fc.resolved_stack.length, 2);
+  assert.equal(fc.resolved_stack[0].file, "cypress/e2e/auth.cy.ts");
+  assert.equal(fc.resolved_stack[0].line, 42);
+  assert.equal(fc.resolved_stack[0].function, "Context.eval");
+});
+
+test("a plain error with no Cypress codeFrame/parsedStack sets no failure_context", () => {
+  const { runner, handlers } = fakeRunner();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  new (FlakeyCypressReporter as any)(runner, {
+    reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+  });
+
+  const failed = fakeTest({
+    title: "bare error",
+    specFile: "a.cy.ts",
+    specTitle: "A",
+    err: { message: "boom", stack: "boom\n at x" },
+  });
+  handlers.get("test")!(failed);
+  handlers.get("fail")!(failed, failed.err);
+  handlers.get("end")!();
+
+  const row = readBufferedSpecs()[0].tests[0];
+  assert.equal(row.error.message, "boom");
+  assert.equal(row.failure_context, undefined,
+    "no Cypress-resolved location → no failure_context set by the reporter");
+});
+
 test("test row carries title + full_title from Mocha's fullTitle()", () => {
   const { runner, handlers } = fakeRunner();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

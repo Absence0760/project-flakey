@@ -353,7 +353,10 @@ export function flakeyReporter(
       for (const spec of specs) {
         for (const test of spec.tests) {
           const ctx = fcMap.get(`${spec.file_path}::${test.title}`);
-          if (ctx) test.failure_context = ctx as Record<string, unknown>;
+          // Spread, don't replace: the reporter may have already set
+          // resolved_stack / code_frame (source-map resolution) on the row;
+          // the support file contributes console / network / retry context.
+          if (ctx) test.failure_context = { ...test.failure_context, ...(ctx as Record<string, unknown>) };
         }
       }
       rmSync(fcDir, { recursive: true, force: true });

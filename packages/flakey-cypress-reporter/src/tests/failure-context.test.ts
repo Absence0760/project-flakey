@@ -140,6 +140,48 @@ test("a test with no failure context uploads cleanly (failure_context stays abse
     "no captured context → no failure_context key on the row");
 });
 
+test("merge spreads support-side context onto reporter-set resolved_stack (both survive)", async () => {
+  const rec = recordingOn();
+  const afterRun = flakeyReporter(rec.on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false })!;
+
+  // Reporter already wrote resolved_stack / code_frame onto the buffered row
+  // (source-map resolution happens reporter-side in addTest).
+  writeSpecBuffer({
+    file_path: "auth.cy.ts",
+    title: "A",
+    stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 9 },
+    tests: [{
+      title: "x",
+      full_title: "A > x",
+      status: "failed",
+      duration_ms: 9,
+      screenshot_paths: [],
+      failure_context: {
+        resolved_stack: [{ file: "auth.cy.ts", line: 42 }],
+        code_frame: { file: "auth.cy.ts", line: 42 },
+      },
+    }],
+  });
+
+  // Support file contributes console / network for the same test.
+  rec.tasks["flakey:saveFailureContext"]({
+    testTitle: "x",
+    specFile: "auth.cy.ts",
+    failureContext: { browser_console: ["error: boom"], network_failures: ["GET /api → 500"] },
+  });
+
+  await afterRun({});
+
+  const body = JSON.parse(calls.find((c) => c.url.endsWith("/runs"))!.opts.body as string);
+  const fc = body.specs[0].tests[0].failure_context;
+  // Reporter-set source-map fields must NOT be clobbered by the support merge.
+  assert.equal(fc.resolved_stack[0].line, 42, "reporter-set resolved_stack must survive the merge");
+  assert.equal(fc.code_frame.line, 42, "reporter-set code_frame must survive the merge");
+  // Support-side fields are added alongside.
+  assert.equal(fc.browser_console[0], "error: boom");
+  assert.equal(fc.network_failures[0], "GET /api → 500");
+});
+
 test("the failure-context buffer dir is removed after the run", async () => {
   const rec = recordingOn();
   const afterRun = flakeyReporter(rec.on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false })!;

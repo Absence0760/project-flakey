@@ -78,6 +78,47 @@ interface NormalizedTest {
   error?: { message: string; stack?: string };
   screenshot_paths: string[];
   video_path?: string;
+  failure_context?: Record<string, unknown>;
+}
+
+// Source-map stack resolution (Phase 13).
+//
+// Cypress bundles specs via webpack/esbuild, so a raw error.stack points at
+// bundled coordinates. Cypress, however, already resolves the failure against
+// the bundle's source maps and hangs the result off the error object:
+//   - err.codeFrame  — the resolved origin: { line, column, *File, frame }
+//   - err.parsedStack — frames with originalFile/relativeFile/line/column
+// Re-deriving this backend-side would be both speculative (the normalizer only
+// sees the stack *string*, not the bundle or its map) and less accurate than
+// Cypress's own resolution. So we surface what Cypress already computed.
+interface ResolvedFrame { file: string; line?: number; column?: number; function?: string }
+interface CodeFrame { file: string; line?: number; column?: number; frame?: string }
+
+function extractResolvedStack(e: any): { resolved_stack?: ResolvedFrame[]; code_frame?: CodeFrame } | undefined {
+  const out: { resolved_stack?: ResolvedFrame[]; code_frame?: CodeFrame } = {};
+
+  const cf = e?.codeFrame;
+  if (cf && (cf.relativeFile || cf.originalFile || cf.absoluteFile)) {
+    out.code_frame = {
+      file: cf.relativeFile ?? cf.originalFile ?? cf.absoluteFile,
+      line: cf.line,
+      column: cf.column,
+      frame: typeof cf.frame === "string" ? cf.frame.slice(0, 2000) : undefined,
+    };
+  }
+
+  const parsed = Array.isArray(e?.parsedStack) ? e.parsedStack : [];
+  const frames: ResolvedFrame[] = parsed
+    .filter((f: any) => f && typeof f.line === "number" && (f.relativeFile || f.originalFile || f.fileUrl))
+    .map((f: any) => ({
+      file: f.relativeFile ?? f.originalFile ?? f.fileUrl,
+      line: f.line,
+      column: f.column,
+      function: f.function,
+    }));
+  if (frames.length > 0) out.resolved_stack = frames;
+
+  return out.code_frame || out.resolved_stack ? out : undefined;
 }
 
 // ---- Temp directories ----
@@ -290,6 +331,10 @@ class FlakeyCypressReporter {
     if (err || test.err) {
       const e = err ?? test.err!;
       normalizedTest.error = { message: e.message, stack: e.stack };
+      // Surface Cypress's own source-map resolution (codeFrame / parsedStack)
+      // so the failure points at the real spec line, not bundled coordinates.
+      const resolved = extractResolvedStack(e);
+      if (resolved) normalizedTest.failure_context = resolved;
     }
 
     entry.tests.push(normalizedTest);

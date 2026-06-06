@@ -130,6 +130,10 @@ export interface FailureContext {
   uncaught_errors?: string[];
   network_failures?: string[];
   retry_errors?: { attempt: number; message: string; stack?: string }[];
+  // Source-map-resolved frames + code frame (from Cypress's own resolution),
+  // so a failure points at the real spec line rather than bundled coordinates.
+  resolved_stack?: { file: string; line?: number; column?: number; function?: string }[];
+  code_frame?: { file: string; line?: number; column?: number; frame?: string };
 }
 
 export interface TestMetadata {
