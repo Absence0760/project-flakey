@@ -627,3 +627,40 @@ export async function unquarantineTest(fullTitle: string, suiteName: string): Pr
     body: JSON.stringify({ fullTitle, suiteName }),
   });
 }
+
+// --- Audit log ---
+
+export interface AuditEntry {
+  id: number;
+  action: string;
+  target_type: string;
+  target_id: string;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+  user_email: string;
+  user_name: string;
+}
+
+export interface AuditLogFilters {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+// GET /audit — server-side filtered, offset-paginated. Returns a JSON array of
+// rows. Callers page with `offset` and keep offering "load more" while the last
+// page returned a full page (length === limit). Backend caps `limit` at 1000.
+export async function fetchAuditLog(filters?: AuditLogFilters): Promise<AuditEntry[]> {
+  const params = new URLSearchParams();
+  if (filters?.limit != null) params.set("limit", String(filters.limit));
+  if (filters?.offset != null) params.set("offset", String(filters.offset));
+  if (filters?.action) params.set("action", filters.action);
+  if (filters?.startDate) params.set("start_date", filters.startDate);
+  if (filters?.endDate) params.set("end_date", filters.endDate);
+  const qs = params.toString();
+  const res = await authFetch(`${API_URL}/audit${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`Failed to fetch audit log: ${res.status}`);
+  return res.json();
+}

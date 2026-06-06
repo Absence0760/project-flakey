@@ -5,6 +5,7 @@
   import { authFetch } from "$lib/stores/auth";
   import { toast, toastError } from "$lib/stores/toast";
   import { API_URL as apiUrl } from "$lib/utils/config";
+  import { fetchAuditLog, type AuditEntry, type AuditLogFilters } from "$lib/api";
 
   // Reactive auth state — re-reads after refresh or org switch so that
   // orgId, isOwner, and isAdmin never go stale.
@@ -308,25 +309,73 @@
   }
 
   // --- Audit ---
-  interface AuditEntry { id: number; action: string; target_type: string; target_id: string; detail: any; created_at: string; user_email: string; user_name: string; }
+  // Server-side retrieval: the backend filters by action + date range and pages
+  // via offset. We append each fetched page and keep offering "load more" while
+  // the last page came back full (length === AUDIT_PAGE_SIZE).
+  const AUDIT_PAGE_SIZE = 25;
   let auditLog = $state<AuditEntry[]>([]);
   let auditLoading = $state(true);
+  let auditMoreLoading = $state(false);
+  let hasMoreAudit = $state(false);
+
+  // Filter controls. A change refetches from offset 0.
+  let auditActionFilter = $state("");
+  let auditStartDate = $state("");
+  let auditEndDate = $state("");
+
+  function currentAuditFilters(offset: number): AuditLogFilters {
+    return {
+      limit: AUDIT_PAGE_SIZE,
+      offset,
+      action: auditActionFilter.trim() || undefined,
+      startDate: auditStartDate || undefined,
+      endDate: auditEndDate || undefined,
+    };
+  }
 
   async function loadAudit() {
     auditLoading = true;
-    // Pull up to 200 entries; the section paginates 25 at a time
-    // client-side so a huge audit log doesn't slow the page.
-    const res = await authFetch(`${apiUrl}/audit?limit=200`);
-    if (res.ok) auditLog = await res.json();
-    auditLoading = false;
+    try {
+      const page = await fetchAuditLog(currentAuditFilters(0));
+      auditLog = page;
+      hasMoreAudit = page.length === AUDIT_PAGE_SIZE;
+    } catch {
+      auditLog = [];
+      hasMoreAudit = false;
+    } finally {
+      auditLoading = false;
+    }
   }
 
-  const AUDIT_PAGE_SIZE = 25;
-  let auditVisible = $state(AUDIT_PAGE_SIZE);
-  const visibleAudit = $derived(auditLog.slice(0, auditVisible));
-  const hasMoreAudit = $derived(visibleAudit.length < auditLog.length);
-  function loadMoreAudit() {
-    auditVisible = Math.min(auditVisible + AUDIT_PAGE_SIZE, auditLog.length);
+  async function loadMoreAudit() {
+    if (auditMoreLoading) return;
+    auditMoreLoading = true;
+    try {
+      const page = await fetchAuditLog(currentAuditFilters(auditLog.length));
+      auditLog = [...auditLog, ...page];
+      hasMoreAudit = page.length === AUDIT_PAGE_SIZE;
+    } catch {
+      hasMoreAudit = false;
+    } finally {
+      auditMoreLoading = false;
+    }
+  }
+
+  // Refetch from the start whenever a filter changes.
+  function applyAuditFilters() {
+    void loadAudit();
+  }
+
+  // Render only the detail entries worth showing — skip null / empty objects.
+  function auditDetailEntries(detail: AuditEntry["detail"]): [string, unknown][] {
+    if (!detail || typeof detail !== "object") return [];
+    return Object.entries(detail);
+  }
+
+  function formatDetailValue(value: unknown): string {
+    if (value == null) return "—";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
   }
 
   // --- Confirm modal (replaces window.confirm) ---
@@ -433,18 +482,17 @@
     return () => window.removeEventListener('scroll', onScroll);
   });
 
-  // Preserve Suites + Audit pagination depth, the active sub-nav
-  // section, and scroll position across back/forward navigation.
+  // Preserve Suites pagination depth, the active sub-nav section, and scroll
+  // position across back/forward navigation. The audit log pages from the
+  // server, so it reloads its first page on restore rather than replaying depth.
   export const snapshot = {
     capture: () => ({
       suitesVisible,
-      auditVisible,
       activeSection,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
-    restore: (s: { suitesVisible: number; auditVisible: number; activeSection: string; scrollY: number }) => {
+    restore: (s: { suitesVisible: number; activeSection: string; scrollY: number }) => {
       suitesVisible = s.suitesVisible;
-      auditVisible = s.auditVisible;
       activeSection = s.activeSection;
       queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
     },
@@ -885,30 +933,57 @@
           <header class="section-header">
             <div>
               <h2 class="section-title">Audit log</h2>
-              <p class="section-subtitle">Recent activity in this organization. Up to 200 events, paginated 25 at a time.</p>
+              <p class="section-subtitle">Recent activity in this organization. Filter by action or date; load more to page back through history.</p>
             </div>
           </header>
 
           <div class="card">
+            <div class="row-form audit-filters">
+              <input
+                type="text"
+                placeholder="Filter by action (e.g. member.invited)"
+                bind:value={auditActionFilter}
+                onchange={applyAuditFilters}
+              />
+              <label class="audit-date-label">
+                From
+                <input type="date" bind:value={auditStartDate} onchange={applyAuditFilters} />
+              </label>
+              <label class="audit-date-label">
+                To
+                <input type="date" bind:value={auditEndDate} onchange={applyAuditFilters} />
+              </label>
+            </div>
+
             {#if auditLoading}
               <p class="muted">Loading...</p>
             {:else if auditLog.length === 0}
-              <p class="muted">No activity yet.</p>
+              <p class="muted">No activity matches these filters.</p>
             {:else}
               <div class="audit-list">
-                {#each visibleAudit as entry}
+                {#each auditLog as entry}
                   <div class="audit-row">
-                    <span class="audit-time" title={absoluteDate(entry.created_at)}>{timeAgo(entry.created_at)}</span>
-                    <span class="audit-user">{entry.user_name || entry.user_email || "System"}</span>
-                    <span class="audit-action">{formatAction(entry.action)}</span>
-                    {#if entry.target_id}<span class="audit-target">{entry.target_type}: {entry.target_id}</span>{/if}
+                    <div class="audit-main">
+                      <span class="audit-time" title={absoluteDate(entry.created_at)}>{timeAgo(entry.created_at)}</span>
+                      <span class="audit-user">{entry.user_name || entry.user_email || "System"}</span>
+                      <span class="audit-action">{formatAction(entry.action)}</span>
+                      {#if entry.target_id}<span class="audit-target">{entry.target_type}: {entry.target_id}</span>{/if}
+                    </div>
+                    {#if auditDetailEntries(entry.detail).length > 0}
+                      <dl class="audit-detail">
+                        {#each auditDetailEntries(entry.detail) as [key, value]}
+                          <dt>{key}</dt>
+                          <dd><code>{formatDetailValue(value)}</code></dd>
+                        {/each}
+                      </dl>
+                    {/if}
                   </div>
                 {/each}
               </div>
               {#if hasMoreAudit}
                 <div class="load-more">
-                  <button class="load-more-btn" onclick={loadMoreAudit}>
-                    Load more ({auditLog.length - visibleAudit.length} more)
+                  <button class="load-more-btn" onclick={loadMoreAudit} disabled={auditMoreLoading}>
+                    {auditMoreLoading ? "Loading..." : "Load more"}
                   </button>
                 </div>
               {/if}
@@ -1175,16 +1250,39 @@
   .wh-events { display: flex; gap: 0.25rem; flex-shrink: 0; flex-wrap: wrap; max-width: 240px; }
 
   /* Audit */
+  .audit-filters { margin-bottom: 0.85rem; }
+  .audit-date-label {
+    display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem;
+    color: var(--text-secondary); white-space: nowrap;
+  }
+  .audit-date-label input[type="date"] {
+    padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 0.8rem; outline: none;
+  }
+  .audit-date-label input[type="date"]:focus { border-color: var(--link); }
+
   .audit-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
   .audit-row {
-    display: flex; align-items: baseline; gap: 0.75rem; padding: 0.4rem 0;
+    display: flex; flex-direction: column; gap: 0.25rem; padding: 0.5rem 0;
     border-top: 1px solid var(--border-light); font-size: 0.8rem;
   }
   .audit-row:first-child { border-top: none; }
+  .audit-main { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
   .audit-time { color: var(--text-muted); font-size: 0.72rem; min-width: 4.5rem; flex-shrink: 0; }
   .audit-user { color: var(--text-secondary); min-width: 8rem; flex-shrink: 0; }
   .audit-action { font-weight: 500; color: var(--text); }
   .audit-target { color: var(--text-muted); font-family: monospace; font-size: 0.75rem; }
+
+  .audit-detail {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.6rem;
+    margin: 0 0 0 5.25rem; padding: 0; font-size: 0.72rem;
+  }
+  .audit-detail dt { color: var(--text-muted); font-family: monospace; }
+  .audit-detail dd { margin: 0; min-width: 0; }
+  .audit-detail dd code {
+    font-family: monospace; color: var(--text-secondary); word-break: break-word;
+    background: var(--bg-secondary); padding: 0.05rem 0.3rem; border-radius: 3px;
+  }
 
   /* API endpoint */
   .field-row { display: flex; gap: 1rem; font-size: 0.875rem; align-items: center; }
