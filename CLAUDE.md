@@ -39,6 +39,7 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025)
 - `pnpm storage:up` / `pnpm storage:down` — opt-in MinIO (S3-compatible store; console http://localhost:9001) for exercising `STORAGE=s3` locally
 - `pnpm webhooks:up` / `pnpm webhooks:down` — opt-in webhook echo sink (:8080) for inspecting outbound webhooks
+- `pnpm idp:up` / `pnpm idp:down` / `pnpm idp:reset` — opt-in local Keycloak (:8081) for prototyping + e2e-testing enterprise SSO (Phase 14, not yet built); seeds the `flakey` realm from `infra/keycloak/flakey-realm.json`. `idp:reset` recreates the container so realm edits re-import. See [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md)
 - `pnpm services:up` / `pnpm services:down` — bring up / tear down every local service at once
 - `pnpm install:backend` — runs `npm install` inside `backend/` (the only workspace outside the pnpm tree)
 - `pnpm build` — builds packages → backend → frontend (build:packages first so reporter dist/ is fresh)
@@ -67,6 +68,7 @@ One reference so new services don't collide. Defaults — override via env where
 | 9000 | MinIO S3 API | opt-in (`pnpm storage:up`); `S3_ENDPOINT` |
 | 9001 | MinIO console | opt-in; `minioadmin` / `minioadmin` |
 | 8080 | Webhook echo sink | opt-in (`pnpm webhooks:up`) |
+| 8081 | Keycloak (local IdP) | opt-in (`pnpm idp:up`); admin `admin`/`admin`; realm `flakey` |
 
 ## Package manager
 

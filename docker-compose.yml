@@ -68,6 +68,28 @@ services:
         mc mb --ignore-existing local/flakey-artifacts;
         mc anonymous set download local/flakey-artifacts;
 
+  # Local OIDC/SAML identity provider for prototyping + e2e-testing Flakey SSO
+  # (Phase 14) with zero online signup. Opt-in via `--profile idp` because
+  # stock auth (JWT + API keys + email/password) needs no IdP. The `flakey`
+  # realm is seeded deterministically from infra/keycloak/flakey-realm.json on
+  # boot (users sso.admin@example.com / sso.viewer@example.com, password
+  # `ssopassword`; OIDC client `flakey-web`). Admin console at
+  # http://localhost:8081 (admin / admin). Runs on 8081 to dodge the
+  # webhook-sink's 8080.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: flakey-keycloak
+    profiles: ["idp"]
+    command: ["start-dev", "--import-realm", "--http-port=8081"]
+    ports:
+      - "8081:8081"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak/flakey-realm.json:/opt/keycloak/data/import/flakey-realm.json:ro
+
   # Echo server for inspecting outbound webhooks / PR-comment posts
   # locally. Opt-in via `--profile integrations`. Point a webhook target
   # at http://localhost:8080 and read payloads with

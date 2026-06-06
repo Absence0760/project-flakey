@@ -1,0 +1,79 @@
+{
+  "realm": "flakey",
+  "enabled": true,
+  "displayName": "Flakey (local dev IdP)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "flakey-admin", "description": "Maps to Flakey org role: admin" },
+      { "name": "flakey-viewer", "description": "Maps to Flakey org role: viewer" }
+    ]
+  },
+  "groups": [
+    { "name": "flakey-admins", "realmRoles": ["flakey-admin"] },
+    { "name": "flakey-viewers", "realmRoles": ["flakey-viewer"] }
+  ],
+  "users": [
+    {
+      "username": "sso.admin@example.com",
+      "email": "sso.admin@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sso",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "ssopassword", "temporary": false }],
+      "realmRoles": ["flakey-admin"]
+    },
+    {
+      "username": "sso.viewer@example.com",
+      "email": "sso.viewer@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sso",
+      "lastName": "Viewer",
+      "credentials": [{ "type": "password", "value": "ssopassword", "temporary": false }],
+      "realmRoles": ["flakey-viewer"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "flakey-web",
+      "name": "Flakey dashboard (OIDC)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "flakey-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:7778/*",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "post.logout.redirect.uris": "+",
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "flakey_roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}
