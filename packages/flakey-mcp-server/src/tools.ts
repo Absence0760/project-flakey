@@ -173,7 +173,7 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
     { suite: z.string().optional().describe("Filter by suite name") },
     async ({ suite }) => {
       const params = suite ? `?suite=${encodeURIComponent(suite)}` : "";
-      const result = await api(`/slowest${params}`);
+      const result = await api(`/tests/slowest/list${params}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );

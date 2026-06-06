@@ -225,13 +225,15 @@ test("analyze_error (mutation gate ON) POSTs /analyze/error/<fingerprint>", asyn
   assert.equal(call.opts?.method, "POST");
 });
 
-test("get_slowest_tests with no suite goes to /slowest (no querystring)", async () => {
+test("get_slowest_tests with no suite hits /tests/slowest/list (no querystring)", async () => {
   const { server, tools } = fakeServer();
   const apiHelper = fakeApi();
   registerTools(server, { api: apiHelper.api, log: () => {} });
 
   await tools.find((t) => t.name === "get_slowest_tests")!.handler({});
-  assert.equal(apiHelper.calls[0].path, "/slowest");
+  // Must match the real backend route (backend/src/routes/tests.ts mounts
+  // GET /slowest/list under /tests). A bare /slowest 404s.
+  assert.equal(apiHelper.calls[0].path, "/tests/slowest/list");
 });
 
 test("get_stats composes optional from + to date params", async () => {
@@ -367,8 +369,8 @@ test("get_slowest_tests percent-encodes a suite name with spaces + ampersand", a
   await tools.find((t) => t.name === "get_slowest_tests")!.handler({
     suite: "auth & checkout",
   });
-  // encodeURIComponent: space → %20, & → %26
-  assert.equal(apiHelper.calls[0].path, "/slowest?suite=auth%20%26%20checkout");
+  // encodeURIComponent: space → %20, & → %26 (on the real /tests/slowest/list route)
+  assert.equal(apiHelper.calls[0].path, "/tests/slowest/list?suite=auth%20%26%20checkout");
 });
 
 test("get_stats percent-encodes special chars in date params via URLSearchParams", async () => {
