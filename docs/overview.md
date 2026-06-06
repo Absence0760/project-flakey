@@ -19,7 +19,7 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 ## Features
 
 ### Reporting
-- **7 reporters**: Mochawesome (Cypress/Mocha), JUnit XML (Jest, pytest, Go, Java, .NET), Playwright JSON, Jest JSON, WebdriverIO JSON
+- **5 reporters**: Mochawesome (Cypress/Mocha), JUnit XML (Jest, pytest, Go, Java, .NET), Playwright JSON, Jest JSON, WebdriverIO JSON
 - **Direct reporter plugins**: `@flakeytesting/cypress-reporter`, `@flakeytesting/playwright-reporter`, `@flakeytesting/webdriverio-reporter`
 - **Live reporter**: `@flakeytesting/live-reporter` streams test progress in real-time during execution; test rows are upserted to the database on `test.started` (status `pending`) and updated on `test.passed/failed/skipped`, so results appear on the run detail page before the run finishes. A 30s heartbeat (empty-body POST `/live/:runId/events`) keeps long quiet scenarios from tripping stale-run auto-abort
 - **Artifact management**: screenshots, videos, DOM snapshots — stored locally or on S3. DOM snapshots stream mid-run via `POST /live/:runId/snapshot`. Cypress screenshots stream per-test via `POST /live/:runId/screenshot` (hooked off `after:screenshot`) so failures show their image as soon as the test fails; the end-of-run batch upload skips already-streamed files and remains the fallback for non-live runs

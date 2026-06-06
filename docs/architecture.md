@@ -100,7 +100,7 @@ Scheduler (internal, advisory-lock coordinated):
 
 ## Component breakdown
 
-### 1. CLI uploader (`cli/`)
+### 1. CLI uploader (`packages/flakey-cli/`)
 
 - Reads report files from configurable output directory
 - Auto-detects file format based on reporter flag (`.json` or `.xml`)
@@ -394,8 +394,8 @@ configured, so enabling one integration never affects the others.
 
 A periodic tick that selects due reports, renders a daily or weekly test
 summary, and delivers it via email, Slack, or a generic webhook. The
-dispatcher takes a Postgres session-scoped advisory lock
-(`pg_try_advisory_lock(0x666c616b79)`) before running, so multi-replica
+dispatcher takes a transaction-scoped Postgres advisory lock
+(`pg_try_advisory_xact_lock(0x666c616b79)`) before running, so multi-replica
 backends do not double-fire.
 
 ### 7a. Live event bus (`backend/src/live-events.ts`)

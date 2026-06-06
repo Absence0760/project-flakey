@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [Docker](https://www.docker.com/) (for PostgreSQL, Mailpit, and the optional MinIO / webhook services)
-- [Node.js](https://nodejs.org/) (v18+)
+- [Node.js](https://nodejs.org/) v22+ (CI runs 22/24)
 - [pnpm](https://pnpm.io/) (for the frontend)
 
 ## Setup

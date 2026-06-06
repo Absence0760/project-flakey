@@ -33,7 +33,7 @@ pnpm install:backend      # backend (uses its own npm lockfile)
 cd backend && npm run seed
 ```
 
-Creates three users (admin / demo / viewer), two orgs, and 56 sample test runs (Mochawesome, Playwright, JUnit).
+Creates three users (admin / demo / viewer), two orgs, and ~85 sample test runs across ~25 suites spanning Mochawesome, Playwright, and JUnit.
 
 ### 4. Start the app
 
@@ -345,8 +345,8 @@ after-script:
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Failed login attempts before per-account lockout |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lockout duration after threshold is hit |
 | `AUTH_RATE_LIMIT_MAX` | `20` prod / `500` dev | Per-IP request cap (15 min window) for unauthenticated auth endpoints: login, register, refresh, logout, password reset, verify-email |
-| `UPLOAD_RATE_LIMIT_MAX` | `60` prod / `1000` dev | Per-IP cap on POST /runs and POST /runs/upload |
-| `API_RATE_LIMIT_MAX` | `600` prod / `100000` dev | Per-IP cap on the global API surface (all authenticated routes below the upload + artifact + health buckets) |
+| `UPLOAD_RATE_LIMIT_MAX` | `200` prod / `5000` dev | Per-IP cap on POST /runs and POST /runs/upload |
+| `API_RATE_LIMIT_MAX` | `1500` prod / `50000` dev | Per-IP cap on the global API surface (all authenticated routes below the upload + artifact + health buckets) |
 | `ARTIFACT_RATE_LIMIT_MAX` | `3000` prod / `100000` dev | Per-IP cap on /uploads/* artifact serves (a release detail page renders dozens of screenshots — keep this high) |
 | `HEALTH_RATE_LIMIT_MAX` | `600` | Per-IP cap on /health (load balancer probes bypass other limiters but get their own bucket) |
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | When `true`, webhooks can target loopback / private IP ranges. Dev already allows it, so the local `--profile integrations` echo sink works out of the box; set `true` explicitly to allow it in production. SSRF gate stays in place for other schemes. |

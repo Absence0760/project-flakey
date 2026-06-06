@@ -63,8 +63,8 @@
 - [x] Terraform infrastructure (AWS: ECS Fargate, RDS, S3, CloudFront)
 - [x] Backend Dockerfile
 - [x] Frontend static hosting on S3/CloudFront (no Docker needed)
-- [x] GitHub Actions deploy pipeline (path-filtered, backend + frontend independent)
-- [x] GitHub Actions npm publish pipeline (@flakeytesting/cli, @flakeytesting/cypress-snapshots)
+- [x] GitHub Actions deploy pipeline (release-triggered on an `app@<version>` tag; deploy-backend → deploy-frontend)
+- [x] GitHub Actions npm publish pipeline (all @flakeytesting/* packages)
 - [x] CI integration examples (GitHub Actions, Bitbucket Pipelines)
 - [x] S3 storage adapter for artifacts (currently local disk)
 - [x] Helm chart for Kubernetes
@@ -138,7 +138,7 @@ skills below it.
   - Browser console output + uncaught exceptions / unhandled rejections at failure time (a large share of Cypress reds are really an app `window.onerror`, not a bad selector).
   - Network log — failed `cy.intercept`/XHRs around the failure ("the API 500'd," not "the element never appeared").
   - Retry-attempt trail — retain each attempt's error (still uncounted, preserving the `reporter.ts:254` behavior) so the delta between a failing and a passing attempt is available to classify the flake.
-- [ ] **Evidence-pulling MCP tools** (thin wrappers over existing routes, complementing the 9 read tools in `flakey-mcp-server`): `get_test_artifacts(runId, testId)` (screenshot/video/snapshot URLs + command-log/console/network for one failure), `compare_runs(a, b)` (expose `/compare` — newly-failed / flipped), `get_similar_failures(fingerprint)` (expose `/analyze/similar`).
+- [ ] **Evidence-pulling MCP tools** (thin wrappers over existing routes, complementing the 10 read tools in `flakey-mcp-server`): `get_test_artifacts(runId, testId)` (screenshot/video/snapshot URLs + command-log/console/network for one failure), `compare_runs(a, b)` (expose `/compare` — newly-failed / flipped), `get_similar_failures(fingerprint)` (expose `/analyze/similar`).
 - [ ] **Cypress repro + triage skills** — the Cypress counterpart to the Playwright-only `flake-doctor`: `/cypress-repro <run|spec>` (resolve the failing spec from a run id and run it deterministically against `examples/cypress`, retries off + video on) and `/cypress-diagnose <runId>` (pull error + artifacts + command-log + similar failures, then classify the failure — selector drift / timing / app error / network / data collision — with a heuristic, provider-free first pass).
 - [ ] **Reporter payload replay CLI** — feed a captured Cypress/mochawesome JSON straight through `parseMochawesome` + the upload path and dump the normalized result, for a sub-second loop on ingestion bugs without standing up the stack.
 - [ ] **Source-map stack resolution** — resolve Cypress stack frames (bundled code) back to the real spec line so a failure points at *where in the test* it threw.
