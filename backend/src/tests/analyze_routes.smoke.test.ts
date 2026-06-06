@@ -9,14 +9,13 @@
  * result — and we do NOT mock one. We assert their *honest* disabled
  * behavior instead:
  *
- *   - POST /analyze/error/:fingerprint and POST /analyze/flaky check
- *     isAIEnabled() FIRST (before any validation or fingerprint lookup —
- *     see analyze.ts), so with AI off they short-circuit to 503 with the
- *     documented "AI analysis requires ANTHROPIC_API_KEY to be configured"
- *     message. The 400 (missing field) and 404 (unknown fingerprint)
- *     branches sit *behind* that guard and are therefore unreachable while
- *     AI is disabled — asserting them as 400/404 here would be aspirational,
- *     so we assert what the code actually returns: 503.
+ *   - POST /analyze/error/:fingerprint and POST /analyze/flaky validate input
+ *     and resolve the cache / fingerprint BEFORE gating on isAIEnabled() (see
+ *     analyze.ts), so the request-shape errors are reachable regardless of AI
+ *     config: a missing fullTitle → 400, an unknown fingerprint → 404. Only a
+ *     well-formed request that resolves to a real target and has no cached
+ *     analysis reaches the AI gate, which (AI off) returns 503 with the
+ *     documented "AI analysis requires ANTHROPIC_API_KEY to be configured".
  *
  *   - POST /analyze/similar/:fingerprint is fully deterministic: it uses
  *     computeSimilarity() over stored error fingerprints (NOT the AI
@@ -198,11 +197,11 @@ test("GET /analyze/status reports AI disabled in the test env", async () => {
   assert.equal(data.enabled, false, "AI must be disabled in the test env for these assertions to hold");
 });
 
-// ── POST /analyze/error/:fingerprint (AI off → 503 short-circuit) ─────────
+// ── POST /analyze/error/:fingerprint ──────────────────────────────────────
 
-test("POST /analyze/error/:fingerprint returns 503 with the documented message when AI is off", async () => {
-  // Use a real, existing fingerprint to prove the 503 fires BEFORE the
-  // fingerprint lookup — the isAIEnabled() guard is the first statement.
+test("POST /analyze/error/:fingerprint reaches the AI gate (503) for a real, uncached fingerprint when AI is off", async () => {
+  // A real uploaded error fingerprint resolves the lookup (cache miss → found),
+  // so the request reaches the AI gate, which is off → 503.
   const fp = fingerprintOf(TARGET_MSG, suiteName);
   const res = await post(`/analyze/error/${fp}`, {});
   assert.equal(res.status, 503);
@@ -210,17 +209,18 @@ test("POST /analyze/error/:fingerprint returns 503 with the documented message w
   assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
 });
 
-test("POST /analyze/error/:fingerprint with an unknown fingerprint still returns 503 (guard precedes the 404 path)", async () => {
-  // The 404 "Error not found" branch is unreachable while AI is disabled
-  // because isAIEnabled() is checked first. Assert what the code actually
-  // does, not the aspirational 404.
+test("POST /analyze/error/:fingerprint returns 404 for an unknown fingerprint (resolution precedes the AI gate)", async () => {
+  // The fingerprint lookup runs before the isAIEnabled() gate, so an unknown
+  // fingerprint 404s with the documented message regardless of AI config.
   const res = await post(`/analyze/error/${"0".repeat(32)}`, {});
-  assert.equal(res.status, 503);
+  assert.equal(res.status, 404);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "Error not found");
 });
 
-// ── POST /analyze/flaky (AI off → 503 short-circuit) ──────────────────────
+// ── POST /analyze/flaky ───────────────────────────────────────────────────
 
-test("POST /analyze/flaky returns 503 with the documented message when AI is off", async () => {
+test("POST /analyze/flaky reaches the AI gate (503) for a well-formed, uncached request when AI is off", async () => {
   const res = await post(`/analyze/flaky`, {
     fullTitle: "Suite > some flaky test",
     suiteName,
@@ -230,11 +230,13 @@ test("POST /analyze/flaky returns 503 with the documented message when AI is off
   assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
 });
 
-test("POST /analyze/flaky with a missing fullTitle still returns 503 (guard precedes the 400 path)", async () => {
-  // The 400 "fullTitle is required" validation sits behind the isAIEnabled()
-  // guard, so with AI off the 503 wins. Assert the real behavior.
+test("POST /analyze/flaky returns 400 for a missing fullTitle (validation precedes the AI gate)", async () => {
+  // Input validation runs before the isAIEnabled() gate, so a malformed
+  // request 400s with the documented message regardless of AI config.
   const res = await post(`/analyze/flaky`, { suiteName });
-  assert.equal(res.status, 503);
+  assert.equal(res.status, 400);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "fullTitle is required");
 });
 
 // ── POST /analyze/similar/:fingerprint (deterministic, no AI) ─────────────

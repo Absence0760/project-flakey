@@ -26,15 +26,11 @@ router.post("/test-connection", async (_req, res) => {
 // POST /analyze/error/:fingerprint — analyze an error group
 router.post("/error/:fingerprint", async (req, res) => {
   try {
-    if (!isAIEnabled()) {
-      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
-      return;
-    }
-
     const orgId = req.user!.orgId;
     const fingerprint = req.params.fingerprint;
 
-    // Check cache
+    // Serve a cached analysis if we have one — it's a plain DB read, so it
+    // works regardless of whether the AI provider is currently configured.
     const cached = await tenantQuery(orgId,
       "SELECT * FROM ai_analyses WHERE target_type = 'error' AND target_key = $1",
       [fingerprint]
@@ -59,6 +55,13 @@ router.post("/error/:fingerprint", async (req, res) => {
 
     if (errorResult.rows.length === 0) {
       res.status(404).json({ error: "Error not found" });
+      return;
+    }
+
+    // Only now, when we're about to call the model, gate on AI being enabled —
+    // so an unknown fingerprint 404s and a cached hit returns even with AI off.
+    if (!isAIEnabled()) {
+      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
       return;
     }
 
@@ -98,14 +101,11 @@ router.post("/error/:fingerprint", async (req, res) => {
 // POST /analyze/flaky — analyze a flaky test
 router.post("/flaky", async (req, res) => {
   try {
-    if (!isAIEnabled()) {
-      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
-      return;
-    }
-
     const orgId = req.user!.orgId;
     const { fullTitle, filePath, suiteName, flakyRate, flipCount, totalRuns, timeline } = req.body;
 
+    // Validate input before anything else, so a malformed request gets a 400
+    // whether or not the AI provider is configured.
     if (!fullTitle) {
       res.status(400).json({ error: "fullTitle is required" });
       return;
@@ -113,13 +113,19 @@ router.post("/flaky", async (req, res) => {
 
     const cacheKey = `${fullTitle}|${suiteName}`;
 
-    // Check cache
+    // Serve a cached analysis if present — a plain DB read, no AI required.
     const cached = await tenantQuery(orgId,
       "SELECT * FROM ai_analyses WHERE target_type = 'flaky' AND target_key = $1",
       [cacheKey]
     );
     if (cached.rows.length > 0) {
       res.json(cached.rows[0]);
+      return;
+    }
+
+    // Gate on AI only when we're about to call the model.
+    if (!isAIEnabled()) {
+      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
       return;
     }
 
