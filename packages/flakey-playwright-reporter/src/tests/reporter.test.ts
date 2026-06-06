@@ -1,5 +1,8 @@
 import { test, mock, beforeEach, afterEach } from "node:test";
 import { strict as assert } from "node:assert";
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import FlakeyPlaywrightReporter from "../reporter.ts";
 
@@ -464,4 +467,289 @@ test("onEnd with zero collected tests still POSTs (covers the 'all tests skipped
   const payload = uploadPayload(fetchMock.calls);
   assert.equal(payload.specs.length, 0);
   assert.equal(payload.stats.total, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Real-disk attachment lifecycle. The reporter records attachment *paths*
+// during onTestEnd; the actual existsSync/readFileSync happens at onEnd
+// (inside ApiClient.postRunWithFiles). A screenshot that Playwright wrote
+// during the run but that got cleaned up before onEnd (CI tmp reaping, a
+// custom global-teardown rm -rf, etc.) must be silently dropped — never
+// read, never uploaded — and the run payload must still be valid.
+// ---------------------------------------------------------------------------
+
+test("attachment deleted between onTestEnd and onEnd is dropped — upload falls back to plain /runs and payload stays valid", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "flakey-pw-reporter-"));
+  try {
+    const shotPath = join(dir, "shot.png");
+    writeFileSync(shotPath, Buffer.from([0x89, 0x50, 0x4e, 0x47])); // PNG magic
+
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({
+        status: "failed",
+        duration: 5,
+        errorMessage: "boom",
+        attachments: [{ name: "shot.png", path: shotPath, contentType: "image/png" }],
+      }),
+    );
+
+    // The file vanishes after the test ran but before the reporter flushes.
+    rmSync(shotPath);
+    assert.equal(existsSync(shotPath), false, "precondition: file is gone before onEnd");
+
+    await r.onEnd({ status: "failed" });
+
+    // With no surviving files, postRunWithFiles routes to the JSON /runs
+    // endpoint, NOT the multipart /runs/upload. The dropped file must not
+    // appear anywhere — and crucially the upload must not throw on a
+    // readFileSync of a missing path.
+    const upload = fetchMock.calls.find((c) => c.url.endsWith("/runs/upload"));
+    assert.equal(upload, undefined, "no multipart upload when the only attachment was deleted");
+    const json = fetchMock.calls.find((c) => c.url.endsWith("/runs") && c.opts.method === "POST");
+    assert.ok(json, "deleted-attachment run falls back to a plain POST /runs");
+
+    const payload = uploadPayload(fetchMock.calls);
+    // The run record is still complete and correct — losing the screenshot
+    // file must not lose the test result.
+    assert.equal(payload.specs[0].tests[0].title, "x");
+    assert.equal(payload.specs[0].tests[0].status, "failed");
+    assert.equal(payload.stats.total, 1);
+    assert.equal(payload.stats.failed, 1);
+    // The path is still recorded on the normalized test (it described what
+    // the run produced); the *upload* is what drops it. Pin that the upload
+    // body carries no file form-field for the vanished screenshot.
+    assert.equal(fetchMock.calls.some((c) => c.url.endsWith("/runs/upload")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("surviving attachment IS uploaded multipart even when a sibling attachment was deleted", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "flakey-pw-reporter-"));
+  try {
+    const kept = join(dir, "kept.png");
+    const gone = join(dir, "gone.png");
+    writeFileSync(kept, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(gone, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({
+        status: "failed",
+        duration: 5,
+        errorMessage: "boom",
+        attachments: [
+          { name: "kept.png", path: kept, contentType: "image/png" },
+          { name: "gone.png", path: gone, contentType: "image/png" },
+        ],
+      }),
+    );
+
+    rmSync(gone); // only one of the two screenshots survives to onEnd
+
+    await r.onEnd({ status: "failed" });
+
+    const upload = fetchMock.calls.find((c) => c.url.endsWith("/runs/upload"));
+    assert.ok(upload, "a surviving attachment still routes to multipart /runs/upload");
+    const body: FormData = upload!.opts.body;
+    const shots = body.getAll("screenshots");
+    assert.equal(shots.length, 1, "exactly the one surviving screenshot is attached");
+    // The form-field is a File/Blob whose name is the basename of the kept path.
+    assert.equal((shots[0] as File).name, "kept.png", "the surviving screenshot keeps its basename");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Empty options + no env. This is the misconfigured-CI case: a consumer
+// who forgot to set FLAKEY_API_URL/KEY. The reporter must construct without
+// throwing, and the eventual upload failure must be CAUGHT and logged — not
+// an unhandled rejection that crashes the Playwright process post-run.
+// ---------------------------------------------------------------------------
+
+test("empty options {} + no FLAKEY_* env: constructs cleanly and the failed upload is caught (no unhandled throw)", async () => {
+  // No fetch stub that resolves — url is "" so ApiClient hits `${""}/runs`,
+  // i.e. a relative URL fetch which rejects. Drive the *real* failure path
+  // by restoring a fetch that rejects like the runtime would.
+  for (const k of ["FLAKEY_API_URL", "FLAKEY_API_KEY", "FLAKEY_SUITE"]) delete process.env[k];
+
+  const errors: string[] = [];
+  const origError = console.error;
+  console.error = (...args: any[]) => { errors.push(args.join(" ")); };
+
+  // A fetch that rejects the way a request to an empty/invalid base URL does.
+  globalThis.fetch = mock.fn(async () => {
+    throw new TypeError("Failed to parse URL from /runs");
+  }) as unknown as typeof fetch;
+
+  try {
+    // Must not throw on construct.
+    const r = new FlakeyPlaywrightReporter({} as any);
+    assert.equal((r as any).options.url, "", "url defaults to empty string with no option/env");
+    assert.equal((r as any).options.suite, "default", "suite defaults to 'default'");
+
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+
+    // Must not throw / reject — the catch in onEnd swallows it into a log.
+    await r.onEnd({ status: "passed" });
+
+    assert.ok(
+      errors.some((e) => e.includes("[flakey] Failed to upload")),
+      "the caught upload failure is surfaced via console.error, not thrown",
+    );
+  } finally {
+    console.error = origError;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Branch env-var precedence. Source order (reporter.ts onEnd):
+//   options.branch ?? BRANCH ?? GITHUB_HEAD_REF ?? GITHUB_REF_NAME ??
+//   BITBUCKET_BRANCH ?? ""
+// On a GitHub PR build BOTH GITHUB_HEAD_REF (the PR source branch) and
+// GITHUB_REF_NAME (the synthetic `<n>/merge` ref) are set — the reporter
+// must prefer GITHUB_HEAD_REF so the dashboard shows the real branch.
+// ---------------------------------------------------------------------------
+
+test("branch precedence: GITHUB_HEAD_REF wins over GITHUB_REF_NAME on a PR build", async () => {
+  process.env.GITHUB_HEAD_REF = "feature/login-fix";
+  process.env.GITHUB_REF_NAME = "42/merge";
+  try {
+    const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    r.onTestEnd(
+      pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+      pwResult({ status: "passed", duration: 1 }),
+    );
+    await r.onEnd({ status: "passed" });
+
+    const payload = uploadPayload(fetchMock.calls);
+    assert.equal(
+      payload.meta.branch, "feature/login-fix",
+      "GITHUB_HEAD_REF (real PR branch) must beat GITHUB_REF_NAME ('<n>/merge')",
+    );
+  } finally {
+    delete process.env.GITHUB_HEAD_REF;
+    delete process.env.GITHUB_REF_NAME;
+  }
+});
+
+test("branch precedence: BRANCH beats every GitHub/Bitbucket var, and option.branch beats BRANCH", async () => {
+  process.env.BRANCH = "explicit-branch";
+  process.env.GITHUB_HEAD_REF = "gh-head";
+  process.env.GITHUB_REF_NAME = "gh-ref";
+  process.env.BITBUCKET_BRANCH = "bb-branch";
+  try {
+    // No option → BRANCH wins (top of the env chain).
+    {
+      const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+      r.onTestEnd(
+        pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+        pwResult({ status: "passed", duration: 1 }),
+      );
+      await r.onEnd({ status: "passed" });
+      assert.equal(uploadPayload(fetchMock.calls).meta.branch, "explicit-branch");
+    }
+
+    // option.branch → wins over everything including BRANCH.
+    fetchMock = makeFetchMock();
+    globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+    {
+      const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE, branch: "opt-branch" });
+      r.onTestEnd(
+        pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+        pwResult({ status: "passed", duration: 1 }),
+      );
+      await r.onEnd({ status: "passed" });
+      assert.equal(uploadPayload(fetchMock.calls).meta.branch, "opt-branch");
+    }
+
+    // GITHUB_REF_NAME is the fallback only once HEAD_REF is absent.
+    delete process.env.BRANCH;
+    delete process.env.GITHUB_HEAD_REF;
+    fetchMock = makeFetchMock();
+    globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+    {
+      const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+      r.onTestEnd(
+        pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+        pwResult({ status: "passed", duration: 1 }),
+      );
+      await r.onEnd({ status: "passed" });
+      assert.equal(
+        uploadPayload(fetchMock.calls).meta.branch, "gh-ref",
+        "with BRANCH + GITHUB_HEAD_REF gone, GITHUB_REF_NAME is next in line",
+      );
+    }
+  } finally {
+    delete process.env.BRANCH;
+    delete process.env.GITHUB_HEAD_REF;
+    delete process.env.GITHUB_REF_NAME;
+    delete process.env.BITBUCKET_BRANCH;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Trace collection across retries. A flaky test that fails twice then passes
+// produces a fresh trace.zip on each attempt. The reporter early-returns on
+// every non-final failed attempt (retry < retries) BEFORE it records any
+// attachment — so the earlier attempts' traces are never even read at onEnd.
+// Only the final attempt's trace is processed.
+// ---------------------------------------------------------------------------
+
+test("trace across retries: only the final attempt's trace is processed — earlier attempts' traces are never read", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "flakey-pw-reporter-trace-"));
+  try {
+    // Earlier-attempt trace paths point at files that DON'T exist. If the
+    // reporter wrongly recorded a non-final attempt's trace, parseTrace
+    // would be invoked against these missing paths — but more importantly
+    // the early-return means onTestEnd never touches them at all. The
+    // final attempt's "trace" is a real (non-trace) zip so parseTrace runs
+    // against it and returns an empty result without throwing.
+    const finalTrace = join(dir, "final-trace.zip");
+    writeFileSync(finalTrace, Buffer.from("not-a-real-trace-but-exists"));
+
+    const t = pwTest({ title: "flaky", file: "a.spec.ts", retries: 2, titlePath: ["A", "flaky"] });
+
+    // Attempt 0 + 1 fail. Each "produced" a trace at a bogus path. These
+    // attempts early-return at the top of onTestEnd, so the trace is dropped.
+    const reporter = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    reporter.onTestEnd(t, pwResult({
+      status: "failed", retry: 0, duration: 100, errorMessage: "1",
+      attachments: [{ name: "trace", path: join(dir, "attempt0.zip"), contentType: "application/zip" }],
+    }));
+    reporter.onTestEnd(t, pwResult({
+      status: "failed", retry: 1, duration: 110, errorMessage: "2",
+      attachments: [{ name: "trace", path: join(dir, "attempt1.zip"), contentType: "application/zip" }],
+    }));
+    // Final attempt passes, with a real (present) trace file.
+    reporter.onTestEnd(t, pwResult({
+      status: "passed", retry: 2, duration: 120,
+      attachments: [{ name: "trace", path: finalTrace, contentType: "application/zip" }],
+    }));
+
+    await reporter.onEnd({ status: "passed" });
+
+    // The internal traceMap must hold exactly one entry, keyed by the test,
+    // and it must point at the FINAL attempt's trace — not attempt0/1.
+    const traceMap: Map<string, { tracePath: string }> = (reporter as any).traceMap;
+    assert.equal(traceMap.size, 1, "one trace entry — earlier failed-retry traces were never recorded");
+    const entry = traceMap.get("a.spec.ts::flaky");
+    assert.ok(entry, "trace is keyed by spec::title");
+    assert.equal(entry!.tracePath, finalTrace, "only the final attempt's trace survives");
+
+    // And the run itself counted the flaky test exactly once, as passed.
+    const payload = uploadPayload(fetchMock.calls);
+    const rows = payload.specs[0].tests.filter((x: any) => x.title === "flaky");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, "passed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -363,3 +363,194 @@ test("parseAndSaveTrace returns snapshotPath: null and writes nothing when there
   assert.equal(existsSync(outputDir), false,
     "the output dir is only created when there's something to write");
 });
+
+/**
+ * Helper for the trace-file-selection cases below: real Playwright trace
+ * zips ship several `.trace` files (the library trace `0-trace.trace`, the
+ * `0-network.trace`, a `*-stacks.trace`, etc.). The parser must select the
+ * library trace and ignore the others. `buildTraceZip` only ever writes
+ * `0-trace.trace`, so these cases assemble the zip directly.
+ */
+function buildMultiTraceZip(
+  traceFiles: Record<string, any[]>,
+  resources: Record<string, Buffer> = {},
+): string {
+  const zip = new AdmZip();
+  for (const [fileName, lines] of Object.entries(traceFiles)) {
+    const text = lines.map((l) => JSON.stringify(l)).join("\n");
+    zip.addFile(fileName, Buffer.from(text, "utf8"));
+  }
+  for (const [name, buf] of Object.entries(resources)) {
+    zip.addFile(`resources/${name}`, buf);
+  }
+  const path = join(tmpRoot, "trace.zip");
+  zip.writeZip(path);
+  return path;
+}
+
+test("with both 0-trace.trace and 0-network.trace present, the library trace is used and network is ignored", () => {
+  const path = buildMultiTraceZip({
+    // The real page actions live here.
+    "0-trace.trace": [
+      { type: "context-options", options: { viewport: { width: 1280, height: 720 } } },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "http://app.test" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 200 },
+    ],
+    // The network trace carries request/response events that look like
+    // actions but use a different class — if the parser read this file it
+    // would either pick up the wrong "action" or (more likely) parse a
+    // before/after pair that should never reach the command log.
+    "0-network.trace": [
+      { type: "before", callId: "n1", class: "Page", method: "fetch", params: { url: "http://api.test/secret" }, startTime: 150 },
+      { type: "after", callId: "n1", endTime: 175 },
+    ],
+  });
+
+  const { commandLog } = parseTrace(path, "x", "x.spec.ts");
+
+  // Exactly the one action from 0-trace.trace; nothing from the network trace.
+  assert.equal(commandLog.length, 1,
+    "only the library trace's actions should be parsed; the network trace is ignored");
+  assert.equal(commandLog[0].name, "goto");
+  assert.equal(commandLog[0].message, "http://app.test");
+  assert.equal(
+    commandLog.some((c) => c.name === "fetch"),
+    false,
+    "the network trace's 'fetch' action must not leak into the command log",
+  );
+});
+
+test("falls back to a non-network .trace when 0-trace.trace is absent", () => {
+  // No "0-trace.trace". The library actions are in "1-trace.trace"; a
+  // network trace and a stacks trace are present and must both be ignored.
+  const path = buildMultiTraceZip({
+    "1-trace.trace": [
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "http://fallback.test" }, startTime: 10 },
+      { type: "after", callId: "c1", endTime: 20 },
+    ],
+    "0-network.trace": [
+      { type: "before", callId: "n1", class: "Page", method: "fetch", params: { url: "http://api.test" }, startTime: 12 },
+      { type: "after", callId: "n1", endTime: 18 },
+    ],
+    "0-stacks.trace": [
+      { type: "before", callId: "s1", class: "Page", method: "evaluate", params: {}, startTime: 11 },
+      { type: "after", callId: "s1", endTime: 19 },
+    ],
+  });
+
+  const { commandLog } = parseTrace(path, "x", "x.spec.ts");
+
+  assert.equal(commandLog.length, 1,
+    "the non-network/non-stacks .trace must be used as a fallback for 0-trace.trace");
+  assert.equal(commandLog[0].name, "goto");
+  assert.equal(commandLog[0].message, "http://fallback.test");
+});
+
+test("an empty (truncated) image resource is base64'd as-is and still produces a step — no throw", () => {
+  // A real trace can reference a frame whose resource file was written
+  // empty (run killed mid-flush). adm-zip returns a zero-length Buffer;
+  // base64 of "" is "" and the step is still emitted rather than crashing.
+  const path = buildTraceZip(
+    [
+      { type: "screencastFrame", sha1: "empty_frame", timestamp: 150, width: 100, height: 100 },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 200 },
+    ],
+    {
+      "empty_frame.jpeg": Buffer.alloc(0), // truncated/empty resource
+    },
+  );
+
+  const { snapshotBundle } = parseTrace(path, "x", "x.spec.ts");
+  assert.ok(snapshotBundle, "an empty resource must not abort bundle creation");
+  assert.equal(snapshotBundle.steps.length, 1,
+    "the step is still produced from a present-but-empty resource");
+  // The empty buffer yields an empty base64 payload — the data URL prefix
+  // is still there, the payload is just blank.
+  assert.ok(
+    snapshotBundle.steps[0].html.includes("data:image/jpeg;base64,\""),
+    "empty resource base64s to an empty payload, leaving a bare data: URL",
+  );
+});
+
+test("a corrupt/garbage image resource is base64'd verbatim (parser does not validate image bytes)", () => {
+  // Non-image bytes under a .jpeg key. The parser is a passthrough — it
+  // base64s whatever is there; downstream display is the viewer's problem,
+  // not the parser's. The contract here is: don't crash, don't drop the step.
+  const garbage = Buffer.from("not an image at all \x00\x01\x02", "binary");
+  const path = buildTraceZip(
+    [
+      { type: "screencastFrame", sha1: "corrupt", timestamp: 150, width: 100, height: 100 },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 200 },
+    ],
+    {
+      "corrupt.jpeg": garbage,
+    },
+  );
+
+  const { snapshotBundle } = parseTrace(path, "x", "x.spec.ts");
+  assert.ok(snapshotBundle);
+  assert.equal(snapshotBundle.steps.length, 1);
+  assert.ok(
+    snapshotBundle.steps[0].html.includes(`data:image/jpeg;base64,${garbage.toString("base64")}`),
+    "corrupt bytes are embedded verbatim as base64; the parser does not validate or reject them",
+  );
+});
+
+test("filename collision: two titles that sanitize to the same name OVERWRITE (last write wins, no uniquification)", () => {
+  // Both titles sanitize identically: "Login: works!" and "Login  works"
+  //   strip non-alphanum (drops ':' and '!') then collapse \s+ → '-'
+  //   → both become "Login-works".
+  const buildOneStepTrace = (sha1: string, body: Buffer): string => {
+    const zip = new AdmZip();
+    const lines = [
+      { type: "screencastFrame", sha1, timestamp: 150, width: 100, height: 100 },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 200 },
+    ];
+    zip.addFile("0-trace.trace", Buffer.from(lines.map((l) => JSON.stringify(l)).join("\n"), "utf8"));
+    zip.addFile(`resources/${sha1}.jpeg`, body);
+    const p = join(tmpRoot, `trace-${sha1}.zip`);
+    zip.writeZip(p);
+    return p;
+  };
+
+  const outputDir = join(tmpRoot, "collide");
+  const firstBody = Buffer.from("FIRST");
+  const secondBody = Buffer.from("SECOND");
+
+  const first = parseAndSaveTrace(
+    buildOneStepTrace("aaa", firstBody),
+    "Login: works!",
+    "spec.ts",
+    outputDir,
+  );
+  const second = parseAndSaveTrace(
+    buildOneStepTrace("bbb", secondBody),
+    "Login  works",
+    "spec.ts",
+    outputDir,
+  );
+
+  // Documented behavior: identical sanitized names → identical output path.
+  assert.ok(first.snapshotPath && second.snapshotPath);
+  assert.equal(second.snapshotPath, first.snapshotPath,
+    "two titles that sanitize to the same name resolve to the SAME file path");
+  assert.match(second.snapshotPath, /spec\.ts--Login-works\.json\.gz$/);
+
+  // The second write OVERWRITES the first — there is no -1/-2 uniquification.
+  // Prove it by reading the file back: it must contain SECOND's frame, not FIRST's.
+  const parsed = JSON.parse(gunzipSync(readFileSync(second.snapshotPath)).toString("utf8"));
+  assert.equal(parsed.testTitle, "Login  works",
+    "the surviving bundle is the second (last) write — first was overwritten");
+  assert.ok(
+    parsed.steps[0].html.includes(secondBody.toString("base64")),
+    "the on-disk frame is SECOND's; the first bundle is gone (overwrite, not uniquify)",
+  );
+  assert.equal(
+    parsed.steps[0].html.includes(firstBody.toString("base64")),
+    false,
+    "FIRST's frame must NOT survive — confirming overwrite, not a second uniquified file",
+  );
+});

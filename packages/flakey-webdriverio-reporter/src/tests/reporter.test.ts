@@ -413,6 +413,71 @@ test("FLAKEY_ENV / TEST_ENV env populate run.meta.environment; absent → field 
   }
 });
 
+test("started suite with a file but zero tests is still a clean no-op (specMap non-empty, total === 0)", async () => {
+  // A spec file that registers (onSuiteStart fires with a file) but emits
+  // no test events — e.g. an all-`it.skip`-stripped or empty `describe`.
+  // specMap has an entry, but run-level `total` is still 0, so onRunnerEnd
+  // must early-return before any POST and leave isSynchronised true.
+  const r = new FlakeyWdioReporter({
+    url: URL, apiKey: API_KEY, suite: SUITE,
+    logFile: "/tmp/wdio.log",
+  });
+  r.onRunnerStart(runnerStats());
+  r.onSuiteStart(suiteStats("test/specs/empty.spec.js", "Empty"));
+  // No onTestPass/Fail/Skip at all.
+  await r.onRunnerEnd(runnerStats());
+
+  assert.equal(fetchMock.fn.mock.callCount(), 0,
+    "a registered-but-empty spec must not trigger an upload");
+  assert.equal(r.isSynchronised, true,
+    "the early-return path must restore isSynchronised so WDIO can exit");
+});
+
+test("empty WDIO run (no suites ever start) finishes as a no-op without throwing", async () => {
+  // The driving workflow: a spec with no suites at all. onRunnerEnd must
+  // not throw, must not POST, and must complete the synchronisation
+  // handshake — even though no ApiClient call ever happens.
+  const r = new FlakeyWdioReporter({
+    url: URL, apiKey: API_KEY, suite: SUITE,
+    logFile: "/tmp/wdio.log",
+  });
+  r.onRunnerStart(runnerStats());
+  // No onSuiteStart, no test events — specMap stays empty.
+  await assert.doesNotReject(
+    () => r.onRunnerEnd(runnerStats()),
+    "an empty run must not reject from onRunnerEnd",
+  );
+
+  assert.equal(fetchMock.fn.mock.callCount(), 0,
+    "no suites started → no upload");
+  assert.equal(r.isSynchronised, true);
+});
+
+test("falsy-file suite + test events: onRunnerEnd is a no-op (orphan tests never reach an upload)", async () => {
+  // onSuiteStart with a falsy `file` never seeds the specMap (the guard in
+  // onSuiteStart requires a truthy activeSpec), so subsequent test events
+  // hit addTest with an empty specKey and are dropped. The whole run then
+  // ends as a clean no-op rather than crashing or shipping a phantom spec.
+  const r = new FlakeyWdioReporter({
+    url: URL, apiKey: API_KEY, suite: SUITE,
+    logFile: "/tmp/wdio.log",
+  });
+  r.onRunnerStart(runnerStats());
+  r.onSuiteStart({ title: "no-file describe" } as any); // file is undefined
+  r.onTestPass(testStats("orphan-pass", "no-file describe > orphan-pass", 5));
+  r.onTestFail(testStats("orphan-fail", "no-file describe > orphan-fail", 7, { message: "boom" }));
+  r.onTestSkip(testStats("orphan-skip", "no-file describe > orphan-skip", 0));
+
+  await assert.doesNotReject(
+    () => r.onRunnerEnd(runnerStats()),
+    "orphan tests under a file-less suite must not make onRunnerEnd reject",
+  );
+
+  assert.equal(fetchMock.fn.mock.callCount(), 0,
+    "with no spec ever registered, the run uploads nothing");
+  assert.equal(r.isSynchronised, true);
+});
+
 test("upload error is caught and logged; isSynchronised eventually flips back to true", async () => {
   // Force the upload to fail.
   fetchMock = {

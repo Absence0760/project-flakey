@@ -409,3 +409,156 @@ test("a failing test without err arg AND without test.err (defensive) still buff
   // No error object since neither arg nor test.err had one — must NOT crash.
   assert.equal(row.error, undefined);
 });
+
+test("'end' with zero tests collected (run aborted before first test) does not throw and writes no buffer files", () => {
+  // Client workflow: a Cypress run aborts before a single test runs (e.g. a
+  // beforeAll/config crash). The reporter still gets 'end' — it must not throw,
+  // and saveToTmp over an empty specMap must be a clean no-op (no buffer files).
+  const { runner, handlers } = fakeRunner();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  new (FlakeyCypressReporter as any)(runner, {
+    reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+  });
+
+  // No 'test'/'pass'/'fail'/'pending' events at all — straight to 'end'.
+  assert.doesNotThrow(() => handlers.get("end")!());
+
+  const specs = readBufferedSpecs();
+  assert.equal(specs.length, 0, "an aborted run with zero tests writes no buffer files");
+});
+
+test("'end' with zero tests fires no live events even when a live run is active", async () => {
+  // The empty-run path must not POST any /live events — there were no tests to
+  // report — but it also must not throw on the way to a no-op 'end'.
+  process.env.FLAKEY_LIVE_RUN_ID = "9090";
+  try {
+    const { runner, handlers } = fakeRunner();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    new (FlakeyCypressReporter as any)(runner, {
+      reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+    });
+
+    assert.doesNotThrow(() => handlers.get("end")!());
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(fetchMock.fn.mock.callCount(), 0,
+      "no tests means no live-event POSTs");
+    // Buffer dir scoped to the run-id still gets created by saveToTmp, but holds
+    // no spec files.
+    assert.equal(readBufferedSpecs().length, 0);
+  } finally {
+    delete process.env.FLAKEY_LIVE_RUN_ID;
+  }
+});
+
+test("a live-event POST that REJECTS is swallowed: buffering and the final buffer write are unaffected", async () => {
+  // Client workflow: mid-run the backend becomes unreachable and fetch() rejects
+  // (DNS failure / connection refused / abort). Live events are fire-and-forget
+  // — the .catch must absorb the rejection so it never surfaces as an
+  // unhandledRejection and never interrupts buffering or the end-of-run write.
+  process.env.FLAKEY_LIVE_RUN_ID = "4242";
+
+  // Trap any unhandledRejection that escapes the reporter's .catch — if one
+  // fires, the fire-and-forget contract is broken.
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+
+  try {
+    // First POST (test.started) succeeds; every POST after that rejects, so we
+    // exercise the failure path mid-stream rather than from the first event.
+    let callCount = 0;
+    const calls: Capture[] = [];
+    const failingFetch = mock.fn(async (url: string, opts: any) => {
+      calls.push({ url, opts });
+      callCount++;
+      if (callCount === 1) return new Response("{}", { status: 200 });
+      throw new Error("ECONNREFUSED: backend unreachable");
+    });
+    globalThis.fetch = failingFetch as unknown as typeof fetch;
+
+    const { runner, handlers } = fakeRunner();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    new (FlakeyCypressReporter as any)(runner, {
+      reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+    });
+
+    const t = fakeTest({
+      title: "keeps going",
+      fullTitle: "Resilient > keeps going",
+      specFile: "a.cy.ts",
+      specTitle: "Resilient",
+      duration: 33,
+    });
+
+    // Driving the events must not throw despite the rejecting fetch.
+    assert.doesNotThrow(() => {
+      handlers.get("test")!(t);   // test.started -> POST #1 (ok)
+      handlers.get("pass")!(t);   // test.passed  -> POST #2 (rejects)
+      handlers.get("end")!();
+    });
+
+    // Let the fire-and-forget promises settle so any escaped rejection would land.
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(unhandled.length, 0,
+      `a rejecting live-event fetch must be swallowed by .catch, saw ${unhandled.length} unhandledRejection(s)`);
+    assert.ok(callCount >= 2, "both the started and passed events attempted a POST");
+
+    // Buffering is unaffected: the spec + test row are still written to disk.
+    const specs = readBufferedSpecs();
+    assert.equal(specs.length, 1, "the buffer write proceeds despite the failed live POST");
+    assert.equal(specs[0].tests[0].title, "keeps going");
+    assert.equal(specs[0].stats.passed, 1);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    delete process.env.FLAKEY_LIVE_RUN_ID;
+  }
+});
+
+test("a live-event POST that resolves with a 5xx does not throw and does not interrupt buffering", async () => {
+  // fetch() resolving with a non-2xx Response is NOT a rejection — the reporter
+  // ignores the response entirely (it never inspects status), so a 5xx is a
+  // silent no-op. Assert the run still buffers cleanly and nothing throws.
+  process.env.FLAKEY_LIVE_RUN_ID = "5050";
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+
+  try {
+    const fiveHundred = mock.fn(async () =>
+      new Response("upstream boom", { status: 503 }));
+    globalThis.fetch = fiveHundred as unknown as typeof fetch;
+
+    const { runner, handlers } = fakeRunner();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    new (FlakeyCypressReporter as any)(runner, {
+      reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+    });
+
+    const t = fakeTest({
+      title: "survives 5xx",
+      specFile: "a.cy.ts",
+      specTitle: "S",
+      duration: 12,
+    });
+    assert.doesNotThrow(() => {
+      handlers.get("test")!(t);
+      handlers.get("pass")!(t);
+      handlers.get("end")!();
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(unhandled.length, 0, "a 5xx live response must not surface as a rejection");
+    assert.ok(fiveHundred.mock.callCount() >= 2, "live POSTs were attempted");
+
+    const specs = readBufferedSpecs();
+    assert.equal(specs.length, 1);
+    assert.equal(specs[0].stats.passed, 1, "buffering unaffected by the 5xx live response");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    delete process.env.FLAKEY_LIVE_RUN_ID;
+  }
+});

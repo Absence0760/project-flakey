@@ -2,6 +2,9 @@ import { test, mock, beforeEach, afterEach } from "node:test";
 import { strict as assert } from "node:assert";
 
 import { LiveClient, installShutdownHandler } from "../index.ts";
+import type { LiveEvent } from "../index.ts";
+
+type LiveEventType = LiveEvent["type"];
 
 const URL = "https://api.example.com";
 const RUN_ID = 42;
@@ -156,6 +159,145 @@ test("stop() prevents the heartbeat from firing further fetches", async () => {
   // Wait long enough for ≥3 more heartbeats if stop didn't work.
   await new Promise((r) => setTimeout(r, 120));
   assert.equal(fetchMock.mock.callCount(), beforeStop, "stop() must cancel further heartbeats");
+});
+
+test("a burst of send()s flushes in emit order with nothing lost or reordered", async () => {
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+
+  const types: LiveEventType[] = [
+    "run.started",
+    "spec.started",
+    "test.started",
+    "test.passed",
+    "test.started",
+    "test.failed",
+    "test.started",
+    "test.skipped",
+    "spec.finished",
+    "run.finished",
+  ];
+  for (let i = 0; i < types.length; i++) {
+    client.send({ type: types[i], test: `t${i}` });
+  }
+
+  await client.flush();
+
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof mock.fn>;
+  assert.equal(fetchMock.mock.callCount(), 1, "a single flush delivers the whole burst in one POST");
+  const body = JSON.parse(fetchMock.mock.calls[0].arguments[1].body as string) as Array<{ type: string; test?: string }>;
+  assert.equal(body.length, types.length, "no events dropped from the batch");
+  // Order must be exactly the emit order — no reordering across the batch.
+  assert.deepEqual(body.map((e) => e.type), types, "events flushed in the exact order they were sent");
+  assert.deepEqual(body.map((e) => e.test), types.map((_, i) => `t${i}`), "per-event payload preserved + ordered");
+
+  client.stop();
+});
+
+test("queue resets after a successful flush; the next send() reschedules a fresh auto-flush", async () => {
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+
+  client.send({ type: "test.passed", test: "first" });
+  await client.flush();
+
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof mock.fn>;
+  assert.equal(fetchMock.mock.callCount(), 1);
+
+  // A second flush with nothing new queued must NOT re-POST the first batch —
+  // proves the queue was drained, not merely copied.
+  await client.flush();
+  assert.equal(fetchMock.mock.callCount(), 1, "drained queue → no duplicate POST of already-sent events");
+
+  // After a drain the auto-flush timer was cleared. A fresh send() must
+  // reschedule its own 500ms timer and deliver the new event on its own.
+  client.send({ type: "test.failed", test: "second" });
+  await new Promise((r) => setTimeout(r, 600));
+
+  assert.equal(fetchMock.mock.callCount(), 2, "post-drain send() reschedules and auto-flushes");
+  const secondBody = JSON.parse(fetchMock.mock.calls[1].arguments[1].body as string) as Array<{ test?: string }>;
+  assert.equal(secondBody.length, 1, "second batch only contains events sent after the drain");
+  assert.equal(secondBody[0].test, "second");
+
+  client.stop();
+});
+
+test("send() during an in-flight flush is retained for the next batch, not dropped", async () => {
+  // Gate the in-flight fetch so we can interleave a send() before it resolves.
+  let releaseFetch: () => void = () => {};
+  const fetchGate = new Promise<void>((resolve) => {
+    releaseFetch = resolve;
+  });
+  const fetchMock = mock.fn(async () => {
+    await fetchGate;
+    return new Response("{}", { status: 200 });
+  });
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+
+  client.send({ type: "test.passed", test: "in-flight-1" });
+  const firstFlush = client.flush(); // splices the queue, then awaits the gated fetch
+
+  // While that fetch is still pending, the runner emits another event.
+  client.send({ type: "test.failed", test: "arrived-mid-flush" });
+
+  // Release the in-flight fetch and let the first flush settle.
+  releaseFetch();
+  await firstFlush;
+
+  assert.equal(fetchMock.mock.callCount(), 1, "only the first batch has gone out so far");
+  const firstBody = JSON.parse(fetchMock.mock.calls[0].arguments[1].body as string) as Array<{ test?: string }>;
+  assert.deepEqual(firstBody.map((e) => e.test), ["in-flight-1"], "first batch holds only the pre-flush event");
+
+  // The event sent mid-flush must still be queued — flush it now.
+  await client.flush();
+  assert.equal(fetchMock.mock.callCount(), 2, "the mid-flush event triggers its own batch");
+  const secondBody = JSON.parse(fetchMock.mock.calls[1].arguments[1].body as string) as Array<{ test?: string }>;
+  assert.deepEqual(secondBody.map((e) => e.test), ["arrived-mid-flush"],
+    "event emitted during an in-flight flush is delivered in the next batch — not lost");
+
+  client.stop();
+});
+
+test("a 5xx response does not reject flush(); the run continues but the batch is dropped (best-effort, no retry)", async () => {
+  const fetchMock = mock.fn(async () => new Response("upstream boom", { status: 503 }));
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+  client.send({ type: "test.passed", test: "x" });
+
+  // fetch resolves (5xx is not a thrown error), so flush must not reject.
+  await assert.doesNotReject(() => client.flush(), "a 5xx response must not crash the run");
+  assert.equal(fetchMock.mock.callCount(), 1);
+
+  // Contract check: the source `splice(0)`s the queue BEFORE the request and
+  // never re-enqueues on a non-2xx response, so a failed flush silently
+  // discards that batch with no retry. A subsequent flush has nothing to send.
+  await client.flush();
+  assert.equal(fetchMock.mock.callCount(), 1,
+    "no automatic retry — the 5xx batch is gone, not re-sent on the next flush");
+
+  client.stop();
+});
+
+test("a mid-flush abort (fetch throws AbortError) is swallowed and the dropped batch is not retried", async () => {
+  const fetchMock = mock.fn(async () => {
+    const err = new Error("The operation was aborted");
+    err.name = "AbortError";
+    throw err;
+  });
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+  client.send({ type: "test.passed", test: "aborted-batch" });
+
+  await assert.doesNotReject(() => client.flush(), "an aborted request must not crash the run");
+  assert.equal(fetchMock.mock.callCount(), 1);
+
+  // The batch was spliced out before the throw, so it's lost — nothing to resend.
+  await client.flush();
+  assert.equal(fetchMock.mock.callCount(), 1, "the aborted batch is dropped, not retried");
+
+  client.stop();
 });
 
 test("installShutdownHandler returns a teardown that prevents subsequent SIGINT-driven aborts", async () => {

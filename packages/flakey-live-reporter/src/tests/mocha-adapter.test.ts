@@ -1,5 +1,8 @@
 import { test, mock, beforeEach, afterEach } from "node:test";
 import { strict as assert } from "node:assert";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 import { register } from "../mocha.ts";
 
@@ -320,5 +323,223 @@ test("FLAKEY_API_URL / FLAKEY_API_KEY env vars work without explicit config", as
   } finally {
     delete process.env.FLAKEY_API_URL;
     delete process.env.FLAKEY_API_KEY;
+  }
+});
+
+// --- Malformed /live/start response handling -----------------------------
+//
+// Cypress spawns the Mocha reporter in a SEPARATE process from
+// setupNodeEvents; the numeric run id is handed off to it via tmpdir /
+// homedir files. A compromised or buggy /live/start endpoint could return
+// an `id` field that isn't a finite positive integer (a string, null, an
+// object, NaN, or unparseable JSON). The adapter must REJECT such a value
+// at the boundary so nothing surprising is smuggled into process.env, the
+// handoff files, or the downstream /events URL — and register() must keep
+// running instead of throwing the consumer's whole Cypress run.
+
+/** Builds a fetch mock whose /live/start returns a caller-supplied body. */
+function makeStartBodyMock(bodyMaker: () => Response): { fn: ReturnType<typeof mock.fn>; calls: Capture[] } {
+  const calls: Capture[] = [];
+  const fn = mock.fn(async (url: string, opts: any) => {
+    calls.push({ url, opts });
+    if (url.endsWith("/live/start")) return bodyMaker();
+    return new Response("{}", { status: 200 });
+  });
+  return { fn, calls };
+}
+
+/** Runs `fn` with console.warn + console.error captured; restores after. */
+async function captureConsole(fn: () => Promise<void>): Promise<{ warn: string[]; error: string[] }> {
+  const warn: string[] = [];
+  const error: string[] = [];
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = (...a: unknown[]) => { warn.push(a.map(String).join(" ")); };
+  console.error = (...a: unknown[]) => { error.push(a.map(String).join(" ")); };
+  try {
+    await fn();
+  } finally {
+    console.warn = origWarn;
+    console.error = origError;
+  }
+  return { warn, error };
+}
+
+test("malformed /live/start (unparseable JSON): no run id, no events, register() does not throw", async () => {
+  const mockFetch = makeStartBodyMock(
+    () => new Response("<html>502 Bad Gateway</html>", {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE, verbose: true });
+
+  const { error } = await captureConsole(async () => {
+    // Must not reject even though res.json() throws on the bad body.
+    await handlers.get("before:run")!();
+    await handlers.get("after:run")!({ totalFailed: 0 });
+  });
+
+  // res.json() throwing lands in the outer catch, which logs an error.
+  assert.ok(
+    error.some((l) => l.includes("[flakey-live] Failed to start live run")),
+    "an unparseable /live/start body should be logged as a start failure",
+  );
+  // No run id was resolved → no LiveClient → no /events traffic.
+  assert.equal(
+    mockFetch.calls.find((c) => c.url.includes("/events")),
+    undefined,
+    "a malformed start response must not produce any /events calls",
+  );
+  assert.equal(process.env.FLAKEY_LIVE_RUN_ID, undefined,
+    "a malformed start response must not set FLAKEY_LIVE_RUN_ID");
+});
+
+test("/live/start with {id:'uuid'} (string): id validation rejects, no events, warns in verbose", async () => {
+  const mockFetch = makeStartBodyMock(
+    () => new Response(JSON.stringify({ id: "5d8f-uuid-not-a-number" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE, verbose: true });
+
+  const { warn } = await captureConsole(async () => {
+    await handlers.get("before:run")!();
+    await handlers.get("after:run")!({ totalFailed: 0 });
+  });
+
+  assert.ok(
+    warn.some((l) => l.includes("non-numeric id")),
+    "a string id should be rejected with a verbose warning",
+  );
+  assert.equal(
+    mockFetch.calls.find((c) => c.url.includes("/events")),
+    undefined,
+    "a string id must not be smuggled into a /events URL",
+  );
+  assert.equal(process.env.FLAKEY_LIVE_RUN_ID, undefined,
+    "a string id must not be written to FLAKEY_LIVE_RUN_ID");
+});
+
+test("/live/start with {id:null}: id validation rejects, no events", async () => {
+  const mockFetch = makeStartBodyMock(
+    () => new Response(JSON.stringify({ id: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  // Non-verbose: register() must STILL reject cleanly and stay silent.
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE });
+
+  await handlers.get("before:run")!();
+  await handlers.get("after:run")!({ totalFailed: 0 });
+
+  assert.equal(
+    mockFetch.calls.find((c) => c.url.includes("/events")),
+    undefined,
+    "a null id must not produce any /events calls",
+  );
+  assert.equal(process.env.FLAKEY_LIVE_RUN_ID, undefined,
+    "a null id must not be written to FLAKEY_LIVE_RUN_ID");
+});
+
+test("/live/start with {id:999} and no ci_run_id: CI_RUN_ID env is NOT set", async () => {
+  const mockFetch = makeStartBodyMock(
+    () => new Response(JSON.stringify({ id: 999 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE });
+
+  await handlers.get("before:run")!();
+  await handlers.get("after:run")!({ totalFailed: 0 });
+
+  // The valid numeric id IS adopted...
+  assert.equal(process.env.FLAKEY_LIVE_RUN_ID, "999",
+    "a valid numeric id should be adopted as the run id");
+  // ...but with no ci_run_id in the response, CI_RUN_ID stays unset so
+  // the post-run upload doesn't merge into a bogus CI run.
+  assert.equal(process.env.CI_RUN_ID, undefined,
+    "a missing ci_run_id must leave process.env.CI_RUN_ID unset");
+});
+
+test("/live/start with {id:999, ci_run_id:123} (number): ci_run_id is NOT assigned to env", async () => {
+  const mockFetch = makeStartBodyMock(
+    () => new Response(JSON.stringify({ id: 999, ci_run_id: 123 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE });
+
+  await handlers.get("before:run")!();
+  await handlers.get("after:run")!({ totalFailed: 0 });
+
+  assert.equal(process.env.FLAKEY_LIVE_RUN_ID, "999",
+    "the valid numeric id is still adopted");
+  // ci_run_id is only honoured when it's a string. A numeric ci_run_id
+  // must not be coerced into process.env.CI_RUN_ID.
+  assert.equal(process.env.CI_RUN_ID, undefined,
+    "a non-string ci_run_id must not be written to process.env.CI_RUN_ID");
+});
+
+test("valid /live/start writes a readable run-id to the homedir fallback handoff file", async () => {
+  // The Mocha reporter in Cypress 15+ can live in a process tree that
+  // shares no ancestor pid with setupNodeEvents; the homedir singleton
+  // (~/.flakey-reporter/latest-run-id) is the fallback it reads. Assert
+  // the file is written with the resolved numeric id during the run, then
+  // cleaned up by after:run.
+  const HOME_FILE = join(homedir(), ".flakey-reporter", "latest-run-id");
+  // Pre-clean any stray file from an aborted prior run so the assertion
+  // reflects THIS run's write, not leftover state.
+  try { rmSync(HOME_FILE, { force: true }); } catch { /* ignore */ }
+
+  const mockFetch = makeStartBodyMock(
+    () => new Response(JSON.stringify({ id: ASSIGNED_RUN_ID, ci_run_id: ASSIGNED_CI_RUN_ID }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  globalThis.fetch = mockFetch.fn as unknown as typeof fetch;
+
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE });
+
+  try {
+    await handlers.get("before:run")!();
+
+    // During the run, the homedir handoff file holds the numeric run id
+    // the cross-process Mocha reporter will read.
+    const written = readFileSync(HOME_FILE, "utf8");
+    assert.equal(written, String(ASSIGNED_RUN_ID),
+      "the homedir fallback file must contain the resolved numeric run id");
+
+    // after:run unlinks the handoff files.
+    await handlers.get("after:run")!({ totalFailed: 0 });
+    assert.throws(
+      () => readFileSync(HOME_FILE, "utf8"),
+      "after:run should remove the homedir handoff file",
+    );
+  } finally {
+    // Belt-and-suspenders: never leave the file behind if an assertion
+    // above threw before after:run ran.
+    try { rmSync(HOME_FILE, { force: true }); } catch { /* ignore */ }
   }
 });

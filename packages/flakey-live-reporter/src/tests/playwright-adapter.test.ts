@@ -211,3 +211,173 @@ test("after /live/start sets process.env.CI_RUN_ID for the main reporter to pick
     delete process.env.CI_RUN_ID;
   }
 });
+
+// --- Multi-instance / sharding workflow -------------------------------------
+// Playwright spawns one reporter instance per worker/shard. Each instance owns
+// its own runId and must stream only to its own /live/<id>/events; constructing
+// or finishing one instance must not corrupt another's transport. The events
+// queue and LiveClient live as instance fields (no module-level mutable state),
+// so isolation should hold — these tests lock that in.
+
+// Filter the flat event list to only those POSTed to a specific runId's URL.
+function eventsForRunId(calls: Capture[], runId: number): any[] {
+  const out: any[] = [];
+  for (const c of calls) {
+    if (!c.url.endsWith(`/live/${runId}/events`)) continue;
+    const body = JSON.parse(c.opts.body as string);
+    if (Array.isArray(body)) out.push(...body);
+  }
+  return out;
+}
+
+test("two instances with preset runIds each POST events only to their own /live/<id>/events", async () => {
+  const a = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 100 });
+  const b = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 200 });
+
+  await a.onBegin({}, { allTests: () => [{}] });
+  await b.onBegin({}, { allTests: () => [{}, {}] });
+
+  // Interleave per-test events across the two instances, as concurrent workers would.
+  a.onTestBegin({ title: "a-test", parent: { location: { file: "a.spec.ts" } } });
+  b.onTestBegin({ title: "b-test", parent: { location: { file: "b.spec.ts" } } });
+  a.onTestEnd(
+    { title: "a-test", parent: { location: { file: "a.spec.ts" } } },
+    { status: "passed", duration: 10 },
+  );
+  b.onTestEnd(
+    { title: "b-test", parent: { location: { file: "b.spec.ts" } } },
+    { status: "failed", duration: 20, error: { message: "boom" } },
+  );
+
+  await a.onEnd({ status: "passed" });
+  await b.onEnd({ status: "failed" });
+
+  // No preset-runId instance should hit /live/start.
+  assert.equal(
+    fetchMock.calls.filter((c) => c.url.endsWith("/live/start")).length,
+    0,
+    "preset runIds must bypass /live/start entirely",
+  );
+
+  const aEvents = eventsForRunId(fetchMock.calls, 100);
+  const bEvents = eventsForRunId(fetchMock.calls, 200);
+
+  // Each instance's stream contains exactly its own tests — no leakage.
+  assert.deepEqual(
+    aEvents.map((e) => e.test).filter(Boolean),
+    ["a-test", "a-test"],
+    "instance A stream must contain only a-test events",
+  );
+  assert.deepEqual(
+    bEvents.map((e) => e.test).filter(Boolean),
+    ["b-test", "b-test"],
+    "instance B stream must contain only b-test events",
+  );
+
+  // run.started stats reflect each instance's own allTests() count, not a shared one.
+  assert.deepEqual(aEvents.find((e) => e.type === "run.started")?.stats,
+    { total: 1, passed: 0, failed: 0, skipped: 0 });
+  assert.deepEqual(bEvents.find((e) => e.type === "run.started")?.stats,
+    { total: 2, passed: 0, failed: 0, skipped: 0 });
+
+  // Each instance's terminal run.finished carries its own status.
+  assert.equal(aEvents.at(-1)?.type, "run.finished");
+  assert.equal(aEvents.at(-1)?.status, "passed");
+  assert.equal(bEvents.at(-1)?.type, "run.finished");
+  assert.equal(bEvents.at(-1)?.status, "failed");
+});
+
+test("onEnd on one instance does not break the other instance's ability to send", async () => {
+  const a = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 100 });
+  const b = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 200 });
+
+  await a.onBegin({}, { allTests: () => [{}] });
+  await b.onBegin({}, { allTests: () => [{}] });
+
+  // Instance A finishes (flush + stop + teardown) while B is still mid-run.
+  await a.onEnd({ status: "passed" });
+
+  // B keeps emitting AFTER A's onEnd — must still flush to B's own runId.
+  b.onTestBegin({ title: "late-b", parent: { location: { file: "b.spec.ts" } } });
+  b.onTestEnd(
+    { title: "late-b", parent: { location: { file: "b.spec.ts" } } },
+    { status: "passed", duration: 5 },
+  );
+  await b.onEnd({ status: "passed" });
+
+  const bEvents = eventsForRunId(fetchMock.calls, 200);
+  const lateStart = bEvents.find((e) => e.type === "test.started" && e.test === "late-b");
+  assert.ok(lateStart, "B must still send test.started after A.onEnd()");
+  assert.ok(bEvents.find((e) => e.type === "test.passed" && e.test === "late-b"),
+    "B must still send test.passed after A.onEnd()");
+  assert.equal(bEvents.at(-1)?.type, "run.finished", "B's own run.finished still lands last");
+
+  // None of B's late events leaked onto A's runId.
+  const aEvents = eventsForRunId(fetchMock.calls, 100);
+  assert.equal(aEvents.filter((e) => e.test === "late-b").length, 0,
+    "B's late events must never appear on A's stream");
+});
+
+test("preset-runId instances never overwrite process.env.CI_RUN_ID; a /live/start instance reads the inherited value", async () => {
+  // Real behavior: only the /live/start path writes process.env.CI_RUN_ID
+  // (playwright.ts line ~80). Preset-runId instances skip /live/start, so they
+  // leave CI_RUN_ID untouched — there is no per-instance reset.
+  const SENTINEL = "ci-from-outer-env";
+  process.env.CI_RUN_ID = SENTINEL;
+  try {
+    const presetA = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 100 });
+    const presetB = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE, runId: 200 });
+    await presetA.onBegin({}, { allTests: () => [{}] });
+    await presetB.onBegin({}, { allTests: () => [{}] });
+    await presetA.onEnd({ status: "passed" });
+    await presetB.onEnd({ status: "passed" });
+
+    assert.equal(process.env.CI_RUN_ID, SENTINEL,
+      "preset-runId instances must not touch process.env.CI_RUN_ID");
+
+    // Now a /live/start instance with the same ambient CI_RUN_ID: it forwards
+    // the inherited value into the start body, then OVERWRITES the env with the
+    // server-assigned ci_run_id — shared global state, mutated for siblings.
+    const starter = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    await starter.onBegin({}, { allTests: () => [{}] });
+    await starter.onEnd({ status: "passed" });
+
+    const startCall = fetchMock.calls.find((c) => c.url.endsWith("/live/start"));
+    assert.ok(startCall, "expected the no-runId instance to POST /live/start");
+    const startBody = JSON.parse(startCall.opts.body as string);
+    assert.equal(startBody.ciRunId, SENTINEL,
+      "the inherited CI_RUN_ID should be forwarded to /live/start");
+    assert.equal(process.env.CI_RUN_ID, ASSIGNED_CI_RUN_ID,
+      "the /live/start instance overwrites the shared CI_RUN_ID with the server-assigned value");
+  } finally {
+    delete process.env.CI_RUN_ID;
+  }
+});
+
+test("a second /live/start instance overwrites the CI_RUN_ID a prior instance set (last-writer-wins on shared env)", async () => {
+  delete process.env.CI_RUN_ID;
+  try {
+    const first = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    await first.onBegin({}, { allTests: () => [{}] });
+    await first.onEnd({ status: "passed" });
+    assert.equal(process.env.CI_RUN_ID, ASSIGNED_CI_RUN_ID,
+      "first /live/start instance sets CI_RUN_ID");
+
+    // Both instances get the same ci_run_id back from the shared mock, so we
+    // can't distinguish writers by value. Instead assert the second instance
+    // DID forward the first's value as its own start-body fallback — proving
+    // the env is shared, not per-instance.
+    const second = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+    await second.onBegin({}, { allTests: () => [{}] });
+    await second.onEnd({ status: "passed" });
+
+    const startCalls = fetchMock.calls.filter((c) => c.url.endsWith("/live/start"));
+    assert.equal(startCalls.length, 2, "each no-runId instance makes its own /live/start");
+    const secondBody = JSON.parse(startCalls[1].opts.body as string);
+    assert.equal(secondBody.ciRunId, ASSIGNED_CI_RUN_ID,
+      "second instance inherits the CI_RUN_ID the first wrote — env is process-global, not isolated");
+    assert.equal(process.env.CI_RUN_ID, ASSIGNED_CI_RUN_ID);
+  } finally {
+    delete process.env.CI_RUN_ID;
+  }
+});

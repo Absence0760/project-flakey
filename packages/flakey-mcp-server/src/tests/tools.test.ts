@@ -1,8 +1,9 @@
 import { test, mock } from "node:test";
 import { strict as assert } from "node:assert";
+import { z } from "zod";
 
 import { registerTools, type ToolServer } from "../tools.ts";
-import type { Api } from "../api.ts";
+import { createApi, type Api } from "../api.ts";
 
 /**
  * Unit tests for the MCP tool registry. Drive `registerTools` against a
@@ -265,4 +266,193 @@ test("every read-only tool's response wraps the payload in a {content:[{type:'te
     assert.match(out.content[0].text, /"marker":\s*"PAYLOAD"/,
       `tool ${tool.name} must JSON-stringify the api response into the text block`);
   }
+});
+
+/**
+ * --- Backend failure propagation -------------------------------------
+ *
+ * The earlier tests use a fakeApi that never errors. These wire a REAL
+ * `createApi` to a mocked global fetch so a 401/500 actually flows
+ * through the tool handler the way it would for a live AI client: the
+ * tool handler must NOT swallow the error — it propagates to the model,
+ * carrying the status, and any long body is truncated.
+ */
+
+const originalFetch = globalThis.fetch;
+
+function toolsWithRealApi(
+  respond: () => Response,
+): { tools: CapturedTool[] } {
+  globalThis.fetch = mock.fn(async () => respond()) as unknown as typeof fetch;
+  const { server, tools } = fakeServer();
+  const api = createApi("https://api.example.com", "fk_test_secret");
+  registerTools(server, { api, allowMutations: true, log: () => {} });
+  return { tools };
+}
+
+test("a backend 401 propagates OUT of the tool handler (not swallowed) and carries the status", async () => {
+  const { tools } = toolsWithRealApi(() => new Response("unauthorized", { status: 401 }));
+  try {
+    const getRuns = tools.find((t) => t.name === "get_runs")!;
+    await assert.rejects(
+      () => Promise.resolve(getRuns.handler({})),
+      (err: Error) => {
+        // The model needs to see WHY it failed — the status must survive.
+        assert.match(err.message, /Flakey API 401/);
+        return true;
+      },
+      "an auth failure must surface to the model, not be silently turned into an empty result",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a backend 500 propagates out of get_run with the status in the message", async () => {
+  const { tools } = toolsWithRealApi(() =>
+    new Response("internal error: connection reset", { status: 500 }),
+  );
+  try {
+    const getRun = tools.find((t) => t.name === "get_run")!;
+    await assert.rejects(
+      () => Promise.resolve(getRun.handler({ run_id: 7 })),
+      (err: Error) => {
+        assert.match(err.message, /Flakey API 500/);
+        assert.match(err.message, /connection reset/);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a huge error body is truncated to ~200 chars before reaching the model context", async () => {
+  const longBody = "E".repeat(10_000);
+  const { tools } = toolsWithRealApi(() => new Response(longBody, { status: 502 }));
+  try {
+    const getStats = tools.find((t) => t.name === "get_stats")!;
+    await assert.rejects(
+      () => Promise.resolve(getStats.handler({})),
+      (err: Error) => {
+        // "Flakey API 502: " prefix (16 chars) + at most 200 body chars.
+        assert.equal(err.message.startsWith("Flakey API 502: "), true);
+        const bodyPart = err.message.slice("Flakey API 502: ".length);
+        assert.equal(bodyPart.length, 200,
+          "the body slice handed to the model must be capped at exactly 200 chars");
+        assert.ok(!err.message.includes("E".repeat(201)),
+          "the full 10k-char body must NOT be dumped into the error");
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+/**
+ * --- Special-char querystring composition ----------------------------
+ *
+ * A user can name a suite "auth & checkout". Whatever composition each
+ * tool uses (URLSearchParams vs encodeURIComponent in a template
+ * literal), the special chars must end up percent-encoded — never
+ * concatenated raw into the URL.
+ */
+
+test("get_slowest_tests percent-encodes a suite name with spaces + ampersand", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  await tools.find((t) => t.name === "get_slowest_tests")!.handler({
+    suite: "auth & checkout",
+  });
+  // encodeURIComponent: space → %20, & → %26
+  assert.equal(apiHelper.calls[0].path, "/slowest?suite=auth%20%26%20checkout");
+});
+
+test("get_stats percent-encodes special chars in date params via URLSearchParams", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  // A model could pass a malformed/odd `from`; whatever it is, the
+  // querystring must be encoded (URLSearchParams uses + for space).
+  await tools.find((t) => t.name === "get_stats")!.handler({
+    from: "a b&c", to: "x/y",
+  });
+  assert.equal(apiHelper.calls[0].path, "/stats?from=a+b%26c&to=x%2Fy",
+    "URLSearchParams must encode the special chars, never concatenate them raw");
+});
+
+test("get_flaky_tests percent-encodes an ampersand in the suite (no querystring injection)", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  await tools.find((t) => t.name === "get_flaky_tests")!.handler({
+    suite: "auth & checkout", runs: 30,
+  });
+  // A raw '&' would split into a bogus extra param — it must be encoded.
+  assert.equal(apiHelper.calls[0].path, "/flaky?suite=auth+%26+checkout&runs=30");
+});
+
+/**
+ * --- Zod input-schema rejection --------------------------------------
+ *
+ * The MCP SDK validates a tool's input against the Zod shape declared in
+ * `args` BEFORE the handler runs. The shapes are what's registered, so we
+ * rebuild `z.object(args)` from the captured tool and assert the same
+ * validation the SDK applies: a wrong-typed arg from the model is
+ * rejected, and the handler never fires against bad input.
+ */
+
+test("get_run's declared schema rejects a non-numeric run_id (model passed a string)", () => {
+  const { server, tools } = fakeServer();
+  const { api } = fakeApi();
+  registerTools(server, { api, log: () => {} });
+
+  const schema = z.object(tools.find((t) => t.name === "get_run")!.args as z.ZodRawShape);
+  const parsed = schema.safeParse({ run_id: "42" });
+  assert.equal(parsed.success, false, "run_id must be a number, not a numeric string");
+  assert.match(JSON.stringify(parsed.error!.issues), /run_id/,
+    "the validation error must name the offending field so the model can correct it");
+});
+
+test("predict_tests' schema rejects changed_files when it's a string instead of string[]", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  const tool = tools.find((t) => t.name === "predict_tests")!;
+  const schema = z.object(tool.args as z.ZodRawShape);
+  const parsed = schema.safeParse({ changed_files: "src/auth/login.ts" });
+  assert.equal(parsed.success, false,
+    "changed_files is an array of paths; a bare string must be rejected");
+  assert.match(JSON.stringify(parsed.error!.issues), /changed_files/);
+
+  // And the handler must not have run / hit the backend on bad input —
+  // validation gates it, so no API call should have happened.
+  assert.equal(apiHelper.calls.length, 0,
+    "rejecting input means the tool handler never calls the backend");
+});
+
+test("predict_tests' schema also rejects non-string elements inside changed_files", () => {
+  const { server, tools } = fakeServer();
+  const { api } = fakeApi();
+  registerTools(server, { api, log: () => {} });
+
+  const schema = z.object(tools.find((t) => t.name === "predict_tests")!.args as z.ZodRawShape);
+  const parsed = schema.safeParse({ changed_files: ["ok.ts", 123] });
+  assert.equal(parsed.success, false, "every changed_files element must be a string");
+});
+
+test("get_run's schema ACCEPTS a valid numeric run_id (the rejection isn't over-broad)", () => {
+  const { server, tools } = fakeServer();
+  const { api } = fakeApi();
+  registerTools(server, { api, log: () => {} });
+
+  const schema = z.object(tools.find((t) => t.name === "get_run")!.args as z.ZodRawShape);
+  assert.equal(schema.safeParse({ run_id: 42 }).success, true,
+    "a correct numeric run_id must pass — guard against an over-eager schema");
 });

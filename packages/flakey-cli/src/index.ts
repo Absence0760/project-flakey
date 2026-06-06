@@ -65,7 +65,8 @@ function parseArgs(): UploadOptions {
   return resolveOptions(opts);
 }
 
-function findReportFile(dir: string, reporter: string): { path: string; isXml: boolean } | null {
+// Exported for unit testing (src/tests/cli.test.ts).
+export function findReportFile(dir: string, reporter: string): { path: string; isXml: boolean } | null {
   if (!existsSync(dir)) return null;
 
   if (reporter === "junit") {
@@ -91,7 +92,8 @@ function findReportFile(dir: string, reporter: string): { path: string; isXml: b
   return files.length > 0 ? { path: join(dir, files[0]), isXml: false } : null;
 }
 
-function findFiles(dir: string, ext: string): string[] {
+// Exported for unit testing (src/tests/cli.test.ts).
+export function findFiles(dir: string, ext: string): string[] {
   if (!existsSync(dir)) return [];
   const results: string[] = [];
 
@@ -175,7 +177,7 @@ async function upload(opts: UploadOptions): Promise<void> {
  * Walk the Playwright JSON report and extract all attachment file paths.
  * Paths in the report can be absolute or relative to the report directory.
  */
-function extractPlaywrightAttachments(report: any, reportDir: string): { screenshots: string[]; videos: string[] } {
+export function extractPlaywrightAttachments(report: any, reportDir: string): { screenshots: string[]; videos: string[] } {
   const screenshots: string[] = [];
   const videos: string[] = [];
   const seen = new Set<string>();
@@ -208,7 +210,8 @@ function extractPlaywrightAttachments(report: any, reportDir: string): { screens
   return { screenshots, videos };
 }
 
-function authHeaders(apiKey: string): Record<string, string> {
+// Exported for unit testing (src/tests/cli.test.ts).
+export function authHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {};
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
   return headers;
@@ -305,7 +308,8 @@ async function postJSON(path: string, body: unknown, apiKey: string): Promise<vo
 }
 
 /** Normalize an Istanbul coverage-summary.json into the Flakey coverage schema. */
-function normalizeIstanbulSummary(report: any): {
+// Exported for unit testing (src/tests/cli.test.ts).
+export function normalizeIstanbulSummary(report: any): {
   lines_pct: number;
   branches_pct: number;
   functions_pct: number;
