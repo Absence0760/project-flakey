@@ -66,13 +66,16 @@ test("registerTools registers the read-only tools by default; mutation tools are
 
   const names = tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "compare_runs",
     "get_errors",
     "get_flaky_tests",
     "get_quarantined_tests",
     "get_run",
     "get_runs",
+    "get_similar_failures",
     "get_slowest_tests",
     "get_stats",
+    "get_test_artifacts",
     "get_test_history",
     "predict_tests",
   ], "with allowMutations off, only read-only tools should be registered");
@@ -263,6 +266,9 @@ test("every read-only tool's response wraps the payload in a {content:[{type:'te
   for (const tool of tools) {
     if (tool.name === "predict_tests") continue; // requires changed_files arg
     if (tool.name === "get_run" || tool.name === "get_test_history") continue; // requires id
+    // get_test_artifacts reshapes the test row into an artifact bundle (it does
+    // NOT echo the raw response), so the marker passthrough check doesn't apply.
+    if (tool.name === "get_test_artifacts") continue;
     const out = (await tool.handler({})) as { content: { type: string; text: string }[] };
     assert.equal(out.content?.[0]?.type, "text", `tool ${tool.name} should produce a text content block`);
     assert.match(out.content[0].text, /"marker":\s*"PAYLOAD"/,
@@ -457,4 +463,86 @@ test("get_run's schema ACCEPTS a valid numeric run_id (the rejection isn't over-
   const schema = z.object(tools.find((t) => t.name === "get_run")!.args as z.ZodRawShape);
   assert.equal(schema.safeParse({ run_id: 42 }).success, true,
     "a correct numeric run_id must pass — guard against an over-eager schema");
+});
+
+test("get_test_artifacts GETs /tests/:id and bundles artifacts + failure context into one result", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  apiHelper.respond = () => ({
+    title: "rejects bad pwd",
+    full_title: "Auth > rejects bad pwd",
+    status: "failed",
+    error_message: "AssertionError",
+    error_stack: "at login.cy.ts:12",
+    screenshot_paths: ["runs/7/screenshots/a.png", "https://cdn.example/b.png"],
+    video_path: "runs/7/videos/v.mp4",
+    snapshot_path: null,
+    command_log: [{ name: "get", message: "#pw", state: "failed" }],
+    failure_context: { browser_console: ["error: boom"], network_failures: ["POST /api/login → 500"] },
+  });
+  registerTools(server, {
+    api: apiHelper.api,
+    log: () => {},
+    uploadsUrl: "http://localhost:3000/uploads",
+  });
+
+  const tool = tools.find((t) => t.name === "get_test_artifacts")!;
+  const result = (await tool.handler({ test_id: 7 })) as { content: { text: string }[] };
+
+  assert.equal(apiHelper.calls[0].path, "/tests/7");
+  const bundle = JSON.parse(result.content[0].text);
+  // Relative paths resolve against the uploads base; presigned absolute URLs pass through.
+  assert.equal(bundle.screenshots[0], "http://localhost:3000/uploads/runs/7/screenshots/a.png");
+  assert.equal(bundle.screenshots[1], "https://cdn.example/b.png");
+  assert.equal(bundle.video, "http://localhost:3000/uploads/runs/7/videos/v.mp4");
+  assert.equal(bundle.snapshot, null);
+  assert.equal(bundle.error.message, "AssertionError");
+  assert.equal(bundle.failure_context.network_failures[0], "POST /api/login → 500");
+});
+
+test("get_test_artifacts returns raw paths when no uploadsUrl is configured", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  apiHelper.respond = () => ({ status: "failed", screenshot_paths: ["runs/1/s.png"], video_path: null });
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  const tool = tools.find((t) => t.name === "get_test_artifacts")!;
+  const result = (await tool.handler({ test_id: 1 })) as { content: { text: string }[] };
+  const bundle = JSON.parse(result.content[0].text);
+  assert.equal(bundle.screenshots[0], "runs/1/s.png",
+    "with no uploads base, the stored path is returned unchanged rather than dropped");
+});
+
+test("compare_runs GETs /compare with both run IDs as query params", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  apiHelper.respond = () => ({ summary: {}, comparisons: [] });
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  const tool = tools.find((t) => t.name === "compare_runs")!;
+  await tool.handler({ run_a: 10, run_b: 20 });
+  assert.equal(apiHelper.calls[0].path, "/compare?a=10&b=20");
+});
+
+test("get_similar_failures POSTs /analyze/similar/:fingerprint and is registered read-only", () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  const tool = tools.find((t) => t.name === "get_similar_failures")!;
+  assert.ok(tool, "get_similar_failures must register without the mutation gate");
+  assert.doesNotMatch(tool.description, /\[mutates server state\]/,
+    "computing similarity does not write state — it must not carry the mutation tag");
+});
+
+test("get_similar_failures handler uses POST against the similar route", async () => {
+  const { server, tools } = fakeServer();
+  const apiHelper = fakeApi();
+  apiHelper.respond = () => [];
+  registerTools(server, { api: apiHelper.api, log: () => {} });
+
+  const tool = tools.find((t) => t.name === "get_similar_failures")!;
+  await tool.handler({ fingerprint: "abc123" });
+  assert.equal(apiHelper.calls[0].path, "/analyze/similar/abc123");
+  assert.equal(apiHelper.calls[0].opts?.method, "POST");
 });

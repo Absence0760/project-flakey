@@ -38,6 +38,12 @@ export interface RegisterToolsOpts {
    * collector to assert on the output.
    */
   log?: (msg: string) => void;
+  /**
+   * Base URL artifact paths are served from (e.g. "http://localhost:3000/uploads").
+   * Used by get_test_artifacts to turn stored screenshot/video/snapshot paths into
+   * fetchable URLs. When unset, the raw stored paths are returned unchanged.
+   */
+  uploadsUrl?: string;
 }
 
 interface ToolOpts {
@@ -45,7 +51,18 @@ interface ToolOpts {
 }
 
 export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void {
-  const { api, allowMutations = false, log = (m) => console.error(m) } = opts;
+  const { api, allowMutations = false, log = (m) => console.error(m), uploadsUrl } = opts;
+
+  // Turn a stored artifact path into a fetchable URL. Presigned S3 URLs are
+  // already absolute (returned unchanged); local-storage paths are relative
+  // keys that hang off the uploads base. With no base configured, the raw
+  // path is returned so the field is never silently dropped.
+  const toArtifactUrl = (p: string | null | undefined): string | null => {
+    if (!p) return null;
+    if (/^https?:\/\//.test(p)) return p;
+    if (!uploadsUrl) return p;
+    return `${uploadsUrl.replace(/\/$/, "")}/${p.replace(/^\//, "")}`;
+  };
 
   function registerTool<A extends ZodRawShape>(
     name: string,
@@ -190,6 +207,56 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       const result = await api(`/stats?${params}`);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  registerTool(
+    "get_test_artifacts",
+    "Pull all diagnostic evidence for a single test result: screenshot/video/DOM-snapshot URLs, the command log, and (for Cypress) the captured failure context — browser console output, uncaught errors, failed network requests, and the per-attempt retry trail. Use this to diagnose one specific failure after get_run points you at it.",
+    {
+      test_id: z.number().describe("The test ID (from get_run's specs[].tests[].id)"),
+      run_id: z.number().optional().describe("The run the test belongs to (optional; for context only)"),
+    },
+    async ({ test_id }) => {
+      const test = (await api(`/tests/${test_id}`)) as Record<string, any>;
+      const bundle = {
+        test_id,
+        title: test.title,
+        full_title: test.full_title,
+        status: test.status,
+        error: test.error_message
+          ? { message: test.error_message, stack: test.error_stack ?? null }
+          : null,
+        screenshots: (test.screenshot_paths ?? []).map(toArtifactUrl),
+        video: toArtifactUrl(test.video_path),
+        snapshot: toArtifactUrl(test.snapshot_path),
+        command_log: test.command_log ?? null,
+        failure_context: test.failure_context ?? null,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(bundle, null, 2) }] };
+    },
+  );
+
+  registerTool(
+    "compare_runs",
+    "Compare two runs and surface what changed: newly-failing tests, fixed tests, still-failing, and tests that flipped status. Use to see whether a run regressed or recovered relative to a baseline.",
+    {
+      run_a: z.number().describe("Baseline run ID"),
+      run_b: z.number().describe("Run ID to compare against the baseline"),
+    },
+    async ({ run_a, run_b }) => {
+      const result = await api(`/compare?a=${run_a}&b=${run_b}`);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  registerTool(
+    "get_similar_failures",
+    "Given an error fingerprint, find historically similar failures across runs (ranked by message similarity). Use to tell whether a failure is a known recurring issue or something new. Read-only — does not write an analysis record (use analyze_error for that).",
+    { fingerprint: z.string().describe("The error fingerprint (MD5 hash from the errors list / get_errors)") },
+    async ({ fingerprint }) => {
+      const result = await api(`/analyze/similar/${fingerprint}`, { method: "POST" });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
