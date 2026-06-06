@@ -217,6 +217,55 @@ test("POST /runs/upload twice with the same ci_run_id+suite merges into a single
   assert.equal(second.merged, true, "second upload must report merged:true");
 });
 
+// ── 6. multi-shard merge stamps finished_at from the reporter clock ────
+
+test("POST /runs/upload multi-shard merge sets finished_at to the latest reporter end-time, not the backend ingest clock", async () => {
+  const suite = `idem-finished-${Date.now()}`;
+  const ciRunId = `ci-finished-${Date.now()}`;
+
+  // Two shards of the same run (same suite+ci_run_id, different specs and
+  // different reporter finished_at). All reporter timestamps are in the past
+  // relative to the backend's wall clock, so if finished_at were stamped from
+  // NOW() at ingest it would land far in the future and this assertion fails.
+  const earlier = "2026-05-12T00:00:10Z";
+  const later = "2026-05-12T00:30:00Z";
+
+  const shard = (specFile: string, finishedAt: string) => ({
+    meta: {
+      suite_name: suite, branch: "main", commit_sha: `sha-${ciRunId}`,
+      ci_run_id: ciRunId, started_at: "2026-05-12T00:00:00Z",
+      finished_at: finishedAt, reporter: "mochawesome",
+    },
+    stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 10 },
+    specs: [{
+      file_path: specFile, title: specFile,
+      stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 10 },
+      tests: [{
+        title: "t", full_title: `${specFile} t`,
+        status: "passed" as const, duration_ms: 10, error: null, screenshot_paths: [],
+      }],
+    }],
+  });
+
+  // Upload the later shard FIRST, then the earlier one, to prove GREATEST
+  // keeps the max reporter time regardless of arrival order.
+  const first = await uploadRun(orgA, shard("shard2.cy.ts", later));
+  const second = await uploadRun(orgA, shard("shard1.cy.ts", earlier));
+  assert.equal(second.id, first.id, "same (suite, ci_run_id) shards must merge into one run");
+  assert.equal(second.merged, true, "second shard must report merged:true");
+
+  const detail = await fetch(`${BASE}/runs/${first.id}`, {
+    headers: { Authorization: `Bearer ${orgA.token}` },
+  });
+  assert.equal(detail.status, 200);
+  const run = (await detail.json()) as { finished_at: string };
+  assert.equal(
+    new Date(run.finished_at).toISOString(),
+    new Date(later).toISOString(),
+    "finished_at must be the latest reporter end-time, not the backend ingest clock",
+  );
+});
+
 // ── 5. /runs/upload cross-org with same ci_run_id → distinct rows ──────
 
 test("POST /runs/upload from two different orgs with the same (suite, ci_run_id) allocates distinct rows", async () => {

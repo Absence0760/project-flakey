@@ -32,10 +32,15 @@ export async function findOrCreateRun(
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (org_id, suite_name, ci_run_id) WHERE ci_run_id <> ''
        DO UPDATE SET
-         -- No-op set so RETURNING fires on conflict.  Don't overwrite
-         -- aggregate stats here; recalculateRunStats does that after
-         -- specs are merged in.  DO backfill environment if the
+         -- Don't overwrite aggregate stats here; recalculateRunStats does
+         -- that after specs are merged in.  DO advance finished_at to the
+         -- latest reporter-supplied end time across shards: this is the
+         -- authoritative "when did the run finish" and must come from the
+         -- reporter clock, not the backend's ingest time.  GREATEST ignores
+         -- NULLs, so a live placeholder's NULL finished_at is replaced by the
+         -- first merging shard's value.  Also backfill environment if the
          -- existing row has none and the upload carries one.
+         finished_at = GREATEST(runs.finished_at, EXCLUDED.finished_at),
          environment = CASE
            WHEN runs.environment = '' AND EXCLUDED.environment <> '' THEN EXCLUDED.environment
            ELSE runs.environment
@@ -76,6 +81,11 @@ export async function findOrCreateRun(
  * skipped+pending count). Initial-create populates runs.pending from the
  * normalized stats, so dropping it to a hardcoded 0 here would silently lose
  * the count whenever a run gets merged.
+ *
+ * `finished_at` is intentionally NOT touched here. It's set by the merge
+ * upsert in findOrCreateRun from the reporter-supplied EXCLUDED.finished_at,
+ * so the run's finish time reflects the latest shard's reporter clock rather
+ * than the backend's ingest time (which would skew multi-shard run durations).
  */
 export async function recalculateRunStats(client: pg.PoolClient, runId: number): Promise<void> {
   await client.query(
@@ -85,8 +95,7 @@ export async function recalculateRunStats(client: pg.PoolClient, runId: number):
       failed = sub.failed,
       skipped = sub.skipped,
       pending = sub.pending,
-      duration_ms = sub.duration_ms,
-      finished_at = GREATEST(runs.finished_at, NOW())
+      duration_ms = sub.duration_ms
      FROM (
        SELECT
          COALESCE(SUM(s.total), 0)::int AS total,

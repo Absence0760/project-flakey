@@ -10,7 +10,8 @@ export type ShipStatus = "passed" | "failed" | "incomplete" | "aborted";
 
 export interface RunStatusInput {
   // runs.failed aggregate. Authoritative once the run has finished_at set
-  // (recalculateRunStats writes it on the final shard merge).
+  // (the merge upsert in findOrCreateRun writes finished_at; recalculateRunStats
+  // refreshes the failed count alongside it on each shard merge).
   failed: number;
   // True when a `run.aborted` live_events row exists for the run (a CI kill /
   // OOM / network drop). Callers compute this via an EXISTS subquery.
