@@ -124,6 +124,25 @@
 
 - [x] Replace dashboard `/live/active` polling with an org-scoped SSE subscription. Backend exposes `GET /live/stream` — sends an initial `snapshot` event with the active-run ids for the caller's org, then streams `active.add` / `active.remove` deltas as runs enter / leave the set. Dashboard (`+page.svelte`) subscribes once on mount and refetches the runs list on each delta instead of polling every 5 s. Closes the visible-latency gap from issue #41.
 
+## Phase 13 — Cypress failure diagnostics
+
+Deepen what we capture and expose for diagnosing a *Cypress* red. Today the
+reporter records only error message/stack, screenshots, video, and snapshot
+paths, and drops non-final retry attempts (`flakey-cypress-reporter/src/reporter.ts:254`) —
+so the data a Cypress failure actually needs (what the page/app was doing) is
+mostly absent. Ordered by leverage; the capture work feeds the query tools and
+skills below it.
+
+- [ ] **Cypress failure-context capture** — the Cypress counterpart to the Playwright trace→command-log already built in `@flakeytesting/playwright-snapshots`. Touches `@flakeytesting/cypress-reporter` (+ an injected support file), the normalizer, and a new `tests`-row column (migration + type-sync across `backend/src/types.ts` and `frontend/src/lib/api.ts`):
+  - Command-log tail — the last N `cy.*` commands (and their per-command retries) before the failure.
+  - Browser console output + uncaught exceptions / unhandled rejections at failure time (a large share of Cypress reds are really an app `window.onerror`, not a bad selector).
+  - Network log — failed `cy.intercept`/XHRs around the failure ("the API 500'd," not "the element never appeared").
+  - Retry-attempt trail — retain each attempt's error (still uncounted, preserving the `reporter.ts:254` behavior) so the delta between a failing and a passing attempt is available to classify the flake.
+- [ ] **Evidence-pulling MCP tools** (thin wrappers over existing routes, complementing the 9 read tools in `flakey-mcp-server`): `get_test_artifacts(runId, testId)` (screenshot/video/snapshot URLs + command-log/console/network for one failure), `compare_runs(a, b)` (expose `/compare` — newly-failed / flipped), `get_similar_failures(fingerprint)` (expose `/analyze/similar`).
+- [ ] **Cypress repro + triage skills** — the Cypress counterpart to the Playwright-only `flake-doctor`: `/cypress-repro <run|spec>` (resolve the failing spec from a run id and run it deterministically against `examples/cypress`, retries off + video on) and `/cypress-diagnose <runId>` (pull error + artifacts + command-log + similar failures, then classify the failure — selector drift / timing / app error / network / data collision — with a heuristic, provider-free first pass).
+- [ ] **Reporter payload replay CLI** — feed a captured Cypress/mochawesome JSON straight through `parseMochawesome` + the upload path and dump the normalized result, for a sub-second loop on ingestion bugs without standing up the stack.
+- [ ] **Source-map stack resolution** — resolve Cypress stack frames (bundled code) back to the real spec line so a failure points at *where in the test* it threw.
+
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
