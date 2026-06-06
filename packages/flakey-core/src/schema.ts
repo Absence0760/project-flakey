@@ -56,6 +56,8 @@ export interface NormalizedSpec {
     passed: number;
     failed: number;
     skipped: number;
+    /** Optional for back-compat with reporters that predate spec-level pending. */
+    pending?: number;
     duration_ms: number;
   };
   tests: NormalizedTest[];

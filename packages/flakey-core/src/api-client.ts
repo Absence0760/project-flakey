@@ -33,7 +33,12 @@ export class ApiClient {
     run: NormalizedRun,
     files: { screenshots: string[]; videos: string[]; snapshots: string[] }
   ): Promise<{ id: number }> {
-    const { screenshots, videos, snapshots } = files;
+    // Drop files that no longer exist on disk (cleaned up between onTestEnd and
+    // onEnd, or a bad path) before deciding how to send — otherwise we'd POST an
+    // empty multipart body. Filtering first keeps the routing decision honest.
+    const screenshots = files.screenshots.filter((file) => existsSync(file));
+    const videos = files.videos.filter((file) => existsSync(file));
+    const snapshots = files.snapshots.filter((file) => existsSync(file));
 
     if (screenshots.length === 0 && videos.length === 0 && snapshots.length === 0) {
       return this.postRun(run);
@@ -43,16 +48,13 @@ export class ApiClient {
     formData.append("payload", JSON.stringify(run));
 
     for (const file of screenshots) {
-      if (!existsSync(file)) continue;
       formData.append("screenshots", new Blob([readFileSync(file)], { type: "image/png" }), basename(file));
     }
     for (const file of videos) {
-      if (!existsSync(file)) continue;
       const type = file.endsWith(".webm") ? "video/webm" : "video/mp4";
       formData.append("videos", new Blob([readFileSync(file)], { type }), basename(file));
     }
     for (const file of snapshots) {
-      if (!existsSync(file)) continue;
       formData.append("snapshots", new Blob([readFileSync(file)], { type: "application/gzip" }), basename(file));
     }
 

@@ -91,3 +91,23 @@ test("postRunWithFiles falls back to postRun when no files are present", async (
   const [url] = fetchMock.mock.calls[0].arguments as [string];
   assert.equal(url, "http://localhost:3000/runs");
 });
+
+test("postRunWithFiles falls back to postRun when every listed file is missing on disk", async () => {
+  const fetchMock = globalThis.fetch as ReturnType<typeof mock.fn>;
+  fetchMock.mock.mockImplementation(async () =>
+    new Response(JSON.stringify({ id: 9 }), { status: 200 })
+  );
+
+  const client = new ApiClient({ url: "http://localhost:3000", apiKey: "k", suite: "s" });
+  await client.postRunWithFiles(fixtureRun, {
+    screenshots: ["/nope/missing-1.png"],
+    videos: ["/nope/missing-2.mp4"],
+    snapshots: ["/nope/missing-3.gz"],
+  });
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  const [url, init] = fetchMock.mock.calls[0].arguments as [string, RequestInit];
+  assert.equal(url, "http://localhost:3000/runs");
+  // JSON path, not multipart — body is the serialized run, not FormData.
+  assert.deepEqual(JSON.parse(init.body as string), fixtureRun);
+});
