@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 
--- Seed a default admin user (password: "admin")
--- bcrypt hash of "admin"
-INSERT INTO users (email, password_hash, name, role)
-VALUES ('admin@example.com', '$2b$10$Jn1RIGWrnSs77uzGaNRa1epUncrMzFwBjy00KbD3GWY14lZTR8jAO', 'Admin', 'admin')
-ON CONFLICT (email) DO NOTHING;
+-- No default admin is seeded here. Shipping a known-credential admin on
+-- every fresh DB meant a fresh production install came up with a
+-- publicly-known login. The first admin now comes from the env-gated
+-- bootstrap (FLAKEY_BOOTSTRAP_ADMIN_EMAIL / FLAKEY_BOOTSTRAP_ADMIN_PASSWORD,
+-- applied at boot by src/bootstrap-admin.ts), or from `npm run seed` in dev
+-- (admin@example.com / admin). No default credentials are ever shipped.
