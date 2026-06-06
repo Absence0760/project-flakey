@@ -10,6 +10,7 @@ Express + Node + TypeScript API. Multi-tenant via Postgres Row-Level Security.
 - `npm run build` — `tsc` → `dist/`
 - `npm start` — run the built `dist/index.js`
 - `npm run rotate-keys` — re-encrypt all org secrets under the current primary key (see `docs/integrations.md` for the dual-key rotation procedure)
+- `npm run replay-payload -- <path> [--reporter <type>] [--pretty]` — feed a captured reporter payload (Cypress/mochawesome JSON, Playwright/Jest/WebdriverIO JSON, JUnit XML) straight through the normalizer and dump the `NormalizedRun` to stdout (stats summary on stderr). No DB, no auth — a sub-second loop on ingestion bugs without standing up the stack. Reporter is auto-detected from the filename when `--reporter` is omitted.
 
 ## Package manager
 
