@@ -51,38 +51,15 @@ The test runner:
 5. Exercises every Phase 9/10 endpoint
 6. Kills the backend on suite completion
 
-Expected output:
-
-```
-✔ jira settings default + update
-✔ pagerduty settings update
-✔ scheduled reports CRUD
-✔ coverage upload + retrieval
-✔ a11y upload scoring
-✔ visual diffs create + review
-✔ ui coverage summary + untested
-✔ manual tests CRUD + result recording
-✔ release checklist + sign-off enforcement
-✔ manual test groups / bulk-link
-✔ release sessions: create, record, fail, accept, auto-complete
-✔ manual test requirements: link, rollup, unlink
-✔ live run abort: POST /abort emits run.aborted and clears active set
-✔ live run abort: stale runs get auto-aborted after timeout
-✔ GET /runs marks aborted runs with aborted=true
-✔ POST /live/:runId/snapshot stores blob, sanitizes filename, links test row, rejects foreign run
-✔ two identical test.started events produce one tests row (idempotent upsert)
-✔ test.started then test.passed transitions pending → passed in run totals
-✔ live spec row + later /runs upload merges instead of rolling back on unique conflict
-ℹ tests 19
-ℹ pass 19
-ℹ fail 0
-```
+Each `test(...)` block prints a `✔` line, ending with a `ℹ tests N / ℹ pass N / ℹ fail 0` summary. The suite grows as endpoints are added — run `npm test` for the current list and count rather than relying on a number quoted here.
 
 Full runtime: ~5–10 seconds (the stale-abort test waits 2.5 s for the timeout detector).
 
 Note: a separate `crypto.test.ts` adds 7 more tests; `npm test` runs all files matching `src/tests/**/*.test.ts`.
 
 ## What each test covers
+
+The table below is a representative subset, not an exhaustive list — the suite has grown beyond these rows. Run `npm test` for the full set.
 
 | Test | Validates |
 |---|---|
@@ -128,7 +105,7 @@ Drop another `*.test.ts` file under `backend/src/tests/`. The glob in
 next `npm test`.
 
 The Phase 9/10 suite is intentionally scoped as a **single test file with
-shared setup** — one spawn of the backend for all nine tests — because
+shared setup** — one spawn of the backend for every test in the file — because
 spinning up the Express stack is the slowest part. If you add a new test
 that needs its own isolated state, either:
 

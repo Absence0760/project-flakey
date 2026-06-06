@@ -223,14 +223,16 @@ This bypasses the normal "every 30 min" tick for verification.
 
 ### 4. Scheduler behavior in multi-replica deployments
 
-The dispatcher takes a session-scoped Postgres advisory lock
-(`pg_try_advisory_lock(0x666c616b79)`) at the top of every run and
-releases it in `finally`. This means:
+The dispatcher takes a transaction-scoped Postgres advisory lock
+(`pg_try_advisory_xact_lock(0x666c616b79)`) at the top of every run.
+Because the lock is transaction-scoped, Postgres releases it
+automatically when the transaction ends — no explicit `pg_advisory_unlock`
+is needed. This means:
 
 - **Only one replica** dispatches reports at a time
 - A replica that fails to acquire the lock returns immediately (no work)
-- If a replica crashes mid-dispatch, Postgres releases the session lock
-  automatically on connection close
+- If a replica crashes mid-dispatch, Postgres releases the lock
+  automatically when the transaction tears down on connection close
 
 No coordination service or locking table is needed. Just run as many
 backend replicas as you want.

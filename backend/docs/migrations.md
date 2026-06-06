@@ -101,7 +101,7 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 |------|-------------|
 | `001_initial.sql` | Runs, specs, tests tables |
 | `002_test_artifacts.sql` | Screenshot/video paths |
-| `003_auth.sql` | Users, API keys, default admin |
+| `003_auth.sql` | Users, API keys |
 | `004_multi_tenancy.sql` | Organizations, org members, RLS policies |
 | `005_app_role.sql` | Non-superuser `flakey_app` role for RLS |
 | `006_test_metadata.sql` | Test metadata JSONB column |
@@ -137,3 +137,5 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flakey_app;
 | `049_table_updated_at.sql` | Adds `updated_at` to the mutable `webhooks` and `suite_overrides` tables (maintained app-side, matching the rest of the schema) |
 | `050_runs_finished_at_nullable.sql` | `runs.finished_at` made nullable with no default — NULL now means "not yet finished"; live runs no longer stamp a meaningless INSERT-time value |
 | `051_denormalization_comments.sql` | `COMMENT ON` documenting the intentional denormalization of `security_findings.org_id`/`run_id` and the dual-purpose `ui_coverage.last_seen` |
+| `052_revoked_refresh_tokens_maintenance_delete.sql` | Permissive DELETE-only RLS policy on `revoked_refresh_tokens` gated on the `app.maintenance` session GUC, so the background retention job (running as `flakey_app` with no user context) can prune aged-out rows without widening any request handler's access |
+| `053_users_is_support.sql` | `users.is_support` flag (default false) — platform-level capability for read-only cross-org support access, set out-of-band by an operator (no API grants it) |
