@@ -27,6 +27,8 @@ module "s3" {
   csp_connect_src                = var.csp_connect_src
   cloudfront_acm_certificate_arn = var.cloudfront_acm_certificate_arn
   cloudfront_aliases             = var.cloudfront_aliases
+  artifact_retention_days        = var.artifact_retention_days
+  artifact_ia_transition_days    = var.artifact_ia_transition_days
   # CloudFront WAFv2 must be created in us-east-1; pass the aliased
   # provider in via the `aws.us_east_1` configuration alias the module
   # declares in its required_providers block.

@@ -1,5 +1,15 @@
 variable "app_name" { type = string }
 variable "environment" { type = string }
+variable "artifact_retention_days" {
+  description = "Hard cap (days) for the artifacts-bucket lifecycle expiration. Storage-cost backstop behind the backend's per-org retention delete (backend/src/retention.ts)."
+  type        = number
+  default     = 365
+}
+variable "artifact_ia_transition_days" {
+  description = "Days before artifacts transition to STANDARD_IA (S3 minimum 30)."
+  type        = number
+  default     = 30
+}
 variable "enable_waf" {
   description = "Toggle the WAFv2 web ACL on the CloudFront distribution."
   type        = bool

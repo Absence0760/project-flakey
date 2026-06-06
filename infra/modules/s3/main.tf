@@ -110,20 +110,34 @@ resource "aws_s3_bucket_versioning" "artifacts" {
   versioning_configuration { status = "Enabled" }
 }
 
+# Artifact lifecycle. This is a storage-cost BACKSTOP, not the primary cleanup:
+# the backend deletes a run's artifacts the moment per-org retention prunes the
+# run (backend/src/retention.ts -> storage.deleteRun). The expiration here only
+# catches orphans that delete misses (interrupted writes, manual S3 drops).
+# Expiration + IA-transition are configurable so operators can match their
+# compliance window — keep `artifact_retention_days` >= the largest per-org
+# retention_days, or this cap deletes artifacts ahead of the per-org policy.
+# See docs/operations/backup-and-dr.md.
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   rule {
     id     = "cleanup-old-artifacts"
     status = "Enabled"
+    # Apply to the whole bucket. (An empty filter is required in the AWS
+    # provider v4+ lifecycle schema for a bucket-wide rule.)
+    filter {}
     transition {
-      days          = 90
+      days          = var.artifact_ia_transition_days
       storage_class = "STANDARD_IA"
     }
-    expiration { days = 365 }
+    expiration { days = var.artifact_retention_days }
     # Versioning is enabled to protect against silent overwrites on key
-    # collisions (e.g. re-runs that emit the same screenshot path).  Without
-    # this expiration, old versions would accumulate forever.
+    # collisions (e.g. re-runs that emit the same screenshot path). Without
+    # this, old versions would accumulate forever.
     noncurrent_version_expiration { noncurrent_days = 30 }
+    # Reclaim storage from interrupted multipart uploads (large videos that
+    # never finished). S3 otherwise bills for these parts indefinitely.
+    abort_incomplete_multipart_upload { days_after_initiation = 7 }
   }
 }
 

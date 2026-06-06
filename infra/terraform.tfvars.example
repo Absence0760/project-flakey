@@ -35,5 +35,9 @@ csp_connect_src = ["https://api.<your-domain>"]
 # enable_vpc_endpoints        = false  # ~$72/mo at 2 AZs
 # enable_flow_logs            = false  # ~$5-15/mo
 
+# Artifact storage lifecycle (S3 cost backstop behind per-org retention):
+# artifact_retention_days     = 365    # hard expiry cap; keep >= your largest org retention_days
+# artifact_ia_transition_days = 30     # days before transition to STANDARD_IA (S3 min 30)
+
 # Passwords are auto-generated and stored in AWS Secrets Manager.
 # No manual secrets to configure.

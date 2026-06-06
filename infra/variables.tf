@@ -118,3 +118,23 @@ variable "cpu_architecture" {
     error_message = "cpu_architecture must be ARM64 or X86_64."
   }
 }
+
+variable "artifact_retention_days" {
+  description = "Hard cap (days) after which the S3 lifecycle expires test artifacts (screenshots/videos/snapshots) — a storage-cost backstop, NOT the primary cleanup. The backend already deletes a run's artifacts when per-org retention (organizations.retention_days) prunes it (backend/src/retention.ts); this catches anything that delete misses (orphans from interrupted writes). Set this >= the largest org retention_days you allow, or this cap will delete artifacts before the per-org policy intends. See docs/operations/backup-and-dr.md."
+  type        = number
+  default     = 365
+  validation {
+    condition     = var.artifact_retention_days >= 7 && var.artifact_retention_days <= 3650
+    error_message = "artifact_retention_days must be between 7 and 3650."
+  }
+}
+
+variable "artifact_ia_transition_days" {
+  description = "Days before test artifacts transition to S3 STANDARD_IA (cheaper, slower-access). Must be < artifact_retention_days. 30 is the S3 minimum for IA."
+  type        = number
+  default     = 30
+  validation {
+    condition     = var.artifact_ia_transition_days >= 30
+    error_message = "artifact_ia_transition_days must be at least 30 (S3 STANDARD_IA minimum)."
+  }
+}

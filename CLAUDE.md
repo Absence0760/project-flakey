@@ -89,6 +89,7 @@ Footguns that have bitten before — check here before assuming something's brok
 - **Encryption key falls back to plaintext.** With `FLAKEY_ENCRYPTION_KEY` unset, integration secrets are stored as plaintext (local-dev only — the backend refuses to boot this way in production).
 - **`bt_*` localStorage keys are intentional.** The brand is "Flakey" but auth keys keep the `bt_` prefix (a Better-Testing holdover) so existing sessions survive — don't "fix" them.
 - **e2e needs the full stack + seed.** `pnpm test:e2e` and `pnpm test:backend` require `pnpm db:up` and a seeded DB (`cd backend && npm run seed`); they don't spin services up for you.
+- **Artifact cleanup is app-driven; the S3 lifecycle is a backstop.** Per-org `retention_days` prunes runs nightly and `backend/src/retention.ts` deletes their S3 artifacts in the same pass. The Terraform S3 lifecycle (`infra/variables.tf` → `artifact_retention_days`, default 365d) only sweeps orphans the app delete misses — keep that cap **≥ the largest per-org retention** or it'll expire artifacts ahead of policy. Don't add a second "delete artifacts" path in the routes; extend `storage.deleteRun`.
 
 ## Guard rails
 
