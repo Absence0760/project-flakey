@@ -143,6 +143,30 @@ skills below it.
 - [ ] **Reporter payload replay CLI** — feed a captured Cypress/mochawesome JSON straight through `parseMochawesome` + the upload path and dump the normalized result, for a sub-second loop on ingestion bugs without standing up the stack.
 - [ ] **Source-map stack resolution** — resolve Cypress stack frames (bundled code) back to the real spec line so a failure points at *where in the test* it threw.
 
+## Phase 14 — Enterprise, compliance & contract hardening
+
+Gaps that matter most for a self-hosted product run in a SOC 2 / GovRAMP
+context, plus the one change that removes the repo's biggest internal footgun.
+
+### Compliance & enterprise auth
+
+- [ ] **SSO — SAML / OIDC login + SCIM provisioning.** Auth today is JWT + API keys + email/password only (`backend/src/routes/auth.ts`). Add IdP-backed single sign-on and automated user/role provisioning so enterprise and GovRAMP buyers can onboard against their own directory. Biggest single gap for that segment.
+- [ ] **Audit-log export / SIEM streaming.** There's already an audit log (every mutation) + per-org retention; add streaming/export to S3 / CloudWatch / a customer SIEM, with tamper-evidence (append-only / hash-chained), to satisfy SOC 2 and GovRAMP logging controls directly.
+- [ ] **Self-hoster backup & DR runbook + at-rest posture.** Document backup/restore and disaster recovery for the RDS + S3 footprint, the encryption-at-rest story, and add a secret-rotation UI on top of the existing `npm run rotate-keys` CLI.
+
+### API contract
+
+- [ ] **Publish an OpenAPI spec + generate the client types.** The repo's documented footgun is "no type codegen — types are hand-synced across `backend/src/types.ts`, `frontend/src/lib/api.ts`, and the DB." An OpenAPI source-of-truth with a generated client eliminates that whole drift class (the `endpoint-inventory` skill exists today precisely because there is no published spec) and gives external integrators a real contract.
+
+### Broader adoption
+
+- [ ] **More native reporters: pytest, Go `test`, .NET (xUnit / NUnit), RSpec.** The current set is JS-centric (mochawesome / JUnit / Playwright / Jest / WebdriverIO). JUnit XML covers some non-JS runners, but first-class reporters (live events + artifacts) win those ecosystems.
+- [ ] **Rich GitHub Checks annotations.** Beyond the existing PR status check + summary comment, surface per-failure inline annotations on the diff via the Checks API so failures land at the offending line.
+
+### Scale
+
+- [ ] **Artifact lifecycle / TTL on S3 + table partitioning for `runs`/`tests`.** Keep storage cost bounded (artifact TTL/dedup aligned with per-org retention) and keep queries fast on large orgs (time-based partitioning of the high-volume tables).
+
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
