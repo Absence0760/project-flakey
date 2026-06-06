@@ -155,12 +155,12 @@ When you add a new route, add `data-ready` (and `data-sse-connected` if it opens
 
 ## CI
 
-Not yet wired into CI. The workflow will need to:
+Wired into [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml) — the `e2e` job runs on every PR and every push to `main` (skipped on docs-only PRs). It:
 
-1. Stand up Postgres (service container or docker-compose).
-2. Run `migrate.sh` + `npm run seed` in `backend/`.
-3. Start the backend API (`npm run dev` or `npm start` after `npm run build`) on `:3000` in the background.
-4. From `frontend/`: `pnpm test:e2e`.
-5. Upload the `playwright-report/` artifact.
+1. Stands up Postgres 16 as a service container (tmpfs-backed), matching `docker-compose.yml`.
+2. Runs `./migrate.sh` + `npm run seed` in `backend/` (the seed creates the `flakey_app` role and the per-worker `acme-w<N>` tenants the fixtures bind to).
+3. Starts the backend on `:3000` in the background with a freshly-generated `JWT_SECRET` and waits on `/health`. The frontend lifecycle is handled by the `webServer` block in `playwright.config.ts`.
+4. Runs Playwright as a **4-shard matrix** (`--shard=N/4`), gated on the `backend` job so a PR that's already broken below doesn't burn e2e spend.
+5. Uploads each shard's `playwright-report/` as an artifact (`playwright-report-shard-N`, 14-day retention).
 
-Steps 3 and 4 are the only orchestration left — the webServer block in `playwright.config.ts` already handles the frontend lifecycle.
+`retries: 1` on CI (see `playwright.config.ts`) still absorbs incidental dev-server/HMR noise. With the `data-ready` / `data-sse-connected` readiness signals now in place (see above), the SSE-timing class of flake it was covering is gone; dropping to `0` is a reasonable next step once a stretch of green shard runs confirms no residual flake.
