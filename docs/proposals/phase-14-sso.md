@@ -112,9 +112,38 @@ wiring. When SSO is built, the *app-facing* SSO specs move under the main e2e
 config (they need the app up) with an SSO storage-state setup; this Keycloak-only
 config stays as the IdP-contract proof.
 
-**SCIM note:** Keycloak does OIDC + SAML out of the box; SCIM *as a provider*
-(pushing to Flakey) needs a Keycloak SCIM extension or a switch to **Authentik**
-(built-in SCIM). Decide the local SCIM-test IdP when Slice 3 is scheduled.
+### SCIM provisioning — Authentik (also committed + proven)
+
+Keycloak does OIDC + SAML but not SCIM-as-a-provider, so SCIM uses **Authentik**
+alongside it (Keycloak stays for login). Also committed:
+
+- **`pnpm idp:scim:up` / `idp:scim:down` / `idp:scim:reset`** — Authentik on
+  `:9002` (admin `akadmin` / `akadminpassword`, API token
+  `flakey-authentik-dev-token`) with its own Postgres + Redis + worker, plus a
+  **mock SCIM target** (`infra/scim-target/server.mjs`) on `:8082`.
+- **Mock SCIM target** — a dependency-free `node:http` server implementing
+  enough of RFC 7643/7644 (`ServiceProviderConfig`, `Users`, `Groups`, filter
+  lookups, PATCH/PUT/DELETE) for Authentik's SCIM client to provision against,
+  recording every push at `GET /_captured`. **This file is the working contract
+  for Flakey's future `/scim/v2` endpoint** — when Slice 3 is built, the real
+  endpoint must satisfy the same client behavior.
+- **e2e proof** `frontend/tests-e2e/sso/authentik-scim.spec.ts` (same
+  `pnpm test:e2e:sso`) — wires a SCIM provider + app + role group in Authentik,
+  then exercises the full lifecycle: **create an IdP user → assert it's
+  provisioned** (user + role group on the target), and **deactivate it → assert
+  it's deprovisioned (`active:false`)** — the GovRAMP "revoke access
+  immediately" control. **Both pass today.**
+
+Determinism notes for the SCIM specs: each test uses a uniquely-named user/group
+(no stale Authentik→target connection), and forces a sync via a provider re-save
+(`PATCH`, ~4s) rather than waiting on Authentik's background sync interval — then
+polls the target for the real push.
+
+**Build implication:** the proposal's Slice 3 (`/scim/v2/Users` + `/Groups`)
+should be validated against this exact Authentik→target loop, swapping the mock
+target for the real Flakey endpoint. Deactivation arrives as a SCIM `active:false`
+(PUT/PATCH), so the endpoint must treat that — not just DELETE — as
+deprovisioning, and revoke the member + refresh tokens on receipt.
 
 ## Open questions for security review
 
