@@ -64,14 +64,17 @@ The server exposes Flakey's read-API as MCP tools the agent can call:
 - **`get_run`** — fetch a single run's full detail (specs, tests, screenshots, error groups)
 - **`get_flaky_tests`** — tests classified as flaky (alternating pass/fail across runs)
 - **`get_errors`** — failures grouped by error fingerprint, with affected-test list
-- **`get_test_history`** — per-test pass/fail history with prev/next failure pointers
+- **`get_test_history`** — per-test pass/fail history across runs
 - **`get_slowest_tests`** — tests by p95 duration (regression hunting)
 - **`get_quarantined_tests`** — currently-quarantined tests in the org
 - **`get_stats`** — dashboard aggregate stats with date-range filtering
 - **`predict_tests`** — given a list of changed files, predict which tests likely need to run
-- **`analyze_error`** — LLM-backed root-cause hypothesis for an error group (gated by the org's AI-provider config)
 
-Read-only by default. Mutating tools are skipped at startup unless explicitly enabled — agents shouldn't be able to delete runs or change quarantine state without operator opt-in.
+That's 9 read-only tools the agent always sees. One more — a mutation tool — is gated behind an explicit opt-in:
+
+- **`analyze_error`** — `[mutates server state]` LLM-backed root-cause hypothesis for an error group; writes an analysis record to the backend (also requires the org's AI-provider config). Hidden unless `FLAKEY_MCP_ALLOW_MUTATIONS` is truthy (`1` / `true` / `yes`).
+
+Read-only by default. Mutation tools like `analyze_error` are skipped at startup — not even visible to the agent — unless `FLAKEY_MCP_ALLOW_MUTATIONS` is set, so an agent can't write analysis records without operator opt-in.
 
 Typical agent workflows it unlocks:
 

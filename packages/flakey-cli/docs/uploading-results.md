@@ -188,9 +188,11 @@ npx tsx /path/to/flakey/packages/flakey-cli/src/index.ts \
 | `--commit` | `$COMMIT_SHA` env | Git commit SHA |
 | `--ci-run-id` | `$CI_RUN_ID` env | CI pipeline run ID |
 | `--release` | `$FLAKEY_RELEASE` env | Release version to link this run to (upserts the release by version) |
-| `--reporter` | `mochawesome` | Reporter format: `mochawesome`, `junit`, or `playwright` |
+| `--reporter` | `mochawesome` | Reporter format: `mochawesome`, `junit`, `jest`, `playwright`, or `webdriverio` |
+| `--environment` | `$FLAKEY_ENV` / `$TEST_ENV` env | Target environment label (e.g. `qa`, `stage`) stored on `runs.environment` |
 | `--screenshots-dir` | `cypress/screenshots` | Directory to search for `.png` files (not needed for Playwright) |
 | `--videos-dir` | `cypress/videos` | Directory to search for `.mp4`/`.webm` files (not needed for Playwright) |
+| `--snapshots-dir` | `cypress/snapshots` | Directory to search for `.json.gz` DOM snapshot files |
 | `--api-key` | `$FLAKEY_API_KEY` env | Authentication token (JWT or API key) |
 
 ---
@@ -563,7 +565,7 @@ npm install --save-dev @flakeytesting/live-reporter
 
 ```typescript
 // cypress.config.ts
-import { register as registerLive } from "@flakeytesting/live-reporter/dist/mocha.js";
+import { register as registerLive } from "@flakeytesting/live-reporter/mocha";
 
 export default defineConfig({
   e2e: {

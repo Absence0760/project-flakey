@@ -60,7 +60,7 @@ This registers a `BeforeStep` hook that pushes Gherkin step markers into the sna
 | `maxHtmlBytes` | `number` | `2 * 1024 * 1024` (2 MB) | Per-step HTML size cap — oversized DOMs (PDF iframes, etc.) are replaced with a placeholder + `console.warn` |
 | `maxBundleBytes` | `number` | `64 * 1024 * 1024` (64 MB) | Aggregate cap across all steps in one test — oldest steps evicted FIFO when exceeded |
 
-Each option is also exposed to the browser via `Cypress.env("FLAKEY_SNAPSHOTS_*")` so the support file picks them up automatically.
+The `enabled`, `maxHtmlBytes`, and `maxBundleBytes` options are also exposed to the browser via `Cypress.env("FLAKEY_SNAPSHOTS_*")` so the support file picks them up automatically. `outputDir` is Node-side only (it never reaches the browser).
 
 ## Live streaming
 

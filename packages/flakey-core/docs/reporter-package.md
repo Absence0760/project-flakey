@@ -243,19 +243,19 @@ export const config = {
 ## Shared API client (@flakeytesting/core — api-client.ts)
 
 ```ts
-import { NormalizedRun } from './schema'
+import { ReporterOptions, NormalizedRun } from './schema'
 
 export class ApiClient {
   private url: string
   private apiKey: string
 
-  constructor(options: { url: string; apiKey: string }) {
-    this.url = options.url
+  constructor(options: ReporterOptions) {
+    this.url = options.url.replace(/\/$/, '') // strip trailing slash
     this.apiKey = options.apiKey
   }
 
-  async postRun(run: NormalizedRun): Promise<void> {
-    const res = await fetch(`${this.url}/api/runs`, {
+  async postRun(run: NormalizedRun): Promise<{ id: number }> {
+    const res = await fetch(`${this.url}/runs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -268,6 +268,17 @@ export class ApiClient {
       const text = await res.text()
       throw new Error(`Flakey API error ${res.status}: ${text}`)
     }
+
+    return res.json() as Promise<{ id: number }>
+  }
+
+  // When the run has screenshots/videos/snapshots, posts a multipart body to
+  // `${this.url}/runs/upload` instead (falls back to postRun if none exist on disk).
+  async postRunWithFiles(
+    run: NormalizedRun,
+    files: { screenshots: string[]; videos: string[]; snapshots: string[] },
+  ): Promise<{ id: number }> {
+    // ...builds FormData and POSTs to /runs/upload
   }
 }
 ```

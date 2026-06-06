@@ -74,18 +74,17 @@ For mid-run per-test events:
 
 ```ts
 // wdio.conf.ts
-import { register } from "@flakeytesting/live-reporter/webdriverio";
-
-const liveReporter = register({
-  url:    process.env.FLAKEY_API_URL,
-  apiKey: process.env.FLAKEY_API_KEY,
-  suite:  "my-app-e2e",
-});
+import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
+import FlakeyLiveReporter from "@flakeytesting/live-reporter/webdriverio";
 
 export const config = {
   reporters: [
-    [liveReporter],
     [FlakeyReporter, { /* ... */ }],
+    [FlakeyLiveReporter, {
+      url:    process.env.FLAKEY_API_URL,
+      apiKey: process.env.FLAKEY_API_KEY,
+      suite:  "my-app-e2e",
+    }],
   ],
 };
 ```

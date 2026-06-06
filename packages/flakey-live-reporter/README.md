@@ -44,16 +44,15 @@ export default defineConfig({
 
 ```ts
 // playwright.config.ts
-import { register } from "@flakeytesting/live-reporter/playwright";
-
-const liveReporter = register({
-  url:    process.env.FLAKEY_API_URL,
-  apiKey: process.env.FLAKEY_API_KEY,
-  suite:  "my-app-e2e",
-});
-
 export default defineConfig({
-  reporter: [[liveReporter], ["@flakeytesting/playwright-reporter", { /* ... */ }]],
+  reporter: [
+    ["@flakeytesting/playwright-reporter", { /* ... */ }],
+    ["@flakeytesting/live-reporter/playwright", {
+      url:    process.env.FLAKEY_API_URL,
+      apiKey: process.env.FLAKEY_API_KEY,
+      suite:  "my-app-e2e",
+    }],
+  ],
 });
 ```
 
@@ -62,16 +61,17 @@ export default defineConfig({
 ```ts
 // wdio.conf.ts
 import FlakeyReporter from "@flakeytesting/webdriverio-reporter";
-import { register } from "@flakeytesting/live-reporter/webdriverio";
-
-const liveReporter = register({
-  url:    process.env.FLAKEY_API_URL,
-  apiKey: process.env.FLAKEY_API_KEY,
-  suite:  "my-app-e2e",
-});
+import FlakeyLiveReporter from "@flakeytesting/live-reporter/webdriverio";
 
 export const config = {
-  reporters: [[liveReporter], [FlakeyReporter, { /* ... */ }]],
+  reporters: [
+    [FlakeyReporter, { /* ... */ }],
+    [FlakeyLiveReporter, {
+      url:    process.env.FLAKEY_API_URL,
+      apiKey: process.env.FLAKEY_API_KEY,
+      suite:  "my-app-e2e",
+    }],
+  ],
 };
 ```
 
@@ -99,7 +99,7 @@ Disable with `heartbeatIntervalMs: 0` if you have a different keep-alive strateg
 ## Live run lifecycle
 
 1. **`before:run`** — POST `/live/start` (suite + CI metadata). Backend creates a placeholder `runs` row and returns the numeric `run_id`.
-2. **Per test** — POST `/live/:runId/events` with `{ type: 'test.started' | 'test.passed' | 'test.failed' | 'test.skipped', spec, test, ... }`. Events queue + flush in 1-second batches; failures flush immediately.
+2. **Per test** — POST `/live/:runId/events` with `{ type: 'test.started' | 'test.passed' | 'test.failed' | 'test.skipped', spec, test, ... }`. Events queue and flush on a 500ms window (LiveClient batches via setTimeout); the Cypress reporter posts each per-test event immediately.
 3. **30s tick** — POST `/live/:runId/events` with `[]` (heartbeat).
 4. **`after:run`** — `client.stop()` cancels the heartbeat; final `client.flush()` empties the queue. The framework-specific reporter then uploads the full run via `/runs/upload`, and the backend merges into the same placeholder by `ci_run_id`.
 5. **SIGINT/SIGTERM** — POST `/live/:runId/abort` so the dashboard immediately reflects "run aborted" and pending test rows transition to `skipped`.

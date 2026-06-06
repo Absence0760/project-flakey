@@ -72,18 +72,14 @@ For mid-run per-test events (so the dashboard updates as the suite runs):
 
 ```ts
 // playwright.config.ts
-import { register } from "@flakeytesting/live-reporter/playwright";
-
-const liveReporter = register({
-  url:    process.env.FLAKEY_API_URL,
-  apiKey: process.env.FLAKEY_API_KEY,
-  suite:  "my-app-e2e",
-});
-
 export default defineConfig({
   reporter: [
-    [liveReporter],
     ["@flakeytesting/playwright-reporter", { /* ... */ }],
+    ["@flakeytesting/live-reporter/playwright", {
+      url:    process.env.FLAKEY_API_URL,
+      apiKey: process.env.FLAKEY_API_KEY,
+      suite:  "my-app-e2e",
+    }],
   ],
 });
 ```

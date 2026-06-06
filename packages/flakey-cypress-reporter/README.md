@@ -58,7 +58,7 @@ cypress run
 
 - **Result uploads** — POSTs the run + screenshots + videos to `/runs/upload` at end-of-run.
 - **DOM snapshots** (when `@flakeytesting/cypress-snapshots` is installed) — captures the DOM at each command step. Snapshots stream live to the backend if a live run is active; otherwise they batch with the end-of-run upload.
-- **Live streaming** (when `@flakeytesting/live-reporter` is installed) — opens a live run via `POST /live/start`, fires per-test `test.started` / `test.passed` / `test.failed` events as the suite runs, sends a 30s heartbeat so quiet suites don't auto-abort, and POSTs `run.aborted` on SIGINT/SIGTERM.
+- **Live streaming** (when `@flakeytesting/live-reporter` is installed) — opens a live run via `POST /live/start`, fires per-test `test.started` / `test.passed` / `test.failed` events as the suite runs, sends a 30s heartbeat so quiet suites don't auto-abort, and calls `POST /live/:runId/abort` on SIGINT/SIGTERM so the dashboard clears the LIVE badge.
 
 Opt out of either layer via `setupFlakey(on, config, { snapshots: false, live: false })`.
 
