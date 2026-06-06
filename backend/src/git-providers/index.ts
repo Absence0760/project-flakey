@@ -46,7 +46,7 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
     if (!meta.commit_sha && !meta.branch) return;
 
     const provider = createProvider(config);
-    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
     // Post commit status check (independent of PR existence)
     if (meta.commit_sha) {

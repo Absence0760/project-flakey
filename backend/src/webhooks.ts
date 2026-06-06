@@ -88,7 +88,7 @@ export async function dispatchRunEvents(orgId: number, runId: number, run: Norma
   const currentIcon = run.stats.failed > 0 ? "\u274c" : "\u2705";
   const trend = trendIcons + currentIcon;
 
-  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
   const basePayload: WebhookRunPayload = {
     event: "",

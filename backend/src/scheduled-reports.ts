@@ -124,7 +124,7 @@ async function deliverReport(report: any): Promise<void> {
   }
 
   // webhook / slack — POST to destination URL
-  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
   const dashboardUrl = `${frontendUrl}/dashboard`;
 
   let formatted: object;

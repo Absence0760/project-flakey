@@ -143,7 +143,7 @@ export async function autoCreateIssuesForRun(
     if (!cfg || !cfg.autoCreate) return;
     if (run.stats.failed === 0) return;
 
-    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
     const failed = run.specs.flatMap((spec) =>
       spec.tests

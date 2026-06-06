@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:7777";
+const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
 // If SMTP_USER is set, SMTP_PASSWORD is required — silently auth'ing
 // with an empty password masks a misconfiguration and produces

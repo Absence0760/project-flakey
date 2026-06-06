@@ -52,7 +52,7 @@ export async function postCoverageStatus(
     : cfg.platform === "gitlab" ? createGitLabProvider(cfg)
     : createBitbucketProvider(cfg);
 
-  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
   const pass = linesPct >= threshold;
 
   try {

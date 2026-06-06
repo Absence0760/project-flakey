@@ -239,7 +239,7 @@ router.post("/:id/test", async (req, res) => {
       res.status(404).json({ error: "Webhook not found" });
       return;
     }
-    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
     const testPayload: WebhookRunFailedPayload = {
       event: "run.failed",
       run: {

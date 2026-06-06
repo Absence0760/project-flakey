@@ -72,7 +72,7 @@ export async function maybeTriggerPagerDutyForRun(
     if (!cfg || !cfg.autoTrigger) return;
     if (run.stats.failed === 0) return;
 
-    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7777";
+    const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
     await triggerPagerDutyEvent(
       cfg.integrationKey,
