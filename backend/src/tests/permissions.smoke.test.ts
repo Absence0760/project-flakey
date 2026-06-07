@@ -196,6 +196,27 @@ test("viewer CAN read /runs, /jira/settings, /pagerduty/settings, /manual-tests,
   }
 });
 
+test("viewer CANNOT GET /orgs/:id/settings (exposes git infra topology)", async () => {
+  // GET /orgs/:id/settings returns git_provider/git_repo/git_base_url
+  // (internal infrastructure topology) plus a has_git_token signal. The
+  // PATCH on the same route is admin-only; the GET must match so a
+  // read-only role can't enumerate the org's git wiring. Router-level
+  // viewer gate added in backend/src/routes/orgs.ts.
+  const res = await asViewer().get(`/orgs/${ownerOrgId}/settings`);
+  assert.equal(res.status, 403, "viewer must not read org git settings");
+});
+
+test("owner CAN GET /orgs/:id/settings (role gate, not broken for everyone)", async () => {
+  const res = await fetch(`${BASE}/orgs/${ownerOrgId}/settings`, {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+  });
+  assert.equal(res.status, 200, "owner should be able to read org settings");
+  const data = (await res.json()) as Record<string, unknown>;
+  // Confirm the shape — and that the raw token is never returned, only a flag.
+  assert.equal(typeof data.has_git_token, "boolean", "settings should expose has_git_token flag");
+  assert.equal(data.git_token, undefined, "git_token must never be returned by GET");
+});
+
 test("viewer CANNOT GET /webhooks (URL contains secrets)", async () => {
   // Slack/Discord/Teams webhook URLs are credentials — listing them
   // exposes the secret.  This route is intentionally admin-only on

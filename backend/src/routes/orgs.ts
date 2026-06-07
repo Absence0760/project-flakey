@@ -312,6 +312,13 @@ router.get("/:id/settings", async (req, res) => {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
+    // Settings expose infrastructure topology (git_provider/repo/base_url) and
+    // a has_git_token signal — admin-only, matching the PATCH below. Viewers
+    // have no business reading the org's git wiring.
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
     const result = await pool.query(
       "SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token FROM organizations WHERE id = $1",
       [req.params.id]
