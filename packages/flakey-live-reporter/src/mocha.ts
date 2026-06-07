@@ -18,32 +18,18 @@
  * Env vars: FLAKEY_API_URL, FLAKEY_API_KEY, FLAKEY_LIVE_RUN_ID (optional override)
  */
 
-import { writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { mkdirSync } from "fs";
+import { writeHandoff, releaseHandoff } from "./handoff.js";
 import { join } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync } from "child_process";
 import { LiveClient, installShutdownHandler } from "./index.js";
 
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
-
-// Atomic O_CREAT|O_EXCL write with user-only perms. The path is
-// predictable by design (cross-process handoff to the cypress plugin
-// and the Mocha reporter — both sides need to find it), so we rely
-// on the exclusive flag to refuse any pre-existing entry, including
-// a symlink an attacker may have planted, then retry once after
-// unlinking. unlinkSync on a symlink removes the link, not the target.
-function safeHandoffWrite(path: string, data: string): void {
-  try {
-    writeFileSync(path, data, { flag: "wx", mode: 0o600 });
-  } catch (err: any) {
-    if (err && err.code === "EEXIST") {
-      unlinkSync(path);
-      writeFileSync(path, data, { flag: "wx", mode: 0o600 });
-    } else {
-      throw err;
-    }
-  }
-}
+// Cross-process handoff write/cleanup helpers live in ./handoff.ts so the
+// collision policy (first-writer-wins for per-ancestor pid files vs
+// last-writer-wins for the singleton fallback) and the symlink defence are
+// unit-testable in isolation.
 // Home-dir fallback for the singleton handoff file. tmpdir() isn't reliable
 // across Cypress 15's process tree (different subprocesses resolve different
 // TMPDIR env vars); homedir() is. cwd() would also work but process.cwd()
@@ -57,8 +43,12 @@ const FLAKEY_HOME_DIR = join(homedir(), ".flakey-reporter");
 // and reads `live-run-id-<pid>` for each ancestor until it finds a match.
 // Writing one file per ancestor gives the reporter a stable handoff point:
 // usually the cypress-CLI pid is a common ancestor of both processes.
-// Concurrent `cypress run` invocations have distinct cypress-CLI pids so
-// their writes never collide.
+// Concurrent `cypress run` invocations each own a DISTINCT cypress-CLI pid
+// file (the authoritative resolution path). They can still share HIGHER
+// ancestor pids when launched from a common parent (a script, `concurrently`,
+// `&`-backgrounding); writeHandoff(..., claim=true) makes those shared-pid
+// files first-writer-wins so a sibling can never clobber an established
+// mapping, and releaseHandoff cleans up only the files a run actually owns.
 function getAncestorPids(startPid: number, maxDepth = 12): number[] {
   const chain = [startPid];
   let pid = startPid;
@@ -197,7 +187,9 @@ export function register(
                 // (which may live in a different process tree branch) can find
                 // a match by walking its own ancestor chain.
                 for (const pid of getAncestorPids(process.pid)) {
-                  safeHandoffWrite(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId));
+                  // claim=true: first-writer-wins. A simultaneous sibling run
+                  // that shares this ancestor pid must not clobber our mapping.
+                  writeHandoff(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), String(runId), true);
                 }
                 // Singleton fallback — some Cypress versions (observed in 15.14)
                 // put the Mocha reporter in a process tree that shares NO
@@ -208,7 +200,7 @@ export function register(
                 // a `.flakey-live-run-id` file in cwd — which IS stable across
                 // the Cypress process tree. Both plugin and Mocha reporter
                 // resolve cwd to the invocation dir.
-                safeHandoffWrite(join(FLAKEY_BASE_DIR, "latest-run-id"), String(runId));
+                writeHandoff(join(FLAKEY_BASE_DIR, "latest-run-id"), String(runId), false);
                 // Home-dir singleton — works even when TMPDIR and cwd diverge
                 // across Cypress's process tree. This is the fallback the
                 // Mocha reporter relies on in Cypress 15+.
@@ -230,7 +222,7 @@ export function register(
                 // win whenever the ancestor walk succeeds, which is the norm.
                 try {
                   mkdirSync(FLAKEY_HOME_DIR, { recursive: true, mode: 0o700 });
-                  safeHandoffWrite(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId));
+                  writeHandoff(join(FLAKEY_HOME_DIR, "latest-run-id"), String(runId), false);
                 } catch { /* ignore — the tmpdir path may still work */ }
               } catch { /* ignore */ }
               if (verbose) {
@@ -296,11 +288,14 @@ export function register(
     // later in the process lifecycle doesn't spuriously abort a finished run.
     teardownShutdown?.();
     teardownShutdown = null;
+    // Only remove handoff files we still own — a shared-ancestor pid's file
+    // may belong to a still-running sibling run, and deleting it would strip
+    // that sibling's mapping mid-run.
     for (const pid of getAncestorPids(process.pid)) {
-      try { unlinkSync(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`)); } catch { /* ignore */ }
+      releaseHandoff(join(FLAKEY_BASE_DIR, `live-run-id-${pid}`), runId);
     }
-    try { unlinkSync(join(FLAKEY_BASE_DIR, "latest-run-id")); } catch { /* ignore */ }
-    try { unlinkSync(join(FLAKEY_HOME_DIR, "latest-run-id")); } catch { /* ignore */ }
+    releaseHandoff(join(FLAKEY_BASE_DIR, "latest-run-id"), runId);
+    releaseHandoff(join(FLAKEY_HOME_DIR, "latest-run-id"), runId);
     if (runId && verbose) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;
