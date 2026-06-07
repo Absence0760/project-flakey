@@ -591,6 +591,17 @@ export async function analyzeError(fingerprint: string): Promise<AIAnalysis> {
   return res.json();
 }
 
+// Analyze a single failed test by id. Resolves to the same error fingerprint
+// (and cache) as analyzeError(), so the test-detail modal and the aggregated
+// /errors view share one analysis. Pass refresh=true to force a fresh model
+// call that replaces the cached row (used by "Re-analyze").
+export async function analyzeTest(testId: number, refresh = false): Promise<AIAnalysis> {
+  const qs = refresh ? "?refresh=true" : "";
+  const res = await authFetch(`${API_URL}/analyze/test/${testId}${qs}`, { method: "POST" });
+  if (!res.ok) throw new Error("Analysis failed");
+  return res.json();
+}
+
 export async function analyzeFlakyTest(params: {
   fullTitle: string;
   filePath: string;

@@ -6,6 +6,7 @@
   import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError } from "$lib/api";
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
+  import { classificationLabels } from "$lib/utils/ai";
 
   let errors = $state<ErrorGroup[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -151,15 +152,6 @@
     similarLoading = { ...similarLoading, [fingerprint]: false };
   }
 
-  const classificationLabels: Record<string, string> = {
-    product_bug: "Product Bug",
-    automation_bug: "Automation Bug",
-    environment_issue: "Environment Issue",
-    flaky_test: "Flaky Test",
-    data_issue: "Data Issue",
-    timeout: "Timeout",
-    unknown: "Unknown",
-  };
 
   async function applyFilters() {
     loading = true;

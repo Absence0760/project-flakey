@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchTest, fetchTestHistory, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
+  import { fetchTest, fetchTestHistory, checkAIEnabled, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { authFetch } from "$lib/stores/auth";
   import { toast as toastSuccess, toastInfo } from "$lib/stores/toast";
@@ -26,6 +26,14 @@
   // keyboard users land inside the dialog instead of staying on the
   // page underneath. Required by WCAG focus-management for modals.
   let backdropEl = $state<HTMLDivElement | null>(null);
+
+  // AI is configured instance-wide, so fetch the flag once on mount (this
+  // effect reads no reactive state, so it does not re-run). Gates the
+  // AI-analysis comment in the Notes panel.
+  let aiEnabled = $state(false);
+  $effect(() => {
+    checkAIEnabled().then((v) => { aiEnabled = v; }).catch(() => {});
+  });
 
   $effect(() => {
     if (testId && backdropEl) backdropEl.focus();
@@ -1069,7 +1077,12 @@
               {:else if rightTab === "notes"}
                 <div class="notes-tab">
                   {#key test.id}
-                    <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
+                    <NotesPanel
+                      targetType="test"
+                      targetKey={test.full_title + '|' + test.file_path}
+                      aiTestId={test.status === "failed" && test.error_message ? test.id : null}
+                      {aiEnabled}
+                    />
                   {/key}
                 </div>
               {/if}

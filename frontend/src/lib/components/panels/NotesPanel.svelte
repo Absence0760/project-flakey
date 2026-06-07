@@ -3,14 +3,20 @@
   import { timeAgo, absoluteDate } from "$lib/utils/format";
   import DOMPurify from "isomorphic-dompurify";
   import { fetchNotes, addNote, type Note } from "$lib/api";
+  import AIAnalysisComment from "./AIAnalysisComment.svelte";
 
   interface Props {
     targetType: string;
     targetKey: string;
     compact?: boolean;
+    // When set, an AI-analysis comment is pinned at the top of the thread for
+    // this failed test. Pass only for failed tests that have an error message.
+    aiTestId?: number | null;
+    // Whether an AI provider is configured instance-wide (gates the affordance).
+    aiEnabled?: boolean;
   }
 
-  let { targetType, targetKey, compact = false }: Props = $props();
+  let { targetType, targetKey, compact = false, aiTestId = null, aiEnabled = false }: Props = $props();
 
   let notes = $state<Note[]>([]);
   let loading = $state(true);
@@ -132,6 +138,12 @@
   {/if}
 
   {#if expanded}
+    {#if aiEnabled && aiTestId}
+      {#key aiTestId}
+        <AIAnalysisComment testId={aiTestId} enabled={aiEnabled} />
+      {/key}
+    {/if}
+
     {#if loading}
       <p class="state-msg muted">Loading notes…</p>
     {:else if notes.length === 0}
