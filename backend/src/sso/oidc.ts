@@ -14,16 +14,18 @@
 import crypto from "crypto";
 import dns from "dns";
 import net from "net";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { Agent, fetch as undiciFetch } from "undici";
+import { createRemoteJWKSet, jwtVerify, customFetch, type JWTPayload } from "jose";
 
-// ── SSRF guard (security review finding #3, fetch-time) ──────────────────────
+// ── SSRF guard (security review finding #3) ──────────────────────────────────
 // The OIDC issuer is admin-configured but the backend fetches it server-side
-// (discovery, JWKS, token exchange). Beyond the save-time literal check in
-// config.ts, we resolve each target host and refuse to connect to a private /
-// loopback / link-local / metadata address right before fetching. Loopback is
-// allowed only outside production (local Keycloak dev). This closes the
-// hostname-that-resolves-to-an-internal-IP vector; a DNS rebind *between* this
-// check and the socket connect is the documented residual risk.
+// (discovery, JWKS, token exchange). Defence is in depth:
+//   1. save-time literal check (config.ts validateIssuerUrl),
+//   2. fetch-time pre-check (assertPublicHost), and
+//   3. a TOCTOU-free pin: the undici Agent below validates the resolved IP in
+//      its `lookup` and connects to THAT address, so there's no DNS-rebind
+//      window between the check and the socket connect.
+// Loopback is allowed only outside production (local Keycloak dev).
 export function isBlockedIp(ip: string, isProd: boolean): boolean {
   const v = net.isIP(ip);
   if (v === 4) {
@@ -55,7 +57,7 @@ export function isBlockedIp(ip: string, isProd: boolean): boolean {
 }
 
 export async function assertPublicHost(urlStr: string): Promise<void> {
-  const host = new URL(urlStr).hostname;
+  const host = new URL(urlStr).hostname.replace(/^\[|\]$/g, "");
   const isProd = process.env.NODE_ENV === "production";
   const addrs: string[] = net.isIP(host)
     ? [host]
@@ -65,6 +67,35 @@ export async function assertPublicHost(urlStr: string): Promise<void> {
       throw new Error(`Refusing to reach a non-public address for SSO (${host} -> ${ip})`);
     }
   }
+}
+
+// TOCTOU-free SSRF pin (closes the documented DNS-rebind residual). The custom
+// `lookup` validates the resolved IP and undici connects to *that* address —
+// there's no second resolution between the check and the socket connect, so a
+// DNS rebind can't slip a private IP past the guard. TLS SNI/cert verification
+// still uses the original hostname (undici handles this), so pinning the IP
+// doesn't weaken certificate checks. Every SSO fetch (discovery, token, JWKS)
+// goes through this dispatcher.
+const SSRF_AGENT_IS_PROD = process.env.NODE_ENV === "production";
+const ssrfLookup = (hostname: string, options: dns.LookupOptions, callback: (...args: unknown[]) => void): void => {
+  dns.lookup(hostname, options, (err, address, family) => {
+    if (err) { callback(err, address, family); return; }
+    const list = Array.isArray(address)
+      ? (address as unknown as dns.LookupAddress[]).map((a) => a.address)
+      : [address as string];
+    const blocked = list.find((ip) => isBlockedIp(ip, SSRF_AGENT_IS_PROD));
+    if (blocked) {
+      callback(new Error(`Refusing to reach a non-public address for SSO (${hostname} -> ${blocked})`), address, family);
+      return;
+    }
+    callback(null, address, family);
+  });
+};
+const ssrfAgent = new Agent({ connect: { lookup: ssrfLookup as never } });
+
+// fetch bound to the SSRF-pinning dispatcher.
+function pinnedFetch(url: string, init?: Parameters<typeof undiciFetch>[1]): ReturnType<typeof undiciFetch> {
+  return undiciFetch(url, { ...init, dispatcher: ssrfAgent } as Parameters<typeof undiciFetch>[1]);
 }
 
 export interface OidcDiscovery {
@@ -89,12 +120,12 @@ const DISCOVERY_TTL_MS = 60 * 60 * 1000; // 1h — re-fetch the discovery doc ho
 // IdP can't pin a request open. Fail closed on timeout.
 const NETWORK_TIMEOUT_MS = 10_000;
 
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  await assertPublicHost(url); // SSRF guard — block private/metadata targets
+async function fetchJson(url: string, init?: Parameters<typeof undiciFetch>[1]): Promise<unknown> {
+  await assertPublicHost(url); // fast-fail SSRF pre-check (the agent is the authoritative gate)
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), NETWORK_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    const res = await pinnedFetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) {
       // Body may carry an OAuth error code (e.g. invalid_grant); include a
       // short, non-secret excerpt so config mistakes are diagnosable without
@@ -135,11 +166,16 @@ export async function getIssuer(issuer: string): Promise<CachedIssuer> {
       `IdP issuer mismatch: configured ${issuer}, discovery reports ${doc.issuer}`,
     );
   }
-  // jose fetches the JWKS itself, so guard its host here before handing it off.
+  // jose fetches the JWKS itself — route it through the same SSRF-pinning
+  // dispatcher via customFetch, and pre-check the host for a clean early error.
   await assertPublicHost(doc.jwks_uri);
   const entry: CachedIssuer = {
     discovery: doc as OidcDiscovery,
-    jwks: createRemoteJWKSet(new URL(doc.jwks_uri)),
+    jwks: createRemoteJWKSet(new URL(doc.jwks_uri), {
+      // undici Response satisfies jose's runtime needs (.json via the JWKS
+      // fetch); the cast bridges undici's vs the DOM lib's Response types.
+      [customFetch]: ((url: string, opts: unknown) => pinnedFetch(url, opts as Parameters<typeof undiciFetch>[1])) as never,
+    }),
     fetchedAt: Date.now(),
   };
   issuerCache.set(issuer, entry);

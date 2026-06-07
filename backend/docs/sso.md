@@ -75,12 +75,21 @@ GET /auth/sso/session   (SPA handoff — same-origin only)
 - **`enforced` ("SSO required") uses the AWS-console-MFA model, not a hard block.**
   Password login still *succeeds* for an enforced org, but the session is minted
   restricted (`ssoRequired`) and `requireAuth` clamps it to `GET /auth/me` until
-  the user re-authenticates through their IdP (which mints an unrestricted `sso`
-  session). `signToken`/`signRefreshToken` carry `sso`; `/auth/refresh` preserves
-  it so an SSO session is never downgraded to restricted. The login/switch-org
-  responses return `ssoRequired` + `orgSlug` so the SPA redirects to the IdP.
-  Known limitation: an SSO-established session satisfies enforcement in *any* org
-  it switches into (no per-org SSO-auth tracking) — acceptable for v1, documented.
+  the user re-authenticates through their IdP. The SSO callback/ACS stamp
+  `ssoOrg` (the org the session authenticated against) into the access + refresh
+  tokens; a session satisfies enforcement **only for that exact org**, so
+  `/auth/refresh` and `/auth/switch-org` re-require SSO when entering a
+  *different* enforced org (no cross-org free pass). login/switch-org responses
+  return `ssoRequired` + `orgSlug` so the SPA redirects to the IdP.
+- **Break-glass / local dev:** `FLAKEY_SSO_BYPASS_EMAILS` (comma-separated) lists
+  accounts exempt from enforcement — emergency access that survives an IdP
+  outage. Outside production it defaults to the seeded `admin@example.com`, so
+  local dev never gets forced through an IdP; in production it's empty unless set.
+- **API keys are not clamped by SSO enforcement — by design.** Enforcement gates
+  *interactive* sessions; API keys are programmatic credentials with their own
+  lifecycle (and a restricted session can't mint new ones — `POST /auth/api-keys`
+  is behind the clamp). CI uploads in an enforced org keep working. An org that
+  wants to forbid programmatic access too would need a separate control (future).
 
 ## Slice 2 — SAML
 

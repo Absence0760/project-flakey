@@ -156,13 +156,14 @@ export interface SsoConfigInput {
   samlAudience?: string | null;
 }
 
-// Reject obviously-internal OIDC issuer URLs at save time. The issuer is
-// admin-configured but the backend fetches it server-side (discovery), so a
-// malicious/compromised admin could point it at cloud metadata or an internal
-// service (SSRF — security review finding #3). This blocks the easy IP-literal
-// cases; loopback is allowed only outside production (local Keycloak dev). It
-// is NOT a complete SSRF defence — a hostname that DNS-resolves to a private IP
-// still slips through; that residual risk is documented for the CISO.
+// Reject internal OIDC issuer URLs at save time (first SSRF layer; the
+// authoritative TOCTOU-free gate is the pinned dispatcher in oidc.ts). The
+// issuer is admin-configured but fetched server-side, so a malicious admin
+// could point it at cloud metadata or an internal service. This rejects
+// non-https + private/loopback/link-local/metadata IP literals (reusing the
+// fetch-time isBlockedIp so the two layers agree, incl. IPv4-mapped IPv6).
+// Loopback is allowed only outside production (local Keycloak dev). Hostnames
+// that resolve to a private IP are caught at connect time by the pinned agent.
 export function validateIssuerUrl(raw: string): void {
   let u: URL;
   try { u = new URL(raw); } catch { throw new Error("OIDC issuer must be a valid URL"); }

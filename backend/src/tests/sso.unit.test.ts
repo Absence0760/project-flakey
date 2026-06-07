@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapRole, validateIssuerUrl, type OrgSsoConfig } from "../sso/config.js";
 import { generatePkce, randomToken, assertPublicHost } from "../sso/oidc.js";
+import { isSsoEnforcementBypassed } from "../auth.js";
 import crypto from "crypto";
 
 function cfg(over: Partial<OrgSsoConfig>): OrgSsoConfig {
@@ -87,4 +88,13 @@ test("assertPublicHost blocks private/metadata IPs at fetch time (IP literals)",
   // Loopback is allowed outside production (NODE_ENV is not 'production' here),
   // so the local mock-IdP / Keycloak dev flow keeps working.
   await assert.doesNotReject(() => assertPublicHost("http://127.0.0.1:8081/"));
+});
+
+test("SSO enforcement break-glass: seeded admin is exempt in dev, others are not", () => {
+  // Default outside production includes the seeded admin so local dev (and
+  // emergency access) never gets forced through an IdP. Case-insensitive.
+  assert.equal(isSsoEnforcementBypassed("admin@example.com"), true);
+  assert.equal(isSsoEnforcementBypassed("Admin@Example.com"), true);
+  assert.equal(isSsoEnforcementBypassed("someone.else@example.com"), false);
+  assert.equal(isSsoEnforcementBypassed(null), false);
 });

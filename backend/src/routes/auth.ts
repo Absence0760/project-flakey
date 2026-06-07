@@ -4,7 +4,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../db.js";
 import { tenantQuery, userScopedQuery } from "../db.js";
-import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail, getJwtSecret } from "../auth.js";
+import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail, getJwtSecret, isSsoEnforcementBypassed } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 import { logAudit } from "../audit.js";
 import { orgEnforcesSso } from "../sso/config.js";
@@ -32,7 +32,7 @@ const router = Router();
  */
 function extractAndVerifyRefreshToken(
   req: import("express").Request,
-): { id: number; jti: string | null; iat: number | null; sso: boolean } | null {
+): { id: number; jti: string | null; iat: number | null; ssoOrg: number | null } | null {
   let value: string | undefined = req.body?.refreshToken;
   if (!value) {
     const cookieHeader = req.headers.cookie;
@@ -54,7 +54,7 @@ function extractAndVerifyRefreshToken(
       id,
       jti: typeof payload.jti === "string" ? payload.jti : null,
       iat: typeof payload.iat === "number" ? payload.iat : null,
-      sso: payload.sso === true,
+      ssoOrg: typeof payload.ssoOrg === "number" ? payload.ssoOrg : null,
     };
   } catch {
     return null;
@@ -225,7 +225,9 @@ router.post("/login", async (req, res) => {
     // requires SSO still succeeds, but the session is minted restricted
     // (ssoRequired) and requireAuth clamps it until the user completes SSO. We
     // surface ssoRequired + orgSlug so the SPA can send them straight to the IdP.
-    const ssoRequired = await orgEnforcesSso(orgId);
+    // Break-glass / local-dev accounts (FLAKEY_SSO_BYPASS_EMAILS) are never
+    // forced through SSO.
+    const ssoRequired = !isSsoEnforcementBypassed(user.email) && (await orgEnforcesSso(orgId));
     const orgSlug = ssoRequired
       ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
       : null;
@@ -312,7 +314,7 @@ router.post("/register", async (req, res) => {
     });
 
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
-    const ssoRequired = await orgEnforcesSso(orgId);
+    const ssoRequired = !isSsoEnforcementBypassed(user.email) && (await orgEnforcesSso(orgId));
     const orgSlug = ssoRequired
       ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
       : null;
@@ -380,15 +382,16 @@ router.post("/refresh", async (req, res) => {
       }
     }
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
-    // Preserve whether this session was SSO-established across rotation, and
-    // re-derive ssoRequired for the (possibly changed) org. An SSO session is
-    // never downgraded to restricted; a password session in an enforced org
-    // stays restricted.
-    const isSsoSession = verified.sso;
-    const ssoRequired = !isSsoSession && (await orgEnforcesSso(orgId));
-    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, sso: isSsoSession, ssoRequired };
+    // Preserve which org this session was SSO-authenticated for, and re-derive
+    // ssoRequired for the (possibly changed) org: a session satisfies SSO only
+    // for the exact org it authenticated against (no cross-org free pass).
+    // Break-glass accounts are never restricted.
+    const ssoOrg = verified.ssoOrg ?? undefined;
+    const ssoRequired =
+      !isSsoEnforcementBypassed(user.email) && ssoOrg !== orgId && (await orgEnforcesSso(orgId));
+    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, ssoOrg, ssoRequired };
     const token = signToken(authUser);
-    const newRefresh = signRefreshToken(user.id, { sso: isSsoSession });
+    const newRefresh = signRefreshToken(user.id, { ssoOrg });
 
     // Refresh-token rotation. Mark the just-consumed jti as
     // revoked so the same refresh token cannot be replayed. If an
@@ -459,14 +462,16 @@ router.post("/switch-org", requireAuth, async (req, res) => {
     }
 
     // Re-derive SSO enforcement for the org being switched into. A session
-    // established via SSO satisfies the requirement anywhere; a non-SSO session
-    // switching into an enforced org becomes restricted until it completes SSO.
-    const isSsoSession = req.user!.sso === true;
-    const ssoRequired = !isSsoSession && (await orgEnforcesSso(orgId));
+    // satisfies SSO only for the exact org it authenticated against, so
+    // switching into a *different* enforced org becomes restricted until the
+    // user completes SSO for it. Break-glass accounts are never restricted.
+    const ssoOrg = req.user!.ssoOrg;
+    const ssoRequired =
+      !isSsoEnforcementBypassed(req.user!.email) && ssoOrg !== orgId && (await orgEnforcesSso(orgId));
     const orgSlug = ssoRequired
       ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
       : null;
-    const authUser = { ...req.user!, orgId, orgRole: membership.rows[0].role, sso: isSsoSession, ssoRequired };
+    const authUser = { ...req.user!, orgId, orgRole: membership.rows[0].role, ssoOrg, ssoRequired };
     const token = signToken(authUser);
     res.json({ token, user: authUser, ssoRequired, orgSlug });
   } catch (err) {

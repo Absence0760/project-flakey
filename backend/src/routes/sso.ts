@@ -259,8 +259,9 @@ loginRouter.get("/callback", async (req, res) => {
 
     const user = await resolveSsoUser(cfg, claims);
 
-    // sso:true marks the session SSO-established, so it's never clamped by the
-    // SSO-enforcement gate and a refresh preserves that.
+    // ssoOrg records the org this session authenticated against, so it's never
+    // clamped for THIS org and a refresh preserves it (but switching into a
+    // different enforced org still re-requires SSO).
     const authUser = {
       id: user.id,
       email: user.email,
@@ -268,10 +269,10 @@ loginRouter.get("/callback", async (req, res) => {
       role: user.role,
       orgId: user.orgId,
       orgRole: user.orgRole,
-      sso: true,
+      ssoOrg: user.orgId,
     };
     const token = signToken(authUser);
-    const refreshToken = signRefreshToken(user.id, { sso: true });
+    const refreshToken = signRefreshToken(user.id, { ssoOrg: user.orgId });
     setTokenCookie(res, token, refreshToken);
 
     // Hand off to the SPA. The cookies are already set; /sso/complete reads the
@@ -337,10 +338,10 @@ loginRouter.post("/saml/acs", express.urlencoded({ extended: false, limit: "1mb"
     const user = await resolveSsoUser(cfg, samlProfileToClaims(profile, cfg));
     const authUser = {
       id: user.id, email: user.email, name: user.name,
-      role: user.role, orgId: user.orgId, orgRole: user.orgRole, sso: true,
+      role: user.role, orgId: user.orgId, orgRole: user.orgRole, ssoOrg: user.orgId,
     };
     const token = signToken(authUser);
-    const refreshToken = signRefreshToken(user.id, { sso: true });
+    const refreshToken = signRefreshToken(user.id, { ssoOrg: user.orgId });
     setTokenCookie(res, token, refreshToken);
     res.redirect(`${FRONTEND_URL}/sso/complete?returnTo=${encodeURIComponent(relay.rt)}`);
   } catch (err) {

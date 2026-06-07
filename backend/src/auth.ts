@@ -67,13 +67,33 @@ export interface AuthUser {
   // restricts the request to GET on an allow-listed read surface.
   isSupportRead?: boolean;
   supportReason?: string;
-  // SSO enforcement (AWS-console-MFA model). `sso` = this session was
-  // established via SSO. `ssoRequired` = the active org enforces SSO and this
-  // session was NOT established via SSO, so requireAuth clamps it to a minimal
-  // surface until the user re-authenticates through their IdP. Password login
-  // still succeeds (no hard block) — it just lands restricted.
-  sso?: boolean;
+  // SSO enforcement (AWS-console-MFA model). `ssoOrg` = the org id this session
+  // was SSO-authenticated against (set only by the SSO callback/ACS). A session
+  // satisfies enforcement for org X only when ssoOrg === X — so switching into a
+  // *different* enforced org re-requires SSO for it (no cross-org free pass).
+  // `ssoRequired` = the active org enforces SSO and this session is not
+  // SSO-authenticated for it, so requireAuth clamps it to a minimal surface
+  // until the user re-authenticates. Password login still succeeds (no hard
+  // block) — it just lands restricted.
+  ssoOrg?: number;
   ssoRequired?: boolean;
+}
+
+// Break-glass exemption from SSO enforcement. Emails listed here are never
+// clamped — for emergency/admin access that must survive an IdP outage, and so
+// local dev (the seeded admin@example.com) never gets forced through an IdP.
+// Defaults to the seeded admin OUTSIDE production only; in production it's empty
+// unless an operator opts specific accounts in via FLAKEY_SSO_BYPASS_EMAILS.
+const SSO_BYPASS_EMAILS = new Set(
+  (process.env.FLAKEY_SSO_BYPASS_EMAILS ??
+    (process.env.NODE_ENV === "production" ? "" : "admin@example.com"))
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export function isSsoEnforcementBypassed(email: string | null | undefined): boolean {
+  return typeof email === "string" && SSO_BYPASS_EMAILS.has(email.trim().toLowerCase());
 }
 
 // A support session is intentionally brief — long enough to triage one
@@ -106,9 +126,9 @@ export function signToken(user: AuthUser): string {
     {
       id: user.id, email: user.email, name: user.name, role: user.role,
       orgId: user.orgId, orgRole: user.orgRole,
-      // Only emit the SSO flags when set, so non-SSO sessions keep their
+      // Only emit the SSO claims when set, so non-SSO sessions keep their
       // existing compact token shape.
-      ...(user.sso ? { sso: true } : {}),
+      ...(user.ssoOrg ? { ssoOrg: user.ssoOrg } : {}),
       ...(user.ssoRequired ? { ssoRequired: true } : {}),
     },
     JWT_SECRET,
@@ -134,7 +154,7 @@ export function signSupportToken(actor: AuthUser, targetOrgId: number, reason: s
   );
 }
 
-export function signRefreshToken(userId: number, opts?: { sso?: boolean }): string {
+export function signRefreshToken(userId: number, opts?: { ssoOrg?: number }): string {
   // jti = unique id per refresh token, so /auth/logout and the
   // refresh-token rotation in /auth/refresh can mark a specific
   // token as revoked without invalidating every refresh ever
@@ -145,7 +165,7 @@ export function signRefreshToken(userId: number, opts?: { sso?: boolean }): stri
   // re-derives ssoRequired correctly (an SSO session must not be downgraded to
   // restricted on refresh just because its org enforces SSO).
   return jwt.sign(
-    { id: userId, type: "refresh", jti: crypto.randomUUID(), ...(opts?.sso ? { sso: true } : {}) },
+    { id: userId, type: "refresh", jti: crypto.randomUUID(), ...(opts?.ssoOrg ? { ssoOrg: opts.ssoOrg } : {}) },
     JWT_SECRET,
     { expiresIn: REFRESH_EXPIRY }
   );
@@ -380,7 +400,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // other resource is refused with SSO_REQUIRED until the user re-authenticates
   // through their IdP (which mints an unrestricted `sso` session). API-key and
   // support sessions never carry ssoRequired, so they're unaffected.
-  if (candidate.ssoRequired) {
+  if (candidate.ssoRequired && !isSsoEnforcementBypassed(candidate.email)) {
     const isMe = req.method === "GET" && req.baseUrl === "/auth" && req.path === "/me";
     if (!isMe) {
       res.status(403).json({
