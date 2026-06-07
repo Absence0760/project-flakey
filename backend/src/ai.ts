@@ -98,6 +98,20 @@ export function parseJSON<T>(text: string, fallback: T): T {
   try {
     return JSON.parse(cleaned);
   } catch {
+    // Local models routinely ignore the "JSON only" instruction and wrap the
+    // object in prose ("Here's the analysis: {…}. Hope this helps!") or trail
+    // commentary after the closing brace, which makes JSON.parse choke on the
+    // whole string even though a valid object is sitting right there. Recover
+    // it by parsing the span from the first '{' to the last '}'.
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+      } catch {
+        /* fall through to the fallback below */
+      }
+    }
     return fallback;
   }
 }
@@ -142,7 +156,10 @@ Respond with ONLY a JSON object (no markdown fences):
   const text = await chat(prompt);
   return parseJSON(text, {
     classification: "unknown",
-    summary: text.slice(0, 300),
+    // Don't surface the raw model output here — when parsing fails it's a
+    // half-finished JSON blob, which reads as a broken "summary" in the UI.
+    // Say plainly that the model didn't return usable analysis instead.
+    summary: "The AI model did not return a usable analysis for this failure. Try analyzing again, or review the error manually.",
     suggestedFix: "Review the error manually.",
     confidence: 0,
   });

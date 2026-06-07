@@ -175,3 +175,41 @@ test("parseJSON: handles JSON with surrounding whitespace inside the fences", ()
   const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
   assert.equal(out.rootCause, "y");
 });
+
+// ── parseJSON: prose-wrapped output (the local-model failure mode) ─────────
+// Small local models (llama3.2 et al) ignore "JSON only" and bolt prose
+// onto the object. The object is valid — it's the surrounding text that
+// makes a naive JSON.parse throw. parseJSON must recover the object from
+// the first '{' to the last '}' instead of dropping to the fallback (which
+// the UI rendered as an "Unknown / 0% confidence" half-JSON blob).
+
+test("parseJSON: recovers object with trailing prose after the closing brace", () => {
+  const text = '{"rootCause":"race","severity":"high"} Hope this helps!';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "race");
+  assert.equal(out.severity, "high");
+});
+
+test("parseJSON: recovers object with leading prose before the opening brace", () => {
+  const text = 'Here is the analysis:\n{"rootCause":"timeout","severity":"medium"}';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "timeout");
+});
+
+test("parseJSON: recovers object wrapped in both prose and fences", () => {
+  const text = 'Sure! ```json\n{"rootCause":"isolation","severity":"low"}\n``` Let me know.';
+  const out = parseJSON<typeof FALLBACK>(text, FALLBACK);
+  assert.equal(out.rootCause, "isolation");
+});
+
+test("parseJSON: truncated/unterminated object still falls back (no closing brace)", () => {
+  // Hitting max_tokens mid-object leaves no '}' to anchor on — the recovery
+  // path can't help, so we must return the fallback, not a partial parse.
+  const text = '{"rootCause":"timeout","severity":"hi';
+  assert.deepEqual(parseJSON<typeof FALLBACK>(text, FALLBACK), FALLBACK);
+});
+
+test("parseJSON: prose containing no JSON object returns fallback", () => {
+  const text = "I cannot analyze this failure without more information.";
+  assert.deepEqual(parseJSON<typeof FALLBACK>(text, FALLBACK), FALLBACK);
+});
