@@ -5,9 +5,12 @@
  *
  * Captures a DOM snapshot after each Cypress command completes.
  *
- * For Cucumber users: additionally import
- *   import "@flakeytesting/cypress-snapshots/cucumber";
- * to get Gherkin step markers in the snapshot bundle.
+ * Cucumber: Gherkin step grouping works automatically from this import — the
+ * command:end handler watches @badeball's active pickle step
+ * (`window.testState.pickleStep`) and emits a step marker when it changes. The
+ * separate `import "@flakeytesting/cypress-snapshots/cucumber"` is now OPTIONAL
+ * (it registers an authoritative BeforeStep hook that fires before the step's
+ * first command; markGherkinStep dedupes so the two never double-mark).
  */
 
 import {
@@ -19,6 +22,7 @@ import {
   capHtml,
   resetState,
   appendStep,
+  markGherkinStep,
 } from "./shared.js";
 
 const SKIP_COMMANDS = new Set([
@@ -33,6 +37,14 @@ Cypress.on("test:before:run", () => {
 
 Cypress.on("command:end", (command: any) => {
   if (!isEnabled()) return;
+  // Cucumber grouping (no extra wiring): when @badeball advances to a new
+  // Gherkin step it updates window.testState.pickleStep. Emit a step marker on
+  // change — deduped by id so the optional ./cucumber BeforeStep hook (which
+  // fires earlier) never produces a duplicate.
+  try {
+    const ps = (window as any).testState?.pickleStep;
+    if (ps) markGherkinStep(ps.id, ps.type, ps.text);
+  } catch { /* not a Cucumber run — no testState */ }
   const name = command?.attributes?.name;
   if (!name || SKIP_COMMANDS.has(name)) return;
   pushStep(name, String(command?.attributes?.message || ""));

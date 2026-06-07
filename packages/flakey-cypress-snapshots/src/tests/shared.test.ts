@@ -9,6 +9,7 @@ import {
   getMaxHtmlBytes,
   getMaxBundleBytes,
   isEnabled,
+  markGherkinStep,
 } from "../shared.ts";
 
 // shared.ts reads Cypress.env(...) at runtime. In a Node test runner
@@ -131,4 +132,33 @@ test("resetState() zeroes everything and stamps a fresh testStartTime", () => {
   assert.equal(state.cappedCount, 0);
   assert.equal(state.evictedCount, 0);
   assert.ok(state.testStartTime >= before && state.testStartTime <= after);
+});
+
+// markGherkinStep — the deduped step-boundary marker shared by the support
+// detector and the optional ./cucumber BeforeStep hook. (pushStep no-ops here
+// because there's no app document in Node, so we assert the dedup contract via
+// the return value + state.lastGherkinStepId, which is the logic that matters.)
+
+test("markGherkinStep emits once per step id and dedupes the same id (cross-source safe)", () => {
+  assert.equal(markGherkinStep("s1", "Context", "the user logs in"), true, "a new step is marked");
+  assert.equal(state.lastGherkinStepId, "s1");
+  // Same id again — e.g. the support detector firing after BeforeStep already
+  // marked this step — must be a no-op so the bundle has no duplicate marker.
+  assert.equal(markGherkinStep("s1", "Context", "the user logs in"), false, "same id must not re-mark");
+  assert.equal(markGherkinStep("s2", "Action", "the user clicks save"), true, "the next step is marked");
+  assert.equal(state.lastGherkinStepId, "s2");
+});
+
+test("markGherkinStep ignores a missing id or text", () => {
+  assert.equal(markGherkinStep(undefined, "Action", "x"), false);
+  assert.equal(markGherkinStep("s1", "Action", undefined), false);
+  assert.equal(state.lastGherkinStepId, undefined, "no partial step should set the dedup id");
+});
+
+test("resetState clears the Gherkin dedup id so a new test re-marks its first step", () => {
+  markGherkinStep("s1", "Context", "login");
+  assert.equal(state.lastGherkinStepId, "s1");
+  resetState();
+  assert.equal(state.lastGherkinStepId, undefined);
+  assert.equal(markGherkinStep("s1", "Context", "login"), true, "the same id in a NEW test must re-mark");
 });

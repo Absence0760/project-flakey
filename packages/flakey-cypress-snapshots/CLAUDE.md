@@ -36,7 +36,8 @@ When `FLAKEY_API_URL`, `FLAKEY_API_KEY`, and `FLAKEY_LIVE_RUN_ID` are all set in
 - `src/plugin.ts` — Cypress plugin (runs in Node; registers the `flakey:saveSnapshot` task; handles disk write + streaming upload)
 - `src/support.ts` — Cypress support file (runs in the browser; wires `command:end` → `pushStep` and the `afterEach` bundle save)
 - `src/shared.ts` — shared browser-side state: ring buffer (max 300 steps), `pushStep`, `serializeDOM`, `getAppDocument`, `isEnabled`. Imported by both `support.ts` and `cucumber.ts`.
-- `src/cucumber.ts` — optional Cucumber/Gherkin integration. Registers a `BeforeStep` hook via `@badeball/cypress-cucumber-preprocessor` that pushes `commandName: "gherkin"` markers into the bundle. **Must be imported from a step-definition file (matched by the preprocessor's `stepDefinitions` glob), NOT from `cypress/support/e2e.ts`** — the preprocessor's per-feature registry doesn't exist in the support context, so `BeforeStep()` throws `"Expected to find a global registry"` which Cypress swallows as a vague "uncaught error outside of a test", aborting every spec. The right pattern is a one-line file like `cypress/e2e/_flakey-cucumber-hooks.ts` that does `import "@flakeytesting/cypress-snapshots/cucumber";`.
+- **Gherkin step markers are automatic from `support.ts`.** Its `command:end` handler reads `@badeball`'s active pickle step (`window.testState.pickleStep`) and calls `markGherkinStep` when it changes, pushing a `commandName: "gherkin"` marker so snapshots group under each Given/When/Then. No extra wiring — the `./support` import every consumer already has is enough. `markGherkinStep` (in `shared.ts`) dedupes by pickle-step id and resets in `resetState`.
+- `src/cucumber.ts` — **optional**, no longer required for Gherkin grouping. Registers a `BeforeStep` hook (via `@badeball/cypress-cucumber-preprocessor`) that calls the same `markGherkinStep`. Its only advantage over the support-file detector is timing — the marker fires *before* the step's first command rather than at it; the dedup makes importing both safe (no duplicate markers). **If you do import it, it MUST come from a step-definition file (matched by the preprocessor's `stepDefinitions` glob), NOT `cypress/support/e2e.ts`** — `BeforeStep()` needs the preprocessor's per-feature registry, which doesn't exist in the support context, so it throws `"Expected to find a global registry"` (swallowed by Cypress as a vague "uncaught error outside of a test", aborting every spec).
 - `plugin.js` / `support.js` / `cucumber.js` — thin JS entries that re-export from `dist/`.
 - `plugin.d.ts` / `support.d.ts` / `cucumber.d.ts` — type stubs so consumers on default Node module resolution get types without relying on the `exports` conditional map.
 - Build output goes to `dist/`; published files are declared in `package.json` `files`.
@@ -58,9 +59,10 @@ export default defineConfig({
 
 // cypress/support/e2e.ts
 import "@flakeytesting/cypress-snapshots/support";
-
-// Cucumber projects only — adds Gherkin step markers to the bundle:
-// import "@flakeytesting/cypress-snapshots/cucumber";
+// Cucumber projects get Gherkin step grouping automatically from the import
+// above. The ./cucumber subpath is now OPTIONAL — import it (from a
+// step-definition file, never the support file) only if you want the marker
+// emitted by a BeforeStep hook (fires before the step's first command).
 ```
 
 ## Peer deps

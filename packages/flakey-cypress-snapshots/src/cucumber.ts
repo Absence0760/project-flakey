@@ -1,7 +1,13 @@
 /**
- * Optional Cucumber integration. Imports a BeforeStep hook that injects a
- * synthetic "gherkin" step into the snapshot bundle before each Gherkin
- * step runs, so scenario structure is visible in the snapshot viewer.
+ * Optional Cucumber integration.
+ *
+ * As of the support-file step detector, Gherkin grouping works WITHOUT this
+ * module: `@flakeytesting/cypress-snapshots/support` watches
+ * `window.testState.pickleStep` after each command and emits a marker when the
+ * step changes. Importing this module is now only worth it if you want the
+ * marker emitted by an authoritative `BeforeStep` hook (fires BEFORE the step's
+ * first command, rather than at its first captured command). `markGherkinStep`
+ * dedupes by step id, so importing both is safe — no duplicate markers.
  *
  * IMPORTANT: do NOT import this module from cypress/support/e2e.ts.
  * `@badeball/cypress-cucumber-preprocessor`'s BeforeStep() registers into
@@ -27,8 +33,7 @@
  */
 
 import { BeforeStep } from "@badeball/cypress-cucumber-preprocessor";
-import { pushStep } from "./shared.js";
-import { gherkinMarkerMessage } from "./cucumber-format.js";
+import { markGherkinStep } from "./shared.js";
 
 // BeforeStep is resolved at bundle time, but older versions of
 // @badeball/cypress-cucumber-preprocessor may export it as `undefined`. If
@@ -39,11 +44,12 @@ import { gherkinMarkerMessage } from "./cucumber-format.js";
 // preprocessor version doesn't expose BeforeStep.
 if (typeof BeforeStep === "function") {
   // The preprocessor calls: hook.implementation.call(world, options)
-  // where options includes { pickle, pickleStep, gherkinDocument, ... }
+  // where options includes { pickle, pickleStep, gherkinDocument, ... }.
+  // markGherkinStep dedupes against the support-file detector by step id.
   BeforeStep(function (options: any) {
     const ps = options?.pickleStep ?? (window as any).testState?.pickleStep;
     if (!ps?.text) return;
-    pushStep("gherkin", gherkinMarkerMessage(ps.type, ps.text));
+    markGherkinStep(ps.id, ps.type, ps.text);
   });
 } else {
   // eslint-disable-next-line no-console

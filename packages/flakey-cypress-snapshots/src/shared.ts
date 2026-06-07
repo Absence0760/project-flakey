@@ -1,3 +1,5 @@
+import { gherkinMarkerMessage } from "./cucumber-format.js";
+
 export interface SnapshotStep {
   index: number;
   commandName: string;
@@ -18,6 +20,8 @@ export const state: {
   evictedCount: number;
   /** Running total of `html.length` across steps. Kept in sync by pushStep. */
   bundleBytes: number;
+  /** Id of the Gherkin step we last emitted a marker for (dedup, per test). */
+  lastGherkinStepId: string | undefined;
 } = {
   steps: [],
   commandIndex: 0,
@@ -25,6 +29,7 @@ export const state: {
   cappedCount: 0,
   evictedCount: 0,
   bundleBytes: 0,
+  lastGherkinStepId: undefined,
 };
 
 export function isEnabled(): boolean {
@@ -126,6 +131,29 @@ export function resetState(): void {
   state.cappedCount = 0;
   state.evictedCount = 0;
   state.bundleBytes = 0;
+  state.lastGherkinStepId = undefined;
+}
+
+/**
+ * Emit a synthetic "gherkin" marker step when the active Gherkin step changes,
+ * so the snapshot viewer groups DOM steps under each Given / When / Then.
+ *
+ * Deduped by pickle-step id: whichever source observes a new step first wins,
+ * the other no-ops. That lets the support-file detector (reads
+ * `window.testState.pickleStep` after each command) and the optional
+ * `./cucumber` BeforeStep hook coexist without double-marking — so Gherkin
+ * grouping works from the support import alone, with no extra step-def file.
+ * Returns true if a marker was pushed.
+ */
+export function markGherkinStep(
+  id: string | undefined,
+  type: string | undefined,
+  text: string | undefined,
+): boolean {
+  if (!id || !text || id === state.lastGherkinStepId) return false;
+  state.lastGherkinStepId = id;
+  pushStep("gherkin", gherkinMarkerMessage(type, text));
+  return true;
 }
 
 /**
