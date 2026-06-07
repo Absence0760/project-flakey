@@ -90,6 +90,38 @@ async function chat(prompt: string): Promise<string> {
 }
 
 /**
+ * Get a structured JSON object from the configured AI provider.
+ *
+ * Anthropic path: forced tool-use. The desired shape is handed to the model
+ * as a single tool's `input_schema` and `tool_choice` forces the model to
+ * call it, so the API returns a schema-shaped object directly — no string
+ * parsing and none of the prose-wrapping failure mode that bites small local
+ * models (see `parseJSON` for that path).
+ *
+ * OpenAI-compatible path (Ollama, llama.cpp, vLLM, LM Studio): tool-use
+ * support is inconsistent across servers, so we keep the lenient
+ * text + `parseJSON` path there.
+ */
+async function chatJSON<T>(prompt: string, tool: Anthropic.Tool, fallback: T): Promise<T> {
+  if (AI_PROVIDER === "anthropic") {
+    const client = new Anthropic({ apiKey: AI_API_KEY });
+    const response = await client.messages.create({
+      model: AI_MODEL,
+      max_tokens: 500,
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content: prompt }],
+    });
+    const block = response.content.find((b) => b.type === "tool_use");
+    return block && block.type === "tool_use" ? (block.input as T) : fallback;
+  }
+
+  // OpenAI-compatible: lenient text response + best-effort JSON recovery.
+  const text = await chat(prompt);
+  return parseJSON(text, fallback);
+}
+
+/**
  * Parse a JSON response from the AI, stripping any markdown fences.
  */
 export function parseJSON<T>(text: string, fallback: T): T {
@@ -153,12 +185,27 @@ Respond with ONLY a JSON object (no markdown fences):
   "confidence": <0.0-1.0 how confident you are in the classification>
 }`;
 
-  const text = await chat(prompt);
-  return parseJSON(text, {
+  return chatJSON(prompt, {
+    name: "report_failure_analysis",
+    description: "Report the classification and analysis of a single test failure.",
+    input_schema: {
+      type: "object",
+      properties: {
+        classification: {
+          type: "string",
+          enum: ["product_bug", "automation_bug", "environment_issue", "flaky_test", "data_issue", "timeout"],
+          description: "The single best-fitting failure category.",
+        },
+        summary: { type: "string", description: "1-2 sentence plain-English summary of what went wrong and why." },
+        suggestedFix: { type: "string", description: "1-2 sentence actionable suggestion to fix or investigate." },
+        confidence: { type: "number", description: "Confidence in the classification, 0.0-1.0." },
+      },
+      required: ["classification", "summary", "suggestedFix", "confidence"],
+    },
+  }, {
     classification: "unknown",
-    // Don't surface the raw model output here — when parsing fails it's a
-    // half-finished JSON blob, which reads as a broken "summary" in the UI.
-    // Say plainly that the model didn't return usable analysis instead.
+    // When even the fallback fires (no usable response from the model), don't
+    // surface raw model output — say plainly that analysis didn't come back.
     summary: "The AI model did not return a usable analysis for this failure. Try analyzing again, or review the error manually.",
     suggestedFix: "Review the error manually.",
     confidence: 0,
@@ -219,8 +266,20 @@ Respond with ONLY a JSON object (no markdown fences):
   "severity": "<low, medium, or high based on impact>"
 }`;
 
-  const text = await chat(prompt);
-  return parseJSON(text, {
+  return chatJSON(prompt, {
+    name: "report_flaky_analysis",
+    description: "Report the root-cause analysis and stabilization plan for a flaky test.",
+    input_schema: {
+      type: "object",
+      properties: {
+        rootCause: { type: "string", description: "1-2 sentence analysis of the likely root cause (timing, race, isolation, external dependency, etc.)." },
+        stabilizationSuggestion: { type: "string", description: "1-2 sentence actionable suggestion to stabilize the test." },
+        shouldQuarantine: { type: "boolean", description: "True if the flaky rate warrants quarantine (>30% or >5 flips)." },
+        severity: { type: "string", enum: ["low", "medium", "high"], description: "Severity based on impact." },
+      },
+      required: ["rootCause", "stabilizationSuggestion", "shouldQuarantine", "severity"],
+    },
+  }, {
     rootCause: "Unable to determine root cause automatically.",
     stabilizationSuggestion: "Review the test manually for timing or isolation issues.",
     shouldQuarantine: params.flakyRate > 30,
