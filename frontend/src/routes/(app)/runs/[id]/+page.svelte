@@ -226,7 +226,17 @@
         const runAge = Date.now() - new Date(run.created_at).getTime();
         if (runAge < 30 * 60 * 1000) {
           await loadLiveHistory(id);
-          const terminated = liveEvents.some(e => e.type === "run.finished" || e.type === "run.aborted");
+          // A run with finished_at set is complete — this is the backend's
+          // authoritative "not active" signal (activeRunIdsForOrg in
+          // backend/src/routes/live.ts uses exactly `finished_at IS NULL`,
+          // which is what the runs LIST keys its LIVE badge off). Without
+          // this guard a plain batch upload (finished_at set, but zero
+          // live_events, so no `run.finished` event in history) would still
+          // pass the `terminated` check below, connect to /live/<id>/stream,
+          // get the `connected` handshake, and falsely render LIVE here while
+          // the list correctly shows it Passed.
+          const terminated = run.finished_at != null
+            || liveEvents.some(e => e.type === "run.finished" || e.type === "run.aborted");
           if (!terminated) connectLive(id);
         }
 

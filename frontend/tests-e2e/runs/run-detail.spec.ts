@@ -119,4 +119,58 @@ test.describe("/runs/<id>", () => {
       await expect(page.locator(".test-row").first()).toBeVisible({ timeout: 5_000 });
     }
   });
+
+  // Regression: a freshly-uploaded BATCH run (POST /runs/upload) has
+  // finished_at set and ZERO live_events. The detail page used to gate
+  // its LIVE badge on "young AND no run.finished/aborted event in
+  // history" — which a batch upload trivially satisfies (it has no
+  // live history at all), so a just-completed normal run wrongly
+  // rendered LIVE while the runs LIST correctly showed it Passed. The
+  // fix treats finished_at (the backend's authoritative not-active
+  // signal) as terminal. This run is created "just now" so it's well
+  // inside the 30-minute young-run window — without the fix it would
+  // pass the old gate and connect to the live stream.
+  test("a just-finished batch upload renders Passed, not LIVE", async ({ page }) => {
+    await page.goto("/dashboard");
+    const token = await page.evaluate(() => localStorage.getItem("bt_token") ?? "");
+    expect(token).toBeTruthy();
+
+    const suffix = Date.now().toString(36);
+    const payload = {
+      meta: {
+        suite_name: `batch-not-live-${suffix}`,
+        branch: "main",
+        commit_sha: "notlive",
+        ci_run_id: `ci-notlive-${suffix}`,
+        started_at: new Date(Date.now() - 30_000).toISOString(),
+        finished_at: new Date().toISOString(),
+        reporter: "playwright",
+      },
+      stats: { total: 1, passed: 1, failed: 0, skipped: 0, pending: 0, duration_ms: 42 },
+      specs: [{
+        file_path: "tests/not-live.spec.ts",
+        title: "not-live.spec.ts",
+        stats: { total: 1, passed: 1, failed: 0, skipped: 0, duration_ms: 42 },
+        tests: [{ title: "passes", full_title: "passes", status: "passed", duration_ms: 42, screenshot_paths: [] }],
+      }],
+    };
+
+    const res = await page.request.post("http://localhost:3000/runs/upload", {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: { payload: JSON.stringify(payload) },
+    });
+    expect(res.status(), "batch upload should succeed").toBeLessThan(300);
+    const runId = ((await res.json()) as { id: number }).id;
+
+    try {
+      await page.goto(`/runs/${runId}`);
+      // The status badge resolves to the terminal Passed pill — never LIVE.
+      await expect(page.locator(".run-status-badge")).toHaveText("Passed", { timeout: 10_000 });
+      await expect(page.locator(".live-badge")).toHaveCount(0);
+    } finally {
+      await page.request.delete(`http://localhost:3000/runs/${runId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+  });
 });
