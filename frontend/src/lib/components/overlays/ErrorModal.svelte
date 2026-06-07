@@ -11,6 +11,7 @@
   import Lightbox from "../media/Lightbox.svelte";
   import SnapshotViewer from "../media/SnapshotViewer.svelte";
   import NotesPanel from "../panels/NotesPanel.svelte";
+  import AIAnalysisCard from "../panels/AIAnalysisCard.svelte";
 
   interface Props {
     testId: number | null;
@@ -647,6 +648,16 @@
                   <pre class="code-snippet">{meta.error_snippet}</pre>
                 {/if}
               </div>
+
+              <!-- AI failure analysis sits directly beneath the error it
+                   describes (the Amazon "Customers say" inline-summary
+                   pattern) — a glanceable, badged insight, not a comment in
+                   the human notes thread. Only for failed tests. -->
+              {#if test.status === "failed"}
+                {#key test.id}
+                  <AIAnalysisCard testId={test.id} enabled={aiEnabled} />
+                {/key}
+              {/if}
             {/if}
 
             <div class="pane-tabs">
@@ -1077,12 +1088,7 @@
               {:else if rightTab === "notes"}
                 <div class="notes-tab">
                   {#key test.id}
-                    <NotesPanel
-                      targetType="test"
-                      targetKey={test.full_title + '|' + test.file_path}
-                      aiTestId={test.status === "failed" && test.error_message ? test.id : null}
-                      {aiEnabled}
-                    />
+                    <NotesPanel targetType="test" targetKey={test.full_title + '|' + test.file_path} />
                   {/key}
                 </div>
               {/if}
