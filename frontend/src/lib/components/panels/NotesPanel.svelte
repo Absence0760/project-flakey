@@ -82,16 +82,26 @@
   // capture the period. Captures common protocols + bare www.
   const URL_RE = /\b(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/g;
 
-  // Render a note body with autolinked URLs. We:
-  //   1. HTML-escape the raw text via the browser's text-node serializer
-  //      (textContent → innerHTML round-trip on a detached element).
+  // HTML-escape raw text without touching the DOM, so the same code runs
+  // identically under SSR and in the browser (no `document` dependency).
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // Render a note body with autolinked URLs. One code path, no SSR branch:
+  //   1. HTML-escape the raw text (string-based — works without a DOM).
   //   2. Replace URL matches with anchor tags.
-  //   3. Run the result through DOMPurify so the allow-list (a[href])
-  //      is enforced even if the input ever bypasses our regex.
-  function renderBody(body: string): string {
-    const escaper = document.createElement("div");
-    escaper.textContent = body;
-    const escaped = escaper.innerHTML;
+  //   3. Run the result through DOMPurify so the allow-list (a[href]) is the
+  //      unconditional final backstop even if the input ever bypasses our
+  //      regex. isomorphic-dompurify supplies a jsdom-backed window under
+  //      SSR, so the same sanitizer runs server- and client-side.
+  function renderBodySafe(body: string): string {
+    const escaped = escapeHtml(body);
     const linked = escaped.replace(URL_RE, (url) => {
       const trimmed = url.replace(/[.,;:!?)]+$/, "");
       const trailing = url.slice(trimmed.length);
@@ -102,18 +112,6 @@
       ALLOWED_TAGS: ["a", "br"],
       ALLOWED_ATTR: ["href", "target", "rel"],
     });
-  }
-
-  // SSR fallback — DOMPurify needs a window. During SSR we just escape
-  // and skip linkification; the post-hydration render handles the rest.
-  function renderBodySafe(body: string): string {
-    if (typeof document === "undefined") {
-      return body
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-    }
-    return renderBody(body);
   }
 </script>
 

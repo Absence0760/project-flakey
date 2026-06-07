@@ -51,6 +51,12 @@
     </div>
 
     {#if analysis}
+      <!-- analysis.summary / analysis.suggested_fix are free-form LLM output
+           stored verbatim in ai_analyses. Render them ONLY as plain text
+           interpolation ({...}), never {@html} — Svelte's escaping is the
+           sole XSS guard here. If markdown rendering is ever added, pipe the
+           string through DOMPurify.sanitize() first; raw {@html} on these
+           fields is an injection hole. -->
       <p class="ai-summary">{analysis.summary}</p>
       <p class="ai-fix"><strong>Suggested fix:</strong> {analysis.suggested_fix}</p>
       <button class="ai-rerun" onclick={() => run(true)} disabled={loading}>
