@@ -587,6 +587,7 @@
       </section>
     {/if}
 
+    <div class="table-scroll">
     <table class="runs-table">
       <thead>
         <tr>
@@ -703,6 +704,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
     {#if showLoadMore}
       <div class="load-more">
         <button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
@@ -959,13 +961,21 @@
      appeared between Suite and Branch when a single flexible Suite
      column had to absorb all the leftover width on a wide monitor.
      Long content is still clipped via per-cell max-widths below. */
+  /* Horizontal-scroll wrapper. The runs table is wide (~15 columns,
+     most nowrap); on a narrow viewport its natural width exceeds the
+     container, which previously clipped the right-most column (the
+     pin button) off-screen. Scroll instead of clip, and carry the
+     border + rounded corners here so they wrap the scrollable area.
+     Mirrors .compare-table-wrap on /welcome. */
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
   .runs-table {
     width: 100%;
     border-collapse: collapse;
     background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
     font-size: 0.85rem;
   }
   .runs-table th, .runs-table td {
@@ -1003,7 +1013,23 @@
   .col-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .col-duration { white-space: nowrap; }
   .col-started { white-space: nowrap; font-size: 0.82rem; color: var(--text-secondary); }
-  .col-actions { text-align: right; padding-left: 0; }
+  /* Pin the actions column to the right edge of the scroll container
+     so the pin button stays visible and reachable no matter how wide
+     the table gets or how far it's scrolled. Each sticky cell needs an
+     opaque background (otherwise scrolled cells show through), and the
+     hover / compare-selected row tints must be re-applied here since
+     the cell's own background sits on top of the <tr> background. */
+  .col-actions {
+    text-align: right; padding-left: 0;
+    position: sticky; right: 0; z-index: 1;
+    background: var(--bg);
+    box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.35);
+  }
+  .runs-table th.col-actions { background: var(--bg-secondary); z-index: 2; }
+  .runs-table tbody tr.run-row:hover .col-actions { background: var(--bg-hover); }
+  .runs-table tbody tr.run-row.compare-selected .col-actions {
+    background: color-mix(in srgb, var(--link) 8%, var(--bg));
+  }
 
 
   .run-id { font-weight: 700; font-family: monospace; color: var(--text); }

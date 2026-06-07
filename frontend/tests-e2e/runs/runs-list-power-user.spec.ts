@@ -46,6 +46,29 @@ test.describe("/ runs-list — pin / saved views / search / compare mode", () =>
     await expect(page.locator(".pinned-band")).toHaveCount(0);
   });
 
+  test("row pin button stays fully within the viewport on a narrow desktop", async ({ page }) => {
+    // Regression: the runs table is wide (~15 columns, most nowrap).
+    // On a narrow viewport its natural width exceeds the container,
+    // which used to clip the right-most column — the pin button —
+    // off-screen. The table now lives in a horizontal-scroll wrapper
+    // with the actions column stickied to the right, so the pin is
+    // always fully visible regardless of width or scroll position.
+    await page.setViewportSize({ width: 1000, height: 800 });
+    const pinBtn = page.locator("tr.run-row").first().locator(".pin-btn");
+    await expect(pinBtn).toBeVisible();
+
+    const box = await pinBtn.boundingBox();
+    expect(box).not.toBeNull();
+    const viewportWidth = page.viewportSize()!.width;
+    // Fully on-screen horizontally — neither edge clipped.
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewportWidth);
+
+    // And it remains clickable (sticky cell sits above scrolled content).
+    await pinBtn.click();
+    await expect(page.locator(".pinned-band")).toBeVisible({ timeout: 2_000 });
+  });
+
   test("search filter narrows the visible run rows", async ({ page }) => {
     const searchInput = page.getByPlaceholder("Search runs...");
     await expect(searchInput).toBeVisible();
