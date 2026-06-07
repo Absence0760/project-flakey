@@ -148,6 +148,12 @@ Token lookup is a SECURITY DEFINER prefix function (mirrors `lookup_api_key`).
   round-trip with no secret leak, real PKCE authorize redirect against a mock IdP).
 - IdP-contract e2e (Keycloak): `frontend/tests-e2e/sso/keycloak-oidc.spec.ts`
   via `pnpm idp:up` + `pnpm --filter frontend test:e2e:sso`.
+- **App-facing OIDC e2e** (full app through a real browser): `keycloak-oidc-app.spec.ts`
+  via `pnpm idp:up` + seeded backend, then `pnpm --filter frontend test:e2e:sso:app`.
+  Drives login → Sign in with SSO → Keycloak form → callback → /sso/complete →
+  dashboard, plus a bad-credential negative path. Its config boots the app with
+  `FLAKEY_SSO_ENABLED`. (Runs against a clean local stack; the backend callback
+  must be on :3000 to match the seeded realm's redirect allow-list.)
 - SCIM smoke: `src/tests/scim.smoke.test.ts` (token auth, full Users lifecycle
   incl. deactivation→membership-removal, per-org RLS isolation). The
   Authentik→target loop (`frontend/tests-e2e/sso/authentik-scim.spec.ts`) is the
