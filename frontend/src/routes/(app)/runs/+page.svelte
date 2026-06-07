@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
+  import { goto, replaceState } from "$app/navigation";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
   import { getAuth } from "$lib/stores/auth";
   import { API_URL } from "$lib/utils/config";
@@ -372,9 +372,11 @@
   }
 
   // Programmatic navigation on row activation — the whole <tr> is the
-  // click target, mirroring the /manual-tests table pattern.
+  // click target, mirroring the /manual-tests table pattern. Use SvelteKit's
+  // client-side goto() (not window.location, which forces a full document
+  // reload that re-boots the SPA) so it matches the pinned-run <a href> links.
   function openRun(id: number) {
-    window.location.href = `/runs/${id}`;
+    goto(`/runs/${id}`);
   }
   function onRowActivate(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
