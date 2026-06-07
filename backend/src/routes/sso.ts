@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { signToken, signRefreshToken, setTokenCookie, getJwtSecret } from "../auth.js";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
+import { safeLog } from "../log.js";
 import {
   orgIdBySlug,
   loadSsoConfig,
@@ -131,7 +132,11 @@ loginRouter.get("/:orgSlug/status", async (req, res) => {
     const cfg = await loadSsoConfig(orgId, false);
     res.json({ enabled: !!cfg?.enabled, protocol: cfg?.protocol ?? null });
   } catch (err) {
-    console.error("GET /auth/sso/:orgSlug/status error:", err);
+    // Public endpoint — never echo internals to the caller (the response is a
+    // fixed { enabled: false } regardless). Log server-side via safeLog, which
+    // CR/LF-strips the message/stack so an attacker-influenced decrypt error
+    // can't inject a fake log line (CWE-117).
+    console.error("GET /auth/sso/:orgSlug/status error:", safeLog(err));
     res.json({ enabled: false });
   }
 });
@@ -196,7 +201,7 @@ loginRouter.get("/:orgSlug/start", async (req, res) => {
   } catch (err) {
     // A discovery/network/build failure must not silently fall through to a
     // weaker path — surface it. Detail can carry the issuer URL but no secret.
-    console.error("GET /auth/sso/:orgSlug/start error:", (err as Error).message);
+    console.error("GET /auth/sso/:orgSlug/start error:", safeLog(err));
     res.redirect(`${FRONTEND_URL}/login?sso_error=start_failed`);
   }
 });
@@ -283,7 +288,7 @@ loginRouter.get("/callback", async (req, res) => {
     if (!(err instanceof SsoLoginError)) {
       // Unexpected (network, verification, DB) — log server-side; never echo
       // internals (which can embed tokens/issuer) to the browser.
-      console.error("GET /auth/sso/callback error:", (err as Error).message);
+      console.error("GET /auth/sso/callback error:", safeLog(err));
     }
     res.redirect(`${FRONTEND_URL}/login?sso_error=${encodeURIComponent(msg)}`);
   }
@@ -347,7 +352,7 @@ loginRouter.post("/saml/acs", express.urlencoded({ extended: false, limit: "1mb"
   } catch (err) {
     const msg = err instanceof SsoLoginError ? err.message : "Single sign-on failed";
     if (!(err instanceof SsoLoginError)) {
-      console.error("POST /auth/sso/saml/acs error:", (err as Error).message);
+      console.error("POST /auth/sso/saml/acs error:", safeLog(err));
     }
     res.redirect(`${FRONTEND_URL}/login?sso_error=${encodeURIComponent(msg)}`);
   }
@@ -400,6 +405,26 @@ loginRouter.get("/session", async (req, res) => {
 const adminRouter = Router();
 adminRouter.use(requireSsoEnabled);
 
+// The exact validation messages saveSsoConfig()/validateIssuerUrl() throw
+// (backend/src/sso/config.ts). Membership in this set is what makes an error
+// safe to echo back to the admin — anything else is treated as internal and
+// hidden behind a fixed 500. Keep this in lockstep with config.ts.
+const USER_FACING_CONFIG_ERRORS = new Set<string>([
+  "OIDC issuer must be a valid URL",
+  "OIDC issuer must use https",
+  "OIDC issuer must not be a loopback address",
+  "OIDC issuer must not resolve to a private/loopback network address",
+  "default_role must be one of owner, admin, viewer",
+]);
+// The role_map message embeds the caller-supplied bad value, so it can't be an
+// exact-match member; recognise it by its stable prefix instead (the suffix is
+// the admin's own input being reflected back to them).
+const ROLE_MAP_ERROR_PREFIX = "role_map values must be one of ";
+
+function isUserFacingConfigError(msg: string): boolean {
+  return USER_FACING_CONFIG_ERRORS.has(msg) || msg.startsWith(ROLE_MAP_ERROR_PREFIX);
+}
+
 function requireOrgAdmin(req: Request, res: Response, next: NextFunction): void {
   const role = req.user?.orgRole;
   if (role !== "owner" && role !== "admin") {
@@ -421,7 +446,7 @@ adminRouter.get("/config", requireOrgAdmin, async (req, res) => {
     const raw = await loadSsoConfig(req.user!.orgId, true);
     res.json({ configured: true, ...cfg, hasClientSecret: !!raw?.oidcClientSecret });
   } catch (err) {
-    console.error("GET /sso/config error:", err);
+    console.error("GET /sso/config error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -456,14 +481,16 @@ adminRouter.put("/config", requireOrgAdmin, async (req, res) => {
     const raw = await loadSsoConfig(req.user!.orgId, true);
     res.json({ configured: true, ...saved, hasClientSecret: !!raw?.oidcClientSecret });
   } catch (err) {
-    // Validation errors (bad role, bad issuer URL, etc.) are user-facing;
-    // everything else is 500.
+    // Validation errors are user-facing; everything else is 500. Match against
+    // an explicit allow-list of the messages saveSsoConfig()/validateIssuerUrl()
+    // throw (sso/config.ts) rather than a regex — a deeper layer (DB/library)
+    // could otherwise match a loose pattern and leak internals to the client.
     const msg = (err as Error).message ?? "";
-    if (/role|domain|must |issuer|https/i.test(msg)) {
+    if (isUserFacingConfigError(msg)) {
       res.status(400).json({ error: msg });
       return;
     }
-    console.error("PUT /sso/config error:", err);
+    console.error("PUT /sso/config error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -480,7 +507,7 @@ adminRouter.post("/scim/token", requireOrgAdmin, async (req, res) => {
       scimBaseUrl: `${PUBLIC_API_URL}/scim/v2`,
     });
   } catch (err) {
-    console.error("POST /sso/scim/token error:", err);
+    console.error("POST /sso/scim/token error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -492,7 +519,7 @@ adminRouter.delete("/scim/token", requireOrgAdmin, async (req, res) => {
     await disableScim(req.user!.orgId);
     res.json({ disabled: true });
   } catch (err) {
-    console.error("DELETE /sso/scim/token error:", err);
+    console.error("DELETE /sso/scim/token error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

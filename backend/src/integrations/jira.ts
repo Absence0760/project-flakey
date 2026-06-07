@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import { decryptSecret } from "../crypto.js";
+import { safeLog } from "../log.js";
 import type { NormalizedRun } from "../types.js";
 
 export interface JiraConfig {
@@ -171,11 +172,14 @@ export async function autoCreateIssuesForRun(
       try {
         await createIssueForFingerprint(orgId, null, fingerprint, summary, description);
       } catch (err) {
-        console.error("Jira auto-create failed:", (err as Error).message);
+        console.error("Jira auto-create failed:", safeLog(err));
       }
     }
   } catch (err) {
-    console.error("autoCreateIssuesForRun error:", err);
+    // A Jira fetch error can carry the configured jira_base_url; wrap it in
+    // safeLog so an attacker-influenced message can't inject a fake log line
+    // (CWE-117), matching the convention in uploads.ts / runs.ts.
+    console.error("autoCreateIssuesForRun error:", safeLog(err));
   }
 }
 

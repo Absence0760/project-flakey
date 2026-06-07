@@ -4,6 +4,7 @@ import { logAudit } from "../audit.js";
 import { createIssueForFingerprint, createJiraIssue } from "../integrations/jira.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
 import { validateWebhookUrl } from "./webhooks.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
@@ -20,7 +21,7 @@ router.get("/settings", async (req, res) => {
     );
     res.json(result.rows[0] ?? {});
   } catch (err) {
-    console.error("GET /jira/settings error:", err);
+    console.error("GET /jira/settings error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -77,7 +78,7 @@ router.patch("/settings", async (req, res) => {
     await logAudit(req.user!.orgId, req.user!.id, "jira.settings.update", "settings", "jira", { updated });
     res.json({ updated: true });
   } catch (err) {
-    console.error("PATCH /jira/settings error:", err);
+    console.error("PATCH /jira/settings error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -106,7 +107,7 @@ router.post("/test", async (req, res) => {
     // can include decryptSecret failures that embed ciphertext, or
     // fetch errors that leak the configured base_url path. Logged
     // server-side for diagnosis.
-    console.error("POST /jira/test error:", err);
+    console.error("POST /jira/test error:", safeLog(err));
     res.json({ ok: false, status: 0, error: "Jira test failed" });
   }
 });
@@ -170,7 +171,7 @@ router.post("/issues", async (req, res) => {
     // errors and decryptSecret failures can carry the configured base URL,
     // auth fragments, or cipher detail. Log server-side, return generic.
     // Matches the redaction the POST /jira/test handler already does.
-    console.error("POST /jira/issues error:", err);
+    console.error("POST /jira/issues error:", safeLog(err));
     res.status(500).json({ error: "Failed to create Jira issue" });
   }
 });
@@ -185,7 +186,7 @@ router.get("/issues", async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error("GET /jira/issues error:", err);
+    console.error("GET /jira/issues error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

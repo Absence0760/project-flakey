@@ -3,6 +3,7 @@ import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { triggerPagerDutyEvent } from "../integrations/pagerduty.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.get("/settings", async (req, res) => {
     );
     res.json(result.rows[0] ?? {});
   } catch (err) {
-    console.error("GET /pagerduty/settings error:", err);
+    console.error("GET /pagerduty/settings error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -83,7 +84,7 @@ router.patch("/settings", async (req, res) => {
     await logAudit(req.user!.orgId, req.user!.id, "pagerduty.settings.update", "settings", "pagerduty");
     res.json({ updated: true });
   } catch (err) {
-    console.error("PATCH /pagerduty/settings error:", err);
+    console.error("PATCH /pagerduty/settings error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -122,7 +123,7 @@ router.post("/test", async (req, res) => {
     // Surface a fixed message; the original error may include the
     // PagerDuty integration key (decryptSecret failures embed the
     // ciphertext in the message). Logged server-side for diagnosis.
-    console.error("POST /pagerduty/test error:", err);
+    console.error("POST /pagerduty/test error:", safeLog(err));
     res.json({ ok: false, status: 0, error: "PagerDuty test failed" });
   }
 });

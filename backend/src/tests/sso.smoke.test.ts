@@ -152,6 +152,46 @@ test("PUT rejects a role_map value that isn't a real org role", async () => {
   assert.equal(res.status, 400);
 });
 
+test("PUT echoes a known validation message (bad issuer URL) but not raw internals", async () => {
+  // A bad issuer URL throws "OIDC issuer must be a valid URL" — an explicit
+  // member of the user-facing allow-list, so it round-trips as a 400. This
+  // pins the allow-list replacing the old /role|domain|must |issuer|https/i
+  // regex: the message is recognised by exact membership, not by an incidental
+  // keyword match.
+  const res = await authed("/sso/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true, oidcIssuer: "not a url", oidcClientId: "x" }),
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error, "OIDC issuer must be a valid URL");
+  // Never an opaque/internal 500-shaped payload for a real validation error.
+  assert.notEqual(body.error, "Internal server error");
+});
+
+test("PUT rejects an invalid defaultRole and surfaces its allow-listed message", async () => {
+  // "default_role must be one of owner, admin, viewer" is an exact member of
+  // the allow-list — it round-trips verbatim as a 400 rather than being hidden
+  // behind a 500.
+  const res = await authed("/sso/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true, oidcIssuer: idpUrl, oidcClientId: "x", defaultRole: "superuser" }),
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "default_role must be one of owner, admin, viewer");
+});
+
+test("status endpoint stays robust (and never 500s) for an unknown org slug", async () => {
+  // The public /status endpoint must always answer { enabled: false } for an
+  // unknown org and never surface an error to the unauthenticated caller
+  // (it logs via safeLog server-side, returns a fixed body).
+  const res = await fetch(`${BASE}/auth/sso/no-such-org-${Date.now()}/status`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { enabled: false });
+});
+
 test("status reports SSO enabled once configured", async () => {
   const res = await fetch(`${BASE}/auth/sso/${orgSlug}/status`);
   const body = await res.json();

@@ -8,6 +8,7 @@ import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, require
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 import { logAudit } from "../audit.js";
 import { orgEnforcesSso } from "../sso/config.js";
+import { safeLog } from "../log.js";
 
 // Secure default: registration is disabled unless ALLOW_REGISTRATION=true is explicitly set.
 const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION === "true";
@@ -240,7 +241,7 @@ router.post("/login", async (req, res) => {
     await logAudit(orgId, user.id, "auth.login", "user", String(user.id), { email: user.email, ssoRequired });
     res.json({ token, refreshToken, user: authUser, ssoRequired, orgSlug });
   } catch (err) {
-    console.error("POST /auth/login error:", err);
+    console.error("POST /auth/login error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -308,7 +309,7 @@ router.post("/register", async (req, res) => {
 
     // Send verification email (don't block registration if it fails)
     sendVerificationEmail(email, verificationToken).catch((err) => {
-      console.error("Failed to send verification email:", err);
+      console.error("Failed to send verification email:", safeLog(err));
     });
 
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
@@ -323,7 +324,7 @@ router.post("/register", async (req, res) => {
     setTokenCookie(res, token, refreshToken);
     res.status(201).json({ token, refreshToken, user: authUser, ssoRequired, orgSlug, emailVerificationRequired: REQUIRE_EMAIL_VERIFICATION });
   } catch (err) {
-    console.error("POST /auth/register error:", err);
+    console.error("POST /auth/register error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -471,7 +472,7 @@ router.post("/switch-org", requireAuth, async (req, res) => {
     const token = signToken(authUser);
     res.json({ token, user: authUser, ssoRequired, orgSlug });
   } catch (err) {
-    console.error("POST /auth/switch-org error:", err);
+    console.error("POST /auth/switch-org error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -486,7 +487,7 @@ router.get("/api-keys", requireAuth, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error("GET /auth/api-keys error:", err);
+    console.error("GET /auth/api-keys error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -519,7 +520,7 @@ router.post("/api-keys", requireAuth, async (req, res) => {
 
     res.status(201).json({ key: rawKey, prefix, label });
   } catch (err) {
-    console.error("POST /auth/api-keys error:", err);
+    console.error("POST /auth/api-keys error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -546,7 +547,7 @@ router.delete("/api-keys/:id", requireAuth, async (req, res) => {
     );
     res.json({ deleted: true });
   } catch (err) {
-    console.error("DELETE /auth/api-keys error:", err);
+    console.error("DELETE /auth/api-keys error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -577,7 +578,7 @@ router.post("/verify-email", async (req, res) => {
 
     res.json({ ok: true, email: result.rows[0].email });
   } catch (err) {
-    console.error("POST /auth/verify-email error:", err);
+    console.error("POST /auth/verify-email error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -615,11 +616,11 @@ router.post("/resend-verification", async (req, res) => {
     // email exists vs not (the unknown-email path short-circuits with
     // 200 above).  Log the error and respond ok regardless.
     sendVerificationEmail(email, token).catch((err) => {
-      console.error("Failed to send verification email:", err);
+      console.error("Failed to send verification email:", safeLog(err));
     });
     res.json({ ok: true });
   } catch (err) {
-    console.error("POST /auth/resend-verification error:", err);
+    console.error("POST /auth/resend-verification error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -654,7 +655,7 @@ router.post("/forgot-password", async (req, res) => {
     // password to return 500 for known emails while continuing to
     // return 200 for unknown ones.
     sendPasswordResetEmail(email, token).catch((err) => {
-      console.error("Failed to send password reset email:", err);
+      console.error("Failed to send password reset email:", safeLog(err));
     });
     {
       const orgId = await primaryOrgId(result.rows[0].id);
@@ -662,7 +663,7 @@ router.post("/forgot-password", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("POST /auth/forgot-password error:", err);
+    console.error("POST /auth/forgot-password error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -703,7 +704,7 @@ router.post("/reset-password", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("POST /auth/reset-password error:", err);
+    console.error("POST /auth/reset-password error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

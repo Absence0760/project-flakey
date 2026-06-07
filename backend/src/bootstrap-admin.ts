@@ -30,9 +30,14 @@ export async function bootstrapAdmin(pool: pg.Pool): Promise<void> {
 
   // Already provisioned (this boot or a prior one) — never touch an
   // existing account's password or role.
+  // Log only the email domain, never the full address — these lines land in
+  // stdout/CloudWatch where the admin's email would otherwise be discoverable
+  // via log search (CWE-532).
+  const emailDomain = email.split("@")[1] ?? "unknown";
+
   const existing = await pool.query("SELECT id FROM users WHERE LOWER(email) = $1", [email]);
   if (existing.rows.length > 0) {
-    console.log(`Bootstrap admin ${email} already exists — leaving it untouched.`);
+    console.log(`Bootstrap admin (${emailDomain}) already exists — leaving it untouched.`);
     return;
   }
 
@@ -69,7 +74,7 @@ export async function bootstrapAdmin(pool: pg.Pool): Promise<void> {
       [orgId, userId],
     );
     await client.query("COMMIT");
-    console.log(`Bootstrap admin ${email} created (role admin, owner of org ${orgId}).`);
+    console.log(`Bootstrap admin (${emailDomain}) created (role admin, owner of org ${orgId}).`);
   } catch (err) {
     await client.query("ROLLBACK").catch(() => { /* connection may be gone */ });
     throw err;
