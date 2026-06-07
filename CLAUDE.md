@@ -38,7 +38,8 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 
 - `pnpm dev` — start backend (3000) and frontend (7778) concurrently
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
-- `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025)
+- `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025). Migrations auto-apply on a fresh volume (compose mounts `backend/migrations` into `/docker-entrypoint-initdb.d`), so a reset leaves a migrated-but-empty DB — seed separately
+- `pnpm db:seed` — load sample data (`cd backend && npm run seed`): `admin@example.com`/`admin` + demo users, sample orgs/runs, and worker tenants. **The seed is additive** — re-running adds another generation rather than resetting, so for a clean baseline run `pnpm db:reset && pnpm db:seed`, not `db:seed` twice
 - `pnpm storage:up` / `pnpm storage:down` — opt-in MinIO (S3-compatible store; console http://localhost:9001) for exercising `STORAGE=s3` locally
 - `pnpm webhooks:up` / `pnpm webhooks:down` — opt-in webhook echo sink (:8080) for inspecting outbound webhooks
 - `pnpm idp:up` / `pnpm idp:down` / `pnpm idp:reset` — opt-in local Keycloak (:8081) for prototyping + e2e-testing enterprise SSO **login** (OIDC/SAML, Phase 14, not yet built); seeds the `flakey` realm from `infra/keycloak/flakey-realm.json`. `idp:reset` recreates the container so realm edits re-import. See [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md)

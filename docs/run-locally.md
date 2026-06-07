@@ -191,11 +191,11 @@ npx tsx src/index.ts \
 | `pnpm webhooks:up` / `pnpm webhooks:down` | Start / stop the webhook echo sink (:8080) |
 | `pnpm services:up` / `pnpm services:down` | Start / stop every local service at once |
 | `pnpm db:down` | Stop the core services |
-| `pnpm db:reset` | Stop core services, delete data, and restart |
+| `pnpm db:reset` | Stop core services, delete data, and restart (migrated-but-empty — seed after) |
 | `pnpm dev` | Start backend + frontend |
 | `pnpm dev:backend` | Start backend only |
 | `pnpm dev:frontend` | Start frontend only |
-| `cd backend && npm run seed` | Seed sample data |
+| `pnpm db:seed` (or `cd backend && npm run seed`) | Seed sample data — additive; for a clean baseline run `pnpm db:reset && pnpm db:seed` |
 | `cd backend && npm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
 
 ## Environment variables

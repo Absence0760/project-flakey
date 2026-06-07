@@ -5,6 +5,7 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
+    "db:seed": "cd backend && npm run seed",
     "storage:up": "docker compose --profile storage up -d minio minio-init",
     "storage:down": "docker compose rm -sf minio minio-init",
     "webhooks:up": "docker compose --profile integrations up -d webhook-sink",
