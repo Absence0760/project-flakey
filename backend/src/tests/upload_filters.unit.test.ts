@@ -19,7 +19,9 @@ import { mkdirSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { safeUnlinkTmp } from "../upload-filters.js";
+import multer from "multer";
+
+import { safeUnlinkTmp, wrapMulter } from "../upload-filters.js";
 import { fixFilename } from "../routes/uploads.js";
 
 // Multer decodes the multipart `filename` header as Latin-1, but browsers send
@@ -156,4 +158,75 @@ test("fixFilename falls back to the original string when the bytes aren't valid 
   let out: string | undefined;
   assert.doesNotThrow(() => { out = fixFilename(name); });
   assert.equal(out, "ÿþ.png");
+});
+
+// ---------------------------------------------------------------------------
+// wrapMulter (upload-filters.ts)
+//
+// Translates multer's errors into clean, actionable HTTP responses. The
+// load-bearing case: LIMIT_UNEXPECTED_FILE is raised BOTH for an unknown
+// field name AND for a known field that overflowed its maxCount, with the
+// same "Unexpected field" message. The field caps let us tell those apart
+// so a reporter that ships >500 snapshots learns it hit the count cap
+// instead of being told its (registered) field is unexpected.
+// ---------------------------------------------------------------------------
+
+const FIELD_CAPS = { screenshots: 100, videos: 100, snapshots: 500 };
+
+function runWrapMulter(err: unknown, fieldCaps?: Record<string, number>) {
+  let statusCode = 0;
+  let body: { error?: string } | undefined;
+  let nextCalled = false;
+  const res = {
+    status(c: number) { statusCode = c; return this; },
+    json(b: { error?: string }) { body = b; return this; },
+  } as never;
+  // Stand-in middleware that immediately yields `err` to wrapMulter's callback.
+  const mw = ((_req: unknown, _res: unknown, cb: (e: unknown) => void) => cb(err)) as never;
+  wrapMulter(mw, fieldCaps)({} as never, res, () => { nextCalled = true; });
+  return { statusCode, body, nextCalled };
+}
+
+test("wrapMulter rewrites an over-cap known field into an actionable 413", () => {
+  // The 501st `snapshots` file: multer says "Unexpected field"; we must
+  // name the field and its limit instead.
+  const { statusCode, body, nextCalled } = runWrapMulter(
+    new multer.MulterError("LIMIT_UNEXPECTED_FILE", "snapshots"),
+    FIELD_CAPS,
+  );
+  assert.equal(nextCalled, false);
+  assert.equal(statusCode, 413);
+  assert.match(body!.error!, /Too many files in "snapshots"/);
+  assert.match(body!.error!, /max 500/);
+});
+
+test("wrapMulter keeps 'unexpected field' for a genuinely unregistered field, and lists the allowed ones", () => {
+  const { statusCode, body } = runWrapMulter(
+    new multer.MulterError("LIMIT_UNEXPECTED_FILE", "bogus"),
+    FIELD_CAPS,
+  );
+  assert.equal(statusCode, 400);
+  assert.match(body!.error!, /Unexpected upload field "bogus"/);
+  assert.match(body!.error!, /screenshots, videos, snapshots/);
+});
+
+test("wrapMulter maps a file-size overflow to 413", () => {
+  const { statusCode, body } = runWrapMulter(
+    new multer.MulterError("LIMIT_FILE_SIZE", "videos"),
+    FIELD_CAPS,
+  );
+  assert.equal(statusCode, 413);
+  assert.ok(typeof body!.error === "string" && body!.error.length > 0);
+});
+
+test("wrapMulter surfaces a non-multer error as a clean 400", () => {
+  const { statusCode, body } = runWrapMulter(new Error("boom"), FIELD_CAPS);
+  assert.equal(statusCode, 400);
+  assert.equal(body!.error, "boom");
+});
+
+test("wrapMulter calls next() and sends no response when there is no error", () => {
+  const { statusCode, nextCalled } = runWrapMulter(null, FIELD_CAPS);
+  assert.equal(nextCalled, true);
+  assert.equal(statusCode, 0);
 });

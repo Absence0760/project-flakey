@@ -40,11 +40,17 @@ const SCREENSHOT_MAX_BYTES = 25 * 1024 * 1024;
 const SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 
-const uploadFields = wrapMulter(upload.fields([
+// Single-sourced so the multer config and the caps handed to wrapMulter
+// (for its over-limit error message) can't drift apart.
+const UPLOAD_FILE_FIELDS = [
   { name: "screenshots", maxCount: 100 },
   { name: "videos", maxCount: 100 },
   { name: "snapshots", maxCount: 500 },
-]));
+];
+const uploadFields = wrapMulter(
+  upload.fields(UPLOAD_FILE_FIELDS),
+  Object.fromEntries(UPLOAD_FILE_FIELDS.map((f) => [f.name, f.maxCount])),
+);
 
 // POST /runs/upload — multipart upload with screenshots and videos
 router.post("/", uploadFields, async (req, res) => {

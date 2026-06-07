@@ -61,13 +61,40 @@ export function safeUnlinkTmp(p: string): void {
 // reporter that posts an `.svg` gets a confusing 500 + stack-trace
 // log entry on every attempt; with it, they get a 400 + a one-line
 // reason and the audit log stays clean.
-export function wrapMulter(mw: RequestHandler): RequestHandler {
+//
+// `fieldCaps` (field name → maxCount) lets us rewrite multer's most
+// misleading error. Multer raises LIMIT_UNEXPECTED_FILE — message
+// "Unexpected field" — for TWO different causes: a file under a field
+// name we didn't register, AND a *known* field that overflowed its
+// maxCount (the 501st `snapshots` file, say). A reporter author who
+// trips the count cap gets told their field is "unexpected" when it's
+// actually expected-but-too-many — a genuinely confusing dead end.
+// With the caps we name the real problem and the limit.
+export function wrapMulter(
+  mw: RequestHandler,
+  fieldCaps?: Record<string, number>,
+): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     mw(req, res, (err: unknown) => {
       if (!err) return next();
-      const isMulter = err instanceof multer.MulterError;
-      const message = err instanceof Error ? err.message : "Upload rejected";
-      const status = isMulter && err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+      let message = err instanceof Error ? err.message : "Upload rejected";
+      let status = 400;
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          status = 413;
+        } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+          const field = err.field ?? "unknown";
+          if (fieldCaps && field in fieldCaps) {
+            // Known field, over its per-field count cap.
+            message = `Too many files in "${field}" (max ${fieldCaps[field]}). Reduce the file count or split the upload across runs.`;
+            status = 413;
+          } else {
+            // A field name we never registered.
+            const allowed = fieldCaps ? Object.keys(fieldCaps).join(", ") : "";
+            message = `Unexpected upload field "${field}"${allowed ? `. Allowed file fields: ${allowed}` : ""}.`;
+          }
+        }
+      }
       res.status(status).json({ error: message });
     });
   };
