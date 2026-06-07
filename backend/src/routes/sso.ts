@@ -208,9 +208,24 @@ loginRouter.get("/callback", async (req, res) => {
   const tx = readTxCookie(req);
   clearTxCookie(res);
   try {
-    // IdP-reported error (user denied, etc.) — surface, don't swallow.
+    // IdP-reported error (user denied, etc.) — surface, don't swallow. Map the
+    // standard OAuth error codes to fixed strings; never reflect an arbitrary
+    // attacker-supplied `error` value into the user-facing page (phishing
+    // surface — security review finding #5).
     if (req.query.error) {
-      throw new SsoLoginError(`Identity provider returned an error: ${String(req.query.error)}`);
+      const code = String(req.query.error);
+      const known: Record<string, string> = {
+        access_denied: "Access was denied at your identity provider",
+        login_required: "Your identity provider requires you to sign in again",
+        interaction_required: "Your identity provider needs additional interaction",
+        consent_required: "Consent is required at your identity provider",
+        invalid_request: "Your identity provider rejected the request",
+        unauthorized_client: "This application is not authorized at your identity provider",
+        unsupported_response_type: "Your identity provider rejected the request",
+        server_error: "Your identity provider reported an error",
+        temporarily_unavailable: "Your identity provider is temporarily unavailable",
+      };
+      throw new SsoLoginError(known[code] ?? "Your identity provider returned an error");
     }
     if (!tx) throw new SsoLoginError("Login session expired or was invalid; please try again");
 
@@ -437,9 +452,10 @@ adminRouter.put("/config", requireOrgAdmin, async (req, res) => {
     const raw = await loadSsoConfig(req.user!.orgId, true);
     res.json({ configured: true, ...saved, hasClientSecret: !!raw?.oidcClientSecret });
   } catch (err) {
-    // Validation errors (bad role, etc.) are user-facing; everything else is 500.
+    // Validation errors (bad role, bad issuer URL, etc.) are user-facing;
+    // everything else is 500.
     const msg = (err as Error).message ?? "";
-    if (/role|domain|must be/i.test(msg)) {
+    if (/role|domain|must |issuer|https/i.test(msg)) {
       res.status(400).json({ error: msg });
       return;
     }

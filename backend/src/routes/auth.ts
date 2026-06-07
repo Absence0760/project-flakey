@@ -31,7 +31,7 @@ const router = Router();
  */
 function extractAndVerifyRefreshToken(
   req: import("express").Request,
-): { id: number; jti: string | null } | null {
+): { id: number; jti: string | null; iat: number | null } | null {
   let value: string | undefined = req.body?.refreshToken;
   if (!value) {
     const cookieHeader = req.headers.cookie;
@@ -52,6 +52,7 @@ function extractAndVerifyRefreshToken(
     return {
       id,
       jti: typeof payload.jti === "string" ? payload.jti : null,
+      iat: typeof payload.iat === "number" ? payload.iat : null,
     };
   } catch {
     return null;
@@ -341,7 +342,7 @@ router.post("/refresh", async (req, res) => {
     }
 
     const userResult = await pool.query(
-      "SELECT id, email, name, role FROM users WHERE id = $1",
+      "SELECT id, email, name, role, sessions_revoked_at FROM users WHERE id = $1",
       [verified.id]
     );
     if (userResult.rows.length === 0) {
@@ -350,6 +351,20 @@ router.post("/refresh", async (req, res) => {
     }
 
     const user = userResult.rows[0];
+
+    // Session-revocation watermark. SCIM deactivate/delete (and any future
+    // "force sign-out") stamps users.sessions_revoked_at; a refresh token
+    // issued before that instant is dead — so deactivation can't be outlived
+    // by a still-valid refresh token (which would otherwise resolveOrg into a
+    // fresh personal-org session). Tokens with no iat (shouldn't happen for
+    // server-signed tokens) are treated as pre-watermark and rejected.
+    if (user.sessions_revoked_at) {
+      const issuedAtMs = verified.iat ? verified.iat * 1000 : 0;
+      if (issuedAtMs < new Date(user.sessions_revoked_at).getTime()) {
+        res.status(401).json({ error: "Session has been revoked; please sign in again" });
+        return;
+      }
+    }
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
     const token = signToken(authUser);

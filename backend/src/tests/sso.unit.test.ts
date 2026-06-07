@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mapRole, type OrgSsoConfig } from "../sso/config.js";
+import { mapRole, validateIssuerUrl, type OrgSsoConfig } from "../sso/config.js";
 import { generatePkce, randomToken } from "../sso/oidc.js";
 import crypto from "crypto";
 
@@ -62,4 +62,16 @@ test("randomToken yields unique, URL-safe values", () => {
   const b = randomToken();
   assert.notEqual(a, b);
   assert.ok(!/[+/=]/.test(a) && !/[+/=]/.test(b));
+});
+
+test("validateIssuerUrl blocks SSRF-prone issuer URLs (private/metadata/non-https)", () => {
+  // Private + metadata IP literals are rejected in every environment.
+  assert.throws(() => validateIssuerUrl("https://169.254.169.254/"), /private/i, "cloud metadata IP");
+  assert.throws(() => validateIssuerUrl("https://10.0.0.5/realms/x"), /private/i, "10.x");
+  assert.throws(() => validateIssuerUrl("https://192.168.1.10/"), /private/i, "192.168.x");
+  assert.throws(() => validateIssuerUrl("https://172.16.4.4/"), /private/i, "172.16-31");
+  assert.throws(() => validateIssuerUrl("ftp://idp.example.com/"), /https/i, "non-http scheme");
+  assert.throws(() => validateIssuerUrl("not a url"), /valid URL/i);
+  // A normal external https issuer is fine.
+  assert.doesNotThrow(() => validateIssuerUrl("https://idp.example.com/realms/acme"));
 });

@@ -117,8 +117,12 @@ async function syncMembership(orgId: number, userId: number, active: boolean, ro
       [orgId, userId, role],
     );
   } else {
-    // Remove membership → requireAuth 401s the user on their next request.
+    // Remove membership → requireAuth 401s the user's ACCESS token on their next
+    // request. ALSO stamp the session-revocation watermark so their still-valid
+    // REFRESH token can't outlive deactivation by minting a fresh (personal-org)
+    // session via /auth/refresh -> resolveOrg (security review finding #1).
     await pool.query("DELETE FROM org_members WHERE org_id = $1 AND user_id = $2", [orgId, userId]);
+    await pool.query("UPDATE users SET sessions_revoked_at = NOW() WHERE id = $1", [userId]);
   }
 }
 
@@ -309,6 +313,13 @@ export async function upsertScimGroup(orgId: number, scimId: string, body: Recor
   const merged = { ...row.raw, ...(isPatch ? {} : body), members };
   await tenantQuery(orgId, "UPDATE scim_groups SET raw = $1, updated_at = NOW() WHERE scim_id = $2", [JSON.stringify(merged), scimId]);
   await applyGroupRole(orgId, row.display_name, members);
+  // Audit: a group update can change member roles (displayName mapped via
+  // role_map) — that's a privilege change and must be logged (security review
+  // finding #2 / SOC 2 CC6.1). memberCount lets a reviewer scope the blast.
+  await logAudit(orgId, null, "auth.sso.scim.group.update", "group", scimId, {
+    displayName: row.display_name,
+    memberCount: Array.isArray(members) ? members.length : 0,
+  });
   return getScimGroup(orgId, scimId);
 }
 

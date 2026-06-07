@@ -163,6 +163,34 @@ test("DELETE /Users deprovisions — membership gone, resource 404s", async () =
   assert.equal((await scim(scimToken1, `/Users/${scimUserId}`)).status, 404);
 });
 
+test("a refresh token issued before sessions_revoked_at is rejected (deactivation revokes refresh)", async () => {
+  // SCIM users have no password, so we can't hold their refresh token directly.
+  // Register a normal user (gets a refresh token), then stamp the same
+  // session-revocation watermark SCIM deactivation sets — the refresh must die.
+  const email = `revoke.${Date.now()}@test.local`;
+  const reg = await fetch(`${BASE}/auth/register`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password: "testpass123", name: "Revoke Me" }),
+  });
+  const { refreshToken } = (await reg.json()) as { refreshToken: string };
+
+  // Sanity: the refresh works before revocation.
+  const before = await fetch(`${BASE}/auth/refresh`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }),
+  });
+  assert.equal(before.status, 200, "refresh should work before revocation");
+  const { refreshToken: rotated } = (await before.json()) as { refreshToken: string };
+
+  // Stamp the watermark 2s in the future so it's unambiguously after the token's
+  // (second-resolution) iat — simulating SCIM deactivate's UPDATE.
+  await db.query("UPDATE users SET sessions_revoked_at = NOW() + INTERVAL '2 seconds' WHERE LOWER(email) = LOWER($1)", [email]);
+
+  const after = await fetch(`${BASE}/auth/refresh`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: rotated }),
+  });
+  assert.equal(after.status, 401, "a pre-watermark refresh token must be rejected");
+});
+
 test("SCIM resources are RLS-isolated per org (org2 token can't see org1 users)", async () => {
   // Provision a user in org1, then list users with org2's token — must not appear.
   const email = `iso.${Date.now()}@test.local`;

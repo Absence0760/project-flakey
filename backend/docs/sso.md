@@ -120,9 +120,12 @@ token** (not a user session). Validated against the committed mock target
   `<PUBLIC_API_URL>/scim/v2`. `DELETE /sso/scim/token` disables SCIM.
 - **Users**: create → finds/creates the Flakey user + grants org membership
   (`default_role`). `active:false` (PATCH/PUT) or `DELETE` → **removes the org
-  membership**, so `requireAuth`'s per-request re-read revokes access on the
-  next call (the GovRAMP "deactivate immediately" control — no new revocation
-  primitive). Filter `userName eq "…"` powers the IdP's pre-create existence check.
+  membership** (so `requireAuth`'s per-request re-read 401s the access token on
+  the next call) **and stamps `users.sessions_revoked_at`** (migration 058) so a
+  still-valid refresh token can't outlive deactivation by minting a fresh
+  personal-org session at `/auth/refresh`. Together that's the GovRAMP
+  "deactivate immediately" control. Filter `userName eq "…"` powers the IdP's
+  pre-create existence check.
 - **Groups**: a group whose `displayName` maps via the org's `role_map` to a
   Flakey role sets that role on its members. Unmapped groups are a no-op —
   cannot widen access.
