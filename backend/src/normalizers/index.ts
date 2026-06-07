@@ -25,7 +25,10 @@ export function normalize(
   // and dispatch to them. CodeQL js/unvalidated-dynamic-method-call
   // flagged the broader pattern; the own-property check tightens it.
   if (!Object.hasOwn(parsers, reporter)) {
-    throw new Error(`Unsupported reporter: ${reporter}. Supported: ${Object.keys(parsers).join(", ")}`);
+    // Don't echo the caller-supplied `reporter` back: it surfaces verbatim in
+    // the 400 from POST /runs/upload, and the supported list already tells the
+    // caller what to pick. The bad value is logged server-side at the route.
+    throw new Error(`Unsupported reporter. Supported: ${Object.keys(parsers).join(", ")}`);
   }
   return parsers[reporter](raw, meta);
 }

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { safeLog } from "./log.js";
 
 /**
  * AI provider configuration.
@@ -38,11 +39,16 @@ export async function testConnection(): Promise<{ ok: boolean; provider: string;
       model: AI_MODEL,
     };
   } catch (err) {
+    // chat() already logs the upstream detail server-side and throws a generic
+    // message, so this `error` field is safe to surface — but keep it fixed
+    // rather than echoing err.message, which could still carry provider-
+    // specific text from an unexpected throw path.
+    console.error("AI test-connection failed:", safeLog(err));
     return {
       ok: false,
       provider: AI_PROVIDER,
       model: AI_MODEL,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: "AI provider connection failed",
     };
   }
 }
@@ -61,12 +67,20 @@ export async function testConnection(): Promise<{ ok: boolean; provider: string;
 async function chat(prompt: string, opts: { json?: boolean } = {}): Promise<string> {
   if (AI_PROVIDER === "anthropic") {
     const client = new Anthropic({ apiKey: AI_API_KEY });
-    const response = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 500,
-      messages: [{ role: "user", content: prompt }],
-    });
-    return response.content[0].type === "text" ? response.content[0].text : "";
+    try {
+      const response = await client.messages.create({
+        model: AI_MODEL,
+        max_tokens: 500,
+        messages: [{ role: "user", content: prompt }],
+      });
+      return response.content[0].type === "text" ? response.content[0].text : "";
+    } catch (err) {
+      // The SDK throws an APIError whose message can carry provider account/
+      // tier identifiers; log it server-side but throw a generic message so it
+      // never reaches the client (mirrors the OpenAI path below).
+      console.error("AI request failed (anthropic):", safeLog(err));
+      throw new Error("AI request failed");
+    }
   }
 
   if (AI_PROVIDER === "openai") {
@@ -119,15 +133,23 @@ async function chat(prompt: string, opts: { json?: boolean } = {}): Promise<stri
 async function chatJSON<T>(prompt: string, tool: Anthropic.Tool, fallback: T): Promise<T> {
   if (AI_PROVIDER === "anthropic") {
     const client = new Anthropic({ apiKey: AI_API_KEY });
-    const response = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 500,
-      tools: [tool],
-      tool_choice: { type: "tool", name: tool.name },
-      messages: [{ role: "user", content: prompt }],
-    });
-    const block = response.content.find((b) => b.type === "tool_use");
-    return block && block.type === "tool_use" ? (block.input as T) : fallback;
+    try {
+      const response = await client.messages.create({
+        model: AI_MODEL,
+        max_tokens: 500,
+        tools: [tool],
+        tool_choice: { type: "tool", name: tool.name },
+        messages: [{ role: "user", content: prompt }],
+      });
+      const block = response.content.find((b) => b.type === "tool_use");
+      return block && block.type === "tool_use" ? (block.input as T) : fallback;
+    } catch (err) {
+      // Same leak path as chat(): an SDK APIError message can carry account/
+      // tier identifiers. Log server-side and throw a generic message — the
+      // route catch turns it into a fixed "Analysis failed" response.
+      console.error("AI request failed (anthropic):", safeLog(err));
+      throw new Error("AI request failed");
+    }
   }
 
   // OpenAI-compatible: ask the server to constrain output to a JSON object,

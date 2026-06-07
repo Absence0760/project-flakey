@@ -28,6 +28,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import pg from "pg";
 
 const PORT = 3955;
 const BASE = `http://localhost:${PORT}`;
@@ -36,6 +37,11 @@ const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:8025";
 let server: ChildProcess;
 let token: string;
 let userEmail: string;
+let orgId: number;
+// Superuser client (bypasses RLS) used only to write a git provider config
+// onto the test org — organizations has no RLS and there's no settings route
+// wired in this offline smoke file.
+let dbAdmin: pg.Client;
 
 interface MailpitSummary {
   ID: string;
@@ -148,7 +154,18 @@ before(async () => {
     }),
   });
   if (!reg.ok) throw new Error(`register failed: ${reg.status} ${await reg.text().catch(() => "")}`);
-  token = ((await reg.json()) as { token: string }).token;
+  const regData = (await reg.json()) as { token: string; user: { orgId: number } };
+  token = regData.token;
+  orgId = regData.user.orgId;
+
+  dbAdmin = new pg.Client({
+    host: process.env.DB_HOST ?? "localhost",
+    port: Number(process.env.DB_PORT ?? 5432),
+    user: "flakey",
+    password: "flakey",
+    database: process.env.DB_NAME ?? "flakey",
+  });
+  await dbAdmin.connect();
 
   // Registration sends its own "Verify your email" mail to userEmail. Drain it
   // here by waiting on the real delivery signal, so the /email probe test below
@@ -159,6 +176,7 @@ before(async () => {
 });
 
 after(async () => {
+  if (dbAdmin) await dbAdmin.end().catch(() => {});
   if (server && !server.killed) {
     server.kill("SIGTERM");
     await once(server, "exit").catch(() => {});
@@ -241,4 +259,53 @@ test("POST /connectivity/git reports not-configured for an org with no git provi
   const data = (await res.json()) as { ok: boolean; error?: string };
   assert.equal(data.ok, false, "no git provider configured → ok:false");
   assert.equal(data.error, "Git provider not configured", "must surface the documented not-configured message");
+});
+
+test("POST /connectivity/git returns a fixed error and never leaks the upstream host on a connection failure", async () => {
+  // Point the org at a git provider whose base URL resolves to nowhere: the
+  // `.invalid` TLD (RFC 6761) never resolves, so `fetch` rejects into the
+  // route's catch block WITHOUT any packet leaving the machine — fully offline.
+  // The raw error there is "getaddrinfo ENOTFOUND <host>", which used to be
+  // echoed to the client. The fix returns a fixed string and logs the detail
+  // server-side; assert the client response is sanitized.
+  const leakyHost = "git.internal-secret-host.invalid";
+  // git_token must satisfy organizations_git_token_fmt_check (migration 045):
+  // a `v1:<b64>:<b64>:<b64>` shape. This is a fake ciphertext — decryptSecret
+  // fails it and the route falls back to the raw value, which is fine here
+  // since the DNS resolution dies before the token is ever used as auth.
+  const leakyToken = "v1:bGVha3lUb2tlbg==:aXZpdml2aXY=:dGFndGFndGFn";
+  await dbAdmin.query(
+    `UPDATE organizations
+     SET git_provider = 'github',
+         git_token = $3,
+         git_repo = 'acme/private-secret-repo',
+         git_base_url = $2
+     WHERE id = $1`,
+    [orgId, `https://${leakyHost}`, leakyToken],
+  );
+
+  try {
+    const res = await post("/connectivity/git", {});
+    assert.equal(res.status, 200, "probe returns 200 with ok:false in the body, not an HTTP error");
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    assert.equal(data.ok, false, "an unreachable git host → ok:false");
+    assert.equal(data.error, "Git provider connection failed", "must return the fixed, non-leaking error string");
+
+    // Nothing about the upstream target — host, token, repo slug, or the raw
+    // getaddrinfo detail — may surface in the client response.
+    const blob = JSON.stringify(data);
+    assert.ok(!blob.includes(leakyHost), "the resolved host must not leak to the client");
+    assert.ok(!blob.includes("ENOTFOUND") && !blob.includes("getaddrinfo"), "raw resolver detail must not leak to the client");
+    assert.ok(!blob.includes("private-secret-repo"), "the repo slug must not leak to the client");
+    assert.ok(!blob.includes(leakyToken) && !blob.includes("bGVha3lUb2tlbg=="), "the git token must not leak to the client");
+  } finally {
+    // Restore the org to its no-git-provider baseline so other assertions and
+    // re-runs against the shared DB stay deterministic.
+    await dbAdmin.query(
+      `UPDATE organizations
+       SET git_provider = NULL, git_token = NULL, git_repo = NULL, git_base_url = NULL
+       WHERE id = $1`,
+      [orgId],
+    );
+  }
 });

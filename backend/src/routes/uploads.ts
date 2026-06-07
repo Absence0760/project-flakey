@@ -71,14 +71,17 @@ router.post("/", uploadFields, async (req, res) => {
     let run: NormalizedRun;
 
     if (body.raw && body.meta?.reporter) {
-      // normalize() throws "Unsupported reporter: X. Supported: ..."
-      // when the reporter name isn't in the parsers map — that's
-      // caller error (a misconfigured CLI invocation), not a
-      // server failure, so convert it to a 400 instead of letting
-      // it surface as a generic 500.
+      // normalize() throws "Unsupported reporter. Supported: ..." when
+      // the reporter name isn't in the parsers map — that's caller error
+      // (a misconfigured CLI invocation), not a server failure, so convert
+      // it to a 400 instead of letting it surface as a generic 500. The
+      // thrown message is deliberately fixed (no caller-supplied reporter
+      // name reflected — see normalizers/index.ts); the offending value is
+      // logged server-side for debugging instead.
       try {
         run = normalize(body.meta.reporter, body.raw, body.meta);
       } catch (err) {
+        console.error("POST /runs/upload reporter rejected:", safeLog(body.meta.reporter), safeLog(err));
         const message = err instanceof Error ? err.message : "Invalid reporter payload";
         res.status(400).json({ error: message });
         return;

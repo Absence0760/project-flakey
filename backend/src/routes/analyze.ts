@@ -1,10 +1,17 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { analyzeFailure, analyzeFlakyTest, computeSimilarity, isAIEnabled, testConnection } from "../ai.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
-// GET /analyze/status — check if AI is enabled
+// GET /analyze/status — check if AI is enabled.
+// Reads no request state (hence `_req`) and touches no tenant data: AI is
+// instance-level config, identical for every org. It is intentionally NOT in
+// SUPPORT_READ_BASEURLS (auth.ts), so a cross-org support session 403s here —
+// support agents have no business probing instance AI configuration. If that
+// ever needs to change, add "/analyze" to SUPPORT_READ_BASEURLS rather than
+// loosening the guard here.
 router.get("/status", (_req, res) => {
   res.json({ enabled: isAIEnabled() });
 });
@@ -26,7 +33,11 @@ router.post("/test-connection", async (req, res) => {
     const result = await testConnection();
     res.json(result);
   } catch (err) {
-    res.json({ ok: false, error: err instanceof Error ? err.message : "Connection failed" });
+    // Never echo the raw error to the client — it can carry upstream provider
+    // detail (auth errors, key prefixes, model names). Log server-side, return
+    // a fixed string. (testConnection() already does the same internally.)
+    console.error("POST /analyze/test-connection error:", safeLog(err));
+    res.json({ ok: false, error: "AI provider connection failed" });
   }
 });
 
@@ -158,7 +169,7 @@ router.post("/error/:fingerprint", async (req, res) => {
 
     res.json(await generateErrorAnalysis(orgId, fingerprint, errorResult.rows[0]));
   } catch (err) {
-    console.error("POST /analyze/error error:", err);
+    console.error("POST /analyze/error error:", safeLog(err));
     res.status(500).json({ error: "Analysis failed" });
   }
 });
@@ -212,7 +223,7 @@ router.post("/test/:testId", async (req, res) => {
 
     res.json(await generateErrorAnalysis(orgId, fingerprint, testResult.rows[0]));
   } catch (err) {
-    console.error("POST /analyze/test error:", err);
+    console.error("POST /analyze/test error:", safeLog(err));
     res.status(500).json({ error: "Analysis failed" });
   }
 });
@@ -313,7 +324,7 @@ router.post("/flaky", async (req, res) => {
       ...result,
     });
   } catch (err) {
-    console.error("POST /analyze/flaky error:", err);
+    console.error("POST /analyze/flaky error:", safeLog(err));
     res.status(500).json({ error: "Analysis failed" });
   }
 });
@@ -323,6 +334,10 @@ router.post("/similar/:fingerprint", async (req, res) => {
   try {
     const orgId = req.user!.orgId;
     const fingerprint = req.params.fingerprint;
+
+    // No viewer gate here: unlike /error, /test and /flaky, this path calls no
+    // model and writes no cache — it's a deterministic similarity scan over the
+    // org's own errors, which a viewer can already read. (See architecture.md.)
 
     // Get the target error message
     const target = await tenantQuery(orgId,
@@ -373,7 +388,7 @@ router.post("/similar/:fingerprint", async (req, res) => {
 
     res.json(similar);
   } catch (err) {
-    console.error("POST /analyze/similar error:", err);
+    console.error("POST /analyze/similar error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
   }
 });

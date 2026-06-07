@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import pool from "../db.js";
 import { decryptSecret } from "../crypto.js";
+import { safeLog } from "../log.js";
 
 const router = Router();
 
@@ -32,10 +33,13 @@ router.post("/database", async (_req, res) => {
       size_mb: Math.round(Number(row.db_size) / 1024 / 1024),
     });
   } catch (err) {
+    // The raw error can carry SQL state, query detail, and constraint names —
+    // log it server-side, return a fixed string to the client.
+    console.error("POST /connectivity/database error:", safeLog(err));
     res.json({
       ok: false,
       latency_ms: Date.now() - start,
-      error: err instanceof Error ? err.message : "Connection failed",
+      error: "Database connection failed",
     });
   }
 });
@@ -49,9 +53,13 @@ router.post("/email", async (req, res) => {
     await sendVerificationEmail(userEmail, "test-connection-" + Date.now());
     res.json({ ok: true, sent_to: userEmail });
   } catch (err) {
+    // The raw error can carry the SMTP hostname/port (e.g.
+    // "getaddrinfo ENOTFOUND mail.internal.acme.com") — log it server-side,
+    // return a fixed string to the client.
+    console.error("POST /connectivity/email error:", safeLog(err));
     res.json({
       ok: false,
-      error: err instanceof Error ? err.message : "Email send failed",
+      error: "Email service unavailable",
     });
   }
 });
@@ -126,7 +134,14 @@ router.post("/git", async (req, res) => {
       const repoName = (data.full_name ?? data.name_with_namespace ?? data.name ?? repo) as string;
       res.json({ ok: true, platform, repo: repoName, latency_ms: latency });
     } else {
+      // Read + log the upstream body server-side for diagnosis, but never echo
+      // it to the client — it can leak repo slugs, branch names, and other
+      // upstream-account detail. The status alone is safe to surface.
       const body = await response.text().catch(() => "");
+      console.error(
+        `POST /connectivity/git upstream ${platform} HTTP ${response.status}:`,
+        safeLog(body)
+      );
       res.json({
         ok: false,
         platform,
@@ -134,13 +149,16 @@ router.post("/git", async (req, res) => {
         error: response.status === 401 ? "Invalid token" :
                response.status === 403 ? "Token lacks required permissions" :
                response.status === 404 ? "Repository not found" :
-               `HTTP ${response.status}: ${body.slice(0, 200)}`,
+               `Git provider returned HTTP ${response.status}`,
       });
     }
   } catch (err) {
+    // The raw error can carry the resolved API host / token-bearing request
+    // detail — log it server-side, return a fixed string to the client.
+    console.error("POST /connectivity/git error:", safeLog(err));
     res.json({
       ok: false,
-      error: err instanceof Error ? err.message : "Connection failed",
+      error: "Git provider connection failed",
     });
   }
 });
