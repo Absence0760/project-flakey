@@ -79,23 +79,6 @@ export interface AuthUser {
   ssoRequired?: boolean;
 }
 
-// Break-glass exemption from SSO enforcement. Emails listed here are never
-// clamped — for emergency/admin access that must survive an IdP outage, and so
-// local dev (the seeded admin@example.com) never gets forced through an IdP.
-// Defaults to the seeded admin OUTSIDE production only; in production it's empty
-// unless an operator opts specific accounts in via FLAKEY_SSO_BYPASS_EMAILS.
-const SSO_BYPASS_EMAILS = new Set(
-  (process.env.FLAKEY_SSO_BYPASS_EMAILS ??
-    (process.env.NODE_ENV === "production" ? "" : "admin@example.com"))
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean),
-);
-
-export function isSsoEnforcementBypassed(email: string | null | undefined): boolean {
-  return typeof email === "string" && SSO_BYPASS_EMAILS.has(email.trim().toLowerCase());
-}
-
 // A support session is intentionally brief — long enough to triage one
 // ticket, short enough that a leaked token is low-value.
 const SUPPORT_EXPIRY = "30m";
@@ -400,7 +383,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // other resource is refused with SSO_REQUIRED until the user re-authenticates
   // through their IdP (which mints an unrestricted `sso` session). API-key and
   // support sessions never carry ssoRequired, so they're unaffected.
-  if (candidate.ssoRequired && !isSsoEnforcementBypassed(candidate.email)) {
+  if (candidate.ssoRequired) {
     const isMe = req.method === "GET" && req.baseUrl === "/auth" && req.path === "/me";
     if (!isMe) {
       res.status(403).json({

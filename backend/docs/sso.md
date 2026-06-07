@@ -81,10 +81,13 @@ GET /auth/sso/session   (SPA handoff — same-origin only)
   `/auth/refresh` and `/auth/switch-org` re-require SSO when entering a
   *different* enforced org (no cross-org free pass). login/switch-org responses
   return `ssoRequired` + `orgSlug` so the SPA redirects to the IdP.
-- **Break-glass / local dev:** `FLAKEY_SSO_BYPASS_EMAILS` (comma-separated) lists
-  accounts exempt from enforcement — emergency access that survives an IdP
-  outage. Outside production it defaults to the seeded `admin@example.com`, so
-  local dev never gets forced through an IdP; in production it's empty unless set.
+- **Enforcement is per-org and OFF by default**, so local dev (`admin@example.com`)
+  is never forced through an IdP unless you explicitly enable enforcement for an
+  org. There is intentionally **no account-level SSO bypass** — an exemption list
+  would be an auth-bypass backdoor. If you enable enforcement and the IdP is
+  unreachable, recovery is operator-level: unset `enforced` on the org's
+  `org_sso_configs` row (or flip `FLAKEY_SSO_ENABLED` off instance-wide), not a
+  built-in break-glass credential.
 - **API keys are not clamped by SSO enforcement — by design.** Enforcement gates
   *interactive* sessions; API keys are programmatic credentials with their own
   lifecycle (and a restricted session can't mint new ones — `POST /auth/api-keys`
