@@ -62,6 +62,15 @@ interface FlakeySnapshotOptions {
    * print. `FLAKEY_VERBOSE=1` env honoured as a fallback.
    */
   verbose?: boolean;
+  /**
+   * After a snapshot streams successfully to a live run, the local `.json.gz`
+   * is deleted by default — a long suite that captures hundreds of snapshots
+   * would otherwise fill the runner's disk before end-of-run. Set `false` to
+   * KEEP the local file after a successful stream. Needed when `outputDir`
+   * doubles as a persistent corpus that must survive live runs (e.g. a DOM
+   * dump corpus consumed by a selector-reconcile tool). Default: true.
+   */
+  unlinkAfterStream?: boolean;
 }
 
 export function flakeySnapshots(
@@ -74,6 +83,7 @@ export function flakeySnapshots(
   const maxHtmlBytes = options?.maxHtmlBytes ?? 2 * 1024 * 1024;
   const maxBundleBytes = options?.maxBundleBytes ?? 64 * 1024 * 1024;
   const verbose = options?.verbose === true || process.env.FLAKEY_VERBOSE === "1";
+  const unlinkAfterStream = options?.unlinkAfterStream ?? true;
 
   // Signal to the support file whether snapshots are enabled
   config.env = config.env || {};
@@ -109,7 +119,11 @@ export function flakeySnapshots(
         const capNote = formatCapNote(bundle);
         const streamed = await maybeStreamUpload(filePath, compressed, bundle);
         if (streamed) {
-          try { unlinkSync(filePath); } catch { /* ignore */ }
+          // Keep the local file when the output dir is a persistent corpus
+          // (unlinkAfterStream: false); otherwise reap it to bound disk use.
+          if (unlinkAfterStream) {
+            try { unlinkSync(filePath); } catch { /* ignore */ }
+          }
           if (verbose) {
             console.log(
               `  [flakey-snapshots] Streamed ${bundle.steps.length} steps → ${fileName} (${(compressed.length / 1024).toFixed(1)}KB)${capNote}`
