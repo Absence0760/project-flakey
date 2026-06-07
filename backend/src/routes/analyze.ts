@@ -23,21 +23,89 @@ router.post("/test-connection", async (_req, res) => {
   }
 });
 
-// POST /analyze/error/:fingerprint — analyze an error group
+// An error row sufficient to drive analyzeFailure(), plus its fingerprint.
+interface ErrorRow {
+  error_message: string;
+  error_stack: string | null;
+  full_title: string;
+  file_path: string;
+  test_code: string | null;
+  suite_name: string;
+}
+
+// The shape every error-analysis response returns — matches the frontend
+// AIAnalysis interface. (Deliberately a subset of the DB row: id, org_id,
+// raw_result and created_at are not part of the client contract.)
+function shapeErrorAnalysis(fingerprint: string, a: {
+  classification: string; summary: string; suggested_fix: string; confidence: number;
+}) {
+  return {
+    target_type: "error",
+    target_key: fingerprint,
+    classification: a.classification,
+    summary: a.summary,
+    suggested_fix: a.suggested_fix,
+    confidence: a.confidence,
+  };
+}
+
+// Return a cached error analysis for this fingerprint, or null on a miss.
+// A plain DB read — works regardless of whether the AI provider is configured.
+async function cachedErrorAnalysis(orgId: number, fingerprint: string) {
+  const cached = await tenantQuery(orgId,
+    `SELECT classification, summary, suggested_fix, confidence
+     FROM ai_analyses WHERE target_type = 'error' AND target_key = $1`,
+    [fingerprint]
+  );
+  return cached.rows.length > 0 ? shapeErrorAnalysis(fingerprint, cached.rows[0]) : null;
+}
+
+// Call the model for this error row and upsert the cache. Caller is responsible
+// for the cache-hit short-circuit and the isAIEnabled() gate beforehand.
+async function generateErrorAnalysis(orgId: number, fingerprint: string, row: ErrorRow) {
+  const result = await analyzeFailure({
+    errorMessage: row.error_message,
+    errorStack: row.error_stack ?? undefined,
+    testTitle: row.full_title,
+    filePath: row.file_path,
+    testCode: row.test_code ?? undefined,
+    suiteName: row.suite_name,
+  });
+  await tenantQuery(orgId,
+    `INSERT INTO ai_analyses (org_id, target_type, target_key, classification, summary, suggested_fix, confidence, raw_result)
+     VALUES ($1, 'error', $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (org_id, target_type, target_key) DO UPDATE
+     SET classification = $3, summary = $4, suggested_fix = $5, confidence = $6, raw_result = $7, created_at = NOW()`,
+    [orgId, fingerprint, result.classification, result.summary, result.suggestedFix, result.confidence, JSON.stringify(result)]
+  );
+  return shapeErrorAnalysis(fingerprint, {
+    classification: result.classification,
+    summary: result.summary,
+    suggested_fix: result.suggestedFix,
+    confidence: result.confidence,
+  });
+}
+
+// `?refresh=true` forces a fresh model call, replacing any cached analysis —
+// used by the "Re-analyze" affordance and to regenerate rows left stale by an
+// older analysis format. Requires AI to be configured (a refresh can't be
+// served from cache by definition).
+function wantsRefresh(req: { query: Record<string, unknown> }): boolean {
+  return req.query.refresh === "true";
+}
+
+// POST /analyze/error/:fingerprint — analyze an error group (aggregated view)
 router.post("/error/:fingerprint", async (req, res) => {
   try {
     const orgId = req.user!.orgId;
     const fingerprint = req.params.fingerprint;
 
-    // Serve a cached analysis if we have one — it's a plain DB read, so it
-    // works regardless of whether the AI provider is currently configured.
-    const cached = await tenantQuery(orgId,
-      "SELECT * FROM ai_analyses WHERE target_type = 'error' AND target_key = $1",
-      [fingerprint]
-    );
-    if (cached.rows.length > 0) {
-      res.json(cached.rows[0]);
-      return;
+    if (!wantsRefresh(req)) {
+      const cached = await cachedErrorAnalysis(orgId, fingerprint);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
     }
 
     // Get error details
@@ -61,39 +129,65 @@ router.post("/error/:fingerprint", async (req, res) => {
     // Only now, when we're about to call the model, gate on AI being enabled —
     // so an unknown fingerprint 404s and a cached hit returns even with AI off.
     if (!isAIEnabled()) {
-      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
+      res.status(503).json({ error: "AI analysis requires an AI provider to be configured" });
       return;
     }
 
-    const err = errorResult.rows[0];
-    const result = await analyzeFailure({
-      errorMessage: err.error_message,
-      errorStack: err.error_stack ?? undefined,
-      testTitle: err.full_title,
-      filePath: err.file_path,
-      testCode: err.test_code ?? undefined,
-      suiteName: err.suite_name,
-    });
-
-    // Cache result
-    await tenantQuery(orgId,
-      `INSERT INTO ai_analyses (org_id, target_type, target_key, classification, summary, suggested_fix, confidence, raw_result)
-       VALUES ($1, 'error', $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (org_id, target_type, target_key) DO UPDATE
-       SET classification = $3, summary = $4, suggested_fix = $5, confidence = $6, raw_result = $7, created_at = NOW()`,
-      [orgId, fingerprint, result.classification, result.summary, result.suggestedFix, result.confidence, JSON.stringify(result)]
-    );
-
-    res.json({
-      target_type: "error",
-      target_key: fingerprint,
-      classification: result.classification,
-      summary: result.summary,
-      suggested_fix: result.suggestedFix,
-      confidence: result.confidence,
-    });
+    res.json(await generateErrorAnalysis(orgId, fingerprint, errorResult.rows[0]));
   } catch (err) {
     console.error("POST /analyze/error error:", err);
+    res.status(500).json({ error: "Analysis failed" });
+  }
+});
+
+// POST /analyze/test/:testId — analyze a specific failed test (test-detail modal).
+// Resolves the test to the SAME error fingerprint the aggregated /errors view
+// uses, so analysis is computed once and shared between both surfaces.
+router.post("/test/:testId", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+    const testId = Number(req.params.testId);
+    if (!Number.isInteger(testId) || testId <= 0) {
+      res.status(400).json({ error: "Invalid test id" });
+      return;
+    }
+
+    // RLS scopes this to the caller's org, so a foreign test id simply 404s.
+    const testResult = await tenantQuery(orgId,
+      `SELECT t.error_message, t.error_stack, t.full_title, t.test_code,
+              s.file_path, r.suite_name,
+              md5(t.error_message || '|' || r.suite_name) AS fingerprint
+       FROM tests t
+       JOIN specs s ON s.id = t.spec_id
+       JOIN runs r ON r.id = s.run_id
+       WHERE t.id = $1 AND t.status = 'failed' AND t.error_message IS NOT NULL
+       LIMIT 1`,
+      [testId]
+    );
+
+    if (testResult.rows.length === 0) {
+      res.status(404).json({ error: "Failed test with an error message not found" });
+      return;
+    }
+
+    const fingerprint = testResult.rows[0].fingerprint as string;
+
+    if (!wantsRefresh(req)) {
+      const cached = await cachedErrorAnalysis(orgId, fingerprint);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+    }
+
+    if (!isAIEnabled()) {
+      res.status(503).json({ error: "AI analysis requires an AI provider to be configured" });
+      return;
+    }
+
+    res.json(await generateErrorAnalysis(orgId, fingerprint, testResult.rows[0]));
+  } catch (err) {
+    console.error("POST /analyze/test error:", err);
     res.status(500).json({ error: "Analysis failed" });
   }
 });
@@ -125,7 +219,7 @@ router.post("/flaky", async (req, res) => {
 
     // Gate on AI only when we're about to call the model.
     if (!isAIEnabled()) {
-      res.status(503).json({ error: "AI analysis requires ANTHROPIC_API_KEY to be configured" });
+      res.status(503).json({ error: "AI analysis requires an AI provider to be configured" });
       return;
     }
 

@@ -15,7 +15,10 @@
  *     config: a missing fullTitle → 400, an unknown fingerprint → 404. Only a
  *     well-formed request that resolves to a real target and has no cached
  *     analysis reaches the AI gate, which (AI off) returns 503 with the
- *     documented "AI analysis requires ANTHROPIC_API_KEY to be configured".
+ *     documented "AI analysis requires an AI provider to be configured".
+ *     POST /analyze/test/:testId behaves the same way, keyed by test id: an
+ *     invalid id → 400, an unknown / non-failed id → 404, a real failed test
+ *     with no cached analysis → 503.
  *
  *   - POST /analyze/similar/:fingerprint is fully deterministic: it uses
  *     computeSimilarity() over stored error fingerprints (NOT the AI
@@ -206,7 +209,7 @@ test("POST /analyze/error/:fingerprint reaches the AI gate (503) for a real, unc
   const res = await post(`/analyze/error/${fp}`, {});
   assert.equal(res.status, 503);
   const data = (await res.json()) as { error: string };
-  assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
+  assert.equal(data.error, "AI analysis requires an AI provider to be configured");
 });
 
 test("POST /analyze/error/:fingerprint returns 404 for an unknown fingerprint (resolution precedes the AI gate)", async () => {
@@ -218,6 +221,42 @@ test("POST /analyze/error/:fingerprint returns 404 for an unknown fingerprint (r
   assert.equal(data.error, "Error not found");
 });
 
+// ── POST /analyze/test/:testId ────────────────────────────────────────────
+
+test("POST /analyze/test/:testId reaches the AI gate (503) for a real failed test when AI is off", async () => {
+  // Resolve a real failed-test id from our uploaded data via the affected-tests
+  // endpoint, then analyze it. It resolves to a real error fingerprint with no
+  // cached analysis, so it reaches the AI gate, which is off → 503.
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const listed = await fetch(`${BASE}/errors/${fp}/tests`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(listed.status, 200);
+  const tests = (await listed.json()) as Array<{ latest_test_id: number }>;
+  assert.ok(tests.length > 0 && tests[0].latest_test_id, "expected a real failed-test id from the affected-tests list");
+
+  const res = await post(`/analyze/test/${tests[0].latest_test_id}`, {});
+  assert.equal(res.status, 503);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "AI analysis requires an AI provider to be configured");
+});
+
+test("POST /analyze/test/:testId returns 400 for a non-numeric id (validation precedes the AI gate)", async () => {
+  const res = await post(`/analyze/test/not-a-number`, {});
+  assert.equal(res.status, 400);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "Invalid test id");
+});
+
+test("POST /analyze/test/:testId returns 404 for an unknown test id (resolution precedes the AI gate)", async () => {
+  // A valid-but-nonexistent id (also covers cross-org: RLS scopes the lookup,
+  // so a foreign id simply resolves to no rows) → 404 regardless of AI config.
+  const res = await post(`/analyze/test/2000000000`, {});
+  assert.equal(res.status, 404);
+  const data = (await res.json()) as { error: string };
+  assert.equal(data.error, "Failed test with an error message not found");
+});
+
 // ── POST /analyze/flaky ───────────────────────────────────────────────────
 
 test("POST /analyze/flaky reaches the AI gate (503) for a well-formed, uncached request when AI is off", async () => {
@@ -227,7 +266,7 @@ test("POST /analyze/flaky reaches the AI gate (503) for a well-formed, uncached 
   });
   assert.equal(res.status, 503);
   const data = (await res.json()) as { error: string };
-  assert.equal(data.error, "AI analysis requires ANTHROPIC_API_KEY to be configured");
+  assert.equal(data.error, "AI analysis requires an AI provider to be configured");
 });
 
 test("POST /analyze/flaky returns 400 for a missing fullTitle (validation precedes the AI gate)", async () => {
