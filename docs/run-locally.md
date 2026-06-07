@@ -189,6 +189,7 @@ npx tsx src/index.ts \
 | `pnpm db:up` | Start core services — PostgreSQL + Mailpit (http://localhost:8025) |
 | `pnpm storage:up` / `pnpm storage:down` | Start / stop MinIO (S3-compatible; console http://localhost:9001) |
 | `pnpm webhooks:up` / `pnpm webhooks:down` | Start / stop the webhook echo sink (:8080) |
+| `pnpm ai:up` / `pnpm ai:down` | Start / stop local Ollama (:11434) for AI features; first run pulls ~2 GB (llama3.2). Set `AI_PROVIDER=openai` + `AI_BASE_URL=http://localhost:11434/v1` in `backend/.env`. Instance-wide, not per-org |
 | `pnpm services:up` / `pnpm services:down` | Start / stop every local service at once |
 | `pnpm db:down` | Stop the core services |
 | `pnpm db:reset` | Stop core services, delete data, and restart (migrated-but-empty — seed after) |

@@ -10,6 +10,8 @@
     "storage:down": "docker compose rm -sf minio minio-init",
     "webhooks:up": "docker compose --profile integrations up -d webhook-sink",
     "webhooks:down": "docker compose rm -sf webhook-sink",
+    "ai:up": "docker compose --profile ai up -d",
+    "ai:down": "docker compose rm -sf ollama ollama-pull",
     "idp:up": "docker compose --profile idp up -d keycloak",
     "idp:down": "docker compose rm -sf keycloak",
     "idp:reset": "docker compose rm -sf keycloak && docker compose --profile idp up -d keycloak",

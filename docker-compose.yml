@@ -201,7 +201,45 @@ services:
     environment:
       HTTP_PORT: 8080
 
+  # Local LLM for the AI-analysis features (failure classification, flaky
+  # triage). Serves an OpenAI-compatible API on :11434; the backend points at
+  # it via AI_PROVIDER=openai + AI_BASE_URL=http://localhost:11434/v1 (see
+  # backend/.env). Opt-in via `--profile ai` (pnpm ai:up) — AI is off by
+  # default (local-first). NOTE: Docker Desktop on macOS has no GPU
+  # passthrough, so inference here is CPU-only — fine for exercising the
+  # features, not fast. For Metal-accelerated speed, run a native `ollama
+  # serve` instead and skip this service (the AI_BASE_URL is the same).
+  ollama:
+    image: ollama/ollama:latest
+    container_name: flakey-ollama
+    profiles: ["ai"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+  # One-shot: pull the default model into the ollama server, then exit. First
+  # run downloads ~2 GB (llama3.2); cached in the ollama-models volume after.
+  # Override the model with OLLAMA_MODEL (keep it in lockstep with AI_MODEL).
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: flakey-ollama-pull
+    profiles: ["ai"]
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until ollama list >/dev/null 2>&1; do sleep 1; done;
+        ollama pull "${OLLAMA_MODEL:-llama3.2}"
+    restart: "no"
+
 volumes:
   pgdata:
   miniodata:
   authentik-pgdata:
+  ollama-models:
