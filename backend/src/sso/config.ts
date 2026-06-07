@@ -9,11 +9,13 @@
 
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import net from "net";
 import type { JWTPayload } from "jose";
 import pool, { tenantQuery } from "../db.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
 import { normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
+import { isBlockedIp } from "./oidc.js";
 
 export type OrgRole = "owner" | "admin" | "viewer";
 const ORG_ROLES: readonly OrgRole[] = ["owner", "admin", "viewer"];
@@ -168,29 +170,19 @@ export function validateIssuerUrl(raw: string): void {
   if (u.protocol !== "https:" && !(u.protocol === "http:" && !isProd)) {
     throw new Error("OIDC issuer must use https");
   }
-  const host = u.hostname.toLowerCase();
-  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
-  if (loopback) {
+  // Strip IPv6 brackets so net.isIP recognises literal hosts (incl. the
+  // IPv4-mapped `[::ffff:a.b.c.d]` form).
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost") {
     if (isProd) throw new Error("OIDC issuer must not be a loopback address");
-    return; // dev: allow local Keycloak
+    return; // dev: allow local Keycloak by name
   }
-  // Block IPv4 literals in private / link-local / metadata ranges.
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (m) {
-    const [a, b] = [Number(m[1]), Number(m[2])];
-    const isPrivate =
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) || // link-local incl. 169.254.169.254 metadata
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      a === 0;
-    if (isPrivate) throw new Error("OIDC issuer must not resolve to a private network address");
+  // For IP-literal hosts, reuse the exact fetch-time block-list (isBlockedIp)
+  // so save-time and fetch-time agree — including IPv4-mapped IPv6 literals.
+  if (net.isIP(host) && isBlockedIp(host, isProd)) {
+    throw new Error("OIDC issuer must not resolve to a private/loopback network address");
   }
-  // Block IPv6 literal loopback / unique-local / link-local.
-  if (host.includes(":") && (/^f[cd]/.test(host) || /^fe80/.test(host))) {
-    throw new Error("OIDC issuer must not be a private IPv6 address");
-  }
+  // Non-literal hostnames are resolved + re-checked at fetch time (assertPublicHost).
 }
 
 /** Validate + upsert an org's SSO config, encrypting the client secret. */

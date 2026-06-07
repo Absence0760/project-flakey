@@ -24,7 +24,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 // allowed only outside production (local Keycloak dev). This closes the
 // hostname-that-resolves-to-an-internal-IP vector; a DNS rebind *between* this
 // check and the socket connect is the documented residual risk.
-function isBlockedIp(ip: string, isProd: boolean): boolean {
+export function isBlockedIp(ip: string, isProd: boolean): boolean {
   const v = net.isIP(ip);
   if (v === 4) {
     const [a, b] = ip.split(".").map(Number);
@@ -37,9 +37,18 @@ function isBlockedIp(ip: string, isProd: boolean): boolean {
     const lower = ip.toLowerCase();
     if (lower === "::1") return isProd; // loopback
     if (/^f[cd]/.test(lower) || /^fe80/.test(lower)) return true; // ULA / link-local
-    // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded v4.
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return isBlockedIp(mapped[1], isProd);
+    // IPv4-mapped — re-check the embedded v4. Node normalises
+    // `::ffff:169.254.169.254` to the hex form `::ffff:a9fe:a9fe`, so handle both.
+    const mapped = /^::ffff:(.+)$/.exec(lower);
+    if (mapped) {
+      const tail = mapped[1];
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(tail)) return isBlockedIp(tail, isProd);
+      const hex = tail.replace(/:/g, "");
+      if (/^[0-9a-f]{8}$/.test(hex)) {
+        const v4 = [0, 2, 4, 6].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(".");
+        return isBlockedIp(v4, isProd);
+      }
+    }
     return false;
   }
   return false;

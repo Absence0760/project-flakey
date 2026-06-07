@@ -72,6 +72,8 @@ test("validateIssuerUrl blocks SSRF-prone issuer URLs (private/metadata/non-http
   assert.throws(() => validateIssuerUrl("https://172.16.4.4/"), /private/i, "172.16-31");
   assert.throws(() => validateIssuerUrl("ftp://idp.example.com/"), /https/i, "non-http scheme");
   assert.throws(() => validateIssuerUrl("not a url"), /valid URL/i);
+  // IPv4-mapped IPv6 literal of the metadata IP must also be blocked at save time.
+  assert.throws(() => validateIssuerUrl("https://[::ffff:169.254.169.254]/"), /private|loopback/i, "IPv4-mapped IPv6 metadata");
   // A normal external https issuer is fine.
   assert.doesNotThrow(() => validateIssuerUrl("https://idp.example.com/realms/acme"));
 });
