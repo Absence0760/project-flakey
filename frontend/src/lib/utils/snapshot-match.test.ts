@@ -4,6 +4,7 @@ import {
   normalizeGherkinText,
   snapshotIdxForCommandGroup,
   snapshotIdxForCommandChild,
+  failureStepIndex,
   type CommandGroup,
   type SnapshotStepLite,
 } from "./snapshot-match";
@@ -160,5 +161,26 @@ describe("snapshotIdxForCommandChild", () => {
 
   it("for SETUP, headerIdx already points at the first child — childPos 0 returns headerIdx", () => {
     expect(snapshotIdxForCommandChild(commandGroups, snapshotSteps, 0, 0)).toBe(0);
+  });
+});
+
+describe("failureStepIndex", () => {
+  const mk = (...names: string[]): SnapshotStepLite[] =>
+    names.map((commandName) => ({ commandName, commandMessage: "" }));
+
+  it("returns null when the test passed (no 'failure' frame in the bundle)", () => {
+    // Regression: a passed test's snapshot must NOT paint a red FAILURE tick
+    // on its final step. Before, the viewer assumed the last step was always
+    // the failure.
+    expect(failureStepIndex(mk("visit", "get", "click", "request"))).toBe(null);
+  });
+
+  it("returns the index of the synthetic 'failure' frame when the test failed", () => {
+    // The support file appends it last, but we match by commandName, not position.
+    expect(failureStepIndex(mk("visit", "get", "click", "failure"))).toBe(3);
+  });
+
+  it("returns null for an empty bundle", () => {
+    expect(failureStepIndex([])).toBe(null);
   });
 });

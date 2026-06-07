@@ -16,6 +16,21 @@ export interface SnapshotStepLite {
   commandMessage: string;
 }
 
+/**
+ * Index of the snapshot bundle's failure frame, or null if the test passed.
+ *
+ * `@flakeytesting/cypress-snapshots`'s support file appends a single synthetic
+ * step with `commandName === "failure"` ("Test failed — final DOM state") in
+ * its afterEach ONLY when the test failed. So the failure frame is identified
+ * by that marker — NOT by "the last step". The viewer is reachable for passed
+ * tests too (any test's snapshot is browsable), so assuming the last step is a
+ * failure painted a spurious red FAILURE tick on passing tests' final step.
+ */
+export function failureStepIndex(steps: SnapshotStepLite[]): number | null {
+  const i = steps.findIndex((s) => s.commandName === "failure");
+  return i >= 0 ? i : null;
+}
+
 export interface CommandGroup {
   /** Index of the gherkin header in command_log, or null for synthetic SETUP. */
   headerIdx: number | null;

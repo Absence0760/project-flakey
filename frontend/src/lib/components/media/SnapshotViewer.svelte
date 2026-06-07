@@ -1,6 +1,7 @@
 <script lang="ts">
   import { authFetch } from "$lib/stores/auth";
   import { UPLOADS_URL } from "$lib/api";
+  import { failureStepIndex } from "$lib/utils/snapshot-match";
 
   type Props = {
     snapshotPath: string;
@@ -45,12 +46,12 @@
   let scale = $derived(fitScale * zoom);
 
   let stepCount = $derived(bundle?.steps.length ?? 0);
-  // The Cypress reporter writes the failure frame as the LAST entry in
-  // the bundle (cy:fail captures right before bailing). ErrorModal only
-  // opens this viewer for failed tests, so the last index is the
-  // canonical "where it broke" tick. The scrubber marks it red so the
-  // user can see at a glance how far the test got before failing.
-  let failureStep = $derived(stepCount > 0 ? stepCount - 1 : null);
+  // The failure frame is the synthetic "failure" step the snapshots support
+  // file appends in afterEach — present ONLY when the test failed. Keying off
+  // that (not "the last step") means the red FAILURE tick shows for failed
+  // tests only; this viewer is also opened for PASSED tests, whose final step
+  // is an ordinary command, not a failure.
+  let failureStep = $derived(bundle ? failureStepIndex(bundle.steps) : null);
   let clampedStep = $derived(Math.max(0, Math.min(selectedStep, stepCount - 1)));
 
   let currentStep = $derived.by(() => {
