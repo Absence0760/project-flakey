@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { goto, replaceState } from "$app/navigation";
@@ -16,6 +16,10 @@
   let allRuns = $state<Run[]>([]);
   let dbSummary = $state<RunsSummary>({ total: 0, passed: 0, failed: 0, incomplete: 0 });
   let hasMore = $state(false);
+  // Set by the SvelteKit snapshot's restore() on back-nav. onMount's initial
+  // fetch checks this AFTER its await so it doesn't clobber the restored rows
+  // (and scroll position) with a fresh first-page-of-50.
+  let restoredFromSnapshot = false;
   let loadingMore = $state(false);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -322,10 +326,16 @@
         fetchRunsWithSummary(),
         fetchSavedViews("runs"),
       ]);
-      allRuns = runsData.runs;
-      dbSummary = runsData.summary;
-      hasMore = runsData.hasMore;
       savedViews = views;
+      // A restored snapshot (back-nav) already holds the full set of loaded
+      // rows and the scroll position — don't overwrite it with the fresh
+      // first page. The restore runs synchronously at mount, well before this
+      // network call resolves, so the flag is reliably set by now.
+      if (!restoredFromSnapshot) {
+        allRuns = runsData.runs;
+        dbSummary = runsData.summary;
+        hasMore = runsData.hasMore;
+      }
       connectLiveStream();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load runs";
@@ -357,8 +367,14 @@
       dbSummary = s.dbSummary;
       hasMore = s.hasMore;
       loading = false;
-      // Defer scroll until after the rows render.
-      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+      restoredFromSnapshot = true;
+      // Restore scroll only after the restored rows are actually in the DOM —
+      // otherwise the page is still short and scrollTo gets clamped to the
+      // top. tick() awaits Svelte's flush; the rAF waits for the browser to
+      // lay the rows out before we set scrollY.
+      tick().then(() => requestAnimationFrame(() =>
+        window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
+      ));
     },
   };
 
