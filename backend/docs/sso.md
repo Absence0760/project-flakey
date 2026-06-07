@@ -5,7 +5,7 @@ Status by slice:
 | Slice | What | Status |
 |---|---|---|
 | 1 | OIDC login (Authorization-Code + PKCE) | **Built** — flag-gated, awaiting CISO sign-off before enable |
-| 2 | SAML login | Not built |
+| 2 | SAML login (POST binding) | **Built** — flag-gated, awaiting CISO sign-off before enable |
 | 3 | SCIM 2.0 provisioning | Not built |
 
 > ⚠️ **Security gate.** SSO is a GovRAMP-scoped authentication control. It ships
@@ -75,6 +75,38 @@ GET /auth/sso/session   (SPA handoff — same-origin only)
 - **`enforced` ("SSO required") is stored but NOT yet wired into `/auth/login`.**
   Hard-disabling password login per-org is a proposal open question pending the
   security review — do not enforce off this column until that's signed off.
+
+## Slice 2 — SAML
+
+SP-initiated, HTTP-POST binding, via the vetted `@node-saml/node-saml` (we do
+not hand-roll XML signature handling).
+
+- **ACS URL** to register at the IdP: `<PUBLIC_API_URL>/auth/sso/saml/acs`.
+  Set the SP entity ID to your configured `samlIssuer` (or the ACS URL).
+- Configure at **Settings → Single sign-on** (protocol = SAML 2.0): IdP SSO URL,
+  IdP signing certificate (PEM or base64 body), optional SP entity ID / audience,
+  plus the same JIT / domain / role-claim / role-map controls as OIDC. The role
+  claim is the SAML *attribute name* carrying roles.
+
+What's validated, in order, on the ACS:
+
+1. **RelayState** — a signed JWT (`state` + org + return path) we issued at
+   `/start`. Survives the IdP's cross-site POST (a cookie wouldn't, SameSite).
+2. **Assertion signature + conditions + audience** — by node-saml against the
+   configured IdP cert (`wantAssertionsSigned`, NotBefore/NotOnOrAfter + clock
+   skew, audience). Unsigned / alg-stripped assertions are rejected.
+3. **InResponseTo binding** — the assertion's `InResponseTo` must equal the
+   AuthnRequest ID we persisted (org-scoped, consumed once) at `/start`.
+4. **One-time use** — the assertion XML hash is recorded in `sso_saml_replay`
+   (org-scoped); a replay collides and is refused.
+
+Only then is the existing Flakey session minted. Tables: `sso_saml_requests`,
+`sso_saml_replay` (migration `056_sso_saml.sql`), both RLS-isolated per org.
+
+> The positive SAML login path (a real signed assertion) is proven via the
+> Keycloak app-facing e2e — the same status as OIDC's positive callback. The
+> smoke suite covers config round-trip, the real `/start` redirect, and
+> fail-closed rejection of unsigned/forged input.
 
 ### Local testing
 

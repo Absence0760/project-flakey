@@ -37,6 +37,11 @@ export interface OrgSsoConfig {
   // Present only on the internal (decrypted) load used by the login flow;
   // never returned to API callers.
   oidcClientSecret?: string | null;
+  // SAML (Slice 2). The IdP signing cert is a public cert — stored plaintext.
+  samlEntryPoint: string | null;
+  samlIdpCert: string | null;
+  samlIssuer: string | null;
+  samlAudience: string | null;
 }
 
 interface SsoConfigRow {
@@ -53,6 +58,10 @@ interface SsoConfigRow {
   oidc_issuer: string | null;
   oidc_client_id: string | null;
   oidc_client_secret: string | null;
+  saml_entry_point: string | null;
+  saml_idp_cert: string | null;
+  saml_issuer: string | null;
+  saml_audience: string | null;
 }
 
 function rowToConfig(r: SsoConfigRow, includeSecret: boolean): OrgSsoConfig {
@@ -69,6 +78,10 @@ function rowToConfig(r: SsoConfigRow, includeSecret: boolean): OrgSsoConfig {
     roleMap: r.role_map ?? {},
     oidcIssuer: r.oidc_issuer,
     oidcClientId: r.oidc_client_id,
+    samlEntryPoint: r.saml_entry_point,
+    samlIdpCert: r.saml_idp_cert,
+    samlIssuer: r.saml_issuer,
+    samlAudience: r.saml_audience,
   };
   if (includeSecret) cfg.oidcClientSecret = decryptSecret(r.oidc_client_secret);
   return cfg;
@@ -112,6 +125,10 @@ export interface SsoConfigInput {
   // A new plaintext secret to encrypt. `undefined` leaves the stored secret
   // untouched (so a config PATCH that omits it doesn't wipe it); `null`/"" clears it.
   oidcClientSecret?: string | null;
+  samlEntryPoint?: string | null;
+  samlIdpCert?: string | null;
+  samlIssuer?: string | null;
+  samlAudience?: string | null;
 }
 
 /** Validate + upsert an org's SSO config, encrypting the client secret. */
@@ -143,8 +160,9 @@ export async function saveSsoConfig(
     orgId,
     `INSERT INTO org_sso_configs
        (org_id, protocol, enabled, enforced, jit_provisioning, allowed_domains,
-        default_role, role_claim, role_map, oidc_issuer, oidc_client_id, oidc_client_secret)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        default_role, role_claim, role_map, oidc_issuer, oidc_client_id, oidc_client_secret,
+        saml_entry_point, saml_idp_cert, saml_issuer, saml_audience)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (org_id) DO UPDATE SET
        protocol           = EXCLUDED.protocol,
        enabled            = EXCLUDED.enabled,
@@ -160,6 +178,10 @@ export async function saveSsoConfig(
        -- EXCLUDED.oidc_client_secret is the value we tried to insert ($12):
        -- null when the caller omitted it, so COALESCE preserves the stored one.
        oidc_client_secret = COALESCE(EXCLUDED.oidc_client_secret, org_sso_configs.oidc_client_secret),
+       saml_entry_point   = EXCLUDED.saml_entry_point,
+       saml_idp_cert      = EXCLUDED.saml_idp_cert,
+       saml_issuer        = EXCLUDED.saml_issuer,
+       saml_audience      = EXCLUDED.saml_audience,
        updated_at         = NOW()`,
     [
       orgId,
@@ -176,6 +198,10 @@ export async function saveSsoConfig(
       // $12: new encrypted secret, or null. On conflict, null flows through
       // EXCLUDED into COALESCE and preserves the stored secret.
       encSecret ?? null,
+      input.samlEntryPoint === undefined ? existing?.samlEntryPoint ?? null : input.samlEntryPoint,
+      input.samlIdpCert === undefined ? existing?.samlIdpCert ?? null : input.samlIdpCert,
+      input.samlIssuer === undefined ? existing?.samlIssuer ?? null : input.samlIssuer,
+      input.samlAudience === undefined ? existing?.samlAudience ?? null : input.samlAudience,
     ],
   );
 

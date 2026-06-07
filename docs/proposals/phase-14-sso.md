@@ -1,6 +1,6 @@
 # Proposal: Enterprise SSO — OIDC / SAML login + SCIM provisioning
 
-**Status:** Slice 1 (OIDC login) **built behind the `FLAKEY_SSO_ENABLED` flag** — OFF by default, **not yet enabled in any regulated environment** pending CISO / Security Analyst sign-off (SOC 2 / GovRAMP-scoped auth control). Slices 2–3 not yet built. Operator + dev guide: [backend/docs/sso.md](../../backend/docs/sso.md). Advisory security review (input to the human sign-off): `reviews/sso-security-review.md`.
+**Status:** Slices 1 (OIDC) + 2 (SAML) **built behind the `FLAKEY_SSO_ENABLED` flag** — OFF by default, **not yet enabled in any regulated environment** pending CISO / Security Analyst sign-off (SOC 2 / GovRAMP-scoped auth control). Slice 3 (SCIM) not yet built. Operator + dev guide: [backend/docs/sso.md](../../backend/docs/sso.md). Advisory security review (input to the human sign-off): `reviews/sso-security-review.md`.
 **Area:** `backend/` auth (`src/routes/auth.ts`, `requireAuth`, `org_members`), `frontend/` login + org settings, a new `idp` local-dev dependency (Keycloak).
 **Effort:** Large. Land in slices (OIDC → SAML → SCIM), each behind a flag, each with its own review.
 
@@ -49,7 +49,7 @@ is already committed.
   token. No new session primitive.
 - Frontend: an org-aware "Sign in with SSO" entry on the login page.
 
-### Slice 2 — SAML login
+### Slice 2 — SAML login — ✅ BUILT (flag-gated)
 - Same callback-mints-existing-session shape, SAML POST binding. Adds an XML/
   signature-validation dependency — the highest-risk surface (XML signature
   wrapping, canonicalization). Use a vetted library; do not hand-roll.

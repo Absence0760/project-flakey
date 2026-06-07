@@ -172,6 +172,73 @@ test("/start runs a real PKCE authorize redirect against the IdP", async () => {
   assert.ok((res.headers.get("set-cookie") ?? "").includes("flakey_sso_tx"), "must set the tx cookie");
 });
 
+// ── SAML (Slice 2) ──────────────────────────────────────────────────────
+// A throwaway self-signed cert body (public cert only — no private key). Used
+// to construct the SP; the positive assertion path is proven via the Keycloak
+// app-facing e2e, like OIDC's positive callback.
+const IDP_CERT = "MIIDFTCCAf2gAwIBAgIUIK5n3tzUjkfUY19KkML+Av7Vqs0wDQYJKoZIhvcNAQELBQAwGjEYMBYGA1UEAwwPZmxha2V5LXRlc3QtaWRwMB4XDTI2MDYwNzE2NTYyOVoXDTM2MDYwNDE2NTYyOVowGjEYMBYGA1UEAwwPZmxha2V5LXRlc3QtaWRwMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwlFv9uskqRFEgua5M2mYR2A16JNzm/g94szhZGHicJHkGEmd+WykSd7VQOBOBWxv0oM0SrUc/rDD1A2lz8XLDJm9+FJcVV9MyXZk6SWYz9Bpgjo97hVpf5nkf1Q3v13ZIbxBvjmLTozg/0PYsSglkmD3Zy5urR/5zNpzWw9FNKPL+sA7HbXqeXrKERFjUizcoPO+4cWOot/rl3dYEfmZGR0MmjBhull1CKJOitPAe09xgLjkjr3OfEsDrlM+t/B6xFM9KLgI7ijjlElHwxlYCOO4JpsTGannC0B7qMMfx1K07XdA3zuHYyOQuPd3XJhZNR6vGP3ynCl9XtlFqp4p/wIDAQABo1MwUTAdBgNVHQ4EFgQUeaEtpE2kFWgd6fK7F59w/GbTj8MwHwYDVR0jBBgwFoAUeaEtpE2kFWgd6fK7F59w/GbTj8MwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAwDbRrN6SfIXeBZ34ru6wtYAByv5gnHqm4USR2UxpSOY+GJCixQHH0Y4GSus+qoaLo/puoem7h6DHN67xurjm"; // gitleaks:allow — throwaway public test cert
+
+test("SAML config round-trips (entry point + cert) and /start redirects to the IdP", async () => {
+  const put = await authed("/sso/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      protocol: "saml",
+      enabled: true,
+      samlEntryPoint: "https://idp.example.test/sso",
+      samlIdpCert: IDP_CERT,
+      samlIssuer: "flakey-sp",
+      jitProvisioning: true,
+      allowedDomains: ["test.local"],
+    }),
+  });
+  assert.equal(put.status, 200, "SAML config PUT should succeed");
+
+  const get = await authed("/sso/config");
+  const body = await get.json();
+  assert.equal(body.protocol, "saml");
+  assert.equal(body.samlEntryPoint, "https://idp.example.test/sso");
+
+  const start = await fetch(`${BASE}/auth/sso/${orgSlug}/start`, { redirect: "manual" });
+  assert.equal(start.status, 302);
+  const loc = start.headers.get("location") ?? "";
+  assert.ok(loc.startsWith("https://idp.example.test/sso"), `expected redirect to IdP, got ${loc}`);
+  const u = new URL(loc);
+  assert.ok(u.searchParams.get("SAMLRequest"), "must carry a SAMLRequest");
+  assert.ok(u.searchParams.get("RelayState"), "must carry a RelayState");
+});
+
+test("SAML ACS fails closed on an unsigned/bogus response (no session minted)", async () => {
+  // Capture a real, server-signed RelayState from /start, then post a bogus
+  // SAMLResponse — node-saml signature validation must reject it.
+  const start = await fetch(`${BASE}/auth/sso/${orgSlug}/start`, { redirect: "manual" });
+  const relayState = new URL(start.headers.get("location") ?? "").searchParams.get("RelayState") ?? "";
+  assert.ok(relayState, "precondition: got a RelayState");
+
+  const bogus = Buffer.from("<samlp:Response>not signed</samlp:Response>").toString("base64");
+  const res = await fetch(`${BASE}/auth/sso/saml/acs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ SAMLResponse: bogus, RelayState: relayState }).toString(),
+    redirect: "manual",
+  });
+  assert.equal(res.status, 302);
+  assert.ok((res.headers.get("location") ?? "").includes("/login?sso_error="), "must redirect to a login error");
+  // Critically: no session cookie may be set on a rejected assertion.
+  assert.ok(!(res.headers.get("set-cookie") ?? "").includes("flakey_token="), "must NOT mint a session");
+});
+
+test("SAML ACS rejects a missing/forged RelayState", async () => {
+  const res = await fetch(`${BASE}/auth/sso/saml/acs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ SAMLResponse: "x", RelayState: "forged.not.a.jwt" }).toString(),
+    redirect: "manual",
+  });
+  assert.equal(res.status, 302);
+  assert.ok(!(res.headers.get("set-cookie") ?? "").includes("flakey_token="));
+});
+
 test("kill switch: with FLAKEY_SSO_ENABLED unset, SSO routes 404", async () => {
   const port = 3992;
   const off = spawnApp(port, {}); // no FLAKEY_SSO_ENABLED

@@ -30,6 +30,7 @@
   let disabled = $state(false); // true when the instance has SSO turned off
 
   // Form model.
+  let protocol = $state<"oidc" | "saml">("oidc");
   let enabled = $state(false);
   let enforced = $state(false);
   let jitProvisioning = $state(false);
@@ -41,6 +42,11 @@
   let hasClientSecret = $state(false);
   let roleClaim = $state("");
   let roleMapText = $state(""); // "idp-value=flakey-role" lines
+  // SAML
+  let samlEntryPoint = $state("");
+  let samlIdpCert = $state("");
+  let samlIssuer = $state("");
+  let samlAudience = $state("");
 
   let ready = $state(false);
 
@@ -64,6 +70,7 @@
       if (!res.ok) { toastError("Failed to load SSO config"); return; }
       const data = (await res.json()) as Partial<SsoConfig>;
       if (data.configured) {
+        protocol = data.protocol ?? "oidc";
         enabled = !!data.enabled;
         enforced = !!data.enforced;
         jitProvisioning = !!data.jitProvisioning;
@@ -74,6 +81,10 @@
         hasClientSecret = !!data.hasClientSecret;
         roleClaim = data.roleClaim ?? "";
         roleMapText = roleMapToText(data.roleMap ?? {});
+        samlEntryPoint = (data as Record<string, string>).samlEntryPoint ?? "";
+        samlIdpCert = (data as Record<string, string>).samlIdpCert ?? "";
+        samlIssuer = (data as Record<string, string>).samlIssuer ?? "";
+        samlAudience = (data as Record<string, string>).samlAudience ?? "";
       }
     } finally {
       loading = false;
@@ -85,7 +96,7 @@
     saving = true;
     try {
       const payload: Record<string, unknown> = {
-        protocol: "oidc",
+        protocol,
         enabled,
         enforced,
         jitProvisioning,
@@ -95,6 +106,10 @@
         roleMap: parseRoleMap(roleMapText),
         oidcIssuer: oidcIssuer.trim() || null,
         oidcClientId: oidcClientId.trim() || null,
+        samlEntryPoint: samlEntryPoint.trim() || null,
+        samlIdpCert: samlIdpCert.trim() || null,
+        samlIssuer: samlIssuer.trim() || null,
+        samlAudience: samlAudience.trim() || null,
       };
       // Only send the secret when the admin typed a new one.
       if (oidcClientSecret.trim()) payload.oidcClientSecret = oidcClientSecret.trim();
@@ -132,7 +147,7 @@
     <p class="muted">Loading…</p>
   {:else}
     <p class="muted">
-      Configure OpenID Connect login against your identity provider (Entra ID, Okta, Keycloak, …).
+      Configure OpenID Connect or SAML login against your identity provider (Entra ID, Okta, Keycloak, …).
       SSO is additive — it's another way to sign in; it doesn't change what a session can do.
     </p>
 
@@ -140,17 +155,44 @@
       <label class="check"><input type="checkbox" bind:checked={enabled} /> Enable SSO for this organization</label>
 
       <label class="field">
-        <span>OIDC issuer URL</span>
-        <input type="url" bind:value={oidcIssuer} placeholder="https://idp.example.com/realms/acme" />
+        <span>Protocol</span>
+        <select bind:value={protocol}>
+          <option value="oidc">OpenID Connect (OIDC)</option>
+          <option value="saml">SAML 2.0</option>
+        </select>
       </label>
-      <label class="field">
-        <span>Client ID</span>
-        <input type="text" bind:value={oidcClientId} placeholder="flakey-web" />
-      </label>
-      <label class="field">
-        <span>Client secret {#if hasClientSecret}<em>(stored — leave blank to keep)</em>{/if}</span>
-        <input type="password" bind:value={oidcClientSecret} placeholder={hasClientSecret ? "••••••••" : "Paste secret"} autocomplete="new-password" />
-      </label>
+
+      {#if protocol === "oidc"}
+        <label class="field">
+          <span>OIDC issuer URL</span>
+          <input type="url" bind:value={oidcIssuer} placeholder="https://idp.example.com/realms/acme" />
+        </label>
+        <label class="field">
+          <span>Client ID</span>
+          <input type="text" bind:value={oidcClientId} placeholder="flakey-web" />
+        </label>
+        <label class="field">
+          <span>Client secret {#if hasClientSecret}<em>(stored — leave blank to keep)</em>{/if}</span>
+          <input type="password" bind:value={oidcClientSecret} placeholder={hasClientSecret ? "••••••••" : "Paste secret"} autocomplete="new-password" />
+        </label>
+      {:else}
+        <label class="field">
+          <span>IdP SSO URL (entry point)</span>
+          <input type="url" bind:value={samlEntryPoint} placeholder="https://idp.example.com/saml/sso" />
+        </label>
+        <label class="field">
+          <span>IdP signing certificate (PEM or base64 body)</span>
+          <textarea bind:value={samlIdpCert} rows="4" placeholder="MIID...."></textarea>
+        </label>
+        <label class="field">
+          <span>SP entity ID (issuer) — optional</span>
+          <input type="text" bind:value={samlIssuer} placeholder="flakey-sp" />
+        </label>
+        <label class="field">
+          <span>Expected audience — optional (defaults to SP entity ID)</span>
+          <input type="text" bind:value={samlAudience} placeholder="flakey-sp" />
+        </label>
+      {/if}
 
       <label class="check"><input type="checkbox" bind:checked={jitProvisioning} /> Auto-provision new users on first sign-in (JIT)</label>
 

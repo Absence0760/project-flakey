@@ -1,6 +1,7 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import express, { Router, type Request, type Response, type NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { signToken, signRefreshToken, setTokenCookie, getJwtSecret } from "../auth.js";
+import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import {
   orgIdBySlug,
@@ -17,6 +18,12 @@ import {
   exchangeCode,
   verifyIdToken,
 } from "../sso/oidc.js";
+import {
+  buildSamlAuthorizeUrl,
+  validateSamlResponse,
+  samlProfileToClaims,
+  assertionHash,
+} from "../sso/saml.js";
 
 // Whole-feature flag (proposal: "each behind a flag"). SSO is OFF unless an
 // operator opts in. When off, every SSO route returns a clean 404 so the
@@ -26,6 +33,26 @@ const SSO_ENABLED = process.env.FLAKEY_SSO_ENABLED === "true";
 const FRONTEND_URL = (process.env.FRONTEND_URL ?? "http://localhost:7778").replace(/\/+$/, "");
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 const REDIRECT_URI = `${PUBLIC_API_URL}/auth/sso/callback`;
+// SAML POST binding ACS. Unlike OIDC's GET callback, the IdP POSTs here, so the
+// OIDC tx cookie (SameSite=lax) wouldn't be sent — we carry the org + state in
+// a signed RelayState instead (echoed back by the IdP) and read the pending
+// AuthnRequest from an org-scoped DB row.
+const SAML_ACS_URL = `${PUBLIC_API_URL}/auth/sso/saml/acs`;
+const RELAYSTATE_EXPIRY = "10m";
+
+interface RelayPayload { state: string; org: number; rt: string }
+
+function signRelayState(p: RelayPayload): string {
+  return jwt.sign(p, getJwtSecret(), { expiresIn: RELAYSTATE_EXPIRY });
+}
+function verifyRelayState(raw: unknown): RelayPayload | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    return jwt.verify(raw, getJwtSecret(), { algorithms: ["HS256"] }) as RelayPayload;
+  } catch {
+    return null;
+  }
+}
 
 // The login transaction (state/nonce/PKCE verifier) is carried in a signed,
 // httpOnly cookie rather than server state — stateless across ECS tasks and
@@ -109,7 +136,8 @@ loginRouter.get("/:orgSlug/status", async (req, res) => {
   }
 });
 
-// GET /auth/sso/:orgSlug/start — begin an OIDC Authorization-Code + PKCE flow.
+// GET /auth/sso/:orgSlug/start — begin a login flow (OIDC Auth-Code+PKCE, or
+// SAML SP-initiated POST binding), per the org's configured protocol.
 loginRouter.get("/:orgSlug/start", async (req, res) => {
   try {
     const orgId = await orgIdBySlug(req.params.orgSlug);
@@ -118,31 +146,56 @@ loginRouter.get("/:orgSlug/start", async (req, res) => {
       return;
     }
     const cfg = await loadSsoConfig(orgId, true);
-    // Fail closed: SSO must be enabled, OIDC, and fully configured.
-    if (!cfg || !cfg.enabled || cfg.protocol !== "oidc" || !cfg.oidcIssuer || !cfg.oidcClientId) {
+    if (!cfg || !cfg.enabled) {
       res.status(404).json({ error: "SSO is not configured for this organization" });
       return;
     }
-
-    const { verifier, challenge } = generatePkce();
-    const state = randomToken();
-    const nonce = randomToken();
     const returnTo = safeReturnPath(req.query.returnTo);
 
-    setTxCookie(res, { state, nonce, cv: verifier, org: orgId, rt: returnTo });
+    if (cfg.protocol === "oidc") {
+      // Fail closed: OIDC must be fully configured.
+      if (!cfg.oidcIssuer || !cfg.oidcClientId) {
+        res.status(404).json({ error: "SSO is not configured for this organization" });
+        return;
+      }
+      const { verifier, challenge } = generatePkce();
+      const state = randomToken();
+      const nonce = randomToken();
+      setTxCookie(res, { state, nonce, cv: verifier, org: orgId, rt: returnTo });
+      const url = await buildAuthorizeUrl({
+        issuer: cfg.oidcIssuer,
+        clientId: cfg.oidcClientId,
+        redirectUri: REDIRECT_URI,
+        state,
+        nonce,
+        codeChallenge: challenge,
+      });
+      res.redirect(url);
+      return;
+    }
 
-    const url = await buildAuthorizeUrl({
-      issuer: cfg.oidcIssuer,
-      clientId: cfg.oidcClientId,
-      redirectUri: REDIRECT_URI,
-      state,
-      nonce,
-      codeChallenge: challenge,
-    });
+    // SAML SP-initiated. The AuthnRequest ID is persisted org-scoped and the
+    // org+state ride in a signed RelayState (survives the IdP's POST back).
+    if (!cfg.samlEntryPoint || !cfg.samlIdpCert) {
+      res.status(404).json({ error: "SSO is not configured for this organization" });
+      return;
+    }
+    const state = randomToken();
+    const relay = signRelayState({ state, org: orgId, rt: returnTo });
+    const { url, requestId } = await buildSamlAuthorizeUrl(cfg, SAML_ACS_URL, relay);
+    await tenantQuery(
+      orgId,
+      `INSERT INTO sso_saml_requests (org_id, state, request_id, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')
+       ON CONFLICT (org_id, state) DO UPDATE SET request_id = EXCLUDED.request_id, expires_at = EXCLUDED.expires_at`,
+      [orgId, state, requestId],
+    );
+    // Opportunistic prune of this org's expired pending requests.
+    await tenantQuery(orgId, "DELETE FROM sso_saml_requests WHERE org_id = $1 AND expires_at < NOW()", [orgId]);
     res.redirect(url);
   } catch (err) {
-    // A discovery/network failure must not silently fall through to a weaker
-    // path — surface it. Detail can carry the issuer URL but no secret.
+    // A discovery/network/build failure must not silently fall through to a
+    // weaker path — surface it. Detail can carry the issuer URL but no secret.
     console.error("GET /auth/sso/:orgSlug/start error:", (err as Error).message);
     res.redirect(`${FRONTEND_URL}/login?sso_error=start_failed`);
   }
@@ -212,6 +265,70 @@ loginRouter.get("/callback", async (req, res) => {
       // Unexpected (network, verification, DB) — log server-side; never echo
       // internals (which can embed tokens/issuer) to the browser.
       console.error("GET /auth/sso/callback error:", (err as Error).message);
+    }
+    res.redirect(`${FRONTEND_URL}/login?sso_error=${encodeURIComponent(msg)}`);
+  }
+});
+
+// POST /auth/sso/saml/acs — SAML Assertion Consumer Service (POST binding).
+// The IdP POSTs SAMLResponse + RelayState (form-encoded). node-saml validates
+// the signature, conditions (NotBefore/NotOnOrAfter + skew), and audience; we
+// add InResponseTo binding + one-time assertion use, then mint the existing
+// Flakey session. express.urlencoded is route-local (the app is JSON globally).
+loginRouter.post("/saml/acs", express.urlencoded({ extended: false, limit: "1mb" }), async (req, res) => {
+  const relay = verifyRelayState(req.body?.RelayState);
+  try {
+    if (req.body?.SAMLResponse == null) throw new SsoLoginError("Missing SAML response");
+    if (!relay) throw new SsoLoginError("Login session expired or was invalid; please try again");
+
+    const cfg = await loadSsoConfig(relay.org, true);
+    if (!cfg || !cfg.enabled || cfg.protocol !== "saml" || !cfg.samlEntryPoint || !cfg.samlIdpCert) {
+      throw new SsoLoginError("SAML SSO is no longer configured for this organization");
+    }
+
+    // Signature + conditions + audience are validated here (throws on failure).
+    const profile = await validateSamlResponse(cfg, SAML_ACS_URL, {
+      SAMLResponse: req.body.SAMLResponse,
+      RelayState: req.body.RelayState,
+    });
+
+    // InResponseTo binding: consume the pending AuthnRequest exactly once.
+    const consumed = await tenantQuery(
+      relay.org,
+      "DELETE FROM sso_saml_requests WHERE org_id = $1 AND state = $2 AND expires_at > NOW() RETURNING request_id",
+      [relay.org, relay.state],
+    );
+    const requestId = consumed.rows[0]?.request_id;
+    if (!requestId) throw new SsoLoginError("Unknown or expired login request");
+    const inResponseTo = typeof profile.inResponseTo === "string" ? profile.inResponseTo : null;
+    if (!inResponseTo || inResponseTo !== requestId) {
+      throw new SsoLoginError("SAML InResponseTo mismatch — possible replay");
+    }
+
+    // One-time assertion use: a replayed assertion collides on the hash.
+    const hash = assertionHash(profile);
+    const ins = await tenantQuery(
+      relay.org,
+      `INSERT INTO sso_saml_replay (org_id, assertion_hash, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '1 hour') ON CONFLICT (org_id, assertion_hash) DO NOTHING`,
+      [relay.org, hash],
+    );
+    if (!ins.rowCount) throw new SsoLoginError("This SAML assertion has already been used");
+    await tenantQuery(relay.org, "DELETE FROM sso_saml_replay WHERE org_id = $1 AND expires_at < NOW()", [relay.org]);
+
+    const user = await resolveSsoUser(cfg, samlProfileToClaims(profile, cfg));
+    const authUser = {
+      id: user.id, email: user.email, name: user.name,
+      role: user.role, orgId: user.orgId, orgRole: user.orgRole,
+    };
+    const token = signToken(authUser);
+    const refreshToken = signRefreshToken(user.id);
+    setTokenCookie(res, token, refreshToken);
+    res.redirect(`${FRONTEND_URL}/sso/complete?returnTo=${encodeURIComponent(relay.rt)}`);
+  } catch (err) {
+    const msg = err instanceof SsoLoginError ? err.message : "Single sign-on failed";
+    if (!(err instanceof SsoLoginError)) {
+      console.error("POST /auth/sso/saml/acs error:", (err as Error).message);
     }
     res.redirect(`${FRONTEND_URL}/login?sso_error=${encodeURIComponent(msg)}`);
   }
@@ -306,6 +423,10 @@ adminRouter.put("/config", requireOrgAdmin, async (req, res) => {
       oidcIssuer: body.oidcIssuer,
       oidcClientId: body.oidcClientId,
       oidcClientSecret: body.oidcClientSecret, // undefined → keep existing
+      samlEntryPoint: body.samlEntryPoint,
+      samlIdpCert: body.samlIdpCert,
+      samlIssuer: body.samlIssuer,
+      samlAudience: body.samlAudience,
     };
     const saved = await saveSsoConfig(req.user!.orgId, input);
     await logAudit(req.user!.orgId, req.user!.id, "auth.sso.config.update", "org", String(req.user!.orgId), {

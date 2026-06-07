@@ -16,6 +16,7 @@ function cfg(over: Partial<OrgSsoConfig>): OrgSsoConfig {
     id: 1, orgId: 1, protocol: "oidc", enabled: true, enforced: false,
     jitProvisioning: false, allowedDomains: [], defaultRole: "viewer",
     roleClaim: null, roleMap: {}, oidcIssuer: null, oidcClientId: null,
+    samlEntryPoint: null, samlIdpCert: null, samlIssuer: null, samlAudience: null,
     ...over,
   };
 }
