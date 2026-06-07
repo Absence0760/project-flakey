@@ -679,7 +679,13 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
     // filename stays well inside the typical 1024-char object-key
     // ceiling).
     const safeSpec = spec.replace(/[^a-zA-Z0-9_\-./]/g, "").slice(0, 200).replace(/\//g, "__");
-    const fileName = `${safeSpec}--${safeTitle}.json.gz`;
+    // Suffix with a hash of the FULL title so two scenarios sharing the first
+    // 100 chars (common with long Cucumber Feature/Rule prefixes) get distinct
+    // keys instead of one overwriting the other in storage — which would also
+    // point both tests' snapshot_path at the same object. Mirrors
+    // snapshotFileName() in @flakeytesting/cypress-snapshots.
+    const titleHash = crypto.createHash("sha1").update(testTitle).digest("hex").slice(0, 8);
+    const fileName = `${safeSpec}--${safeTitle}-${titleHash}.json.gz`;
     const key = `runs/${runId}/snapshots/${fileName}`;
 
     await getStorage().put(file.path, key);

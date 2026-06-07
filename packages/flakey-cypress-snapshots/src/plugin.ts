@@ -15,6 +15,35 @@
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { gzipSync } from "zlib";
+import { createHash } from "crypto";
+
+/**
+ * Storage-safe, collision-free snapshot filename: `<spec>--<title>-<hash>.json.gz`.
+ *
+ * The title is sanitized and truncated to 100 chars for readability, then
+ * suffixed with the first 8 hex of sha1(FULL title). The truncation alone is
+ * NOT unique — two scenarios that share a long prefix (common with Cucumber
+ * "<Feature> <Rule> <scenario>" titles, where the distinguishing leaf sits past
+ * char 100) would otherwise produce identical filenames and silently overwrite
+ * each other on disk, in storage, and in the dashboard (both tests' snapshot_path
+ * pointing at one key). The full-title hash makes distinct titles distinct.
+ *
+ * Backend matching is unaffected: the live path links by the explicit testTitle
+ * field, and the batch path matches `normalize(filename).includes(normalize(leaf))`
+ * — a trailing hash doesn't remove the leaf title from the name. The live
+ * endpoint (backend/src/routes/live.ts) mirrors this suffix for its own key.
+ */
+export function snapshotFileName(specFile: string, testTitle: string): string {
+  const safeName = testTitle
+    .replace(/[^a-zA-Z0-9_\- ]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 100);
+  const safeSpec = specFile
+    .replace(/[^a-zA-Z0-9_\-./]/g, "")
+    .replace(/\//g, "__");
+  const hash = createHash("sha1").update(testTitle).digest("hex").slice(0, 8);
+  return `${safeSpec}--${safeName}-${hash}.json.gz`;
+}
 
 interface SnapshotBundle {
   version: 1;
@@ -98,16 +127,7 @@ export function flakeySnapshots(
           return { saved: false, reason: "no steps" };
         }
 
-        const safeName = bundle.testTitle
-          .replace(/[^a-zA-Z0-9_\- ]/g, "")
-          .replace(/\s+/g, "-")
-          .slice(0, 100);
-
-        const safeSpec = bundle.specFile
-          .replace(/[^a-zA-Z0-9_\-./]/g, "")
-          .replace(/\//g, "__");
-
-        const fileName = `${safeSpec}--${safeName}.json.gz`;
+        const fileName = snapshotFileName(bundle.specFile, bundle.testTitle);
         const filePath = join(outputDir, fileName);
 
         mkdirSync(dirname(filePath), { recursive: true });
