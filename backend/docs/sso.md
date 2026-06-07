@@ -72,9 +72,15 @@ GET /auth/sso/session   (SPA handoff — same-origin only)
   drops to a weaker path.
 - **Role claims cannot widen access.** `mapRole` only honours values present in
   the admin-configured `role_map`; unmapped values fall back to `default_role`.
-- **`enforced` ("SSO required") is stored but NOT yet wired into `/auth/login`.**
-  Hard-disabling password login per-org is a proposal open question pending the
-  security review — do not enforce off this column until that's signed off.
+- **`enforced` ("SSO required") uses the AWS-console-MFA model, not a hard block.**
+  Password login still *succeeds* for an enforced org, but the session is minted
+  restricted (`ssoRequired`) and `requireAuth` clamps it to `GET /auth/me` until
+  the user re-authenticates through their IdP (which mints an unrestricted `sso`
+  session). `signToken`/`signRefreshToken` carry `sso`; `/auth/refresh` preserves
+  it so an SSO session is never downgraded to restricted. The login/switch-org
+  responses return `ssoRequired` + `orgSlug` so the SPA redirects to the IdP.
+  Known limitation: an SSO-established session satisfies enforcement in *any* org
+  it switches into (no per-org SSO-auth tracking) — acceptable for v1, documented.
 
 ## Slice 2 — SAML
 

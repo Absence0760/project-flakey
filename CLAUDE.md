@@ -24,7 +24,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 | Backend routes / auth / tenancy / RLS | [backend/CLAUDE.md](backend/CLAUDE.md) |
 | A Postgres migration | [backend/docs/migrations.md](backend/docs/migrations.md) + the `/safe-migration` skill |
 | Integrations (Jira, PagerDuty, git providers, webhooks) | [backend/docs/integrations.md](backend/docs/integrations.md) |
-| Enterprise SSO (OIDC login; SAML/SCIM planned) | [backend/docs/sso.md](backend/docs/sso.md) + [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md) |
+| Enterprise SSO (OIDC + SAML login, SCIM provisioning — all built, flag-gated) | [backend/docs/sso.md](backend/docs/sso.md) + [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md) |
 | A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
 | The pytest (Python) reporter | [packages/flakey-pytest-reporter/CLAUDE.md](packages/flakey-pytest-reporter/CLAUDE.md) (uv/hatchling — **not** in the pnpm workspace) |
 | Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
@@ -44,7 +44,7 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - `pnpm storage:up` / `pnpm storage:down` — opt-in MinIO (S3-compatible store; console http://localhost:9001) for exercising `STORAGE=s3` locally
 - `pnpm webhooks:up` / `pnpm webhooks:down` — opt-in webhook echo sink (:8080) for inspecting outbound webhooks
 - `pnpm ai:up` / `pnpm ai:down` — opt-in local Ollama (:11434, OpenAI-compatible) for the AI-analysis features; first `ai:up` downloads ~2 GB (llama3.2) into a volume. Set `AI_PROVIDER=openai` + `AI_BASE_URL=http://localhost:11434/v1` in `backend/.env` to use it. **AI is instance-wide, not per-org** — once configured, `isAIEnabled()` is true for every org. CPU-only under Docker on macOS; a native `ollama serve` (Metal) is faster (same `AI_BASE_URL`). Override the model with `OLLAMA_MODEL` (keep it in lockstep with `AI_MODEL`)
-- `pnpm idp:up` / `pnpm idp:down` / `pnpm idp:reset` — opt-in local Keycloak (:8081) for prototyping + e2e-testing enterprise SSO **login** (OIDC/SAML, Phase 14, not yet built); seeds the `flakey` realm from `infra/keycloak/flakey-realm.json`. `idp:reset` recreates the container so realm edits re-import. See [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md)
+- `pnpm idp:up` / `pnpm idp:down` / `pnpm idp:reset` — opt-in local Keycloak (:8081) for prototyping + e2e-testing enterprise SSO **login** (OIDC/SAML, Phase 14 — built, flag-gated behind `FLAKEY_SSO_ENABLED`); seeds the `flakey` realm from `infra/keycloak/flakey-realm.json`. `idp:reset` recreates the container so realm edits re-import. See [backend/docs/sso.md](backend/docs/sso.md)
 - `pnpm idp:scim:up` / `idp:scim:down` / `idp:scim:reset` — opt-in **Authentik** (:9002) + a mock SCIM target (:8082) for prototyping + e2e-testing SCIM **provisioning** (the half Keycloak can't do). Authentik pushes users/groups to `infra/scim-target/server.mjs`, which records them at `http://localhost:8082/_captured`. Heavier than `idp` (its own Postgres + Redis + worker), hence a separate profile. `idp:scim:reset` wipes volumes for a clean state
 - `pnpm services:up` / `pnpm services:down` — bring up / tear down every local service at once
 - `pnpm install:backend` — runs `npm install` inside `backend/` (the only workspace outside the pnpm tree)

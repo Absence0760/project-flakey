@@ -102,6 +102,21 @@ export async function orgIdBySlug(slug: string): Promise<number | null> {
 }
 
 /**
+ * Does this org require SSO (enabled + enforced)? Used at session-mint time to
+ * decide whether a non-SSO session should be clamped (AWS-console-MFA model).
+ * Routed through tenantQuery so the org_sso_configs RLS policy admits the read.
+ */
+export async function orgEnforcesSso(orgId: number): Promise<boolean> {
+  const r = await tenantQuery(
+    orgId,
+    "SELECT enabled, enforced FROM org_sso_configs WHERE org_id = $1",
+    [orgId],
+  );
+  const row = r.rows[0];
+  return !!(row && row.enabled && row.enforced);
+}
+
+/**
  * Load an org's SSO config. `includeSecret` decrypts the client secret for the
  * login flow; admin reads pass false so the secret never leaves the server.
  * Routed through tenantQuery so the org_sso_configs RLS policy admits the read.

@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapRole, validateIssuerUrl, type OrgSsoConfig } from "../sso/config.js";
-import { generatePkce, randomToken } from "../sso/oidc.js";
+import { generatePkce, randomToken, assertPublicHost } from "../sso/oidc.js";
 import crypto from "crypto";
 
 function cfg(over: Partial<OrgSsoConfig>): OrgSsoConfig {
@@ -74,4 +74,15 @@ test("validateIssuerUrl blocks SSRF-prone issuer URLs (private/metadata/non-http
   assert.throws(() => validateIssuerUrl("not a url"), /valid URL/i);
   // A normal external https issuer is fine.
   assert.doesNotThrow(() => validateIssuerUrl("https://idp.example.com/realms/acme"));
+});
+
+test("assertPublicHost blocks private/metadata IPs at fetch time (IP literals)", async () => {
+  await assert.rejects(() => assertPublicHost("https://169.254.169.254/.well-known/openid-configuration"), /non-public/i);
+  await assert.rejects(() => assertPublicHost("https://10.1.2.3/"), /non-public/i);
+  await assert.rejects(() => assertPublicHost("https://192.168.0.1/"), /non-public/i);
+  // A public IP literal is allowed.
+  await assert.doesNotReject(() => assertPublicHost("https://8.8.8.8/"));
+  // Loopback is allowed outside production (NODE_ENV is not 'production' here),
+  // so the local mock-IdP / Keycloak dev flow keeps working.
+  await assert.doesNotReject(() => assertPublicHost("http://127.0.0.1:8081/"));
 });

@@ -78,16 +78,19 @@ const BASE = `http://localhost:${PORT}`;
 let server: ChildProcess;
 let token: string;
 let orgSlug: string;
+let adminEmail: string;
+const ADMIN_PW = "testpass123";
 
 before(async () => {
   await startMockIdp();
   server = spawnApp(PORT, { FLAKEY_SSO_ENABLED: "true" });
   await waitForHealth(BASE);
 
+  adminEmail = `sso+${Date.now()}@test.local`;
   const reg = await fetch(`${BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: `sso+${Date.now()}@test.local`, password: "testpass123", name: "SSO Admin" }),
+    body: JSON.stringify({ email: adminEmail, password: ADMIN_PW, name: "SSO Admin" }),
   });
   if (!reg.ok) throw new Error(`register failed: ${reg.status}`);
   token = ((await reg.json()) as { token: string }).token;
@@ -237,6 +240,41 @@ test("SAML ACS rejects a missing/forged RelayState", async () => {
   });
   assert.equal(res.status, 302);
   assert.ok(!(res.headers.get("set-cookie") ?? "").includes("flakey_token="));
+});
+
+// ── SSO enforcement (AWS-console-MFA model) ──────────────────────────────
+test("enforced SSO: password login succeeds but lands a restricted session", async () => {
+  // Turn on enforcement (config is already enabled SAML from earlier tests).
+  const put = await authed("/sso/config", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enforced: true }),
+  });
+  assert.equal(put.status, 200);
+
+  // A FRESH password login now mints a restricted session + tells the SPA to SSO.
+  const login = await fetch(`${BASE}/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: adminEmail, password: ADMIN_PW }),
+  });
+  assert.equal(login.status, 200, "password login must still succeed (not a hard block)");
+  const body = await login.json();
+  assert.equal(body.ssoRequired, true, "session must be flagged ssoRequired");
+  assert.ok(body.orgSlug, "must return the org slug so the SPA can start SSO");
+  const restricted = body.token as string;
+
+  // The restricted session can read /auth/me (to discover the requirement)...
+  const me = await fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${restricted}` } });
+  assert.equal(me.status, 200, "/auth/me must be reachable while restricted");
+
+  // ...but is denied org data with SSO_REQUIRED.
+  const runs = await fetch(`${BASE}/runs`, { headers: { Authorization: `Bearer ${restricted}` } });
+  assert.equal(runs.status, 403);
+  assert.equal((await runs.json()).code, "SSO_REQUIRED");
+
+  // Reset enforcement so it doesn't leak into other tests.
+  await authed("/sso/config", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enforced: false }),
+  });
 });
 
 test("kill switch: with FLAKEY_SSO_ENABLED unset, SSO routes 404", async () => {

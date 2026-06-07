@@ -257,9 +257,12 @@
         <textarea bind:value={roleMapText} rows="3" placeholder={"flakey-admin=admin\nflakey-viewer=viewer"}></textarea>
       </label>
 
-      <label class="check" title="Enforcement in /auth/login is deferred pending security review; this records the org's intent.">
-        <input type="checkbox" bind:checked={enforced} /> Require SSO (disable password login) — <em>not yet enforced</em>
+      <label class="check" title="Password login still works but lands a restricted session until the user completes SSO — like the AWS console requiring MFA.">
+        <input type="checkbox" bind:checked={enforced} /> Require SSO for this organization
       </label>
+      {#if enforced}
+        <p class="muted">Members can still sign in with a password, but the session is restricted until they complete SSO — they can't access org data until then (the AWS-console-MFA model).</p>
+      {/if}
 
       <button type="submit" class="submit-btn" disabled={saving}>{saving ? "Saving…" : "Save SSO configuration"}</button>
     </form>

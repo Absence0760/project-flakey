@@ -67,6 +67,13 @@ export interface AuthUser {
   // restricts the request to GET on an allow-listed read surface.
   isSupportRead?: boolean;
   supportReason?: string;
+  // SSO enforcement (AWS-console-MFA model). `sso` = this session was
+  // established via SSO. `ssoRequired` = the active org enforces SSO and this
+  // session was NOT established via SSO, so requireAuth clamps it to a minimal
+  // surface until the user re-authenticates through their IdP. Password login
+  // still succeeds (no hard block) — it just lands restricted.
+  sso?: boolean;
+  ssoRequired?: boolean;
 }
 
 // A support session is intentionally brief — long enough to triage one
@@ -96,7 +103,14 @@ declare global {
 
 export function signToken(user: AuthUser): string {
   return jwt.sign(
-    { id: user.id, email: user.email, name: user.name, role: user.role, orgId: user.orgId, orgRole: user.orgRole },
+    {
+      id: user.id, email: user.email, name: user.name, role: user.role,
+      orgId: user.orgId, orgRole: user.orgRole,
+      // Only emit the SSO flags when set, so non-SSO sessions keep their
+      // existing compact token shape.
+      ...(user.sso ? { sso: true } : {}),
+      ...(user.ssoRequired ? { ssoRequired: true } : {}),
+    },
     JWT_SECRET,
     { expiresIn: ACCESS_EXPIRY }
   );
@@ -120,14 +134,18 @@ export function signSupportToken(actor: AuthUser, targetOrgId: number, reason: s
   );
 }
 
-export function signRefreshToken(userId: number): string {
+export function signRefreshToken(userId: number, opts?: { sso?: boolean }): string {
   // jti = unique id per refresh token, so /auth/logout and the
   // refresh-token rotation in /auth/refresh can mark a specific
   // token as revoked without invalidating every refresh ever
   // issued to the user. crypto.randomUUID() is collision-safe
   // and is the standard jti shape per RFC 7519.
+  //
+  // `sso` records that the session was established via SSO, so a refresh
+  // re-derives ssoRequired correctly (an SSO session must not be downgraded to
+  // restricted on refresh just because its org enforces SSO).
   return jwt.sign(
-    { id: userId, type: "refresh", jti: crypto.randomUUID() },
+    { id: userId, type: "refresh", jti: crypto.randomUUID(), ...(opts?.sso ? { sso: true } : {}) },
     JWT_SECRET,
     { expiresIn: REFRESH_EXPIRY }
   );
@@ -354,6 +372,24 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // req.user.orgRole — they need the current value, not the
     // sign-time snapshot.
     candidate.orgRole = member.rows[0].role;
+  }
+
+  // SSO-enforcement clamp (AWS-console-MFA model). A password/cookie session in
+  // an org that requires SSO is admitted but restricted: it may only read
+  // /auth/me (so the SPA can detect the requirement + find the org slug) — every
+  // other resource is refused with SSO_REQUIRED until the user re-authenticates
+  // through their IdP (which mints an unrestricted `sso` session). API-key and
+  // support sessions never carry ssoRequired, so they're unaffected.
+  if (candidate.ssoRequired) {
+    const isMe = req.method === "GET" && req.baseUrl === "/auth" && req.path === "/me";
+    if (!isMe) {
+      res.status(403).json({
+        error: "This organization requires single sign-on. Please sign in with SSO.",
+        code: "SSO_REQUIRED",
+        orgId: candidate.orgId,
+      });
+      return;
+    }
   }
 
   req.user = candidate;

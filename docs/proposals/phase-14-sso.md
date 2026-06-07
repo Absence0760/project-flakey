@@ -153,8 +153,11 @@ deprovisioning, and revoke the member + refresh tokens on receipt.
   pre-existing invite? (GovRAMP likely wants explicit provisioning / SCIM-only.)
 - Domain-capture / account-linking: can an SSO login claim an existing
   email/password account? (Proposed: only with verified email + explicit link.)
-- Do we disable email/password per-org once SSO is enforced? (Likely yes for
-  GovRAMP tenants — "SSO required" flag.)
+- Do we disable email/password per-org once SSO is enforced? **Decided: no hard
+  block — the `enforced` flag uses the AWS-console-MFA model.** Password login
+  still succeeds but the session is restricted (clamped to `GET /auth/me`) until
+  the user completes SSO; an SSO session is unrestricted. This avoids lockout if
+  the IdP is misconfigured while still gating all org data behind SSO. (Built.)
 - SAML library + supply-chain review; SCIM bearer-token rotation story.
 
 ## Out of scope

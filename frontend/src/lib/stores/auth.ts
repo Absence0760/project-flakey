@@ -7,6 +7,9 @@ export interface User {
   role: string;
   orgId: number;
   orgRole: string;
+  // Set when the active org enforces SSO and this session was NOT established
+  // via SSO — the session is restricted server-side until SSO is completed.
+  ssoRequired?: boolean;
 }
 
 interface AuthState {
@@ -142,7 +145,15 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-export async function login(email: string, password: string): Promise<User> {
+export interface LoginResult {
+  user: User;
+  // When the org enforces SSO and this password session is restricted, the
+  // caller should send the user to the IdP via /auth/sso/<orgSlug>/start.
+  ssoRequired?: boolean;
+  orgSlug?: string | null;
+}
+
+export async function login(email: string, password: string): Promise<LoginResult> {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -155,9 +166,9 @@ export async function login(email: string, password: string): Promise<User> {
     throw new Error((body as { error?: string }).error ?? "Login failed");
   }
 
-  const data = await res.json() as { token: string; refreshToken: string; user: User };
+  const data = await res.json() as { token: string; refreshToken: string; user: User; ssoRequired?: boolean; orgSlug?: string | null };
   setAuth(data.user, data.token, data.refreshToken);
-  return data.user;
+  return { user: data.user, ssoRequired: data.ssoRequired, orgSlug: data.orgSlug };
 }
 
 export async function register(email: string, password: string, name: string, inviteToken?: string): Promise<User> {

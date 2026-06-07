@@ -7,6 +7,7 @@ import { tenantQuery, userScopedQuery } from "../db.js";
 import { signToken, signRefreshToken, setTokenCookie, clearTokenCookies, requireAuth, normalizeEmail, getJwtSecret } from "../auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../email.js";
 import { logAudit } from "../audit.js";
+import { orgEnforcesSso } from "../sso/config.js";
 
 // Secure default: registration is disabled unless ALLOW_REGISTRATION=true is explicitly set.
 const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION === "true";
@@ -31,7 +32,7 @@ const router = Router();
  */
 function extractAndVerifyRefreshToken(
   req: import("express").Request,
-): { id: number; jti: string | null; iat: number | null } | null {
+): { id: number; jti: string | null; iat: number | null; sso: boolean } | null {
   let value: string | undefined = req.body?.refreshToken;
   if (!value) {
     const cookieHeader = req.headers.cookie;
@@ -53,6 +54,7 @@ function extractAndVerifyRefreshToken(
       id,
       jti: typeof payload.jti === "string" ? payload.jti : null,
       iat: typeof payload.iat === "number" ? payload.iat : null,
+      sso: payload.sso === true,
     };
   } catch {
     return null;
@@ -219,7 +221,15 @@ router.post("/login", async (req, res) => {
     }
 
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
-    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
+    // SSO-enforcement (AWS-console-MFA model): a password login into an org that
+    // requires SSO still succeeds, but the session is minted restricted
+    // (ssoRequired) and requireAuth clamps it until the user completes SSO. We
+    // surface ssoRequired + orgSlug so the SPA can send them straight to the IdP.
+    const ssoRequired = await orgEnforcesSso(orgId);
+    const orgSlug = ssoRequired
+      ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
+      : null;
+    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, ssoRequired };
     const token = signToken(authUser);
     const refreshToken = signRefreshToken(user.id);
 
@@ -227,8 +237,8 @@ router.post("/login", async (req, res) => {
     // Audit successful authentication so an account-compromise ticket can be
     // reconstructed. Refresh (/auth/refresh) is intentionally NOT audited — it
     // fires every ~15 min per active session and would drown the signal.
-    await logAudit(orgId, user.id, "auth.login", "user", String(user.id), { email: user.email });
-    res.json({ token, refreshToken, user: authUser });
+    await logAudit(orgId, user.id, "auth.login", "user", String(user.id), { email: user.email, ssoRequired });
+    res.json({ token, refreshToken, user: authUser, ssoRequired, orgSlug });
   } catch (err) {
     console.error("POST /auth/login error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -302,12 +312,16 @@ router.post("/register", async (req, res) => {
     });
 
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
-    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
+    const ssoRequired = await orgEnforcesSso(orgId);
+    const orgSlug = ssoRequired
+      ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
+      : null;
+    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, ssoRequired };
     const token = signToken(authUser);
     const refreshToken = signRefreshToken(user.id);
 
     setTokenCookie(res, token, refreshToken);
-    res.status(201).json({ token, refreshToken, user: authUser, emailVerificationRequired: REQUIRE_EMAIL_VERIFICATION });
+    res.status(201).json({ token, refreshToken, user: authUser, ssoRequired, orgSlug, emailVerificationRequired: REQUIRE_EMAIL_VERIFICATION });
   } catch (err) {
     console.error("POST /auth/register error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -366,9 +380,15 @@ router.post("/refresh", async (req, res) => {
       }
     }
     const { orgId, orgRole } = await resolveOrg(user.id, user.email);
-    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole };
+    // Preserve whether this session was SSO-established across rotation, and
+    // re-derive ssoRequired for the (possibly changed) org. An SSO session is
+    // never downgraded to restricted; a password session in an enforced org
+    // stays restricted.
+    const isSsoSession = verified.sso;
+    const ssoRequired = !isSsoSession && (await orgEnforcesSso(orgId));
+    const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, sso: isSsoSession, ssoRequired };
     const token = signToken(authUser);
-    const newRefresh = signRefreshToken(user.id);
+    const newRefresh = signRefreshToken(user.id, { sso: isSsoSession });
 
     // Refresh-token rotation. Mark the just-consumed jti as
     // revoked so the same refresh token cannot be replayed. If an
@@ -438,9 +458,17 @@ router.post("/switch-org", requireAuth, async (req, res) => {
       return;
     }
 
-    const authUser = { ...req.user!, orgId, orgRole: membership.rows[0].role };
+    // Re-derive SSO enforcement for the org being switched into. A session
+    // established via SSO satisfies the requirement anywhere; a non-SSO session
+    // switching into an enforced org becomes restricted until it completes SSO.
+    const isSsoSession = req.user!.sso === true;
+    const ssoRequired = !isSsoSession && (await orgEnforcesSso(orgId));
+    const orgSlug = ssoRequired
+      ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
+      : null;
+    const authUser = { ...req.user!, orgId, orgRole: membership.rows[0].role, sso: isSsoSession, ssoRequired };
     const token = signToken(authUser);
-    res.json({ token, user: authUser });
+    res.json({ token, user: authUser, ssoRequired, orgSlug });
   } catch (err) {
     console.error("POST /auth/switch-org error:", err);
     res.status(500).json({ error: "Internal server error" });

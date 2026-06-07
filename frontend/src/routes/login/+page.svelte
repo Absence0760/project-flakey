@@ -69,7 +69,13 @@
         });
         resetSent = true;
       } else if (mode === "login") {
-        await login(email, password);
+        const result = await login(email, password);
+        // Org enforces SSO (AWS-MFA-style): the password session is restricted —
+        // send the user straight to their IdP to complete sign-in.
+        if (result.ssoRequired && result.orgSlug) {
+          window.location.href = `${API_URL}/auth/sso/${encodeURIComponent(result.orgSlug)}/start`;
+          return;
+        }
         goto("/dashboard");
       } else {
         const result = await register(email, password, name, inviteToken ?? undefined);

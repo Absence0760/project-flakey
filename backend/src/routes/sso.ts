@@ -259,6 +259,8 @@ loginRouter.get("/callback", async (req, res) => {
 
     const user = await resolveSsoUser(cfg, claims);
 
+    // sso:true marks the session SSO-established, so it's never clamped by the
+    // SSO-enforcement gate and a refresh preserves that.
     const authUser = {
       id: user.id,
       email: user.email,
@@ -266,9 +268,10 @@ loginRouter.get("/callback", async (req, res) => {
       role: user.role,
       orgId: user.orgId,
       orgRole: user.orgRole,
+      sso: true,
     };
     const token = signToken(authUser);
-    const refreshToken = signRefreshToken(user.id);
+    const refreshToken = signRefreshToken(user.id, { sso: true });
     setTokenCookie(res, token, refreshToken);
 
     // Hand off to the SPA. The cookies are already set; /sso/complete reads the
@@ -334,10 +337,10 @@ loginRouter.post("/saml/acs", express.urlencoded({ extended: false, limit: "1mb"
     const user = await resolveSsoUser(cfg, samlProfileToClaims(profile, cfg));
     const authUser = {
       id: user.id, email: user.email, name: user.name,
-      role: user.role, orgId: user.orgId, orgRole: user.orgRole,
+      role: user.role, orgId: user.orgId, orgRole: user.orgRole, sso: true,
     };
     const token = signToken(authUser);
-    const refreshToken = signRefreshToken(user.id);
+    const refreshToken = signRefreshToken(user.id, { sso: true });
     setTokenCookie(res, token, refreshToken);
     res.redirect(`${FRONTEND_URL}/sso/complete?returnTo=${encodeURIComponent(relay.rt)}`);
   } catch (err) {

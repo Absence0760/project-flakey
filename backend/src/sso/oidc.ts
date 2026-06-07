@@ -12,7 +12,51 @@
 // not cryptographically verify.
 
 import crypto from "crypto";
+import dns from "dns";
+import net from "net";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+
+// ── SSRF guard (security review finding #3, fetch-time) ──────────────────────
+// The OIDC issuer is admin-configured but the backend fetches it server-side
+// (discovery, JWKS, token exchange). Beyond the save-time literal check in
+// config.ts, we resolve each target host and refuse to connect to a private /
+// loopback / link-local / metadata address right before fetching. Loopback is
+// allowed only outside production (local Keycloak dev). This closes the
+// hostname-that-resolves-to-an-internal-IP vector; a DNS rebind *between* this
+// check and the socket connect is the documented residual risk.
+function isBlockedIp(ip: string, isProd: boolean): boolean {
+  const v = net.isIP(ip);
+  if (v === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 127) return isProd; // loopback: blocked only in prod
+    if (a === 0 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return true;
+    if (a === 169 && b === 254) return true; // link-local incl. 169.254.169.254 metadata
+    return false;
+  }
+  if (v === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return isProd; // loopback
+    if (/^f[cd]/.test(lower) || /^fe80/.test(lower)) return true; // ULA / link-local
+    // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded v4.
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
+    if (mapped) return isBlockedIp(mapped[1], isProd);
+    return false;
+  }
+  return false;
+}
+
+export async function assertPublicHost(urlStr: string): Promise<void> {
+  const host = new URL(urlStr).hostname;
+  const isProd = process.env.NODE_ENV === "production";
+  const addrs: string[] = net.isIP(host)
+    ? [host]
+    : (await dns.promises.lookup(host, { all: true })).map((a) => a.address);
+  for (const ip of addrs) {
+    if (isBlockedIp(ip, isProd)) {
+      throw new Error(`Refusing to reach a non-public address for SSO (${host} -> ${ip})`);
+    }
+  }
+}
 
 export interface OidcDiscovery {
   issuer: string;
@@ -37,6 +81,7 @@ const DISCOVERY_TTL_MS = 60 * 60 * 1000; // 1h — re-fetch the discovery doc ho
 const NETWORK_TIMEOUT_MS = 10_000;
 
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+  await assertPublicHost(url); // SSRF guard — block private/metadata targets
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), NETWORK_TIMEOUT_MS);
   try {
@@ -81,6 +126,8 @@ export async function getIssuer(issuer: string): Promise<CachedIssuer> {
       `IdP issuer mismatch: configured ${issuer}, discovery reports ${doc.issuer}`,
     );
   }
+  // jose fetches the JWKS itself, so guard its host here before handing it off.
+  await assertPublicHost(doc.jwks_uri);
   const entry: CachedIssuer = {
     discovery: doc as OidcDiscovery,
     jwks: createRemoteJWKSet(new URL(doc.jwks_uri)),

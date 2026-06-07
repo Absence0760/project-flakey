@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/stores/auth';
+	import { API_URL } from '$lib/utils/config';
 	import Toasts from '$lib/components/overlays/Toasts.svelte';
 	import type { Snippet } from 'svelte';
 
@@ -44,6 +45,16 @@
 			// The landing page handles the "no token, hits /" case
 			// separately.
 			goto('/login');
+		} else if (user?.ssoRequired) {
+			// Restored a restricted (SSO-required) session — the backend will
+			// deny every data route with SSO_REQUIRED. Bounce to the IdP to
+			// complete sign-in. /auth/me is the one route a restricted session
+			// can read, so fetchOrgs() works here to resolve the org slug.
+			fetchOrgs().then((os) => {
+				const slug = os.find((o) => o.id === user!.orgId)?.slug;
+				if (slug) window.location.href = `${API_URL}/auth/sso/${encodeURIComponent(slug)}/start`;
+				else goto('/login?sso_error=sso_required');
+			}).catch(() => goto('/login'));
 		} else {
 			loadOrgs();
 		}
