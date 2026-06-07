@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
@@ -136,6 +136,7 @@
     } finally {
       loading = false;
       mounted = true;
+      applyRestore();
     }
   });
 
@@ -143,16 +144,36 @@
   // across back/forward navigation so opening a flaky-test detail
   // (or any sub-page) and hitting back doesn't drop the user back
   // to page 1.
+  //
+  // Restore is deferred until data has loaded: at restore() time the list is
+  // still empty (onMount's fetch is in flight), so scrollTo would clamp to the
+  // top, and the restored visibleCount could be reset by the filter-reset
+  // effect above. We stash the snapshot and apply it once data is in — from
+  // whichever of restore()/onMount runs last, so it's order-independent.
+  type FlakySnapshot = { visibleCount: number; expandedIndex: number | null; scrollY: number };
+  let pendingRestore: FlakySnapshot | null = null;
+  function applyRestore() {
+    if (!pendingRestore) return;
+    const s = pendingRestore;
+    pendingRestore = null;
+    visibleCount = s.visibleCount;
+    expandedIndex = s.expandedIndex;
+    // Wait for the rows to render (tick = Svelte flush, rAF = browser layout)
+    // before restoring scroll, or the page is too short and scrollTo clamps.
+    tick().then(() => requestAnimationFrame(() =>
+      window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
+    ));
+  }
+
   export const snapshot = {
-    capture: () => ({
+    capture: (): FlakySnapshot => ({
       visibleCount,
       expandedIndex,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
-    restore: (s: { visibleCount: number; expandedIndex: number | null; scrollY: number }) => {
-      visibleCount = s.visibleCount;
-      expandedIndex = s.expandedIndex;
-      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    restore: (s: FlakySnapshot) => {
+      pendingRestore = s;
+      if (mounted) applyRestore();
     },
   };
 

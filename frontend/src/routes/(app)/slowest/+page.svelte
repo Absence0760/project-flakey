@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
@@ -115,19 +115,37 @@
     } catch {}
     await load();
     mounted = true;
+    applyRestore();
   });
 
   // Preserve pagination + expanded card + scroll across back/forward.
+  //
+  // Deferred until data has loaded: at restore() time the list is still empty
+  // (the fetch is in flight), so scrollTo would clamp to the top and the
+  // restored visibleCount could be reset by the filter-reset effect. Stash the
+  // snapshot and apply it from whichever of restore()/onMount runs last.
+  type SlowestSnapshot = { visibleCount: number; expandedIndex: number | null; scrollY: number };
+  let pendingRestore: SlowestSnapshot | null = null;
+  function applyRestore() {
+    if (!pendingRestore) return;
+    const s = pendingRestore;
+    pendingRestore = null;
+    visibleCount = s.visibleCount;
+    expandedIndex = s.expandedIndex;
+    tick().then(() => requestAnimationFrame(() =>
+      window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
+    ));
+  }
+
   export const snapshot = {
-    capture: () => ({
+    capture: (): SlowestSnapshot => ({
       visibleCount,
       expandedIndex,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
-    restore: (s: { visibleCount: number; expandedIndex: number | null; scrollY: number }) => {
-      visibleCount = s.visibleCount;
-      expandedIndex = s.expandedIndex;
-      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    restore: (s: SlowestSnapshot) => {
+      pendingRestore = s;
+      if (mounted) applyRestore();
     },
   };
 

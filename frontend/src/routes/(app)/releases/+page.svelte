@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { absoluteDate, calendarDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
 	import { replaceState } from '$app/navigation';
@@ -173,19 +173,37 @@
 		readUrl();
 		await load();
 		mounted = true;
+		applyRestore();
 	});
 
 	// Preserve pagination + scroll across back/forward navigation so
 	// opening a release detail and hitting back doesn't drop the user
 	// to page 1.
+	//
+	// Deferred until data has loaded: at restore() time the list is still empty
+	// (the fetch is in flight), so scrollTo would clamp to the top and the
+	// restored visibleCount could be reset by the filter-reset effect. Stash the
+	// snapshot and apply it from whichever of restore()/onMount runs last.
+	type ReleasesSnapshot = { visibleCount: number; scrollY: number };
+	let pendingRestore: ReleasesSnapshot | null = null;
+	function applyRestore() {
+		if (!pendingRestore) return;
+		const s = pendingRestore;
+		pendingRestore = null;
+		visibleCount = s.visibleCount;
+		tick().then(() => requestAnimationFrame(() =>
+			window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
+		));
+	}
+
 	export const snapshot = {
-		capture: () => ({
+		capture: (): ReleasesSnapshot => ({
 			visibleCount,
 			scrollY: typeof window !== "undefined" ? window.scrollY : 0,
 		}),
-		restore: (s: { visibleCount: number; scrollY: number }) => {
-			visibleCount = s.visibleCount;
-			queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+		restore: (s: ReleasesSnapshot) => {
+			pendingRestore = s;
+			if (mounted) applyRestore();
 		},
 	};
 

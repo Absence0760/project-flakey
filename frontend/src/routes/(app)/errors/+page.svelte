@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { timeAgo } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
@@ -116,21 +116,39 @@
     } finally {
       loading = false;
       mounted = true;
+      applyRestore();
     }
   });
 
   // Preserve pagination depth + which fingerprint was selected in the
   // detail pane + scroll position across back/forward navigation.
+  //
+  // Deferred until data has loaded: at restore() time the list is still empty
+  // (the fetch is in flight), so scrollTo would clamp to the top and the
+  // restored visibleCount could be reset by the filter-reset effect. Stash the
+  // snapshot and apply it from whichever of restore()/onMount runs last.
+  type ErrorsSnapshot = { visibleCount: number; selectedFingerprint: string | null; scrollY: number };
+  let pendingRestore: ErrorsSnapshot | null = null;
+  function applyRestore() {
+    if (!pendingRestore) return;
+    const s = pendingRestore;
+    pendingRestore = null;
+    visibleCount = s.visibleCount;
+    selectedFingerprint = s.selectedFingerprint;
+    tick().then(() => requestAnimationFrame(() =>
+      window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
+    ));
+  }
+
   export const snapshot = {
-    capture: () => ({
+    capture: (): ErrorsSnapshot => ({
       visibleCount,
       selectedFingerprint,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
-    restore: (s: { visibleCount: number; selectedFingerprint: string | null; scrollY: number }) => {
-      visibleCount = s.visibleCount;
-      selectedFingerprint = s.selectedFingerprint;
-      queueMicrotask(() => window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior }));
+    restore: (s: ErrorsSnapshot) => {
+      pendingRestore = s;
+      if (mounted) applyRestore();
     },
   };
 
