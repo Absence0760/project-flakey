@@ -49,8 +49,16 @@ export async function testConnection(): Promise<{ ok: boolean; provider: string;
 
 /**
  * Send a prompt and get a text response from whichever AI provider is configured.
+ *
+ * Pass `{ json: true }` for the OpenAI-compatible path to set
+ * `response_format: { type: "json_object" }`, which constrains the server to
+ * emit a complete, valid JSON object. This matters for small local models
+ * (llama3.2 et al), which otherwise stop early and drop the closing brace —
+ * producing unparseable output that falls back to a useless placeholder. The
+ * Anthropic path ignores it (structured output there goes via `chatJSON`'s
+ * forced tool-use).
  */
-async function chat(prompt: string): Promise<string> {
+async function chat(prompt: string, opts: { json?: boolean } = {}): Promise<string> {
   if (AI_PROVIDER === "anthropic") {
     const client = new Anthropic({ apiKey: AI_API_KEY });
     const response = await client.messages.create({
@@ -74,6 +82,7 @@ async function chat(prompt: string): Promise<string> {
         messages: [{ role: "user", content: prompt }],
         max_tokens: 500,
         temperature: 0.3,
+        ...(opts.json ? { response_format: { type: "json_object" } } : {}),
       }),
     });
 
@@ -116,8 +125,9 @@ async function chatJSON<T>(prompt: string, tool: Anthropic.Tool, fallback: T): P
     return block && block.type === "tool_use" ? (block.input as T) : fallback;
   }
 
-  // OpenAI-compatible: lenient text response + best-effort JSON recovery.
-  const text = await chat(prompt);
+  // OpenAI-compatible: ask the server to constrain output to a JSON object,
+  // then keep parseJSON as the safety net for servers that ignore the hint.
+  const text = await chat(prompt, { json: true });
   return parseJSON(text, fallback);
 }
 
