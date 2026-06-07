@@ -1,6 +1,6 @@
 # Proposal: Enterprise SSO — OIDC / SAML login + SCIM provisioning
 
-**Status:** Proposed — not yet implemented. **Requires CISO / Security Analyst sign-off before build** (SOC 2 / GovRAMP-scoped auth control).
+**Status:** Slice 1 (OIDC login) **built behind the `FLAKEY_SSO_ENABLED` flag** — OFF by default, **not yet enabled in any regulated environment** pending CISO / Security Analyst sign-off (SOC 2 / GovRAMP-scoped auth control). Slices 2–3 not yet built. Operator + dev guide: [backend/docs/sso.md](../../backend/docs/sso.md). Advisory security review (input to the human sign-off): `reviews/sso-security-review.md`.
 **Area:** `backend/` auth (`src/routes/auth.ts`, `requireAuth`, `org_members`), `frontend/` login + org settings, a new `idp` local-dev dependency (Keycloak).
 **Effort:** Large. Land in slices (OIDC → SAML → SCIM), each behind a flag, each with its own review.
 
@@ -36,7 +36,7 @@ is already committed.
 
 ## Scope (land in slices)
 
-### Slice 1 — OIDC login (smallest viable; do first)
+### Slice 1 — OIDC login (smallest viable; do first) — ✅ BUILT (flag-gated)
 - Per-org IdP config: `issuer`, `client_id`, `client_secret` (encrypted via the
   existing `FLAKEY_ENCRYPTION_KEY` path used for Jira/PagerDuty secrets),
   allowed email domain(s), and a **role-claim → org-role map**

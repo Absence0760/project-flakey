@@ -24,6 +24,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 | Backend routes / auth / tenancy / RLS | [backend/CLAUDE.md](backend/CLAUDE.md) |
 | A Postgres migration | [backend/docs/migrations.md](backend/docs/migrations.md) + the `/safe-migration` skill |
 | Integrations (Jira, PagerDuty, git providers, webhooks) | [backend/docs/integrations.md](backend/docs/integrations.md) |
+| Enterprise SSO (OIDC login; SAML/SCIM planned) | [backend/docs/sso.md](backend/docs/sso.md) + [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md) |
 | A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
 | The pytest (Python) reporter | [packages/flakey-pytest-reporter/CLAUDE.md](packages/flakey-pytest-reporter/CLAUDE.md) (uv/hatchling — **not** in the pnpm workspace) |
 | Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |

@@ -520,6 +520,10 @@
           Integrations &amp; automation
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L4 12"/></svg>
         </a>
+        <a class="subnav-link external" href="/settings/sso">
+          Single sign-on
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L4 12"/></svg>
+        </a>
       </nav>
     </aside>
 

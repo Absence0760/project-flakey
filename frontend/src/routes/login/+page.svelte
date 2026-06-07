@@ -5,7 +5,7 @@
   import { page } from "$app/stores";
   import { API_URL } from "$lib/utils/config";
 
-  let mode = $state<"login" | "register" | "forgot">("login");
+  let mode = $state<"login" | "register" | "forgot" | "sso">("login");
   let email = $state("");
   let password = $state("");
   let name = $state("");
@@ -14,6 +14,18 @@
   let verificationSent = $state(false);
   let resetSent = $state(false);
   let resendingVerification = $state(false);
+  // SSO entry: the user supplies their organization's slug, then we hand off to
+  // the backend's OIDC/SAML start endpoint (a full-page redirect to the IdP).
+  let orgSlug = $state("");
+  // Surfaced when the SSO callback bounced back here with ?sso_error=.
+  const ssoError = $derived($page.url.searchParams.get("sso_error"));
+
+  function startSso() {
+    const slug = orgSlug.trim().toLowerCase();
+    if (!slug) { error = "Enter your organization's identifier"; return; }
+    // Full-page navigation — the backend redirects on to the IdP.
+    window.location.href = `${API_URL}/auth/sso/${encodeURIComponent(slug)}/start`;
+  }
   // null while still fetching; true/false once the backend responds.
   // null treats as "open" for graceful degradation if the endpoint
   // is unreachable.
@@ -114,10 +126,16 @@
         Reset your password
       {:else if mode === "register"}
         Create a new account
+      {:else if mode === "sso"}
+        Single sign-on
       {:else}
         Sign in to your account
       {/if}
     </p>
+
+    {#if ssoError}
+      <p class="error" data-test="sso-error">Single sign-on failed: {ssoError}</p>
+    {/if}
 
     {#if inviteToken}
       <p class="invite-banner">You've been invited to join an organization. {mode === "login" ? "Sign in" : "Create an account"} to accept.</p>
@@ -154,6 +172,20 @@
         <p>If an account exists with that email, we've sent a password reset link.</p>
         <button class="link-btn" onclick={() => { mode = "login"; resetSent = false; error = null; }}>Back to sign in</button>
       </div>
+    {:else if mode === "sso"}
+      <form onsubmit={(e) => { e.preventDefault(); startSso(); }}>
+        <label class="field">
+          <span>Organization</span>
+          <input type="text" bind:value={orgSlug} placeholder="your-org" autocomplete="organization" required />
+        </label>
+        {#if error}
+          <p class="error">{error}</p>
+        {/if}
+        <button type="submit" class="submit-btn" data-test="sso-continue">Continue with SSO</button>
+      </form>
+      <p class="switch">
+        <button onclick={() => { mode = "login"; error = null; }}>Back to sign in</button>
+      </p>
     {:else}
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
         {#if mode === "register"}
@@ -201,6 +233,8 @@
           Remember your password? <button onclick={() => { mode = "login"; error = null; }}>Sign in</button>
         {:else if mode === "login"}
           Don't have an account? <button onclick={() => { mode = "register"; error = null; }}>Register</button>
+          <br />
+          <button data-test="sso-entry" onclick={() => { mode = "sso"; error = null; }}>Sign in with SSO</button>
         {:else}
           Already have an account? <button onclick={() => { mode = "login"; error = null; }}>Sign in</button>
         {/if}

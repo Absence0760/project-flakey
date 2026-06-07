@@ -34,6 +34,7 @@ import manualTestsRouter from "./routes/manual-tests.js";
 import manualTestGroupsRouter from "./routes/manual-test-groups.js";
 import releasesRouter from "./routes/releases.js";
 import supportRouter from "./routes/support.js";
+import { ssoLoginRouter, ssoAdminRouter } from "./routes/sso.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -336,6 +337,11 @@ app.use("/auth/resend-verification", authLimiter);
 app.use("/auth/verify-email", authLimiter);
 app.use("/auth/refresh", authLimiter);
 app.use("/auth/logout", authLimiter);
+// Enterprise SSO login flow (OIDC/SAML). Per-IP throttle like the other
+// unauthenticated auth endpoints. Mounted BEFORE /auth so the more specific
+// /auth/sso prefix wins. Gated internally by FLAKEY_SSO_ENABLED.
+app.use("/auth/sso", authLimiter);
+app.use("/auth/sso", ssoLoginRouter);
 // /auth is mounted WITHOUT requireAuth at the router level because the
 // router mixes public endpoints (login, register, forgot-password,
 // reset-password, resend-verification, verify-email, refresh, logout,
@@ -354,6 +360,7 @@ app.use("/auth", authRouter);
 app.use("/badge", badgeRouter);
 
 // Protected routes
+app.use("/sso", requireAuth, ssoAdminRouter);
 app.use("/orgs", requireAuth, orgsRouter);
 app.use("/suites", requireAuth, suitesRouter);
 app.use("/webhooks", requireAuth, webhooksRouter);
