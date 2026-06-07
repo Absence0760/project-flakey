@@ -616,6 +616,8 @@
           <th class="col-id">#</th>
           <th class="col-state">State</th>
           <th class="col-suite">Suite</th>
+          <th class="col-commit">Commit</th>
+          <th class="col-ci">CI</th>
           <th class="col-branch">Branch</th>
           <th class="col-env">Env</th>
           <th class="col-reporter">Reporter</th>
@@ -686,13 +688,13 @@
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>
                   {/if}
                 </button>
-                {#if run.commit_sha}
-                  <span class="meta-chip mono commit-chip" title={run.commit_sha}>{run.commit_sha.slice(0, 7)}</span>
-                {/if}
-                {#if run.ci_run_id}
-                  <span class="meta-chip mono ci" title={run.ci_run_id}>{run.ci_run_id}</span>
-                {/if}
               </div>
+            </td>
+            <td class="col-commit">
+              {#if run.commit_sha}<span class="meta-chip mono commit-chip" title={run.commit_sha}>{run.commit_sha.slice(0, 7)}</span>{:else}<span class="dim">—</span>{/if}
+            </td>
+            <td class="col-ci">
+              {#if run.ci_run_id}<span class="meta-chip mono ci" title={run.ci_run_id}>{run.ci_run_id}</span>{:else}<span class="dim">—</span>{/if}
             </td>
             <td class="col-branch">
               {#if run.branch}<span class="meta-chip branch" title={run.branch}>{run.branch}</span>{:else}<span class="dim">—</span>{/if}
@@ -1027,7 +1029,7 @@
   .col-status { width: 28px; padding-right: 0; }
   .col-id { white-space: nowrap; }
   .col-state { white-space: nowrap; }
-  .col-branch, .col-env, .col-reporter { white-space: nowrap; }
+  .col-commit, .col-ci, .col-branch, .col-env, .col-reporter { white-space: nowrap; }
   .col-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .col-duration { white-space: nowrap; }
   .col-started { white-space: nowrap; font-size: 0.82rem; color: var(--text-secondary); }
@@ -1054,9 +1056,9 @@
   .run-suite {
     font-weight: 500; color: var(--text);
     /* Cap the suite name itself; really long names clip with an
-       ellipsis, but ordinary names just sit at their natural width
-       so the row packs tightly without an empty gap before the
-       chips/Branch column. */
+       ellipsis, but ordinary names just sit at their natural width.
+       Commit + CI now have their own columns, so the suite cell holds
+       only the name + copy button. */
     display: inline-block;
     max-width: 360px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
