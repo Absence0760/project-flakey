@@ -142,8 +142,12 @@ token** (not a user session). Validated against the committed mock target
   the next call) **and stamps `users.sessions_revoked_at`** (migration 058) so a
   still-valid refresh token can't outlive deactivation by minting a fresh
   personal-org session at `/auth/refresh`. Together that's the GovRAMP
-  "deactivate immediately" control. Filter `userName eq "…"` powers the IdP's
-  pre-create existence check.
+  "deactivate immediately" control. The `scim_users.active` flip, the
+  `org_members` removal and the `sessions_revoked_at` stamp all commit in **one
+  transaction** (`syncMembership` runs on the caller's `tenantTransaction`
+  client) — so a partial failure can't leave a SCIM-deactivated user still
+  holding their membership (access surviving deprovision). Filter
+  `userName eq "…"` powers the IdP's pre-create existence check.
 - **Groups**: a group whose `displayName` maps via the org's `role_map` to a
   Flakey role sets that role on its members. Unmapped groups are a no-op —
   cannot widen access.

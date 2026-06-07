@@ -84,6 +84,23 @@ async function membershipRole(orgId: number, email: string): Promise<string | nu
   return r.rows[0]?.role ?? null;
 }
 
+// scim_users IS RLS-scoped, so read it inside a tenant-scoped transaction
+// (mirrors how the app sets app.current_org_id). Used to assert that the
+// scim_users.active flag and org_members membership move in lockstep — they're
+// written in one transaction (sso/scim.ts), so they must never disagree.
+async function scimActive(orgId: number, email: string): Promise<boolean | null> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
+    const r = await client.query("SELECT active FROM scim_users WHERE org_id = $1 AND user_name = $2", [orgId, email]);
+    await client.query("COMMIT");
+    return r.rows[0]?.active ?? null;
+  } finally {
+    client.release();
+  }
+}
+
 const scim = (token: string, path: string, init?: RequestInit) =>
   fetch(`${BASE}/scim/v2${path}`, {
     ...init,
@@ -123,8 +140,10 @@ test("POST /Users provisions a user + grants org membership", async () => {
   assert.ok(body.id, "must return a SCIM id");
   assert.equal(body.active, true);
   scimUserId = body.id;
-  // The provisioning effect: a real org membership now exists.
+  // The provisioning effect: a real org membership now exists, and the SCIM
+  // resource agrees it's active (the two are written in one transaction).
   assert.equal(await membershipRole(orgId1, userEmail), "viewer", "provisioned user must be an org member");
+  assert.equal(await scimActive(orgId1, userEmail), true, "scim_users.active must agree with membership");
 });
 
 test("filter lookup by userName finds the provisioned user (pre-create check)", async () => {
@@ -144,8 +163,13 @@ test("PATCH active:false DEACTIVATES — membership is removed (access revoked)"
   });
   assert.equal(res.status, 200);
   assert.equal((await res.json()).active, false);
-  // The control: the org_members row is gone, so requireAuth 401s them next request.
+  // The control: the org_members row is gone, so requireAuth 401s them next
+  // request — AND scim_users.active flipped to false in the SAME transaction.
+  // If a future change split that transaction, a partial failure could leave
+  // active=false while membership survives (access surviving deprovision —
+  // GovRAMP AC-2); this lockstep assertion is the regression guard.
   assert.equal(await membershipRole(orgId1, userEmail), null, "deactivated user must lose org membership");
+  assert.equal(await scimActive(orgId1, userEmail), false, "scim_users.active must agree (no access-survives-deprovision divergence)");
 });
 
 test("PATCH active:true REACTIVATES — membership restored", async () => {
@@ -155,6 +179,7 @@ test("PATCH active:true REACTIVATES — membership restored", async () => {
   });
   assert.equal(res.status, 200);
   assert.equal(await membershipRole(orgId1, userEmail), "viewer");
+  assert.equal(await scimActive(orgId1, userEmail), true, "scim_users.active must agree with restored membership");
 });
 
 test("DELETE /Users deprovisions — membership gone, resource 404s", async () => {

@@ -9,7 +9,8 @@
 
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import pool, { tenantQuery } from "../db.js";
+import type { PoolClient } from "pg";
+import pool, { tenantQuery, tenantTransaction } from "../db.js";
 import { normalizeEmail } from "../auth.js";
 import { logAudit } from "../audit.js";
 import { loadSsoConfig, type OrgRole } from "./config.js";
@@ -109,10 +110,17 @@ function coerceActive(v: unknown): boolean {
   return true;
 }
 
-/** Add or remove the user's org membership to match `active`. */
-async function syncMembership(orgId: number, userId: number, active: boolean, role: OrgRole): Promise<void> {
+/** Add or remove the user's org membership to match `active`. Runs on the
+ *  caller's transaction `client` so the membership change commits atomically
+ *  with the scim_users state change that drove it. A split (membership write in
+ *  its own auto-commit txn) could leave a SCIM-deactivated user still holding
+ *  their org_members row if a later step failed — i.e. access surviving
+ *  deprovision, which is exactly the GovRAMP AC-2 guarantee SCIM exists to keep.
+ *  org_members/users carry no RLS, so these are plain writes on the client even
+ *  though app.current_org_id is set for the scim_users write in the same txn. */
+async function syncMembership(client: PoolClient, orgId: number, userId: number, active: boolean, role: OrgRole): Promise<void> {
   if (active) {
-    await pool.query(
+    await client.query(
       "INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT (org_id, user_id) DO NOTHING",
       [orgId, userId, role],
     );
@@ -121,8 +129,8 @@ async function syncMembership(orgId: number, userId: number, active: boolean, ro
     // request. ALSO stamp the session-revocation watermark so their still-valid
     // REFRESH token can't outlive deactivation by minting a fresh (personal-org)
     // session via /auth/refresh -> resolveOrg (security review finding #1).
-    await pool.query("DELETE FROM org_members WHERE org_id = $1 AND user_id = $2", [orgId, userId]);
-    await pool.query("UPDATE users SET sessions_revoked_at = NOW() WHERE id = $1", [userId]);
+    await client.query("DELETE FROM org_members WHERE org_id = $1 AND user_id = $2", [orgId, userId]);
+    await client.query("UPDATE users SET sessions_revoked_at = NOW() WHERE id = $1", [userId]);
   }
 }
 
@@ -152,20 +160,24 @@ export async function createScimUser(orgId: number, body: Record<string, any>): 
     userId = created.rows[0].id;
   }
 
+  // SCIM resource + SSO identity + membership land in one transaction so a
+  // provisioned user is never half-created (a scim_users row with no membership,
+  // or vice versa). The global users row above is shared across orgs and
+  // idempotent, so it stays outside.
   const scimId = crypto.randomUUID();
-  await tenantQuery(
-    orgId,
-    `INSERT INTO scim_users (scim_id, org_id, user_id, user_name, external_id, active, raw)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [scimId, orgId, userId, email, body.externalId ?? null, active, JSON.stringify(body)],
-  );
-  await tenantQuery(
-    orgId,
-    `INSERT INTO sso_identities (org_id, user_id, protocol, external_id, last_login_at)
-     VALUES ($1, $2, 'scim', $3, NULL) ON CONFLICT (org_id, protocol, external_id) DO NOTHING`,
-    [orgId, userId, email],
-  );
-  await syncMembership(orgId, userId, active, role);
+  await tenantTransaction(orgId, async (client) => {
+    await client.query(
+      `INSERT INTO scim_users (scim_id, org_id, user_id, user_name, external_id, active, raw)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [scimId, orgId, userId, email, body.externalId ?? null, active, JSON.stringify(body)],
+    );
+    await client.query(
+      `INSERT INTO sso_identities (org_id, user_id, protocol, external_id, last_login_at)
+       VALUES ($1, $2, 'scim', $3, NULL) ON CONFLICT (org_id, protocol, external_id) DO NOTHING`,
+      [orgId, userId, email],
+    );
+    await syncMembership(client, orgId, userId, active, role);
+  });
   await logAudit(orgId, userId, "auth.sso.scim.user.create", "user", String(userId), { email, active });
 
   const row = (await tenantQuery(orgId, "SELECT * FROM scim_users WHERE scim_id = $1", [scimId])).rows[0];
@@ -193,8 +205,15 @@ export async function listScimUsers(orgId: number, filterEq: { attr: string; val
 async function applyUserActive(orgId: number, row: ScimUserRow, active: boolean): Promise<void> {
   const config = await loadSsoConfig(orgId, false);
   const role: OrgRole = config?.defaultRole ?? "viewer";
-  await tenantQuery(orgId, "UPDATE scim_users SET active = $1, updated_at = NOW() WHERE scim_id = $2", [active, row.scim_id]);
-  await syncMembership(orgId, row.user_id, active, role);
+  // The scim_users.active flag and the membership change must agree: commit them
+  // together, or a deactivation that updated scim_users but failed to drop
+  // membership would show the user as deprovisioned to the IdP while they keep
+  // their access (GovRAMP AC-2). On rollback the user stays active+a-member,
+  // which the IdP will re-attempt — fail-safe in the correct direction.
+  await tenantTransaction(orgId, async (client) => {
+    await client.query("UPDATE scim_users SET active = $1, updated_at = NOW() WHERE scim_id = $2", [active, row.scim_id]);
+    await syncMembership(client, orgId, row.user_id, active, role);
+  });
   await logAudit(orgId, row.user_id, active ? "auth.sso.scim.user.activate" : "auth.sso.scim.user.deactivate", "user", String(row.user_id), { email: row.user_name });
 }
 
@@ -228,11 +247,15 @@ export async function deleteScimUser(orgId: number, scimId: string): Promise<boo
   const r = await tenantQuery(orgId, "SELECT * FROM scim_users WHERE scim_id = $1", [scimId]);
   const row = r.rows[0] as ScimUserRow | undefined;
   if (!row) return false;
-  // Full deprovision from THIS org: drop membership + the SCIM identity + the
-  // SCIM resource. The global users row is left (may belong to other orgs).
-  await syncMembership(orgId, row.user_id, false, "viewer");
-  await tenantQuery(orgId, "DELETE FROM sso_identities WHERE org_id = $1 AND protocol = 'scim' AND external_id = $2", [orgId, row.user_name]);
-  await tenantQuery(orgId, "DELETE FROM scim_users WHERE scim_id = $1", [scimId]);
+  // Full deprovision from THIS org, atomically: drop membership + the SCIM
+  // identity + the SCIM resource in one transaction so we never leave a dangling
+  // membership after the SCIM rows are gone (access surviving deprovision). The
+  // global users row is left (may belong to other orgs).
+  await tenantTransaction(orgId, async (client) => {
+    await syncMembership(client, orgId, row.user_id, false, "viewer");
+    await client.query("DELETE FROM sso_identities WHERE org_id = $1 AND protocol = 'scim' AND external_id = $2", [orgId, row.user_name]);
+    await client.query("DELETE FROM scim_users WHERE scim_id = $1", [scimId]);
+  });
   await logAudit(orgId, row.user_id, "auth.sso.scim.user.delete", "user", String(row.user_id), { email: row.user_name });
   return true;
 }
@@ -257,13 +280,20 @@ async function applyGroupRole(orgId: number, displayName: string, members: any[]
   const config = await loadSsoConfig(orgId, false);
   const role = config?.roleMap?.[displayName] as OrgRole | undefined;
   if (!role) return; // group not mapped to a role → no-op (cannot widen access)
-  for (const m of members ?? []) {
-    const memberScimId = typeof m === "string" ? m : m?.value;
-    if (!memberScimId) continue;
-    const u = await tenantQuery(orgId, "SELECT user_id FROM scim_users WHERE scim_id = $1", [memberScimId]);
-    const uid = u.rows[0]?.user_id;
-    if (uid) await pool.query("UPDATE org_members SET role = $1 WHERE org_id = $2 AND user_id = $3", [role, orgId, uid]);
-  }
+  // Apply the mapped role to every member in one transaction: a group sync is a
+  // single privilege decision, so it shouldn't half-apply (some members elevated,
+  // others not) if a row fails midway. scim_users is RLS-scoped (app.current_org_id
+  // is set by tenantTransaction); org_members carries no RLS, so its role update
+  // is a plain write on the same client.
+  await tenantTransaction(orgId, async (client) => {
+    for (const m of members ?? []) {
+      const memberScimId = typeof m === "string" ? m : m?.value;
+      if (!memberScimId) continue;
+      const u = await client.query("SELECT user_id FROM scim_users WHERE scim_id = $1", [memberScimId]);
+      const uid = u.rows[0]?.user_id;
+      if (uid) await client.query("UPDATE org_members SET role = $1 WHERE org_id = $2 AND user_id = $3", [role, orgId, uid]);
+    }
+  });
 }
 
 export async function createScimGroup(orgId: number, body: Record<string, any>): Promise<Record<string, unknown>> {
