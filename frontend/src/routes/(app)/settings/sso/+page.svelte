@@ -47,6 +47,12 @@
   let samlIdpCert = $state("");
   let samlIssuer = $state("");
   let samlAudience = $state("");
+  // SCIM provisioning
+  let scimEnabled = $state(false);
+  let scimTokenPrefix = $state<string | null>(null);
+  let newScimToken = $state<string | null>(null); // shown once after issuance
+  let scimBaseUrl = $state<string | null>(null);
+  let scimBusy = $state(false);
 
   let ready = $state(false);
 
@@ -85,6 +91,8 @@
         samlIdpCert = (data as Record<string, string>).samlIdpCert ?? "";
         samlIssuer = (data as Record<string, string>).samlIssuer ?? "";
         samlAudience = (data as Record<string, string>).samlAudience ?? "";
+        scimEnabled = !!(data as Record<string, unknown>).scimEnabled;
+        scimTokenPrefix = ((data as Record<string, string>).scimTokenPrefix as string) ?? null;
       }
     } finally {
       loading = false;
@@ -130,6 +138,36 @@
       toast("SSO configuration saved");
     } finally {
       saving = false;
+    }
+  }
+
+  async function issueScimToken() {
+    scimBusy = true;
+    try {
+      const res = await authFetch(`${API_URL}/sso/scim/token`, { method: "POST" });
+      if (!res.ok) { toastError("Failed to issue SCIM token"); return; }
+      const data = await res.json();
+      newScimToken = data.token;
+      scimBaseUrl = data.scimBaseUrl;
+      scimTokenPrefix = data.prefix;
+      scimEnabled = true;
+      toast("SCIM token issued — copy it now, it won't be shown again");
+    } finally {
+      scimBusy = false;
+    }
+  }
+
+  async function disableScim() {
+    scimBusy = true;
+    try {
+      const res = await authFetch(`${API_URL}/sso/scim/token`, { method: "DELETE" });
+      if (!res.ok) { toastError("Failed to disable SCIM"); return; }
+      scimEnabled = false;
+      scimTokenPrefix = null;
+      newScimToken = null;
+      toast("SCIM provisioning disabled");
+    } finally {
+      scimBusy = false;
     }
   }
 
@@ -225,6 +263,36 @@
 
       <button type="submit" class="submit-btn" disabled={saving}>{saving ? "Saving…" : "Save SSO configuration"}</button>
     </form>
+
+    <section class="scim">
+      <h2>SCIM provisioning</h2>
+      <p class="muted">
+        Let your identity provider create, update, and deactivate users automatically.
+        A deactivation removes the user's org membership, revoking access on their next request.
+      </p>
+      {#if scimEnabled}
+        <p class="muted">SCIM is <strong>enabled</strong>{#if scimTokenPrefix} (token <code>{scimTokenPrefix}…</code>){/if}.</p>
+      {:else}
+        <p class="muted">SCIM is not enabled.</p>
+      {/if}
+
+      {#if newScimToken}
+        <div class="token-reveal" data-test="scim-token">
+          <p><strong>Copy this token now — it won't be shown again.</strong></p>
+          <code class="token">{newScimToken}</code>
+          {#if scimBaseUrl}<p class="muted">SCIM base URL: <code>{scimBaseUrl}</code></p>{/if}
+        </div>
+      {/if}
+
+      <div class="scim-actions">
+        <button class="submit-btn" onclick={issueScimToken} disabled={scimBusy}>
+          {scimEnabled ? "Rotate SCIM token" : "Enable SCIM & generate token"}
+        </button>
+        {#if scimEnabled}
+          <button class="link-btn" onclick={disableScim} disabled={scimBusy}>Disable SCIM</button>
+        {/if}
+      </div>
+    </section>
   {/if}
 </div>
 
@@ -246,4 +314,15 @@
     background: var(--link); color: #fff; font-weight: 600; cursor: pointer;
   }
   .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .scim { margin-top: 2.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+  .scim h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+  .scim-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+  .token-reveal {
+    margin: 1rem 0; padding: 0.85rem 1rem; border: 1px solid var(--link);
+    border-radius: 6px; background: color-mix(in srgb, var(--link) 8%, transparent);
+  }
+  .token-reveal p { margin: 0 0 0.5rem; }
+  .token { display: block; word-break: break-all; font-size: 0.8rem; background: var(--bg-secondary); padding: 0.5rem; border-radius: 4px; }
+  .link-btn { background: none; border: none; color: var(--error-text); cursor: pointer; font-size: 0.85rem; padding: 0; }
+  .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

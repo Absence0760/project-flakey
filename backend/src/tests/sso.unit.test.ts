@@ -17,6 +17,7 @@ function cfg(over: Partial<OrgSsoConfig>): OrgSsoConfig {
     jitProvisioning: false, allowedDomains: [], defaultRole: "viewer",
     roleClaim: null, roleMap: {}, oidcIssuer: null, oidcClientId: null,
     samlEntryPoint: null, samlIdpCert: null, samlIssuer: null, samlAudience: null,
+    scimEnabled: false, scimTokenPrefix: null,
     ...over,
   };
 }

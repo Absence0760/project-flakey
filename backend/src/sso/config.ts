@@ -42,6 +42,10 @@ export interface OrgSsoConfig {
   samlIdpCert: string | null;
   samlIssuer: string | null;
   samlAudience: string | null;
+  // SCIM (Slice 3). The token hash is never surfaced; only whether it's enabled
+  // and the non-secret prefix.
+  scimEnabled: boolean;
+  scimTokenPrefix: string | null;
 }
 
 interface SsoConfigRow {
@@ -62,6 +66,8 @@ interface SsoConfigRow {
   saml_idp_cert: string | null;
   saml_issuer: string | null;
   saml_audience: string | null;
+  scim_enabled: boolean;
+  scim_token_prefix: string | null;
 }
 
 function rowToConfig(r: SsoConfigRow, includeSecret: boolean): OrgSsoConfig {
@@ -82,6 +88,8 @@ function rowToConfig(r: SsoConfigRow, includeSecret: boolean): OrgSsoConfig {
     samlIdpCert: r.saml_idp_cert,
     samlIssuer: r.saml_issuer,
     samlAudience: r.saml_audience,
+    scimEnabled: r.scim_enabled ?? false,
+    scimTokenPrefix: r.scim_token_prefix,
   };
   if (includeSecret) cfg.oidcClientSecret = decryptSecret(r.oidc_client_secret);
   return cfg;

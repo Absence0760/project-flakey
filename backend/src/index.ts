@@ -35,6 +35,7 @@ import manualTestGroupsRouter from "./routes/manual-test-groups.js";
 import releasesRouter from "./routes/releases.js";
 import supportRouter from "./routes/support.js";
 import { ssoLoginRouter, ssoAdminRouter } from "./routes/sso.js";
+import scimRouter from "./routes/scim.js";
 import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
@@ -358,6 +359,10 @@ app.use("/auth", authRouter);
 // The badge route's only data source is a (org_slug, suite_name)
 // composite key; no tenant data leaks beyond pass/fail/count totals.
 app.use("/badge", badgeRouter);
+// SCIM 2.0 provisioning — token-authenticated per org (NOT a user session), so
+// it's mounted WITHOUT requireAuth; the router does its own bearer-token auth +
+// org scoping. Gated by FLAKEY_SSO_ENABLED inside the router.
+app.use("/scim/v2", scimRouter);
 
 // Protected routes
 app.use("/sso", requireAuth, ssoAdminRouter);

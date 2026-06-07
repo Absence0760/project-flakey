@@ -1,6 +1,6 @@
 # Proposal: Enterprise SSO — OIDC / SAML login + SCIM provisioning
 
-**Status:** Slices 1 (OIDC) + 2 (SAML) **built behind the `FLAKEY_SSO_ENABLED` flag** — OFF by default, **not yet enabled in any regulated environment** pending CISO / Security Analyst sign-off (SOC 2 / GovRAMP-scoped auth control). Slice 3 (SCIM) not yet built. Operator + dev guide: [backend/docs/sso.md](../../backend/docs/sso.md). Advisory security review (input to the human sign-off): `reviews/sso-security-review.md`.
+**Status:** All three slices — 1 (OIDC), 2 (SAML), 3 (SCIM) — **built behind the `FLAKEY_SSO_ENABLED` flag** — OFF by default, **not yet enabled in any regulated environment** pending CISO / Security Analyst sign-off (SOC 2 / GovRAMP-scoped auth control). Operator + dev guide: [backend/docs/sso.md](../../backend/docs/sso.md). Advisory security review (input to the human sign-off): `reviews/sso-security-review.md`.
 **Area:** `backend/` auth (`src/routes/auth.ts`, `requireAuth`, `org_members`), `frontend/` login + org settings, a new `idp` local-dev dependency (Keycloak).
 **Effort:** Large. Land in slices (OIDC → SAML → SCIM), each behind a flag, each with its own review.
 
@@ -54,7 +54,7 @@ is already committed.
   signature-validation dependency — the highest-risk surface (XML signature
   wrapping, canonicalization). Use a vetted library; do not hand-roll.
 
-### Slice 3 — SCIM 2.0 provisioning
+### Slice 3 — SCIM 2.0 provisioning — ✅ BUILT (flag-gated)
 - `/scim/v2/Users` + `/scim/v2/Groups` (RFC 7644), bearer-token-authenticated
   per org, so the IdP can create / update / **deactivate** users and push group→
   role changes. Deactivation must immediately revoke access — it rides the

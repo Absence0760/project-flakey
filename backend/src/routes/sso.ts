@@ -448,4 +448,33 @@ adminRouter.put("/config", requireOrgAdmin, async (req, res) => {
   }
 });
 
+// POST /sso/scim/token — issue (or rotate) the org's SCIM bearer token and
+// enable SCIM. Returns the raw token ONCE (only its bcrypt hash is stored).
+adminRouter.post("/scim/token", requireOrgAdmin, async (req, res) => {
+  try {
+    const { issueScimToken } = await import("../sso/scim.js");
+    const { token, prefix } = await issueScimToken(req.user!.orgId);
+    res.status(201).json({
+      token, // shown once — the IdP stores it; we keep only the hash
+      prefix,
+      scimBaseUrl: `${PUBLIC_API_URL}/scim/v2`,
+    });
+  } catch (err) {
+    console.error("POST /sso/scim/token error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /sso/scim/token — disable SCIM + clear the token.
+adminRouter.delete("/scim/token", requireOrgAdmin, async (req, res) => {
+  try {
+    const { disableScim } = await import("../sso/scim.js");
+    await disableScim(req.user!.orgId);
+    res.json({ disabled: true });
+  } catch (err) {
+    console.error("DELETE /sso/scim/token error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export { loginRouter as ssoLoginRouter, adminRouter as ssoAdminRouter, SSO_ENABLED };

@@ -6,7 +6,7 @@ Status by slice:
 |---|---|---|
 | 1 | OIDC login (Authorization-Code + PKCE) | **Built** — flag-gated, awaiting CISO sign-off before enable |
 | 2 | SAML login (POST binding) | **Built** — flag-gated, awaiting CISO sign-off before enable |
-| 3 | SCIM 2.0 provisioning | Not built |
+| 3 | SCIM 2.0 provisioning | **Built** — flag-gated, awaiting CISO sign-off before enable |
 
 > ⚠️ **Security gate.** SSO is a GovRAMP-scoped authentication control. It ships
 > **off** (`FLAKEY_SSO_ENABLED` unset) and must not be enabled in a regulated
@@ -108,6 +108,30 @@ Only then is the existing Flakey session minted. Tables: `sso_saml_requests`,
 > smoke suite covers config round-trip, the real `/start` redirect, and
 > fail-closed rejection of unsigned/forged input.
 
+## Slice 3 — SCIM 2.0 provisioning
+
+`/scim/v2/{Users,Groups}` (RFC 7643/7644), authenticated by a **per-org bearer
+token** (not a user session). Validated against the committed mock target
+(`infra/scim-target/server.mjs`) — the working client contract.
+
+- **Enable / token**: an owner/admin issues a token at **Settings → Single
+  sign-on → SCIM** (or `POST /sso/scim/token`). The raw token is shown once;
+  only its bcrypt hash + a prefix are stored. The IdP's SCIM base URL is
+  `<PUBLIC_API_URL>/scim/v2`. `DELETE /sso/scim/token` disables SCIM.
+- **Users**: create → finds/creates the Flakey user + grants org membership
+  (`default_role`). `active:false` (PATCH/PUT) or `DELETE` → **removes the org
+  membership**, so `requireAuth`'s per-request re-read revokes access on the
+  next call (the GovRAMP "deactivate immediately" control — no new revocation
+  primitive). Filter `userName eq "…"` powers the IdP's pre-create existence check.
+- **Groups**: a group whose `displayName` maps via the org's `role_map` to a
+  Flakey role sets that role on its members. Unmapped groups are a no-op —
+  cannot widen access.
+- **Isolation**: every SCIM resource is org-scoped via `tenantQuery` + RLS;
+  one org's token can't see or fetch another org's users (smoke-tested).
+
+Tables: `scim_users`, `scim_groups` (migration `057_sso_scim.sql`), RLS per org.
+Token lookup is a SECURITY DEFINER prefix function (mirrors `lookup_api_key`).
+
 ### Local testing
 
 - Unit: `src/tests/sso.unit.test.ts` (role mapping, PKCE).
@@ -115,3 +139,7 @@ Only then is the existing Flakey session minted. Tables: `sso_saml_requests`,
   round-trip with no secret leak, real PKCE authorize redirect against a mock IdP).
 - IdP-contract e2e (Keycloak): `frontend/tests-e2e/sso/keycloak-oidc.spec.ts`
   via `pnpm idp:up` + `pnpm --filter frontend test:e2e:sso`.
+- SCIM smoke: `src/tests/scim.smoke.test.ts` (token auth, full Users lifecycle
+  incl. deactivation→membership-removal, per-org RLS isolation). The
+  Authentik→target loop (`frontend/tests-e2e/sso/authentik-scim.spec.ts`) is the
+  IdP-side proof; the real endpoint satisfies the same client behavior.
