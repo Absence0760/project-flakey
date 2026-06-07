@@ -88,7 +88,12 @@ async function chat(prompt: string, opts: { json?: boolean } = {}): Promise<stri
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`AI request failed (${res.status}): ${body.slice(0, 200)}`);
+      // Log the upstream body server-side for diagnostics, but keep it out of
+      // the thrown message — it can carry provider account/tier identifiers and
+      // is surfaced to the client via testConnection()'s `error` field. The
+      // status code is enough signal for an admin debugging connectivity.
+      console.error(`AI request failed (${res.status}):`, body.slice(0, 500));
+      throw new Error(`AI request failed (${res.status})`);
     }
 
     const data = await res.json() as { choices: Array<{ message: { content: string } }> };

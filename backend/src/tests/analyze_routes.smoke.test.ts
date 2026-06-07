@@ -35,13 +35,18 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import crypto from "node:crypto";
+import pg from "pg";
 
 const PORT = 3950;
 const BASE = `http://localhost:${PORT}`;
 
 let server: ChildProcess;
 let token: string;
+let orgId: number;
 let suiteName: string;
+// Superuser client (bypasses RLS) used only to seed a cached analysis row —
+// AI is off in this env, so the cache can't be populated through the route.
+let dbAdmin: pg.Client;
 
 // Error messages crafted against computeSimilarity (Jaccard-ish:
 // intersection / max(|tokensA|, |tokensB|), tokens lowercased + punctuation
@@ -170,7 +175,18 @@ before(async () => {
     }),
   });
   if (!reg.ok) throw new Error(`register failed: ${reg.status} ${await reg.text().catch(() => "")}`);
-  token = ((await reg.json()) as { token: string }).token;
+  const regData = (await reg.json()) as { token: string; user: { orgId: number } };
+  token = regData.token;
+  orgId = regData.user.orgId;
+
+  dbAdmin = new pg.Client({
+    host: process.env.DB_HOST ?? "localhost",
+    port: Number(process.env.DB_PORT ?? 5432),
+    user: "flakey",
+    password: "flakey",
+    database: process.env.DB_NAME ?? "flakey",
+  });
+  await dbAdmin.connect();
 
   suiteName = `analyze-suite-${Date.now()}`;
 
@@ -183,6 +199,7 @@ before(async () => {
 });
 
 after(async () => {
+  if (dbAdmin) await dbAdmin.end().catch(() => {});
   if (server && !server.killed) {
     server.kill("SIGTERM");
     await once(server, "exit").catch(() => {});
@@ -267,6 +284,48 @@ test("POST /analyze/flaky reaches the AI gate (503) for a well-formed, uncached 
   assert.equal(res.status, 503);
   const data = (await res.json()) as { error: string };
   assert.equal(data.error, "AI analysis requires an AI provider to be configured");
+});
+
+test("POST /analyze/flaky cache hit returns the shaped contract, never the raw DB row", async () => {
+  // Seed a cached flaky analysis directly (AI is off, so the route can't write
+  // one). The cache-hit path must return the SAME shape as fresh generation
+  // (target_type/target_key + the FlakyAnalysis fields) and must NOT leak the
+  // internal columns id / org_id / raw_result / created_at — raw_result echoes
+  // the prompt's error text, so returning it is a PII regression (audit fix).
+  const fullTitle = `Suite > cached flaky ${crypto.randomUUID()}`;
+  const cacheKey = `${fullTitle}|${suiteName}`;
+  const rawResult = {
+    rootCause: "race on shared fixture",
+    stabilizationSuggestion: "await the network idle signal",
+    shouldQuarantine: true,
+    severity: "high",
+    // A field that would expose prompt content if the row were returned wholesale.
+    leakedPromptEcho: "SELECT * from prod where secret='do-not-surface'",
+  };
+  await dbAdmin.query(
+    `INSERT INTO ai_analyses (org_id, target_type, target_key, classification, summary, suggested_fix, confidence, raw_result)
+     VALUES ($1, 'flaky', $2, $3, $4, $5, $6, $7)`,
+    [orgId, cacheKey, "high", rawResult.rootCause, rawResult.stabilizationSuggestion, 1, JSON.stringify(rawResult)]
+  );
+
+  const res = await post(`/analyze/flaky`, { fullTitle, suiteName });
+  assert.equal(res.status, 200, "a seeded cache row must serve a 200 even with AI off");
+  const body = (await res.json()) as Record<string, unknown>;
+
+  // Shaped fields match the fresh-generation contract.
+  assert.equal(body.target_type, "flaky");
+  assert.equal(body.target_key, cacheKey);
+  assert.equal(body.severity, "high");
+  assert.equal(body.rootCause, rawResult.rootCause);
+  assert.equal(body.stabilizationSuggestion, rawResult.stabilizationSuggestion);
+  assert.equal(body.shouldQuarantine, true, "confidence=1 must map back to shouldQuarantine=true");
+
+  // The leak the audit flagged: internal columns must be absent.
+  for (const leaked of ["id", "org_id", "raw_result", "created_at", "classification", "summary", "suggested_fix", "confidence"]) {
+    assert.ok(!(leaked in body), `cache-hit response must not expose '${leaked}'`);
+  }
+  // Belt + suspenders: the prompt echo stashed in raw_result must not surface anywhere.
+  assert.ok(!JSON.stringify(body).includes("do-not-surface"), "raw_result content leaked into the response");
 });
 
 test("POST /analyze/flaky returns 400 for a missing fullTitle (validation precedes the AI gate)", async () => {

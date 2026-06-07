@@ -17,6 +17,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import crypto from "node:crypto";
 
 const PORT = 3996;
 const BASE = `http://localhost:${PORT}`;
@@ -25,6 +26,12 @@ let server: ChildProcess;
 let ownerToken: string;
 let ownerOrgId: number;
 let viewerToken: string;
+// A real error fingerprint + failed-test id in the owner's org (the viewer is a
+// member of), so the AI-analysis generation gates — which resolve the target
+// BEFORE the viewer check — are reachable as the viewer (they'd 404 otherwise).
+let aiFingerprint: string;
+let aiTestId: number;
+let aiSuiteName: string;
 
 async function waitForHealth(maxMs = 10000): Promise<void> {
   const start = Date.now();
@@ -114,6 +121,42 @@ before(async () => {
   assert.equal(acceptData.user.orgRole, "viewer", "invite-accept must scope to viewer role");
   assert.equal(acceptData.user.orgId, ownerOrgId, "invite-accept must scope to the inviter's org");
   viewerToken = acceptData.token;
+
+  // Upload a failing run as the owner so the AI-analysis generation gates have
+  // a real target to resolve to. /analyze/error and /analyze/test resolve the
+  // error/test BEFORE the viewer check, so without real data a viewer would
+  // get a 404 rather than the 403 we want to assert.
+  aiSuiteName = `perm-ai-suite-${Date.now()}`;
+  const errMsg = "perm gate sample error";
+  aiFingerprint = crypto.createHash("md5").update(`${errMsg}|${aiSuiteName}`).digest("hex");
+  const fd = new FormData();
+  fd.append("payload", JSON.stringify({
+    meta: {
+      suite_name: aiSuiteName, branch: "main", commit_sha: "permai01",
+      ci_run_id: `ci-perm-ai-${crypto.randomUUID()}`,
+      started_at: "2026-04-10T00:00:00Z", finished_at: "2026-04-10T00:00:30Z",
+      reporter: "mochawesome",
+    },
+    stats: { total: 1, passed: 0, failed: 1, skipped: 0, pending: 0, duration_ms: 30000 },
+    specs: [{
+      file_path: "perm.cy.ts", title: "perm",
+      stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 30000 },
+      tests: [{
+        title: "case", full_title: `Suite > case ${crypto.randomUUID()}`,
+        status: "failed", duration_ms: 10, screenshot_paths: [],
+        error: { message: errMsg, stack: "at line 1" },
+      }],
+    }],
+  }));
+  const up = await fetch(`${BASE}/runs/upload`, {
+    method: "POST", headers: { Authorization: `Bearer ${ownerToken}` }, body: fd,
+  });
+  if (!up.ok) throw new Error(`ai-gate upload failed: ${up.status} ${await up.text().catch(() => "")}`);
+  const tests = await fetch(`${BASE}/errors/${aiFingerprint}/tests`, {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+  });
+  const testRows = (await tests.json()) as Array<{ latest_test_id: number }>;
+  aiTestId = testRows[0].latest_test_id;
 });
 
 after(async () => {
@@ -233,6 +276,64 @@ test("viewer cannot POST /connectivity/email", async () => {
 test("viewer cannot POST /connectivity/git", async () => {
   const res = await asViewer().post("/connectivity/git", {});
   assert.equal(res.status, 403, "viewer must not test the org git token");
+});
+
+// ── /analyze/* AI gates (round-2 audit fix) ─────────────────────────────
+//
+// POST /analyze/test-connection triggers an outbound provider call and leaks
+// the instance AI config (provider/model) — admin/owner only, like the
+// /connectivity probes. The four other /analyze/* generation endpoints call
+// the model (cost) and write the ai_analyses cache, so a viewer must not be
+// able to invoke generation. Cached reads stay open to viewers (asserted by
+// the analyze_routes contract suite); these tests cover the write/generate
+// gate. See backend/src/routes/analyze.ts.
+
+test("viewer cannot POST /analyze/test-connection (admin/owner config probe)", async () => {
+  const res = await asViewer().post("/analyze/test-connection", {});
+  assert.equal(res.status, 403, "viewer must not run the AI connectivity probe or read AI config");
+});
+
+test("viewer cannot POST /analyze/flaky generation (cache miss → 403, not a model call)", async () => {
+  // No cached analysis for this title, AI is off — a viewer must be stopped at
+  // the generation gate (403) before reaching the isAIEnabled() 503.
+  const res = await asViewer().post("/analyze/flaky", {
+    fullTitle: `viewer flaky ${Date.now()}`, suiteName: aiSuiteName,
+  });
+  assert.equal(res.status, 403, "viewer must not trigger flaky AI generation");
+});
+
+test("viewer cannot POST /analyze/error/:fingerprint generation", async () => {
+  // Real fingerprint (resolves past the 404), uncached, AI off — the viewer
+  // gate must fire with 403 before the isAIEnabled() 503.
+  const res = await asViewer().post(`/analyze/error/${aiFingerprint}`, {});
+  assert.equal(res.status, 403, "viewer must not trigger error AI generation");
+});
+
+test("viewer cannot POST /analyze/test/:testId generation", async () => {
+  const res = await asViewer().post(`/analyze/test/${aiTestId}`, {});
+  assert.equal(res.status, 403, "viewer must not trigger per-test AI generation");
+});
+
+test("owner CAN reach the AI gates (role check passes; AI-off behaviour, not 403)", async () => {
+  // test-connection: AI is unconfigured here, so the owner gets the honest
+  // "no provider" 200 body — crucially NOT a 403, proving the gate is
+  // role-based rather than broken for everyone.
+  const conn = await fetch(`${BASE}/analyze/test-connection`, {
+    method: "POST", headers: { Authorization: `Bearer ${ownerToken}` },
+  });
+  assert.equal(conn.status, 200);
+  const connBody = (await conn.json()) as { ok: boolean; error?: string };
+  assert.equal(connBody.ok, false);
+  assert.equal(connBody.error, "No AI provider configured");
+
+  // flaky generation: owner passes the viewer gate and reaches the AI gate,
+  // which (AI off) returns 503 — again not a 403.
+  const flaky = await fetch(`${BASE}/analyze/flaky`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ fullTitle: `owner flaky ${Date.now()}`, suiteName: aiSuiteName }),
+  });
+  assert.equal(flaky.status, 503, "owner should pass the role gate and hit the AI-off 503");
 });
 
 // ── Owner sanity-check ───────────────────────────────────────────────────

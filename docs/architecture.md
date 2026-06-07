@@ -165,8 +165,8 @@ Scheduler (internal, advisory-lock coordinated):
 
 *AI / prediction (Phase 8):*
 - `GET /analyze/status` — whether AI features are enabled for the org
-- `POST /analyze/test-connection` — verify AI provider creds
-- `POST /analyze/error/:fingerprint` / `POST /analyze/flaky` / `POST /analyze/similar/:fingerprint` — error-group analysis, flakiness explanation, similar-failure search
+- `POST /analyze/test-connection` — verify AI provider creds (admin/owner-only: triggers an outbound provider call and exposes the instance AI config, like the connectivity probes)
+- `POST /analyze/error/:fingerprint` / `POST /analyze/flaky` / `POST /analyze/similar/:fingerprint` — error-group analysis, flakiness explanation, similar-failure search. The first two *generate* analysis (model call + `ai_analyses` cache write) and so block viewers — viewers can still read a cached analysis (the cache-hit short-circuit runs before the role gate); `/similar` is a read-only similarity scan open to all members. Responses are shaped to a fixed contract; the internal `ai_analyses` columns (`id`, `org_id`, `raw_result`, `created_at`) are never returned.
 - `POST /predict/tests` — predict which tests should run given a changed-file list
 - `GET /predict/split` — parallelisation plan for the next run
 

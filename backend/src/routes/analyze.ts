@@ -9,9 +9,16 @@ router.get("/status", (_req, res) => {
   res.json({ enabled: isAIEnabled() });
 });
 
-// POST /analyze/test-connection — test AI provider connectivity
-router.post("/test-connection", async (_req, res) => {
+// POST /analyze/test-connection — test AI provider connectivity.
+// Admin/owner-only: it triggers an outbound provider call and exposes the
+// instance AI config (provider/model), matching the /connectivity probes.
+router.post("/test-connection", async (req, res) => {
   try {
+    const role = req.user!.orgRole;
+    if (role !== "owner" && role !== "admin") {
+      res.status(403).json({ error: "Admin or owner role required" });
+      return;
+    }
     if (!isAIEnabled()) {
       res.json({ ok: false, error: "No AI provider configured" });
       return;
@@ -94,6 +101,20 @@ function wantsRefresh(req: { query: Record<string, unknown> }): boolean {
   return req.query.refresh === "true";
 }
 
+// Generating an analysis calls the model (cost) and writes the cache, so it's
+// gated to contributor+ — viewers can still read any cached analysis (the
+// cache-hit short-circuits above run for everyone). Returns true and writes a
+// 403 when the caller is a viewer; callers must `return` on true.
+function blockViewerGeneration(req: { user?: { orgRole: string } }, res: {
+  status: (code: number) => { json: (body: unknown) => void };
+}): boolean {
+  if (req.user?.orgRole === "viewer") {
+    res.status(403).json({ error: "Contributor role required to generate AI analysis" });
+    return true;
+  }
+  return false;
+}
+
 // POST /analyze/error/:fingerprint — analyze an error group (aggregated view)
 router.post("/error/:fingerprint", async (req, res) => {
   try {
@@ -125,6 +146,8 @@ router.post("/error/:fingerprint", async (req, res) => {
       res.status(404).json({ error: "Error not found" });
       return;
     }
+
+    if (blockViewerGeneration(req, res)) return;
 
     // Only now, when we're about to call the model, gate on AI being enabled —
     // so an unknown fingerprint 404s and a cached hit returns even with AI off.
@@ -180,6 +203,8 @@ router.post("/test/:testId", async (req, res) => {
       }
     }
 
+    if (blockViewerGeneration(req, res)) return;
+
     if (!isAIEnabled()) {
       res.status(503).json({ error: "AI analysis requires an AI provider to be configured" });
       return;
@@ -191,6 +216,27 @@ router.post("/test/:testId", async (req, res) => {
     res.status(500).json({ error: "Analysis failed" });
   }
 });
+
+// Reshape a cached flaky-analysis row into the same response the fresh-
+// generation path returns (target_type/target_key + the FlakyAnalysis fields).
+// The flaky columns are reused generically: classification=severity,
+// summary=rootCause, suggested_fix=stabilizationSuggestion,
+// confidence=shouldQuarantine. Deliberately omits id/org_id/raw_result/
+// created_at — none are part of the client contract.
+function shapeFlakyAnalysis(cacheKey: string, row: {
+  classification: string; summary: string; suggested_fix: string; confidence: number | string;
+}) {
+  return {
+    target_type: "flaky",
+    target_key: cacheKey,
+    severity: row.classification,
+    rootCause: row.summary,
+    stabilizationSuggestion: row.suggested_fix,
+    // confidence is NUMERIC(3,2) → the pg driver hands it back as a string; the
+    // flaky path stored shouldQuarantine as 1/0 in it, so coerce before testing.
+    shouldQuarantine: Number(row.confidence) === 1,
+  };
+}
 
 // POST /analyze/flaky — analyze a flaky test
 router.post("/flaky", async (req, res) => {
@@ -208,14 +254,20 @@ router.post("/flaky", async (req, res) => {
     const cacheKey = `${fullTitle}|${suiteName}`;
 
     // Serve a cached analysis if present — a plain DB read, no AI required.
+    // Select only the contract columns and reshape them to match the
+    // freshly-generated response below; never return id/org_id/raw_result/
+    // created_at (raw_result echoes the prompt's error text — see shaper).
     const cached = await tenantQuery(orgId,
-      "SELECT * FROM ai_analyses WHERE target_type = 'flaky' AND target_key = $1",
+      `SELECT classification, summary, suggested_fix, confidence
+       FROM ai_analyses WHERE target_type = 'flaky' AND target_key = $1`,
       [cacheKey]
     );
     if (cached.rows.length > 0) {
-      res.json(cached.rows[0]);
+      res.json(shapeFlakyAnalysis(cacheKey, cached.rows[0]));
       return;
     }
+
+    if (blockViewerGeneration(req, res)) return;
 
     // Gate on AI only when we're about to call the model.
     if (!isAIEnabled()) {
