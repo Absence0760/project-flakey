@@ -13,12 +13,20 @@ import pool, { tenantQuery } from "./db.js";
 // previous form silently substituted the dev string in any
 // no-JWT_SECRET environment, which was safe in practice but lost
 // the prod guarantee the moment a non-index.ts entry point appears.
+//
+// The dev fallback is generated fresh per cold-start rather than a
+// published constant: a hard-coded literal in the repo lets anyone
+// forge tokens against a non-production instance that omits both
+// JWT_SECRET and NODE_ENV=production. A random ephemeral secret means
+// each dev/test process gets its own unguessable key. The only
+// trade-off is that dev sessions don't survive a restart, which is
+// acceptable locally.
 const JWT_SECRET = (() => {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   if (process.env.NODE_ENV === "production") {
     throw new Error("JWT_SECRET is required in production");
   }
-  return "flakey-dev-secret-change-me";
+  return crypto.randomBytes(32).toString("hex");
 })();
 
 // Exported for callers in routes/auth.ts that verify refresh tokens

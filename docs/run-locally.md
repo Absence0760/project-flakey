@@ -213,7 +213,7 @@ npx tsx src/index.ts \
 | `PORT` | `3000` | API server port |
 | `NODE_ENV` | — | Set `production` to refuse boot without `JWT_SECRET` + `FLAKEY_ENCRYPTION_KEY` and to apply the production-tier rate-limit defaults (see [README.md](../README.md#environment-variables) for the full per-bucket table) |
 | `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Comma-separated allow-list. Dev default covers the Vite dev server (7778) and the API itself (3000) for same-machine probes |
-| `JWT_SECRET` | `flakey-dev-secret-change-me` | JWT signing secret (change in production) |
+| `JWT_SECRET` | _(random per cold-start)_ | JWT signing secret. Unset in dev/test: a fresh ephemeral secret is generated each process start (see `backend/src/auth.ts`), so dev sessions don't survive a restart. **Required in production** — the boot guard refuses to start without it |
 | `ALLOW_REGISTRATION` | `false` | Set `true` to allow self-serve registration; default is invite-only |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
 | `FRONTEND_URL` | `http://localhost:7778` | Used for email links and PR comments |
