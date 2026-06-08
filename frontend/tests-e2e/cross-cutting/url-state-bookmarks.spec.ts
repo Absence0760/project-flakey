@@ -118,4 +118,23 @@ test.describe("Sidebar remembers per-section filters", () => {
     const flakyHref = await page.locator(".nav-item", { hasText: "Flaky" }).getAttribute("href");
     expect(flakyHref).toBe("/flaky");
   });
+
+  test("a new tab inherits a section's remembered filters", async ({ page, context }) => {
+    // Filter /runs in the first tab — persisted to localStorage, which is
+    // shared across tabs of the same browser profile.
+    await page.goto("/runs?status=failed");
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".filter-tab", { hasText: "Failed" })).toHaveClass(/active/);
+
+    // Open a brand-new tab (shares the context's localStorage) and land on a
+    // different section. Its sidebar "Automated runs" link should already
+    // carry the remembered filter, and following it restores the failed view.
+    const tab2 = await context.newPage();
+    await tab2.goto("/dashboard");
+    await tab2.locator(".nav-item", { hasText: "Automated runs" }).click();
+    await expect(tab2).toHaveURL(/\/runs\?.*status=failed/, { timeout: 10_000 });
+    await expect(tab2.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
+    await expect(tab2.locator(".filter-tab", { hasText: "Failed" })).toHaveClass(/active/);
+    await tab2.close();
+  });
 });

@@ -11,17 +11,18 @@ import { untrack } from "svelte";
  * the query string. This store lets the layout point each sidebar link at the
  * section's last-seen URL instead.
  *
- * Backed by sessionStorage: filters survive in-tab navigation and reload, but
- * a brand-new tab starts clean. The URL stays the source of truth and remains
- * shareable — this only changes what the bare sidebar links resolve to.
+ * Backed by localStorage: filters persist across reloads, new tabs, and a
+ * later fresh visit in the same browser profile. The URL stays the source of
+ * truth and remains shareable — this only changes what the bare sidebar links
+ * resolve to. (Uses the `bt_` key prefix to match the auth singleton's keys.)
  */
 
 const KEY = "bt_section_views";
 
 function load(): Record<string, string> {
-  if (typeof sessionStorage === "undefined") return {};
+  if (typeof localStorage === "undefined") return {};
   try {
-    const raw = sessionStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -31,9 +32,9 @@ function load(): Record<string, string> {
 let views = $state<Record<string, string>>(load());
 
 function persist() {
-  if (typeof sessionStorage === "undefined") return;
+  if (typeof localStorage === "undefined") return;
   try {
-    sessionStorage.setItem(KEY, JSON.stringify(views));
+    localStorage.setItem(KEY, JSON.stringify(views));
   } catch {
     /* quota exceeded / storage disabled — the in-memory copy still works */
   }
