@@ -30,13 +30,6 @@ export interface ParsedFeature {
 
 const STEP_KEYWORDS = ["Given", "When", "Then", "And", "But", "*"];
 
-function stripComment(line: string): string {
-  // Don't strip inside table rows or docstrings — caller handles those.
-  const idx = line.indexOf("#");
-  if (idx === -1) return line;
-  return line.slice(0, idx);
-}
-
 function parseTableRow(line: string): string[] {
   const trimmed = line.trim();
   // Cells are separated by unescaped pipes; the leading/trailing pipes are
@@ -138,10 +131,13 @@ export function parseFeature(source: string): ParsedFeature {
       continue;
     }
 
-    const line = stripComment(raw).trimEnd();
+    const line = raw.trimEnd();
     const trimmed = line.trim();
 
     if (trimmed === "") continue;
+    // Gherkin comments are whole-line only — a line whose first non-whitespace
+    // character is `#`. Inline `#` (hex colors, URL fragments, anchors) is
+    // ordinary content and must be preserved, not truncated.
     if (trimmed.startsWith("#")) continue;
 
     // Tag line
