@@ -92,6 +92,7 @@ export function parseFeature(source: string): ParsedFeature {
   // Scenario Outline state
   let examplesHeaders: string[] | null = null;
   let examplesRows: string[][] = [];
+  let examplesTags: string[] = [];
   let outlineTemplate: ParsedScenario | null = null;
 
   // In-progress multi-line step attachments
@@ -100,33 +101,43 @@ export function parseFeature(source: string): ParsedFeature {
   let docstringFence: '"""' | "```" | null = null;
   let tableRows: string[][] | null = null;
 
-  const flushOutline = () => {
-    if (!outlineTemplate || !examplesHeaders) {
-      examplesHeaders = null;
-      examplesRows = [];
-      outlineTemplate = null;
-      return;
-    }
-    for (const row of examplesRows) {
-      const expanded: ParsedScenario = {
-        name: substituteExamples(outlineTemplate.name, examplesHeaders, row),
-        tags: [...outlineTemplate.tags],
-        lineNumber: outlineTemplate.lineNumber,
-        steps: outlineTemplate.steps.map((s) => ({
-          keyword: s.keyword,
-          text: substituteExamples(s.text, examplesHeaders!, row),
-          docstring: s.docstring
-            ? substituteExamples(s.docstring, examplesHeaders!, row)
-            : undefined,
-          table: s.table?.map((r) =>
-            r.map((c) => substituteExamples(c, examplesHeaders!, row))
-          ),
-        })),
-      };
-      feature.scenarios.push(expanded);
+  // Expand the Examples block currently buffered (one scenario per row) against
+  // the active outline template, then clear the block. A Scenario Outline may
+  // carry MORE THAN ONE Examples block — each has its own header row and its own
+  // tags — so we expand-and-clear per block rather than only at flush time, or
+  // every block but the last would be silently dropped.
+  const expandExamplesBlock = () => {
+    if (outlineTemplate && examplesHeaders) {
+      const headers = examplesHeaders;
+      const template = outlineTemplate;
+      // Tags before the Examples: line apply to that block's rows, on top of the
+      // outline's own tags (Gherkin semantics). De-dupe is the caller's job.
+      const blockTags = [...template.tags, ...examplesTags];
+      for (const row of examplesRows) {
+        feature.scenarios.push({
+          name: substituteExamples(template.name, headers, row),
+          tags: [...blockTags],
+          lineNumber: template.lineNumber,
+          steps: template.steps.map((s) => ({
+            keyword: s.keyword,
+            text: substituteExamples(s.text, headers, row),
+            docstring: s.docstring
+              ? substituteExamples(s.docstring, headers, row)
+              : undefined,
+            table: s.table?.map((r) =>
+              r.map((c) => substituteExamples(c, headers, row))
+            ),
+          })),
+        });
+      }
     }
     examplesHeaders = null;
     examplesRows = [];
+    examplesTags = [];
+  };
+
+  const flushOutline = () => {
+    expandExamplesBlock();
     outlineTemplate = null;
   };
 
@@ -238,9 +249,13 @@ export function parseFeature(source: string): ParsedFeature {
     // Examples:
     if (/^Examples:/i.test(trimmed) || /^Scenarios:/i.test(trimmed)) {
       closeStep();
+      // Flush any prior Examples block under the same outline before starting a
+      // new one (no-op for the first block). expandExamplesBlock clears the
+      // buffer, so the tag capture below sets this block's tags fresh.
+      expandExamplesBlock();
       inExamples = true;
-      examplesHeaders = null;
-      examplesRows = [];
+      examplesTags = pendingTags;
+      pendingTags = [];
       currentSteps = null;
       continue;
     }
