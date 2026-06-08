@@ -213,9 +213,16 @@ paths:
     get:
       tags: [errors]
       summary: Recurring failures grouped by error fingerprint
+      description: |
+        Returns the 100 most-recent error groups (by last_seen, then
+        occurrence_count). The `status` filter is applied **before** that cap,
+        so a status rarer than the 100 newest groups is not truncated. An
+        unrecognised `status` value is ignored (no filter applied).
       parameters:
         - { name: suite, in: query, schema: { type: string } }
-        - { name: status, in: query, schema: { type: string } }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ErrorStatus" }
       responses:
         "200":
           description: Error groups
@@ -224,6 +231,83 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/ErrorGroup" }
+
+  /errors/{fingerprint}/status:
+    parameters:
+      - { name: fingerprint, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [errors]
+      summary: Set the triage status of an error group (upsert)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/ErrorStatus" }
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: boolean }
+                  group_id: { type: integer }
+                  status: { $ref: "#/components/schemas/ErrorStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /errors/{fingerprint}/tests:
+    parameters:
+      - { name: fingerprint, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [errors]
+      summary: Tests affected by an error group
+      responses:
+        "200":
+          description: Affected tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AffectedTest" }
+
+  /errors/{fingerprint}/notes:
+    parameters:
+      - { name: fingerprint, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [errors]
+      summary: Notes on an error group
+      responses:
+        "200":
+          description: Notes (oldest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ErrorNote" }
+    post:
+      tags: [errors]
+      summary: Add a note to an error group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string }
+      responses:
+        "201":
+          description: Note created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorNote" }
+        "400": { $ref: "#/components/responses/BadRequest" }
 
   /flaky:
     get:
@@ -463,6 +547,11 @@ components:
             failed_index: { type: integer }
             failed_total: { type: integer }
 
+    ErrorStatus:
+      type: string
+      description: Triage state of an error group. Unstamped groups default to `open`.
+      enum: [open, investigating, known, fixed, ignored]
+
     ErrorGroup:
       type: object
       properties:
@@ -479,8 +568,29 @@ components:
         file_paths: { type: array, items: { type: string } }
         suite_name: { type: string }
         group_id: { type: [integer, "null"] }
-        status: { type: string }
+        status: { $ref: "#/components/schemas/ErrorStatus" }
         note_count: { type: integer }
+
+    AffectedTest:
+      type: object
+      properties:
+        full_title: { type: string }
+        title: { type: string }
+        file_path: { type: string }
+        suite_name: { type: string }
+        occurrence_count: { type: integer }
+        last_seen: { type: string, format: date-time }
+        latest_test_id: { type: integer }
+        latest_run_id: { type: integer }
+
+    ErrorNote:
+      type: object
+      properties:
+        id: { type: integer }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+        user_name: { type: [string, "null"] }
+        user_email: { type: [string, "null"] }
 
     FlakyTest:
       type: object

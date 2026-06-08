@@ -375,12 +375,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Recurring failures grouped by error fingerprint */
+        /**
+         * Recurring failures grouped by error fingerprint
+         * @description Returns the 100 most-recent error groups (by last_seen, then
+         *     occurrence_count). The `status` filter is applied **before** that cap,
+         *     so a status rarer than the 100 newest groups is not truncated. An
+         *     unrecognised `status` value is ignored (no filter applied).
+         */
         get: {
             parameters: {
                 query?: {
                     suite?: string;
-                    status?: string;
+                    status?: components["schemas"]["ErrorStatus"];
                 };
                 header?: never;
                 path?: never;
@@ -401,6 +407,166 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/errors/{fingerprint}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set the triage status of an error group (upsert) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fingerprint: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        status: components["schemas"]["ErrorStatus"];
+                    };
+                };
+            };
+            responses: {
+                /** @description Status updated */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            updated?: boolean;
+                            group_id?: number;
+                            status?: components["schemas"]["ErrorStatus"];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        trace?: never;
+    };
+    "/errors/{fingerprint}/tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        /** Tests affected by an error group */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fingerprint: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Affected tests */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AffectedTest"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/errors/{fingerprint}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        /** Notes on an error group */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fingerprint: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Notes (oldest first) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorNote"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a note to an error group */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fingerprint: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Note created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorNote"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -656,6 +822,11 @@ export interface components {
             failed_index?: number;
             failed_total?: number;
         };
+        /**
+         * @description Triage state of an error group. Unstamped groups default to `open`.
+         * @enum {string}
+         */
+        ErrorStatus: "open" | "investigating" | "known" | "fixed" | "ignored";
         ErrorGroup: {
             fingerprint?: string;
             error_message?: string;
@@ -672,8 +843,27 @@ export interface components {
             file_paths?: string[];
             suite_name?: string;
             group_id?: number | null;
-            status?: string;
+            status?: components["schemas"]["ErrorStatus"];
             note_count?: number;
+        };
+        AffectedTest: {
+            full_title?: string;
+            title?: string;
+            file_path?: string;
+            suite_name?: string;
+            occurrence_count?: number;
+            /** Format: date-time */
+            last_seen?: string;
+            latest_test_id?: number;
+            latest_run_id?: number;
+        };
+        ErrorNote: {
+            id?: number;
+            body?: string;
+            /** Format: date-time */
+            created_at?: string;
+            user_name?: string | null;
+            user_email?: string | null;
         };
         FlakyTest: {
             full_title?: string;
