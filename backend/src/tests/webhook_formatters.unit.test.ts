@@ -307,6 +307,169 @@ test("teams and discord do not throw on the same large flaky payload", () => {
   assert.ok(desc.length <= 4000, `discord description length ${desc.length} exceeds the 4000-char cap`);
 });
 
+// ── Platform payload-validity regressions ────────────────────────────────
+//
+// Each formatter must keep its output within the receiving platform's hard
+// limits and actually render the content it promises. These pin four bugs:
+//   #1 Slack new.failures emitted an "All N failures:" heading with no list.
+//   #2 Slack header could exceed Slack's 150-char plain_text limit.
+//   #3 Teams rendered one TextBlock per row with no cap (oversized card).
+//   #4 Discord embed title could exceed Discord's 256-char limit.
+
+const SLACK_HEADER_TEXT_LIMIT = 150;
+const TEAMS_LIST_CAP = 20;
+const DISCORD_TITLE_LIMIT = 256;
+
+function slackHeaderText(out: unknown): string | undefined {
+  const blocks = (out as { blocks?: Array<Record<string, unknown>> }).blocks ?? [];
+  const header = blocks.find((b) => b.type === "header");
+  const text = (header?.text as { text?: unknown } | undefined)?.text;
+  return typeof text === "string" ? text : undefined;
+}
+
+function teamsTextBlocks(out: unknown): string[] {
+  const content = (out as { attachments?: Array<{ content?: { body?: Array<Record<string, unknown>> } }> })
+    .attachments?.[0]?.content;
+  const body = content?.body ?? [];
+  return body
+    .filter((b) => b.type === "TextBlock" && typeof b.text === "string")
+    .map((b) => b.text as string);
+}
+
+// #1 — the all-failures list body, not just the heading.
+test("slack: new.failures renders the all-failures list body beneath its heading", () => {
+  const new_failures = [
+    { full_title: "Regressed A", error_message: "boom", spec_file: "reg.cy.ts" },
+  ];
+  const failed_tests = Array.from({ length: 25 }, (_, i) => ({
+    full_title: `Failure ${i}`,
+    error_message: null,
+    spec_file: `fail_${i}.cy.ts`,
+  }));
+  const out = formatPayload("slack", basePayload({ event: "new.failures", new_failures, failed_tests }));
+  const texts = slackSectionTexts(out);
+
+  assert.ok(
+    texts.some((t) => t.includes(`All ${failed_tests.length} failures:`)),
+    "all-failures heading missing",
+  );
+  // The actual rows must render under the heading — the bug emitted the heading
+  // with nothing beneath it.
+  const body = texts.find((t) => t.includes("Failure 0"));
+  assert.ok(body, "all-failures list body missing — the heading had no list beneath it");
+  assert.ok(body!.includes("Failure 9"), "10th failure row missing");
+  assert.ok(!body!.includes("Failure 10"), "11th failure row should be capped out");
+  assert.ok(body!.includes(`…and ${25 - 10} more`), "all-failures overflow indicator missing");
+});
+
+// #2 — Slack header within the 150-char limit.
+test("slack: a very long suite name keeps the header within Slack's 150-char limit", () => {
+  const out = formatPayload("slack", basePayload({
+    run: { ...basePayload().run, suite_name: "s".repeat(400) },
+  }));
+  const header = slackHeaderText(out);
+  assert.ok(header, "slack header text missing");
+  assert.ok(
+    header!.length <= SLACK_HEADER_TEXT_LIMIT,
+    `slack header length ${header!.length} exceeds Slack's ${SLACK_HEADER_TEXT_LIMIT}-char limit`,
+  );
+});
+
+// #3 — Teams caps each list with an overflow row.
+test("teams: caps failed-test rows at the list cap with an overflow row", () => {
+  const failed_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Failure ${i}`,
+    error_message: null,
+    spec_file: `f_${i}.cy.ts`,
+  }));
+  const out = formatPayload("teams", basePayload({ failed_tests }));
+  const blocks = teamsTextBlocks(out);
+
+  // Rows start with the bullet; headings/title TextBlocks do not.
+  const rows = blocks.filter((t) => t.startsWith("•"));
+  assert.ok(rows.length <= TEAMS_LIST_CAP, `teams rendered ${rows.length} rows, expected <= ${TEAMS_LIST_CAP}`);
+  assert.ok(!blocks.some((t) => t.includes("Failure 29")), "row beyond the cap should not render");
+  assert.ok(
+    blocks.some((t) => t.includes(`…and ${30 - TEAMS_LIST_CAP} more`)),
+    "teams overflow indicator missing",
+  );
+});
+
+test("teams: caps flaky rows at the list cap with an overflow row", () => {
+  const flaky_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Flaky ${i}`,
+    file_path: `f_${i}.cy.ts`,
+    flaky_rate: 30,
+    flip_count: i,
+    fail_count: 1,
+    total_runs: 10,
+  }));
+  const out = formatPayload("teams", basePayload({ event: "flaky.detected", flaky_tests }));
+  const blocks = teamsTextBlocks(out);
+
+  const rows = blocks.filter((t) => t.startsWith("•"));
+  assert.ok(rows.length <= TEAMS_LIST_CAP, `teams rendered ${rows.length} flaky rows, expected <= ${TEAMS_LIST_CAP}`);
+  assert.ok(
+    blocks.some((t) => t.includes(`…and ${30 - TEAMS_LIST_CAP} more`)),
+    "teams flaky overflow indicator missing",
+  );
+});
+
+// #1 edge — when every failure is new, no supplemental all-failures section.
+test("slack: new.failures with no extra failures emits neither the all-failures heading nor a body", () => {
+  const tests = Array.from({ length: 3 }, (_, i) => ({
+    full_title: `Regressed ${i}`,
+    error_message: `boom ${i}`,
+    spec_file: `reg_${i}.cy.ts`,
+  }));
+  // failed_tests === new_failures: all failures are new, nothing extra to list.
+  const out = formatPayload("slack", basePayload({ event: "new.failures", new_failures: tests, failed_tests: tests }));
+  const texts = slackSectionTexts(out);
+  assert.ok(
+    !texts.some((t) => t.includes("All 3 failures:")),
+    "all-failures heading must be suppressed when there are no failures beyond the new ones",
+  );
+});
+
+// #4 — Discord embed title within the 256-char limit.
+test("discord: a very long suite name keeps the embed title within Discord's 256-char limit", () => {
+  const out = formatPayload("discord", basePayload({
+    run: { ...basePayload().run, suite_name: "s".repeat(400) },
+  })) as { embeds?: Array<{ title?: string }> };
+  const title = out.embeds?.[0]?.title ?? "";
+  assert.ok(title.length > 0, "discord embed title missing");
+  assert.ok(
+    title.length <= DISCORD_TITLE_LIMIT,
+    `discord title length ${title.length} exceeds Discord's ${DISCORD_TITLE_LIMIT}-char limit`,
+  );
+});
+
+// #4b — Discord embed field values stay within the 1–1024-char bound.
+const DISCORD_FIELD_VALUE_LIMIT = 1024;
+test("discord: empty and oversized suite/branch field values are bounded to Discord's 1-1024 limit", () => {
+  type Field = { name: string; value: string };
+  const longOut = formatPayload("discord", basePayload({
+    run: { ...basePayload().run, suite_name: "s".repeat(2000) },
+    trend: "t".repeat(2000),
+  })) as { embeds?: Array<{ fields?: Field[] }> };
+  for (const f of longOut.embeds?.[0]?.fields ?? []) {
+    assert.ok(
+      f.value.length >= 1 && f.value.length <= DISCORD_FIELD_VALUE_LIMIT,
+      `discord field "${f.name}" value length ${f.value.length} is outside Discord's 1-${DISCORD_FIELD_VALUE_LIMIT} bound`,
+    );
+  }
+
+  // An empty suite/branch must fall back to a non-empty value (Discord rejects "").
+  const emptyOut = formatPayload("discord", basePayload({
+    run: { ...basePayload().run, suite_name: "", branch: "" },
+  })) as { embeds?: Array<{ fields?: Field[] }> };
+  const fields = emptyOut.embeds?.[0]?.fields ?? [];
+  const suite = fields.find((f) => f.name === "Suite");
+  const branch = fields.find((f) => f.name === "Branch");
+  assert.ok((suite?.value.length ?? 0) >= 1, "empty suite_name must fall back to a non-empty field value");
+  assert.ok((branch?.value.length ?? 0) >= 1, "empty branch must fall back to a non-empty field value");
+});
+
 // ── Unknown platform falls through to generic ────────────────────────────
 
 test("formatPayload: unknown platform falls through to generic format", () => {
