@@ -33,9 +33,33 @@ const STEP_KEYWORDS = ["Given", "When", "Then", "And", "But", "*"];
 function parseTableRow(line: string): string[] {
   const trimmed = line.trim();
   // Cells are separated by unescaped pipes; the leading/trailing pipes are
-  // empty and get dropped.
-  const cells = trimmed.split("|").slice(1, -1);
-  return cells.map((c) => c.trim());
+  // empty and get dropped. Gherkin escapes inside a cell: `\|` is a literal
+  // pipe, `\\` a literal backslash, `\n` a newline — so we can't just
+  // split("|"). Scan the row, honouring escapes, and trim each cell.
+  const cells: string[] = [];
+  let cell = "";
+  let i = 0;
+  if (trimmed[i] === "|") i++; // skip the leading pipe
+  for (; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === "\\") {
+      const next = trimmed[i + 1];
+      if (next === "|") { cell += "|"; i++; continue; }
+      if (next === "\\") { cell += "\\"; i++; continue; }
+      if (next === "n") { cell += "\n"; i++; continue; }
+      cell += ch; // lone backslash — preserve verbatim
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  // Content after the final unescaped pipe is the trailing empty cell — drop
+  // it, mirroring the old slice(1, -1).
+  return cells;
 }
 
 function substituteExamples(text: string, headers: string[], row: string[]): string {
@@ -73,6 +97,7 @@ export function parseFeature(source: string): ParsedFeature {
   // In-progress multi-line step attachments
   let lastStep: ParsedStep | null = null;
   let docstring: string[] | null = null;
+  let docstringFence: '"""' | "```" | null = null;
   let tableRows: string[][] | null = null;
 
   const flushOutline = () => {
@@ -121,10 +146,13 @@ export function parseFeature(source: string): ParsedFeature {
     const raw = rawLines[i];
     const lineNo = i + 1;
 
-    // Docstring passthrough — preserve content verbatim
+    // Docstring passthrough — preserve content verbatim. Only the matching
+    // fence closes it, so a `"""` inside a ```-fenced block (or vice-versa) is
+    // kept as content rather than closing early.
     if (docstring !== null) {
-      if (raw.trim() === '"""' || raw.trim() === "```") {
+      if (raw.trim() === docstringFence) {
         closeStep();
+        docstringFence = null;
         continue;
       }
       docstring.push(raw);
@@ -233,9 +261,12 @@ export function parseFeature(source: string): ParsedFeature {
       continue;
     }
 
-    // Docstring open
-    if (trimmed === '"""' || trimmed === "```") {
+    // Docstring open — `"""` or ``` , each optionally followed by a media type
+    // (e.g. `"""json`) which Gherkin treats as metadata we don't retain.
+    const fenceMatch = /^("""|```)(\S*)$/.exec(trimmed);
+    if (fenceMatch) {
       docstring = [];
+      docstringFence = fenceMatch[1] as '"""' | "```";
       continue;
     }
 
