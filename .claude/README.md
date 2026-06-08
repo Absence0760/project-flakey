@@ -26,6 +26,10 @@ Use these on the diff you're about to commit. They're cheaper and more focused t
 
 Skip all three on typos, comment-only edits, dep-version bumps, or any < ~10-line diff that touches no invariant — just edit those directly.
 
+## Spot-audit-and-fix
+
+`/audit-and-fix [area]` is the odd one out: it doesn't operate on an existing diff — it **picks an area** (whatever you name, or one it chooses by ranking under-covered × bug-prone × logic-dense modules), audits it for real correctness bugs, fixes the root cause, and ships unit/smoke/e2e coverage with the fix. Lands scoped commits (fix + tests separately); never pushes. Honest about non-findings — if the area is sound, the deliverable is the test-coverage gap it closed, not an invented fix. Reach for it as a proactive hardening pass over a corner of the app, not as a pre-commit gate (that's `/check`).
+
 ## Audit commands
 
 Run from a Claude Code session in this repo. Each is a short prompt that ends with "delegate to the `flakey-auditor` agent" (or another agent type for non-security audits) — Claude reads the command, spawns the right agent, returns a findings report grouped by severity (Critical / High / Medium / Low), and lists `## Clean` for areas that came up empty.
@@ -170,5 +174,6 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 | Implementing a security-sensitive / schema / live-flow / reporter-package change | `/safe-edit <task>` (also produces a clean status by the time you'd run `/check`, so don't double up) |
 | An index page or modal that doesn't use real estate, leaks ISO dates, or lacks the project's filter / sort / search / URL-state pattern | `/polish-ui <route or component>` |
 | Periodic broad sweep over the whole repo against one trust boundary | `/audit/<name>` |
+| Proactively harden one corner of the app — audit it, fix real bugs, ship tests | `/audit-and-fix [area]` |
 | Pre-release confidence pass | `/audit/all` |
 | Typo / comment / single-line dep bump | none — just commit |
