@@ -373,6 +373,20 @@ test("POST /manual-tests/:id/requirements on a nonexistent test 404s (not 500)",
   assert.equal(res.status, 404, `expected 404 for missing test; got ${res.status}`);
 });
 
+// ── group_id ownership (no cross-org / dangling group references) ────────
+
+test("POST /manual-tests with an unknown group_id 400s", async () => {
+  // A cross-org or nonexistent group is invisible under RLS, so the write must
+  // be rejected rather than persisting a dangling group_id.
+  const res = await post("/manual-tests", { title: "Grouped", group_id: 999999 });
+  assert.equal(res.status, 400, `expected 400 for unknown group_id; got ${res.status}`);
+});
+
+test("PATCH /manual-tests/:id with an unknown group_id 400s", async () => {
+  const res = await patch(`/manual-tests/${manualTestId}`, { group_id: 999999 });
+  assert.equal(res.status, 400, `expected 400 for unknown group_id; got ${res.status}`);
+});
+
 // ── Cleanup-style endpoints ─────────────────────────────────────────────
 
 test("DELETE /manual-test-groups/:id removes the group", async () => {
