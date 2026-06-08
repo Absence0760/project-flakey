@@ -583,11 +583,15 @@
         </header>
         <div class="pinned-list">
           {#each pinnedRuns as pr}
-            <a href="/runs/{pr.id}" class="pinned-item" class:fail={pr.failed > 0}>
-              <StatusDot status={liveRunIds.has(pr.id) ? 'live' : pr.failed > 0 ? 'fail' : 'pass'} />
+            <a href="/runs/{pr.id}" class="pinned-item" class:fail={!liveRunIds.has(pr.id) && pr.failed > 0}>
+              <StatusDot status={liveRunIds.has(pr.id) ? 'live' : pr.aborted ? 'aborted' : pr.failed > 0 ? 'fail' : 'pass'} />
               <span class="pinned-id">#{pr.id}</span>
               <span class="pinned-suite">{pr.suite_name}</span>
-              {#if pr.failed > 0}
+              {#if liveRunIds.has(pr.id)}
+                <span class="live-badge">LIVE</span>
+              {:else if pr.aborted}
+                <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
+              {:else if pr.failed > 0}
                 <span class="fail-badge">{pr.failed} failed</span>
               {:else}
                 <span class="pass-badge">passed</span>
