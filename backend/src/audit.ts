@@ -15,6 +15,15 @@ export async function logAudit(
       [orgId, userId, action, targetType ?? null, targetId ?? null, detail ? JSON.stringify(detail) : null]
     );
   } catch (err) {
-    console.error("Audit log failed:", err);
+    // Audit logging is a best-effort side-effect: a write failure must never
+    // abort the operation being audited, so we swallow rather than rethrow.
+    // But audit_log is a SOC 2 / GovRAMP forensic control — a silently missing
+    // row is a compliance gap. Log enough context (org, action, target) that a
+    // persistent failure is greppable and alertable instead of a faceless
+    // "Audit log failed". Detail is omitted: it can carry user-supplied values.
+    console.error(
+      `Audit log failed for org=${orgId} action=${action} target=${targetType ?? "-"}/${targetId ?? "-"}:`,
+      err
+    );
   }
 }
