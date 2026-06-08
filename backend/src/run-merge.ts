@@ -74,13 +74,20 @@ export async function findOrCreateRun(
 }
 
 /**
- * After merging specs into an existing run, recalculate the run's aggregate stats
- * from its specs and tests.
+ * After merging specs into an existing run, recalculate the run's aggregate
+ * stats from its specs.
  *
- * `pending` is derived from the tests table (specs only carries a combined
- * skipped+pending count). Initial-create populates runs.pending from the
- * normalized stats, so dropping it to a hardcoded 0 here would silently lose
- * the count whenever a run gets merged.
+ * All six counters are summed from the `specs` table — the same way the live
+ * path's recompute (`recomputeSpecAndRunStats` in routes/live.ts) derives them
+ * — so a merged run's row stays internally consistent: total == passed +
+ * failed + skipped + pending. `specs.skipped` and `specs.pending` are disjoint
+ * columns (migration 048), so summing both preserves the invariant.
+ *
+ * An earlier version derived `pending` by COUNTing tests with status='pending'
+ * (a pre-048 workaround from when specs.skipped folded in pending). That made
+ * the merge path compute `pending` differently from the live path and from the
+ * other five counters, which can break the total invariant on a payload whose
+ * spec aggregates disagree with its test rows. Sum specs.pending instead.
  *
  * `finished_at` is intentionally NOT touched here. It's set by the merge
  * upsert in findOrCreateRun from the reporter-supplied EXCLUDED.finished_at,
@@ -102,11 +109,7 @@ export async function recalculateRunStats(client: pg.PoolClient, runId: number):
          COALESCE(SUM(s.passed), 0)::int AS passed,
          COALESCE(SUM(s.failed), 0)::int AS failed,
          COALESCE(SUM(s.skipped), 0)::int AS skipped,
-         COALESCE((
-           SELECT COUNT(*)::int FROM tests t
-           JOIN specs sp ON sp.id = t.spec_id
-           WHERE sp.run_id = $1 AND t.status = 'pending'
-         ), 0) AS pending,
+         COALESCE(SUM(s.pending), 0)::int AS pending,
          COALESCE(SUM(s.duration_ms), 0)::bigint AS duration_ms
        FROM specs s
        WHERE s.run_id = $1
