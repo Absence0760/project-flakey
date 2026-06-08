@@ -73,7 +73,7 @@ function spawnApp(port: number, env: Record<string, string>): ChildProcess {
   return p;
 }
 
-const PORT = 3991;
+const PORT = 3903;
 const BASE = `http://localhost:${PORT}`;
 let server: ChildProcess;
 let token: string;

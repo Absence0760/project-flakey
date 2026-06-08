@@ -33,8 +33,8 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 
-// Outside the 3971-3999 band the other smokes use.
-const PORT = 3962;
+// Below the 3950+ band the other smokes use, so it can't collide.
+const PORT = 3900;
 const BASE = `http://localhost:${PORT}`;
 const ALLOWED = "https://app.example.com";
 const DISALLOWED = "https://evil.example.com";

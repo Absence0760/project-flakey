@@ -57,8 +57,8 @@ async function spawnServer(port: number, env: Record<string, string>): Promise<S
 }
 
 // Pick ports nothing else in src/tests/ uses (grep confirmed unique).
-const PORT_OPEN = 3961;
-const PORT_CLOSED = 3964;
+const PORT_OPEN = 3957;
+const PORT_CLOSED = 3958;
 
 let serverOpen: Server;
 let serverClosed: Server;

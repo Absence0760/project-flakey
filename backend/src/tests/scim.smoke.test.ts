@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import pg from "pg";
 
-const PORT = 3993;
+const PORT = 3904;
 const BASE = `http://localhost:${PORT}`;
 const ENC_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; // gitleaks:allow — test fixture
 

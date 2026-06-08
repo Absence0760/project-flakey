@@ -113,6 +113,18 @@ that needs its own isolated state, either:
 - Or create a second file that uses a different `PORT` so the two files
   can run in parallel without colliding
 
+**Smoke-test ports must be globally unique.** `node --test` runs test *files*
+concurrently (up to the core count), so any two files that bind the same port
+will intermittently fail with `EADDRINUSE` / `ECONNREFUSED` whenever they're
+scheduled at the same time — a flake that only some CI runs hit. Pick a port no
+other file uses (the lower `3900+` band is sparse), and verify uniqueness before
+committing — grep matches `PORT`, `PORT_OPEN`, `RECEIVER_PORT`, etc.:
+
+```sh
+grep -rhoE "(PORT[A-Z_]*|_PORT) *= *[0-9]+" src/tests/*.ts \
+  | grep -oE "[0-9]+$" | sort | uniq -d   # any output = a collision to fix
+```
+
 ## CI
 
 The real wiring lives in `.github/workflows/tests.yml` (the `backend` job).

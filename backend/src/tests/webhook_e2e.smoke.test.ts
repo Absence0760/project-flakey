@@ -22,7 +22,7 @@ import { once } from "node:events";
 import http, { type Server } from "node:http";
 
 const BACKEND_PORT = 3975;
-const RECEIVER_PORT = 3974;
+const RECEIVER_PORT = 3901;
 const BASE = `http://localhost:${BACKEND_PORT}`;
 const RECEIVER_URL = `http://localhost:${RECEIVER_PORT}/hook`;
 

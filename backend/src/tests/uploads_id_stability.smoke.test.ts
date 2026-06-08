@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 
-const PORT = 3996;
+const PORT = 3907;
 const BASE = `http://localhost:${PORT}`;
 
 let server: ChildProcess;

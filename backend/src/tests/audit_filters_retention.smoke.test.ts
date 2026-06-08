@@ -37,7 +37,7 @@ import pg from "pg";
 import { runRetentionCleanup } from "../retention.js";
 import type { Storage } from "../storage.js";
 
-const PORT = 3960;
+const PORT = 3956;
 const BASE = `http://localhost:${PORT}`;
 
 let server: ChildProcess;
