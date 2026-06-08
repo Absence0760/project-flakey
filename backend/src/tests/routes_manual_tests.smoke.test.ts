@@ -276,6 +276,65 @@ Scenario: Successful login
   assert.equal(cucumberRows.length, 1, "re-import must upsert, not duplicate");
 });
 
+test("POST /manual-tests/import-features: no-placeholder outline imports every Examples row", async () => {
+  // Regression: a Scenario Outline whose name has no <placeholder> expands to
+  // many scenarios sharing one name. They used to collide on source_ref and
+  // overwrite each other, leaving a single surviving manual test. Each row must
+  // now import as its own test.
+  const res = await post("/manual-tests/import-features", {
+    files: [{
+      path: "features/deploy.feature",
+      content: `Feature: Deploy
+Scenario Outline: Run the suite
+  Given environment <env> in <region>
+  Then it passes
+
+Examples:
+  | env   | region |
+  | prod  | us     |
+  | stage | eu     |
+  | dev   | ap     |
+`,
+    }],
+  });
+  assert.ok(res.ok, `import POST failed: ${res.status}`);
+
+  const list = await get("/manual-tests");
+  assert.equal(list.status, 200);
+  const data = await list.json();
+  const rows: Array<{ source: string; title: string }> = Array.isArray(data)
+    ? data
+    : (data as { rows: Array<{ source: string; title: string }> }).rows;
+  const suiteRows = rows.filter((r) => r.source === "cucumber" && r.title === "Run the suite");
+  assert.equal(suiteRows.length, 3, "all 3 Examples rows must import as distinct manual tests");
+
+  // And re-importing the same file upserts in place — still 3, not 6.
+  const reimport = await post("/manual-tests/import-features", {
+    files: [{
+      path: "features/deploy.feature",
+      content: `Feature: Deploy
+Scenario Outline: Run the suite
+  Given environment <env> in <region>
+  Then it passes
+
+Examples:
+  | env   | region |
+  | prod  | us     |
+  | stage | eu     |
+  | dev   | ap     |
+`,
+    }],
+  });
+  assert.ok(reimport.ok, `re-import POST failed: ${reimport.status}`);
+  const list2 = await get("/manual-tests");
+  const data2 = await list2.json();
+  const rows2: Array<{ source: string; title: string }> = Array.isArray(data2)
+    ? data2
+    : (data2 as { rows: Array<{ source: string; title: string }> }).rows;
+  const suiteRows2 = rows2.filter((r) => r.source === "cucumber" && r.title === "Run the suite");
+  assert.equal(suiteRows2.length, 3, "re-import must upsert each row in place, not duplicate");
+});
+
 // ── Cleanup-style endpoints ─────────────────────────────────────────────
 
 test("DELETE /manual-test-groups/:id removes the group", async () => {
