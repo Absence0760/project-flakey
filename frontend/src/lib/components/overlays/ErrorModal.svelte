@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { fetchTest, fetchTestHistory, checkAIEnabled, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
   import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
   import { authFetch } from "$lib/stores/auth";
@@ -147,10 +148,17 @@
   let historyLoaded = $state(false);
   let stackExpanded = $state(false);
 
+  // React ONLY to testId. loadTest reads historyLoaded/history synchronously
+  // before its first await, so without untrack those become effect deps —
+  // and the first History-tab click (which sets historyLoaded) would re-run
+  // loadTest and reset the whole modal. untrack keeps testId the sole trigger.
   $effect(() => {
-    if (testId) {
-      originalTestId = null;
-      loadTest(testId);
+    const id = testId;
+    if (id) {
+      untrack(() => {
+        originalTestId = null;
+        loadTest(id);
+      });
     }
   });
 

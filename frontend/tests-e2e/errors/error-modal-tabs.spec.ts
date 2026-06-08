@@ -160,6 +160,43 @@ test.describe("ErrorModal — Info / History / Notes (always-present tabs)", () 
     await expect(timeline.locator(".history-entry").first()).toBeVisible();
   });
 
+  test("first tab switch does not reset modal state (regression: loadTest re-run)", async ({ page }) => {
+    // Regression for the "first click resets the modal" glitch. The
+    // testId $effect synchronously read historyLoaded/history inside
+    // loadTest, so the FIRST History click (which sets historyLoaded)
+    // re-triggered the effect → loadTest ran again → it cleared
+    // collapsedGroups / currentScreenshot / leftTab. Subsequent clicks
+    // were fine because historyLoaded was already true. We assert a
+    // user-set Commands-tab collapse survives the first History click.
+    const { runId } = await findRunAndTest(page, {
+      titleFragment: "Gherkin demo",
+      needsCommandLog: true,
+    });
+    await openModalForTest(page, runId, "Login with valid credentials (Gherkin demo)");
+
+    // Commands is the default right tab for the gherkin (snapshot) test.
+    await page.locator(".pane-tab", { hasText: /^Commands/ }).click();
+    const firstGroup = page.locator(".command-list .cmd-gherkin").first();
+    await expect(firstGroup).toBeVisible({ timeout: 2_000 });
+
+    // Group starts open (▾). Collapse it (▸) — this is the user-set
+    // state that the glitch wiped.
+    await expect(firstGroup.locator(".cmd-chevron")).toHaveText("▾");
+    await firstGroup.click();
+    await expect(firstGroup.locator(".cmd-chevron")).toHaveText("▸");
+
+    // First-ever History click — the trigger for the old reset.
+    const historyTab = page.locator(".pane-tab", { hasText: /^History$/ });
+    await historyTab.click();
+    await expect(historyTab).toHaveClass(/active/);
+    await expect(page.locator(".history-timeline")).toBeVisible({ timeout: 5_000 });
+
+    // Back to Commands — the collapse must still be there. Pre-fix,
+    // loadTest had cleared collapsedGroups and this chevron read "▾".
+    await page.locator(".pane-tab", { hasText: /^Commands/ }).click();
+    await expect(firstGroup.locator(".cmd-chevron")).toHaveText("▸");
+  });
+
   test("Notes tab posts a new note + shows it back", async ({ page }) => {
     const { runId } = await findRunAndTest(page, {
       titleFragment: "Gherkin demo",
