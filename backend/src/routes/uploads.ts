@@ -217,28 +217,45 @@ router.post("/", uploadFields, async (req, res) => {
         );
         const specId = specResult.rows[0].id;
 
-        // Replace any live-path test rows for this spec — the upload carries
-        // the authoritative per-test list, so prior pending/partial rows
-        // would otherwise accumulate as duplicates. Snapshot the live-path's
-        // snapshot_path linkages (written by /live/:runId/snapshot mid-run)
-        // and screenshot_paths (written by /live/:runId/screenshot mid-run)
-        // so we can re-apply them to the fresh rows by matching full_title.
-        const preserved = await client.query(
-          `SELECT full_title, snapshot_path, screenshot_paths
-           FROM tests
-           WHERE spec_id = $1
-             AND (snapshot_path IS NOT NULL
-                  OR (screenshot_paths IS NOT NULL AND array_length(screenshot_paths, 1) > 0))`,
+        // Reconcile this spec's test rows IN PLACE instead of dropping and
+        // recreating them. The live path (spec.started / test.started /
+        // test.passed|failed) already created rows for this spec while the run
+        // was streaming; this upload is the authoritative snapshot. We match
+        // each uploaded test to an existing row by full_title and UPDATE it in
+        // place — preserving tests.id across the live→final handoff.
+        //
+        // A DELETE+INSERT here reassigns every id, which:
+        //   (a) 404s the run-detail test modal (GET /tests/:id → "Test not
+        //       found") for anyone who opened a scenario in the window between
+        //       the merge and their next poll/refetch — the row they clicked
+        //       still carries the pre-merge id; and
+        //   (b) silently nulls visual_diffs.test_id (ON DELETE SET NULL) on
+        //       every merge.
+        //
+        // full_title is not unique within a spec (data-driven tests repeat
+        // it), so ids are reused FIFO per title: the Nth uploaded test with a
+        // given title claims the Nth surviving live row with that title.
+        // Uploaded tests with no surviving match are INSERTed; live rows left
+        // unclaimed (e.g. a pending row for a test the final report dropped)
+        // are deleted after the loop. We also snapshot the live-path's
+        // snapshot_path / screenshot_paths (written mid-run by
+        // /live/:runId/snapshot|screenshot) so they fold back into the
+        // authoritative row by matching full_title.
+        const existing = await client.query(
+          `SELECT id, full_title, snapshot_path, screenshot_paths
+           FROM tests WHERE spec_id = $1 ORDER BY id`,
           [specId]
         );
+        const idsByTitle = new Map<string, number[]>();
         const snapshotByTitle = new Map<string, string>();
         const screenshotsByTitle = new Map<string, string[]>();
-        for (const row of preserved.rows) {
+        for (const row of existing.rows) {
+          const q = idsByTitle.get(row.full_title);
+          if (q) q.push(row.id); else idsByTitle.set(row.full_title, [row.id]);
           if (row.snapshot_path) snapshotByTitle.set(row.full_title, row.snapshot_path);
           if (row.screenshot_paths?.length) screenshotsByTitle.set(row.full_title, row.screenshot_paths);
         }
-
-        await client.query(`DELETE FROM tests WHERE spec_id = $1`, [specId]);
+        const reusedIds = new Set<number>();
 
         for (const test of spec.tests) {
           const matchedScreenshots: string[] = [];
@@ -282,25 +299,60 @@ router.post("/", uploadFields, async (req, res) => {
 
           // Merge any screenshots that were streamed mid-run via
           // /live/:runId/screenshot with whatever the batch upload found, so
-          // per-test live uploads aren't clobbered by the end-of-run rewrite.
+          // per-test live uploads aren't clobbered by the end-of-run merge.
           const streamed = screenshotsByTitle.get(test.full_title) ?? [];
           const finalScreenshots = Array.from(new Set([
             ...streamed,
             ...(matchedScreenshots.length > 0 ? matchedScreenshots : test.screenshot_paths),
           ]));
 
-          await client.query(
-            `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-            [specId, test.title, test.full_title, test.status, test.duration_ms,
-             test.error?.message ?? null, test.error?.stack ?? null,
-             finalScreenshots,
-             specVideo ?? test.video_path ?? null,
-             test.test_code ?? null,
-             test.command_log ? JSON.stringify(test.command_log) : null,
-             test.metadata ? JSON.stringify(test.metadata) : null,
-             snapshotPath]
-          );
+          // Reuse a surviving live row's id (UPDATE in place) when this
+          // full_title still has one unclaimed; otherwise INSERT a fresh row.
+          const titleQueue = idsByTitle.get(test.full_title);
+          const reuseId = titleQueue && titleQueue.length ? titleQueue.shift()! : null;
+
+          if (reuseId !== null) {
+            reusedIds.add(reuseId);
+            await client.query(
+              `UPDATE tests SET
+                 title = $2, full_title = $3, status = $4, duration_ms = $5,
+                 error_message = $6, error_stack = $7, screenshot_paths = $8,
+                 video_path = $9, test_code = $10, command_log = $11,
+                 metadata = $12, snapshot_path = $13
+               WHERE id = $1`,
+              [reuseId, test.title, test.full_title, test.status, test.duration_ms,
+               test.error?.message ?? null, test.error?.stack ?? null,
+               finalScreenshots,
+               specVideo ?? test.video_path ?? null,
+               test.test_code ?? null,
+               test.command_log ? JSON.stringify(test.command_log) : null,
+               test.metadata ? JSON.stringify(test.metadata) : null,
+               snapshotPath]
+            );
+          } else {
+            await client.query(
+              `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              [specId, test.title, test.full_title, test.status, test.duration_ms,
+               test.error?.message ?? null, test.error?.stack ?? null,
+               finalScreenshots,
+               specVideo ?? test.video_path ?? null,
+               test.test_code ?? null,
+               test.command_log ? JSON.stringify(test.command_log) : null,
+               test.metadata ? JSON.stringify(test.metadata) : null,
+               snapshotPath]
+            );
+          }
+        }
+
+        // Delete live rows the upload didn't claim — e.g. a 'pending' row for
+        // a test the final report no longer contains. Leaving them would
+        // strand orphan rows that inflate the spec's counts.
+        const staleIds = existing.rows
+          .map((r) => r.id as number)
+          .filter((id) => !reusedIds.has(id));
+        if (staleIds.length > 0) {
+          await client.query(`DELETE FROM tests WHERE id = ANY($1)`, [staleIds]);
         }
       }
 

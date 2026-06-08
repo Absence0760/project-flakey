@@ -725,9 +725,10 @@ router.post("/:runId/snapshot", snapshotUpload.single("snapshot"), async (req, r
  * POST /live/:runId/screenshot — stream a single screenshot mid-run.
  * Body (multipart): file field "screenshot" (.png), text fields "spec" and "testTitle".
  * Stores at runs/{runId}/screenshots/{filename} and appends the relative path to
- * the matching test's screenshot_paths array. The path is preserved across the
- * end-of-run upload's tests delete+reinsert (see routes/uploads.ts), so the
- * association survives the final batch upload.
+ * the matching test's screenshot_paths array. The path is folded back into the
+ * authoritative row by the end-of-run upload's in-place merge (it matches by
+ * full_title — see routes/uploads.ts), so the association survives the final
+ * batch upload.
  */
 router.post("/:runId/screenshot", screenshotUpload.single("screenshot"), async (req, res) => {
   const file = req.file;
