@@ -33,6 +33,44 @@ async function getConfig(orgId: number): Promise<GitProviderConfig | null> {
 }
 
 /**
+ * Format a coverage percentage for the status description so the rendered
+ * number can never contradict the gate decision. `toFixed(1)` rounds half-up,
+ * so 79.96% against an 80% threshold (a fail) renders "80.0" and the status
+ * reads the contradictory "Coverage 80.0% < 80%". `pass` is the *exact*
+ * decision (`linesPct >= threshold`), passed in rather than re-derived here —
+ * we only widen the displayed precision until the shown number lands on the
+ * same side of the threshold as that decision. One decimal in the common case.
+ */
+export function formatCoveragePct(linesPct: number, threshold: number, pass: boolean): string {
+  for (let dp = 1; dp <= 6; dp++) {
+    const shown = Number(linesPct.toFixed(dp));
+    if (pass ? shown >= threshold : shown < threshold) return linesPct.toFixed(dp);
+  }
+  // Within ~1e-6 of the threshold — round in the safe direction so the display
+  // still never crosses it (down on a fail, up on a pass).
+  const factor = 1e6;
+  const safe = pass ? Math.ceil(linesPct * factor) / factor : Math.floor(linesPct * factor) / factor;
+  return String(safe);
+}
+
+/**
+ * Pure gate decision + status description. Exported so the threshold logic and
+ * the contradiction-free formatting are unit-testable without postCoverageStatus's
+ * DB lookup and provider HTTP call.
+ */
+export function coverageStatusContent(
+  linesPct: number,
+  threshold: number,
+): { state: "success" | "failure"; description: string } {
+  const pass = linesPct >= threshold;
+  const shown = formatCoveragePct(linesPct, threshold, pass);
+  return {
+    state: pass ? "success" : "failure",
+    description: pass ? `Coverage ${shown}% ≥ ${threshold}%` : `Coverage ${shown}% < ${threshold}%`,
+  };
+}
+
+/**
  * Post a commit status with the coverage gate result, using whichever git
  * provider the org has configured. Swallows errors.
  */
@@ -53,16 +91,14 @@ export async function postCoverageStatus(
     : createBitbucketProvider(cfg);
 
   const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
-  const pass = linesPct >= threshold;
+  const { state, description } = coverageStatusContent(linesPct, threshold);
 
   try {
     await provider.postCommitStatus({
       commitSha,
-      state: pass ? "success" : "failure",
+      state,
       targetUrl: `${frontendUrl}/runs/${runId}`,
-      description: pass
-        ? `Coverage ${linesPct.toFixed(1)}% ≥ ${threshold}%`
-        : `Coverage ${linesPct.toFixed(1)}% < ${threshold}%`,
+      description,
       context: `flakey/coverage/${suiteName}`,
     });
   } catch (err) {
