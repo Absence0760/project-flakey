@@ -14,6 +14,23 @@ import { sendEmail } from "./email.js";
 // as long as it doesn't collide with other advisory locks in the app.
 const SCHEDULED_REPORTS_LOCK_KEY = 0x666c616b79; // "flaky" (441_119_769_721, fits in JS Number safely)
 
+/**
+ * Daily dedup predicate: true when a report has NOT already been sent on the
+ * current calendar day.
+ *
+ * Anchored to UTC (not the DB session timezone) on purpose. The scheduling
+ * decision below keys off `hour_utc` / `day_of_week`, both compared against
+ * JS `getUTCHours()` / `getUTCDay()` — so "today" must mean the UTC calendar
+ * day too. A bare `last_sent_at::date < CURRENT_DATE` resolves the day
+ * boundary in the session's timezone (`SET TimeZone`, which defaults to the
+ * server's setting). On a non-UTC session that boundary falls in the middle
+ * of a UTC day, so a daily report can re-send within the same UTC day once the
+ * local date rolls over while the UTC date hasn't. Forcing UTC keeps the dedup
+ * consistent with the schedule regardless of how the DB session is configured.
+ */
+export const DAILY_NOT_SENT_TODAY_SQL =
+  "(last_sent_at IS NULL OR (last_sent_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date)";
+
 export async function runScheduledReports(): Promise<void> {
   // Use a transaction-scoped advisory lock so the lock is automatically released
   // when the transaction ends — no explicit pg_advisory_unlock needed, eliminating
@@ -49,8 +66,10 @@ export async function runScheduledReports(): Promise<void> {
          WHERE active = true
            AND hour_utc <= $1
            AND (
-             (cadence = 'daily'  AND (last_sent_at IS NULL OR last_sent_at::date < CURRENT_DATE))
+             (cadence = 'daily'  AND ${DAILY_NOT_SENT_TODAY_SQL})
              OR
+             -- Weekly window is an absolute-instant comparison (both sides
+             -- timestamptz), so it's already timezone-independent.
              (cadence = 'weekly' AND day_of_week = $2
                AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days'))
            )`,
