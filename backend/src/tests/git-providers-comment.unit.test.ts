@@ -10,6 +10,8 @@
  *   - duration formatting is correct across the ms/s/m/h boundaries
  *   - long names / null errors / newline-laden errors don't break markdown
  *   - the flaky list caps at 10, and is absent when there are none
+ *   - the headline Status agrees with classifyRunStatus (the badge / API ship
+ *     signal) — a run with pending tests reads "Incomplete", never a false green
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -246,6 +248,76 @@ test("flaky list >10 is capped at 10 entries", () => {
 test("single flaky test uses singular 'Flaky Test' in the header", () => {
   const body = buildCommentBody(mkRun(), 1, URL, "", ["only one"]);
   assert.ok(body.includes("1 Flaky Test<"), `singular header expected: ${body}`);
+});
+
+// ── headline status agrees with classifyRunStatus (no false green) ──────
+//
+// The comment is a ship signal posted on the PR, so its Status row must match
+// the badge / GET /runs/status — both of which derive from classifyRunStatus.
+// The prior `failed > 0 ? Failed : Passed` heuristic ignored pending tests, so
+// an unfinished run (failed = 0 but not every test accounted for) read a
+// contradictory green "Passed". These lock the agreement.
+
+test("a run with pending tests (failed=0, total > passed+skipped) is Incomplete, not Passed", () => {
+  // 8 passed, 0 failed, 0 skipped, 2 pending → total 10. classifyRunStatus → incomplete.
+  const tests = [
+    ...Array.from({ length: 8 }, (_, i) => mkTest({ status: "passed", full_title: `p${i}` })),
+    ...Array.from({ length: 2 }, (_, i) => mkTest({ status: "pending", full_title: `pend${i}` })),
+  ];
+  const spec = mkSpec({
+    tests,
+    stats: { total: 10, passed: 8, failed: 0, skipped: 0, pending: 2, duration_ms: 100 },
+  });
+  const body = buildCommentBody(
+    mkRun({ stats: { total: 10, passed: 8, failed: 0, skipped: 0, pending: 2 }, specs: [spec] }),
+    1, URL, "", []
+  );
+
+  assert.ok(body.includes("| **Status** | Incomplete |"), `incomplete run must not read Passed: ${body}`);
+  assert.ok(body.includes("⚠️"), "incomplete uses the warning icon, not the green check");
+  assert.ok(!body.includes("✅"), "an incomplete run must never show the passing check");
+  // The pending count is surfaced so the Incomplete status is explained.
+  assert.ok(body.includes("| **Pending** | 2 |"), `pending row must appear: ${body}`);
+});
+
+test("a fully-accounted-for run (passed + skipped === total, no failures) is Passed", () => {
+  const tests = [
+    ...Array.from({ length: 7 }, (_, i) => mkTest({ status: "passed", full_title: `p${i}` })),
+    ...Array.from({ length: 3 }, (_, i) => mkTest({ status: "skipped", full_title: `s${i}` })),
+  ];
+  const spec = mkSpec({
+    tests,
+    stats: { total: 10, passed: 7, failed: 0, skipped: 3, pending: 0, duration_ms: 100 },
+  });
+  const body = buildCommentBody(
+    mkRun({ stats: { total: 10, passed: 7, failed: 0, skipped: 3, pending: 0 }, specs: [spec] }),
+    1, URL, "", []
+  );
+
+  assert.ok(body.includes("| **Status** | Passed |"), `clean run should be Passed: ${body}`);
+  assert.ok(body.includes("✅"), "passing icon");
+  // No pending row when there are no pending tests (kept off the table).
+  assert.ok(!body.includes("**Pending**"), "no pending row when pending is zero");
+});
+
+test("any failure wins over pending — failed run reads Failed even with pending tests", () => {
+  const tests = [
+    mkTest({ status: "failed", full_title: "broke", error: { message: "boom" } }),
+    mkTest({ status: "pending", full_title: "never ran" }),
+  ];
+  const spec = mkSpec({
+    tests,
+    stats: { total: 2, passed: 0, failed: 1, skipped: 0, pending: 1, duration_ms: 5 },
+  });
+  const body = buildCommentBody(
+    mkRun({ stats: { total: 2, passed: 0, failed: 1, skipped: 0, pending: 1 }, specs: [spec] }),
+    1, URL, "", []
+  );
+
+  assert.ok(body.includes("| **Status** | Failed |"), `failure must take precedence: ${body}`);
+  assert.ok(body.includes("❌"), "failing icon");
+  // Pending still surfaced in the table.
+  assert.ok(body.includes("| **Pending** | 1 |"), "pending row present alongside the failure");
 });
 
 // ── trend row is conditional ────────────────────────────────────────────
