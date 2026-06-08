@@ -14,9 +14,9 @@
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
-    "@aws-sdk/client-s3": "^3.1058.0",
-    "@aws-sdk/s3-request-presigner": "^3.1058.0",
+    "@anthropic-ai/sdk": "^0.102.0",
+    "@aws-sdk/client-s3": "^3.1063.0",
+    "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@node-saml/node-saml": "^5.1.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
