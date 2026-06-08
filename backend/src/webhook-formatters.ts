@@ -65,6 +65,9 @@ function truncate(str: string, max: number): string {
 // hard limit so the payload always stays valid.
 const SLACK_LIST_CAP = 10;
 const SLACK_SECTION_TEXT_LIMIT = 3000;
+// Slack section `fields` each take an mrkdwn text capped at 2000 chars. Only the
+// branch field carries an unbounded value, so guard its assembled text.
+const SLACK_FIELD_TEXT_LIMIT = 2000;
 // Slack `header` blocks take a plain_text whose text maxes out at 150 chars;
 // past that Slack rejects the whole message with invalid_blocks. The title
 // embeds the (unbounded) suite name, so it must be truncated.
@@ -74,6 +77,10 @@ const SLACK_HEADER_TEXT_LIMIT = 150;
 // big run. Cap rows (Slack/Discord already bound their output) with an overflow
 // line, matching the Slack list behaviour.
 const TEAMS_LIST_CAP = 20;
+// Teams has no per-element char limit, but the title + FactSet values embed
+// unbounded user strings (suite name, branch, trend) that count toward the
+// card's ~28KB ceiling. Bound them generously — past any legitimate value.
+const TEAMS_TEXT_LIMIT = 256;
 // Discord embed titles max out at 256 chars; past that the embed is rejected.
 const DISCORD_TITLE_LIMIT = 256;
 // Discord embed field values must be 1–1024 chars; empty or oversized → reject.
@@ -154,7 +161,7 @@ function formatSlack(p: WebhookRunPayload): object {
     {
       type: "section",
       fields: [
-        { type: "mrkdwn", text: `*Branch:*\n${run.branch || "n/a"}` },
+        { type: "mrkdwn", text: truncate(`*Branch:*\n${run.branch || "n/a"}`, SLACK_FIELD_TEXT_LIMIT) },
         { type: "mrkdwn", text: `*Commit:*\n\`${shortSha(run.commit_sha)}\`` },
         { type: "mrkdwn", text: `*Duration:*\n${formatDuration(run.duration_ms)}` },
         { type: "mrkdwn", text: `*Results:*\n\u274c ${run.failed} failed  \u2705 ${run.passed} passed  \u23e9 ${run.skipped} skipped` },
@@ -176,7 +183,9 @@ function formatSlack(p: WebhookRunPayload): object {
       type: "section",
       text: { type: "mrkdwn", text: `*\ud83d\udea8 ${p.new_failures.length} New Failure${p.new_failures.length > 1 ? "s" : ""} (passed last run, failing now):*` },
     });
-    const lines = p.new_failures.map((t) => {
+    // Only the first SLACK_LIST_CAP rows are ever rendered; map just those
+    // (slackSectionText derives the overflow count from the full length).
+    const lines = p.new_failures.slice(0, SLACK_LIST_CAP).map((t) => {
       const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
       return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
     });
@@ -193,7 +202,7 @@ function formatSlack(p: WebhookRunPayload): object {
       type: "section",
       text: { type: "mrkdwn", text: `*\ud83c\udfb2 ${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:*` },
     });
-    const lines = p.flaky_tests.map((t) =>
+    const lines = p.flaky_tests.slice(0, SLACK_LIST_CAP).map((t) =>
       `\u2022 *${truncate(t.full_title, 80)}*\n>  \`${truncate(t.file_path, 40)}\` \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
     );
     blocks.push({
@@ -203,7 +212,7 @@ function formatSlack(p: WebhookRunPayload): object {
   }
 
   if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
-    const failureLines = p.failed_tests.map((t) => {
+    const failureLines = p.failed_tests.slice(0, SLACK_LIST_CAP).map((t) => {
       const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
       return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
     });
@@ -261,16 +270,16 @@ function formatTeams(p: WebhookRunPayload): object {
       size: "Large",
       weight: "Bolder",
       color,
-      text: title,
+      text: truncate(title, TEAMS_TEXT_LIMIT),
     },
     {
       type: "FactSet",
       facts: [
-        { title: "Branch", value: run.branch || "n/a" },
+        { title: "Branch", value: truncate(run.branch || "n/a", TEAMS_TEXT_LIMIT) },
         { title: "Commit", value: shortSha(run.commit_sha) },
         { title: "Duration", value: formatDuration(run.duration_ms) },
         { title: "Results", value: `${run.failed} failed / ${run.passed} passed / ${run.skipped} skipped` },
-        { title: "Recent", value: p.trend || "n/a" },
+        { title: "Recent", value: truncate(p.trend || "n/a", TEAMS_TEXT_LIMIT) },
       ],
     },
   ];
