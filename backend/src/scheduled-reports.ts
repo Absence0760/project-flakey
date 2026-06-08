@@ -80,6 +80,40 @@ export async function runScheduledReports(): Promise<void> {
   }
 }
 
+/**
+ * Deliver a single report immediately, bypassing the schedule window.
+ *
+ * Backs `POST /reports/:id/run` — an explicit admin "send a test now" action.
+ * It must NOT be gated by hour_utc / day_of_week / active the way the
+ * background sweep (runScheduledReports) is: the whole point of the button is
+ * to verify a destination right now, whatever the wall-clock hour or weekday,
+ * and whether or not the report is currently active.
+ *
+ * Stamps last_sent_at on success so the scheduled tick won't re-send the same
+ * window. Returns false when no report with that id exists in the org (RLS
+ * scopes the lookup, so a cross-org id simply isn't found → 404 at the route).
+ */
+export async function sendReportNow(orgId: number, reportId: number): Promise<boolean> {
+  const result = await tenantQuery(
+    orgId,
+    `SELECT id, org_id, name, cadence, day_of_week, hour_utc, channel, destination,
+            suite_filter, last_sent_at
+     FROM scheduled_reports
+     WHERE id = $1`,
+    [reportId]
+  );
+  const report = result.rows[0];
+  if (!report) return false;
+
+  await deliverReport(report);
+  await tenantQuery(
+    orgId,
+    "UPDATE scheduled_reports SET last_sent_at = NOW() WHERE id = $1",
+    [reportId]
+  );
+  return true;
+}
+
 async function deliverReport(report: any): Promise<void> {
   const since = report.cadence === "daily" ? "1 day" : "7 days";
   const suiteFilter = report.suite_filter ? " AND suite_name = $2" : "";

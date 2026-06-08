@@ -185,14 +185,20 @@ router.post("/:id/run", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    // Reset last_sent_at so scheduler picks it up next tick (or run it immediately).
-    const { runScheduledReports } = await import("../scheduled-reports.js");
-    await tenantQuery(
-      req.user!.orgId,
-      "UPDATE scheduled_reports SET last_sent_at = NULL WHERE id = $1",
-      [req.params.id]
-    );
-    await runScheduledReports();
+    const reportId = Number(req.params.id);
+    if (!Number.isInteger(reportId)) {
+      res.status(404).json({ error: "Report not found" });
+      return;
+    }
+    // Deliver this specific report now, bypassing the schedule window — a
+    // "send a test" must fire regardless of hour_utc / day_of_week, not just
+    // re-run the time-gated background sweep.
+    const { sendReportNow } = await import("../scheduled-reports.js");
+    const sent = await sendReportNow(req.user!.orgId, reportId);
+    if (!sent) {
+      res.status(404).json({ error: "Report not found" });
+      return;
+    }
     res.json({ triggered: true });
   } catch (err) {
     console.error("POST /reports/:id/run error:", err);
