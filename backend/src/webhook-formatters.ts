@@ -65,6 +65,31 @@ function truncate(str: string, max: number): string {
 // hard limit so the payload always stays valid.
 const SLACK_LIST_CAP = 10;
 const SLACK_SECTION_TEXT_LIMIT = 3000;
+// Slack `header` blocks take a plain_text whose text maxes out at 150 chars;
+// past that Slack rejects the whole message with invalid_blocks. The title
+// embeds the (unbounded) suite name, so it must be truncated.
+const SLACK_HEADER_TEXT_LIMIT = 150;
+// Teams renders one TextBlock per test row; an Adaptive Card has a hard ~28KB
+// size limit, so an unbounded list silently drops the whole notification on a
+// big run. Cap rows (Slack/Discord already bound their output) with an overflow
+// line, matching the Slack list behaviour.
+const TEAMS_LIST_CAP = 20;
+// Discord embed titles max out at 256 chars; past that the embed is rejected.
+const DISCORD_TITLE_LIMIT = 256;
+// Discord embed field values must be 1–1024 chars; empty or oversized → reject.
+const DISCORD_FIELD_VALUE_LIMIT = 1024;
+
+// The "…and N more" overflow row Teams appends when a list is capped.
+function teamsOverflow(total: number): object | null {
+  if (total <= TEAMS_LIST_CAP) return null;
+  return {
+    type: "TextBlock",
+    text: `\u2026and ${total - TEAMS_LIST_CAP} more`,
+    wrap: true,
+    size: "Small",
+    isSubtle: true,
+  };
+}
 
 function slackSectionText(lines: string[], total: number): string {
   const shown = lines.slice(0, SLACK_LIST_CAP);
@@ -124,7 +149,7 @@ function formatSlack(p: WebhookRunPayload): object {
   const blocks: object[] = [
     {
       type: "header",
-      text: { type: "plain_text", text: title, emoji: true },
+      text: { type: "plain_text", text: truncate(title, SLACK_HEADER_TEXT_LIMIT), emoji: true },
     },
     {
       type: "section",
@@ -178,24 +203,30 @@ function formatSlack(p: WebhookRunPayload): object {
   }
 
   if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
-    if (p.event !== "new.failures") {
+    const failureLines = p.failed_tests.map((t) => {
+      const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
+      return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
+    });
+    if (p.event === "new.failures") {
+      // The new failures are already rendered above. Only add the full list
+      // when it holds more than just those \u2014 and render the rows under the
+      // heading, not just the heading (the heading used to be emitted with no
+      // body, leaving a dangling "All N failures:" with nothing beneath it).
+      if (p.failed_tests.length > (p.new_failures?.length ?? 0)) {
+        blocks.push({
+          type: "section",
+          text: { type: "mrkdwn", text: `*All ${p.failed_tests.length} failures:*` },
+        });
+        blocks.push({
+          type: "section",
+          text: { type: "mrkdwn", text: slackSectionText(failureLines, p.failed_tests.length) },
+        });
+      }
+    } else {
       blocks.push({ type: "divider" });
-    }
-    // For new.failures, also show all failures below if there are more than just the new ones
-    if (p.event === "new.failures" && p.failed_tests.length > (p.new_failures?.length ?? 0)) {
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: `*All ${p.failed_tests.length} failures:*` },
-      });
-    }
-    if (p.event !== "new.failures") {
-      const lines = p.failed_tests.map((t) => {
-        const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
-        return `\u2022 \`${truncate(t.spec_file, 40)}\` \u2014 *${truncate(t.full_title, 80)}*${err}`;
-      });
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: slackSectionText(lines, p.failed_tests.length) },
+        text: { type: "mrkdwn", text: slackSectionText(failureLines, p.failed_tests.length) },
       });
     }
   }
@@ -251,7 +282,7 @@ function formatTeams(p: WebhookRunPayload): object {
       weight: "Bolder",
       spacing: "Medium",
     });
-    for (const t of p.new_failures) {
+    for (const t of p.new_failures.slice(0, TEAMS_LIST_CAP)) {
       const err = t.error_message ? `\n\n${truncate(t.error_message, 150)}` : "";
       body.push({
         type: "TextBlock",
@@ -260,6 +291,8 @@ function formatTeams(p: WebhookRunPayload): object {
         size: "Small",
       });
     }
+    const more = teamsOverflow(p.new_failures.length);
+    if (more) body.push(more);
   }
 
   if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
@@ -269,7 +302,7 @@ function formatTeams(p: WebhookRunPayload): object {
       weight: "Bolder",
       spacing: "Medium",
     });
-    for (const t of p.flaky_tests) {
+    for (const t of p.flaky_tests.slice(0, TEAMS_LIST_CAP)) {
       body.push({
         type: "TextBlock",
         text: `\u2022 **${truncate(t.full_title, 80)}** \u2014 \`${truncate(t.file_path, 40)}\`\n\n${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`,
@@ -277,6 +310,8 @@ function formatTeams(p: WebhookRunPayload): object {
         size: "Small",
       });
     }
+    const more = teamsOverflow(p.flaky_tests.length);
+    if (more) body.push(more);
   }
 
   if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected") {
@@ -286,7 +321,7 @@ function formatTeams(p: WebhookRunPayload): object {
       weight: "Bolder",
       spacing: "Medium",
     });
-    for (const t of p.failed_tests) {
+    for (const t of p.failed_tests.slice(0, TEAMS_LIST_CAP)) {
       const err = t.error_message ? `\n\n${truncate(t.error_message, 150)}` : "";
       body.push({
         type: "TextBlock",
@@ -295,6 +330,8 @@ function formatTeams(p: WebhookRunPayload): object {
         size: "Small",
       });
     }
+    const more = teamsOverflow(p.failed_tests.length);
+    if (more) body.push(more);
   }
 
   return {
@@ -325,16 +362,18 @@ function formatDiscord(p: WebhookRunPayload): object {
     : p.event === "new.failures" ? 0xff8800
     : 0xff4444;
 
+  // Discord rejects an embed whose field value is empty or exceeds 1024 chars,
+  // so the user-derived values (suite, branch, trend) get a fallback + cap.
   const fields = [
-    { name: "Suite", value: run.suite_name, inline: true },
-    { name: "Branch", value: run.branch || "n/a", inline: true },
+    { name: "Suite", value: truncate(run.suite_name || "n/a", DISCORD_FIELD_VALUE_LIMIT), inline: true },
+    { name: "Branch", value: truncate(run.branch || "n/a", DISCORD_FIELD_VALUE_LIMIT), inline: true },
     { name: "Commit", value: `\`${shortSha(run.commit_sha)}\``, inline: true },
     { name: "Results", value: `\u274c ${run.failed} failed \u2002\u2705 ${run.passed} passed \u2002\u23e9 ${run.skipped} skipped`, inline: false },
     { name: "Duration", value: formatDuration(run.duration_ms), inline: true },
   ];
 
   if (p.trend) {
-    fields.push({ name: "Recent", value: p.trend, inline: true });
+    fields.push({ name: "Recent", value: truncate(p.trend, DISCORD_FIELD_VALUE_LIMIT), inline: true });
   }
 
   let description = "";
@@ -373,7 +412,7 @@ function formatDiscord(p: WebhookRunPayload): object {
 
   return {
     embeds: [{
-      title,
+      title: truncate(title, DISCORD_TITLE_LIMIT),
       color: embedColor,
       url: run.url,
       description,
