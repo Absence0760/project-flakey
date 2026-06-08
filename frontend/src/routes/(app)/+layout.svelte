@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/stores/auth';
+	import { rememberView, viewFor } from '$lib/stores/section-views.svelte';
 	import { API_URL } from '$lib/utils/config';
 	import Toasts from '$lib/components/overlays/Toasts.svelte';
 	import type { Snippet } from 'svelte';
@@ -27,6 +28,17 @@
 	let profileOpen = $state(false);
 
 	const currentOrg = $derived(orgs.find(o => o.id === user?.orgId));
+
+	// Remember each top-level section's filters (its query string) as the user
+	// changes them — the pages keep their filters in the URL, so capturing the
+	// current search string lets the sidebar restore them on a round-trip.
+	// Only the exact list-page paths the sidebar links to are tracked, so a
+	// detail page like /runs/123 doesn't clobber the remembered /runs filters.
+	$effect(() => {
+		const path = $page.url.pathname;
+		const search = $page.url.search;
+		if (nav.some((n) => n.href === path)) rememberView(path, search);
+	});
 
 	onMount(() => {
 		// Clean up the legacy "theme" key that the removed light/dark
@@ -157,7 +169,7 @@
 			<nav>
 				{#each nav as item}
 					<a
-						href={item.href}
+						href={item.href + viewFor(item.href)}
 						class="nav-item"
 						class:active={isActive(item.href, $page.url.pathname)}
 					>

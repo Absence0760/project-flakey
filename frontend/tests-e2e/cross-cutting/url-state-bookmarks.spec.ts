@@ -85,3 +85,37 @@ test.describe("URL state — bookmarkable filters", () => {
     ).toHaveClass(/active/, { timeout: 10_000 });
   });
 });
+
+/**
+ * Sidebar round-trip — filters live in the URL, but the sidebar links are
+ * bare paths. The (app) layout remembers each section's last query string
+ * (section-views store) so navigating away and back via the sidebar restores
+ * the filters instead of resetting them. Regression for that wiring.
+ */
+test.describe("Sidebar remembers per-section filters", () => {
+  test("returning to a section via the sidebar restores its last filters", async ({ page }) => {
+    // Land on /runs and narrow to failed runs — this writes ?status=failed.
+    await page.goto("/runs?status=failed");
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".filter-tab", { hasText: "Failed" })).toHaveClass(/active/);
+
+    // Navigate away via the sidebar, then back — the "Automated runs" link
+    // should carry the remembered query string, not reset to the default.
+    await page.locator(".nav-item", { hasText: "Flaky" }).click();
+    await expect(page).toHaveURL(/\/flaky/, { timeout: 10_000 });
+
+    await page.locator(".nav-item", { hasText: "Automated runs" }).click();
+    await expect(page).toHaveURL(/\/runs\?.*status=failed/, { timeout: 10_000 });
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".filter-tab", { hasText: "Failed" })).toHaveClass(/active/);
+  });
+
+  test("an untouched section's sidebar link stays a bare path", async ({ page }) => {
+    // Visiting /runs unfiltered must not leave a stale query string on the
+    // Flaky link the user never touched.
+    await page.goto("/runs");
+    await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 10_000 });
+    const flakyHref = await page.locator(".nav-item", { hasText: "Flaky" }).getAttribute("href");
+    expect(flakyHref).toBe("/flaky");
+  });
+});

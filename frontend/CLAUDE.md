@@ -30,6 +30,8 @@ Auth state is a plain singleton in `src/lib/stores/auth.ts` (not a Svelte store)
 
 Several pages keep filter state in the URL using `$page.url.searchParams` and write it back with SvelteKit's `replaceState` from `$app/navigation`. This avoids full navigation for filter changes while keeping views bookmarkable and shareable. See `src/routes/(app)/flaky/+page.svelte` for the canonical example.
 
+Because the sidebar links are bare paths (`/runs`), a round-trip through the nav would otherwise drop those query strings. `src/lib/stores/section-views.svelte.ts` (a Svelte 5 rune store, sessionStorage-backed) remembers each section's last query string; the `(app)` layout captures it as the user filters and points each sidebar link at `item.href + viewFor(item.href)` so filters survive away-and-back navigation. New top-level filterable pages get this for free as long as they keep their filters in the URL.
+
 ## Deployment
 
 Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapter-static`. There is no Vercel configuration.
