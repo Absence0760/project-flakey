@@ -164,6 +164,18 @@ doubt, follow the rule and say so.
     `README.md` / `docs/*` / per-area `CLAUDE.md`, and add a new convention here
     or in the relevant `CLAUDE.md`. The `doc-hygiene-checker` agent and `/check`
     enforce this; don't make them do the catching.
+13. **No dangling "deferred" or "out-of-scope" findings.** A real issue you
+    surface — in a review, an audit, a `/audit-and-fix` report, a code comment,
+    or your own analysis — must be driven to a concrete resolution, not left as
+    a passing mention. The default is **fix it in the same session** when it's
+    bounded and you've already done the diagnosis. Only when a fix is genuinely
+    too large or risky to land now may you defer — and a deferral is not "noted
+    and forgotten": it requires a tracked follow-up (a GitHub issue or Jira
+    ticket — confirm before creating per the connector rule) that names what's
+    broken, the durable fix, and the trigger to do it. "Deferred / recommended"
+    in a report is a staging area, not a destination: close each item the same
+    session or file it. This extends rails 5–6 (surface, don't half-mask) —
+    surfacing is the start of the obligation, not the end of it.
 
 ## Fix bugs at the source — never adjust the test to hide them
 
