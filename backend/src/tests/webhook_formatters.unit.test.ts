@@ -317,7 +317,9 @@ test("teams and discord do not throw on the same large flaky payload", () => {
 //   #4 Discord embed title could exceed Discord's 256-char limit.
 
 const SLACK_HEADER_TEXT_LIMIT = 150;
+const SLACK_FIELD_TEXT_LIMIT = 2000;
 const TEAMS_LIST_CAP = 20;
+const TEAMS_TEXT_LIMIT = 256;
 const DISCORD_TITLE_LIMIT = 256;
 
 function slackHeaderText(out: unknown): string | undefined {
@@ -373,6 +375,51 @@ test("slack: a very long suite name keeps the header within Slack's 150-char lim
     header!.length <= SLACK_HEADER_TEXT_LIMIT,
     `slack header length ${header!.length} exceeds Slack's ${SLACK_HEADER_TEXT_LIMIT}-char limit`,
   );
+});
+
+// #2b — Slack section fields: the unbounded branch value stays within 2000.
+test("slack: an oversized branch keeps the branch field within Slack's 2000-char field limit", () => {
+  const out = formatPayload("slack", basePayload({
+    run: { ...basePayload().run, branch: "b".repeat(5000) },
+  }));
+  const blocks = (out as { blocks?: Array<Record<string, unknown>> }).blocks ?? [];
+  const fieldsBlock = blocks.find(
+    (b) => b.type === "section" && Array.isArray((b as { fields?: unknown }).fields),
+  );
+  const fields = ((fieldsBlock as { fields?: Array<{ text: string }> })?.fields) ?? [];
+  const branch = fields.find((f) => f.text.startsWith("*Branch:*"));
+  assert.ok(branch, "branch field missing");
+  assert.ok(
+    branch!.text.length <= SLACK_FIELD_TEXT_LIMIT,
+    `slack branch field length ${branch!.text.length} exceeds Slack's ${SLACK_FIELD_TEXT_LIMIT}-char field limit`,
+  );
+});
+
+// #3b — Teams title + FactSet values stay within the Teams text bound.
+test("teams: oversized title and fact values stay within the Teams text bound", () => {
+  const out = formatPayload("teams", basePayload({
+    run: { ...basePayload().run, suite_name: "s".repeat(5000), branch: "b".repeat(5000) },
+    trend: "t".repeat(5000),
+  }));
+  const content = (out as { attachments?: Array<{ content?: { body?: Array<Record<string, unknown>> } }> })
+    .attachments?.[0]?.content;
+  const body = content?.body ?? [];
+
+  const title = body.find((b) => b.type === "TextBlock" && b.size === "Large") as { text?: string } | undefined;
+  assert.ok(title?.text, "teams title block missing");
+  assert.ok(
+    title!.text!.length <= TEAMS_TEXT_LIMIT,
+    `teams title length ${title!.text!.length} exceeds the ${TEAMS_TEXT_LIMIT}-char bound`,
+  );
+
+  const factSet = body.find((b) => b.type === "FactSet") as { facts?: Array<{ title: string; value: string }> } | undefined;
+  assert.ok(factSet?.facts, "teams FactSet missing");
+  for (const f of factSet!.facts!) {
+    assert.ok(
+      f.value.length <= TEAMS_TEXT_LIMIT,
+      `teams fact "${f.title}" value length ${f.value.length} exceeds the ${TEAMS_TEXT_LIMIT}-char bound`,
+    );
+  }
 });
 
 // #3 — Teams caps each list with an overflow row.
