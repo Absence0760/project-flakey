@@ -10,6 +10,14 @@ router.use("/:id/requirements", requirementsRouter);
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
 
+// The group_id FK isn't org-scoped and FK checks bypass RLS, so a write could
+// otherwise point a test at another org's group. Resolve membership through
+// tenantQuery (RLS-filtered) so a cross-org or unknown id reads as absent.
+async function groupVisible(orgId: number, gid: number): Promise<boolean> {
+  const r = await tenantQuery(orgId, "SELECT id FROM manual_test_groups WHERE id = $1", [gid]);
+  return r.rows.length > 0;
+}
+
 // Stable identity for a Cucumber scenario: <feature file>::<scenario name>.
 // Re-importing the same file upserts in place as long as the scenario name
 // isn't renamed. Rename ⇒ new manual test (we treat it as a different case).
@@ -223,6 +231,10 @@ router.post("/", async (req, res) => {
     const gid = group_id === null || group_id === undefined || group_id === ""
       ? null
       : Number.isInteger(Number(group_id)) ? Number(group_id) : null;
+    if (gid !== null && !(await groupVisible(req.user!.orgId, gid))) {
+      res.status(400).json({ error: "group_id not found" });
+      return;
+    }
 
     const result = await tenantQuery(
       req.user!.orgId,
@@ -402,6 +414,10 @@ router.patch("/:id", async (req, res) => {
       const gid = body.group_id === null || body.group_id === ""
         ? null
         : Number.isInteger(Number(body.group_id)) ? Number(body.group_id) : null;
+      if (gid !== null && !(await groupVisible(req.user!.orgId, gid))) {
+        res.status(400).json({ error: "group_id not found" });
+        return;
+      }
       assign("group_id", gid);
     }
 
