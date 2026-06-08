@@ -335,6 +335,44 @@ Examples:
   assert.equal(suiteRows2.length, 3, "re-import must upsert each row in place, not duplicate");
 });
 
+// ── Missing-parent guards (no silent FK 500s / cross-org junk writes) ───
+
+test("POST /manual-tests/:id/result on a nonexistent test 404s (not 500)", async () => {
+  // Regression: the route used to UPDATE 0 rows then blindly INSERT history,
+  // which hit the manual_test_runs FK and surfaced a 500. It must 404 before
+  // writing any history.
+  const res = await post(`/manual-tests/999999/result`, {
+    status: "passed",
+    notes: "should not record",
+  });
+  assert.equal(res.status, 404, `expected 404 for missing test; got ${res.status}`);
+});
+
+test("POST /manual-tests/:id/result on a deleted test does not record history", async () => {
+  // Create a throwaway test, record one result, delete it, then try to record
+  // again — the second call must 404 AND leave no orphan run-history row. We
+  // observe the org-wide run count via /stats (manual.total_runs) to prove the
+  // history INSERT really was skipped, not merely that a 404 was returned.
+  const created = (await (await post("/manual-tests", { title: "Ephemeral" })).json()) as { id: number };
+  const ok = await post(`/manual-tests/${created.id}/result`, { status: "passed" });
+  assert.ok(ok.ok, `first result should succeed: ${ok.status}`);
+  const delRes = await del(`/manual-tests/${created.id}`);
+  assert.ok(delRes.ok, `delete should succeed: ${delRes.status}`);
+
+  const runsBefore = ((await (await get("/stats")).json()) as { manual: { total_runs: number } }).manual.total_runs;
+  const after = await post(`/manual-tests/${created.id}/result`, { status: "failed" });
+  assert.equal(after.status, 404, `result on deleted test should 404; got ${after.status}`);
+  const runsAfter = ((await (await get("/stats")).json()) as { manual: { total_runs: number } }).manual.total_runs;
+  assert.equal(runsAfter, runsBefore, "a 404'd result must not append a run-history row");
+});
+
+test("POST /manual-tests/:id/requirements on a nonexistent test 404s (not 500)", async () => {
+  const res = await post(`/manual-tests/999999/requirements`, {
+    ref_key: "JIRA-999",
+  });
+  assert.equal(res.status, 404, `expected 404 for missing test; got ${res.status}`);
+});
+
 // ── Cleanup-style endpoints ─────────────────────────────────────────────
 
 test("DELETE /manual-test-groups/:id removes the group", async () => {
