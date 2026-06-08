@@ -125,6 +125,12 @@ full_title`) creates an issue, Flakey stores the issue key in the
 reuse the existing issue — the API returns the same `{key, url}` pair
 rather than creating duplicates.
 
+This holds under concurrency too: parallel CI shards (or a manual
+`POST /jira/issues` racing the auto-create pass) that all hit the same
+fingerprint at once still produce exactly one ticket — first-time creation is
+serialized per `(org, fingerprint)` so only one caller posts to Jira and the
+rest reuse its result.
+
 ### 4. Manual issue creation
 
 Even without auto-create enabled, you can open a ticket for any failure:

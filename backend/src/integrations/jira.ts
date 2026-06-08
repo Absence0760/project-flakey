@@ -108,6 +108,8 @@ export async function createIssueForFingerprint(
   const cfg = await getJiraConfig(orgId);
   if (!cfg) return null;
 
+  // Fast path, no lock: the issue is already tracked. The overwhelming common
+  // case (the same failure recurs run after run) so we keep it lock-free.
   const existing = await tenantQuery(
     orgId,
     "SELECT issue_key, issue_url FROM failure_jira_issues WHERE org_id = $1 AND fingerprint = $2",
@@ -117,17 +119,67 @@ export async function createIssueForFingerprint(
     return { key: existing.rows[0].issue_key, url: existing.rows[0].issue_url };
   }
 
-  const issue = await createJiraIssue(cfg, summary, description);
+  // Slow path: serialize first-time creators of the SAME fingerprint behind a
+  // per-(org, fingerprint) transaction-scoped advisory lock, then re-check
+  // under it. Without this, two concurrent callers — parallel CI shards both
+  // running autoCreateIssuesForRun, or a user's manual "create issue" racing
+  // the auto-create pass — can each pass the fast-path SELECT, each POST a Jira
+  // issue, and create TWO tickets for one failure; only one row is then
+  // recorded (the loser's INSERT hits ON CONFLICT DO NOTHING) and its ticket is
+  // orphaned. The lock makes check → create → record atomic per fingerprint.
+  // It's keyed with org_id so identical fingerprints in different orgs never
+  // contend, and held only across this one Jira call (bounded by JIRA_TIMEOUT_MS).
+  // Same pg_advisory_xact_lock pattern as scheduled-reports.ts.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
+    // Two-int key form: (org_id, hashtext(fingerprint)). A hashtext collision
+    // between two distinct fingerprints in one org only over-serializes them
+    // (a negligible cost) — correctness still rests on the exact-match re-check
+    // and the (org_id, fingerprint) unique index, not on the hash.
+    await client.query(
+      "SELECT pg_advisory_xact_lock($1::int, hashtext($2)::int)",
+      [orgId, fingerprint]
+    );
 
-  await tenantQuery(
-    orgId,
-    `INSERT INTO failure_jira_issues (org_id, fingerprint, issue_key, issue_url, created_by)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (org_id, fingerprint) DO NOTHING`,
-    [orgId, fingerprint, issue.key, issue.url, userId]
-  );
+    // Re-check under the lock: a racing caller may have created and recorded the
+    // issue between our fast-path SELECT and acquiring the lock.
+    const recheck = await client.query(
+      "SELECT issue_key, issue_url FROM failure_jira_issues WHERE org_id = $1 AND fingerprint = $2",
+      [orgId, fingerprint]
+    );
+    if (recheck.rows.length > 0) {
+      await client.query("COMMIT");
+      return { key: recheck.rows[0].issue_key, url: recheck.rows[0].issue_url };
+    }
 
-  return issue;
+    // We hold the lock and no row exists — we are the sole creator. A throw from
+    // createJiraIssue rolls back and releases the lock, so a transient Jira
+    // failure doesn't permanently block the fingerprint: the next caller retries.
+    const issue = await createJiraIssue(cfg, summary, description);
+
+    // Bare INSERT — no ON CONFLICT. The lock + re-check above make a duplicate
+    // (org_id, fingerprint) impossible under correct operation, so a unique
+    // violation here would mean a row was written outside this lock (a real
+    // bug). Let it throw → rollback → rethrow rather than DO NOTHING: swallowing
+    // it would return the just-created `issue` whose row was never recorded,
+    // leaving an orphaned ticket the next call can't dedup against. Fail loud
+    // (guard rail 5); the unique index stays the correctness backstop.
+    await client.query(
+      `INSERT INTO failure_jira_issues (org_id, fingerprint, issue_key, issue_url, created_by)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [orgId, fingerprint, issue.key, issue.url, userId]
+    );
+
+    await client.query("COMMIT");
+    return issue;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => { /* connection already broken */ });
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
