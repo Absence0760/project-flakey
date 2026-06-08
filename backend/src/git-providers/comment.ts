@@ -1,6 +1,19 @@
 import type { NormalizedRun } from "../types.js";
+import { classifyRunStatus, type ShipStatus } from "../run-status.js";
 
 export const COMMENT_MARKER = "<!-- flakey-pr-comment -->";
+
+// Icon + label per ship-gate status. The PR comment is a ship signal posted
+// directly on the pull request, so it must agree with the badge and
+// GET /runs/status — all three derive their verdict from classifyRunStatus
+// rather than re-deriving it, so they can never contradict each other (the
+// trust gap run-status.ts exists to close).
+const STATUS_DISPLAY: Record<ShipStatus, { icon: string; text: string }> = {
+  passed: { icon: "\u2705", text: "Passed" },
+  failed: { icon: "\u274c", text: "Failed" },
+  incomplete: { icon: "\u26a0\ufe0f", text: "Incomplete" },
+  aborted: { icon: "\ud83d\uded1", text: "Aborted" },
+};
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -22,8 +35,22 @@ export function buildCommentBody(
   const passRate = stats.total > 0 ? ((stats.passed / stats.total) * 100).toFixed(1) : "0.0";
   const runUrl = `${frontendUrl}/runs/${runId}`;
 
-  const statusIcon = stats.failed > 0 ? "\u274c" : "\u2705";
-  const statusText = stats.failed > 0 ? "Failed" : "Passed";
+  // Derive the headline status from the canonical classifier so the comment
+  // can never read "Passed" on a run the badge/API call do-not-ship. A run with
+  // failures is "failed"; failures aside, a run that hasn't accounted for every
+  // test (pending: passed + skipped < total) is "incomplete", not a clean pass
+  // \u2014 surfacing that as a green check is exactly the false-green run-status.ts
+  // prevents. `aborted` is a live-events concept the post-upload NormalizedRun
+  // doesn't carry, so it's false here; normalizers always set finished_at.
+  const shipStatus = classifyRunStatus({
+    failed: stats.failed,
+    aborted: false,
+    finished_at: meta.finished_at || null,
+    total: stats.total,
+    passed: stats.passed,
+    skipped: stats.skipped,
+  });
+  const { icon: statusIcon, text: statusText } = STATUS_DISPLAY[shipStatus];
 
   let body = `${COMMENT_MARKER}\n`;
   body += `## ${statusIcon} Test Results \u2014 ${meta.suite_name}\n\n`;
@@ -32,6 +59,12 @@ export function buildCommentBody(
   body += `| **Status** | ${statusText} |\n`;
   body += `| **Pass Rate** | ${passRate}% (${stats.passed}/${stats.total}) |\n`;
   body += `| **Failed** | ${stats.failed} |\n`;
+  // Show pending only when present \u2014 it's what makes an otherwise-green run
+  // "Incomplete", so leaving it off the table would leave that status
+  // unexplained. Mirrors the conditional trend row below.
+  if (stats.pending > 0) {
+    body += `| **Pending** | ${stats.pending} |\n`;
+  }
   body += `| **Skipped** | ${stats.skipped} |\n`;
   body += `| **Duration** | ${formatDuration(stats.duration_ms)} |\n`;
 

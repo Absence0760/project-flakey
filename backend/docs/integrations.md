@@ -372,10 +372,14 @@ wins (a run with failures reports `failed` even if it was also aborted).
 naive `jq -r '.status'` against the 404 body reads `null`, which is `!= passed`,
 so even a script that ignores the HTTP code holds the release.
 
-**Agrees with the badge.** The SVG badge (`GET /badge/:orgSlug/:suiteName`,
-public, no auth) and this endpoint derive from the same classifier, so the
-badge is green **exactly when** `status` is `passed`. Use the badge for a
-human-readable widget, this endpoint for a machine gate.
+**Agrees with the badge and PR comment.** The SVG badge
+(`GET /badge/:orgSlug/:suiteName`, public, no auth), the PR/MR comment Flakey
+posts on pull requests, and this endpoint all derive from the same classifier,
+so the badge is green and the PR comment reads **Passed** **exactly when**
+`status` is `passed`. A run with un-run (pending) tests reads `incomplete`
+everywhere — the PR comment shows ⚠️ **Incomplete**, never a false-green
+**Passed**. Use the badge for a human-readable widget, the comment for an
+at-a-glance PR verdict, this endpoint for a machine gate.
 
 ### Gating a pipeline
 
