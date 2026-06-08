@@ -31,6 +31,23 @@ const SCHEDULED_REPORTS_LOCK_KEY = 0x666c616b79; // "flaky" (441_119_769_721, fi
 export const DAILY_NOT_SENT_TODAY_SQL =
   "(last_sent_at IS NULL OR (last_sent_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date)";
 
+/**
+ * Weekly dedup predicate: true when a weekly report's send window is open —
+ * either it has never been sent, or its last send was more than 6 days ago.
+ *
+ * Unlike the daily predicate this needs NO timezone anchoring: both sides are
+ * `timestamptz`, so `last_sent_at < NOW() - INTERVAL '6 days'` is an
+ * absolute-instant comparison that yields the same answer regardless of the DB
+ * session timezone (no `::date` cast to resolve a calendar boundary). The
+ * 6-day (not 7-day) window is deliberate slack: paired with the caller's
+ * `day_of_week = <current UTC day>` gate, it lets a weekly report fire on its
+ * scheduled weekday even when the prior week's send drifted later in the day,
+ * while still blocking a second send within the same week. Exported so the
+ * window can be unit-tested in isolation, mirroring DAILY_NOT_SENT_TODAY_SQL.
+ */
+export const WEEKLY_NOT_SENT_THIS_WEEK_SQL =
+  "(last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days')";
+
 export async function runScheduledReports(): Promise<void> {
   // Use a transaction-scoped advisory lock so the lock is automatically released
   // when the transaction ends — no explicit pg_advisory_unlock needed, eliminating
@@ -71,7 +88,7 @@ export async function runScheduledReports(): Promise<void> {
              -- Weekly window is an absolute-instant comparison (both sides
              -- timestamptz), so it's already timezone-independent.
              (cadence = 'weekly' AND day_of_week = $2
-               AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days'))
+               AND ${WEEKLY_NOT_SENT_THIS_WEEK_SQL})
            )`,
         [currentHourUtc, currentDayOfWeek]
       );
