@@ -6,6 +6,11 @@ import { logAudit } from "../audit.js";
 import { encryptSecret } from "../crypto.js";
 import { validateWebhookUrl } from "./webhooks.js";
 
+// Mirrors the organizations_git_provider_check CHECK constraint (migration
+// 044). Validate here so an unknown value is a clean 400 rather than a 23514
+// surfacing as a 500.
+const GIT_PROVIDERS = ["github", "gitlab", "bitbucket"];
+
 // This router uses raw `pool.query` (not `tenantQuery`) throughout. The
 // tables touched here — organizations, org_members, org_invites, users —
 // are the pre-tenant infrastructure tables and intentionally have NO
@@ -355,15 +360,34 @@ router.patch("/:id/settings", async (req, res) => {
     let i = 1;
 
     if (req.body.retention_days !== undefined) {
-      const value = req.body.retention_days === null || req.body.retention_days === "" ? null : Number(req.body.retention_days);
+      // null / "" explicitly disables retention; any provided value must be a
+      // positive integer. Without this, "abc" → NaN → a 500 on the int cast,
+      // and 0 / negatives silently disable the policy (retention.ts skips
+      // days <= 0) instead of being rejected.
+      const raw = req.body.retention_days;
+      let value: number | null;
+      if (raw === null || raw === "") {
+        value = null;
+      } else {
+        value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) {
+          res.status(400).json({ error: "retention_days must be a positive integer" });
+          return;
+        }
+      }
       sets.push(`retention_days = $${i++}`);
       params.push(value);
       changed.retention_days = value;
     }
     if (req.body.git_provider !== undefined) {
+      const provider = req.body.git_provider || null;
+      if (provider !== null && !GIT_PROVIDERS.includes(provider)) {
+        res.status(400).json({ error: "git_provider must be one of github, gitlab, bitbucket" });
+        return;
+      }
       sets.push(`git_provider = $${i++}`);
-      params.push(req.body.git_provider || null);
-      changed.git_provider = req.body.git_provider || null;
+      params.push(provider);
+      changed.git_provider = provider;
     }
     if (req.body.git_token !== undefined) {
       sets.push(`git_token = $${i++}`);
