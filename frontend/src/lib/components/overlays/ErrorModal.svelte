@@ -136,6 +136,18 @@
     collapsedGroups = next;
   }
 
+  // All groups are considered collapsed once the collapsed set covers every
+  // group index in the active list (command groups or snapshot groups).
+  function allGroupsCollapsed(count: number): boolean {
+    return count > 0 && collapsedGroups.size >= count;
+  }
+
+  function toggleAllGroups(count: number) {
+    collapsedGroups = allGroupsCollapsed(count)
+      ? new Set()
+      : new Set(Array.from({ length: count }, (_, i) => i));
+  }
+
   // Left panel state
   let leftTab = $state<"screenshot" | "video" | "snapshot">("screenshot");
   let currentScreenshot = $state(0);
@@ -741,7 +753,14 @@
                   <div class="commands-panel">
                     <div class="commands-header">
                       <span class="commands-title">Command Log</span>
-                      <span class="commands-count">{test.command_log?.length} steps</span>
+                      <div class="commands-meta">
+                        <span class="commands-count">{test.command_log?.length} steps</span>
+                        <button type="button" class="collapse-toggle"
+                          onclick={() => toggleAllGroups(commandGroups.length)}
+                          title={allGroupsCollapsed(commandGroups.length) ? "Expand all steps" : "Collapse all steps"}>
+                          {allGroupsCollapsed(commandGroups.length) ? "Expand all" : "Collapse all"}
+                        </button>
+                      </div>
                     </div>
                     <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each commandGroups as group, g}
@@ -881,7 +900,14 @@
                   <div class="commands-panel">
                     <div class="commands-header">
                       <span class="commands-title">Snapshot Steps</span>
-                      <span class="commands-count">{snapshotSteps.length} steps</span>
+                      <div class="commands-meta">
+                        <span class="commands-count">{snapshotSteps.length} steps</span>
+                        <button type="button" class="collapse-toggle"
+                          onclick={() => toggleAllGroups(snapshotGroups.length)}
+                          title={allGroupsCollapsed(snapshotGroups.length) ? "Expand all steps" : "Collapse all steps"}>
+                          {allGroupsCollapsed(snapshotGroups.length) ? "Expand all" : "Collapse all"}
+                        </button>
+                      </div>
                     </div>
                     <ol class="command-list" onmouseleave={() => hoverStep = null}>
                       {#each snapshotGroups as group, g}
@@ -1761,6 +1787,29 @@
   .commands-count {
     font-size: 0.75rem;
     color: var(--text-muted);
+  }
+
+  .commands-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .collapse-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+
+  .collapse-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+    border-color: var(--text-muted);
   }
 
   .command-list {

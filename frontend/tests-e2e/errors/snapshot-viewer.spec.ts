@@ -107,6 +107,30 @@ test.describe("ErrorModal snapshot viewer (gherkin demo run)", () => {
     await expect(list.locator("li.cmd-child")).toHaveCount(7);
   });
 
+  test("Collapse all / Expand all toggles every step group at once", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+    const toggle = page.locator(".collapse-toggle");
+
+    // Groups default open: all 7 children are present and the toggle
+    // offers to collapse them.
+    await expect(list.locator("li.cmd-child")).toHaveCount(7);
+    await expect(toggle).toHaveText("Collapse all");
+
+    // Collapse all → every group's children fold away and the toggle
+    // flips to the inverse action.
+    await toggle.click();
+    await expect(list.locator("li.cmd-child")).toHaveCount(0);
+    await expect(toggle).toHaveText("Expand all");
+
+    // Expand all → all children come back.
+    await toggle.click();
+    await expect(list.locator("li.cmd-child")).toHaveCount(7);
+    await expect(toggle).toHaveText("Collapse all");
+  });
+
   test("snapshot tab + iframe render with snapshot data", async ({ page }) => {
     await openGherkinRun(page);
     await openErrorModal(page);
