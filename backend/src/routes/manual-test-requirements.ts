@@ -79,6 +79,19 @@ router.post("/", async (req, res) => {
       return;
     }
     const safeRefUrl = urlResult.value;
+
+    // Confirm the parent manual test is visible to this org before linking.
+    // The FK bypasses RLS, so without this an unknown id 500s on the FK and a
+    // cross-org id would silently link a requirement to a foreign test.
+    const parent = await tenantQuery(
+      req.user!.orgId,
+      "SELECT id FROM manual_tests WHERE id = $1",
+      [parentTestId(req)]
+    );
+    if (parent.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     const prov = PROVIDERS.includes(provider) ? provider : inferProvider(safeRefUrl ?? undefined);
     const result = await tenantQuery(
       req.user!.orgId,

@@ -482,13 +482,17 @@ router.post("/:id/result", async (req, res) => {
       return;
     }
 
-    await tenantQuery(
+    // The history INSERT's FK bypasses RLS, so gate it on the UPDATE actually
+    // matching a row this org can see — otherwise an unknown id 500s on the FK
+    // and a cross-org id writes a junk run row while falsely reporting success.
+    const updated = await tenantQuery(
       req.user!.orgId,
       `UPDATE manual_tests
          SET status = $1, last_run_at = NOW(), last_run_by = $2,
              last_run_notes = $3, last_step_results = $4::jsonb,
              updated_at = NOW()
-         WHERE id = $5`,
+         WHERE id = $5
+       RETURNING id`,
       [
         finalStatus,
         req.user!.id,
@@ -497,6 +501,10 @@ router.post("/:id/result", async (req, res) => {
         req.params.id,
       ]
     );
+    if (updated.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     await tenantQuery(
       req.user!.orgId,
       `INSERT INTO manual_test_runs
