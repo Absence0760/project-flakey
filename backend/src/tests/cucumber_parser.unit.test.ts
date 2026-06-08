@@ -290,3 +290,61 @@ Scenario: With comments
 `);
   assert.equal(f.scenarios[0].steps.length, 3, "inline comments must not eat steps");
 });
+
+test("parseFeature: indented whole-line comments are still ignored", () => {
+  // Gherkin comments are whole-line regardless of leading whitespace.
+  const f = parseFeature(`Feature: F
+
+Scenario: X
+    # deeply indented comment
+  Given step one
+      # another indented comment
+  Then step two
+`);
+  assert.equal(f.scenarios[0].steps.length, 2, "indented full-line comments must not be treated as steps");
+  assert.deepEqual(
+    f.scenarios[0].steps.map((s) => s.text),
+    ["step one", "step two"]
+  );
+});
+
+test("parseFeature: inline '#' in step text is preserved (hex colors, URL fragments)", () => {
+  // Regression: Gherkin only honours whole-line comments. An earlier
+  // implementation stripped from the first '#' anywhere on the line, which
+  // silently truncated hex colors and URL fragments mid-quote.
+  const f = parseFeature(`Feature: Theming
+
+Scenario: Set a hex color
+  Given I set the background to "#FF0000"
+  When I visit "https://example.com/docs#install"
+  Then the swatch shows "#FF0000"
+`);
+  const texts = f.scenarios[0].steps.map((s) => s.text);
+  assert.equal(texts[0], 'I set the background to "#FF0000"', "hex color must survive verbatim");
+  assert.equal(texts[1], 'I visit "https://example.com/docs#install"', "URL fragment must survive verbatim");
+  assert.equal(texts[2], 'the swatch shows "#FF0000"');
+});
+
+test("parseFeature: inline '#' is preserved in names, descriptions, and outline substitution", () => {
+  const f = parseFeature(`Feature: Issue #42 tracking
+
+Tracks bug #42 and its #regression.
+
+@channel
+Scenario Outline: Tag #<n>
+  Given the color <hex>
+  Then issue #<n> is resolved
+
+Examples:
+  | n | hex     |
+  | 1 | #FF0000 |
+`);
+  assert.equal(f.name, "Issue #42 tracking", "feature name keeps inline '#'");
+  assert.ok(f.description.includes("bug #42"), "description keeps inline '#'");
+  assert.ok(f.description.includes("#regression"), "description keeps standalone '#word'");
+  assert.equal(f.scenarios.length, 1);
+  const s = f.scenarios[0];
+  assert.equal(s.name, "Tag #1", "outline name substitution keeps literal '#'");
+  assert.equal(s.steps[0].text, "the color #FF0000", "examples cell with '#' substituted verbatim");
+  assert.equal(s.steps[1].text, "issue #1 is resolved", "placeholder adjacent to '#' substituted correctly");
+});
