@@ -173,4 +173,39 @@ test.describe("/runs/<id>", () => {
       }).catch(() => {});
     }
   });
+
+  // Regression: the "Filter tests..." search box was bound to local
+  // $state only — unlike ?status and ?test it was never mirrored into
+  // the URL, so a reload (or back-nav) dropped it. Now it syncs to ?q=.
+  test("test-search filter survives a reload (?q= persistence)", async ({ page }) => {
+    await page.goto("/dashboard");
+    const runId = await page.evaluate(async () => {
+      const token = localStorage.getItem("bt_token");
+      const res = await fetch("http://localhost:3000/runs?limit=200", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      for (const r of body.runs as Array<{ id: number; spec_count?: number }>) {
+        if ((r.spec_count ?? 0) >= 1) return r.id;
+      }
+      return null;
+    });
+    expect(runId).toBeTruthy();
+    await page.goto(`/runs/${runId}`);
+    await expect(page.locator(".spec-section").first()).toBeVisible({ timeout: 10_000 });
+
+    const search = page.getByPlaceholder("Filter tests...");
+    await search.fill("login");
+    // Reactive sync writes ?q= to the URL.
+    await expect(page).toHaveURL(/[?&]q=login(\&|$)/, { timeout: 5_000 });
+
+    // Reload — the value must come back from the URL, not reset to empty.
+    await page.reload();
+    await expect(page.locator(".spec-section, .empty").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByPlaceholder("Filter tests...")).toHaveValue("login");
+
+    // Clearing the box removes the param.
+    await page.getByPlaceholder("Filter tests...").fill("");
+    await expect(page).not.toHaveURL(/[?&]q=/, { timeout: 5_000 });
+  });
 });

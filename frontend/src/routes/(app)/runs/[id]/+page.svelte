@@ -170,6 +170,22 @@
     replaceState(url, {});
   }
 
+  // Mirror the test-search box into the URL (?q=) so it survives reloads
+  // and back-nav, same as ?status / ?test. Reactive rather than per-key
+  // imperative: a `mounted` gate keeps the initial render (and the
+  // onMount read of ?q) from clobbering the URL before the user types.
+  function syncSearchToUrl() {
+    const url = new URL(window.location.href);
+    if (searchQuery) url.searchParams.set("q", searchQuery);
+    else url.searchParams.delete("q");
+    replaceState(url, {});
+  }
+  let mounted = $state(false);
+  $effect(() => {
+    searchQuery;
+    if (mounted) syncSearchToUrl();
+  });
+
   // Open/close the test-detail modal AND mirror it into the URL as ?test=<id>
   // so a specific failure is deep-linkable — paste the URL into a PR comment
   // and the reviewer lands on the same open test, not just the run.
@@ -198,6 +214,7 @@
     if (urlStatusExplicit) {
       statusFilter = urlStatus!;
     }
+    searchQuery = $page.url.searchParams.get("q") ?? "";
 
     try {
       run = await fetchRun(id);
@@ -252,6 +269,7 @@
       error = e instanceof Error ? e.message : "Failed to load run";
     } finally {
       loading = false;
+      mounted = true;
     }
   });
 
