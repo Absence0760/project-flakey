@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
-import { parseFeature, scenarioToManualSteps } from "../cucumber-parser.js";
+import { parseFeature, scenarioToManualSteps, type ParsedScenario } from "../cucumber-parser.js";
 import requirementsRouter from "./manual-test-requirements.js";
 
 const router = Router();
@@ -15,6 +15,40 @@ const STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
 // isn't renamed. Rename ⇒ new manual test (we treat it as a different case).
 export function cucumberRef(file: string, scenarioName: string): string {
   return `${file}::${scenarioName}`;
+}
+
+// Assign a stable, collision-free source_ref to every scenario in one feature
+// file. Base identity is `<file>::<name>` (cucumberRef). A Scenario Outline
+// whose name has no <placeholder> expands to many scenarios sharing that name —
+// they'd collide on (org_id, source, source_ref) and overwrite each other on
+// import, leaving a single surviving row. When (and ONLY when) a base ref
+// repeats, disambiguate the colliding scenarios by their Examples row values so
+// each row imports as its own manual test. Unique refs are left untouched, so
+// existing imports keep their refs and upsert in place. Deterministic in scan
+// order, so re-importing the same file is stable.
+export function resolveCucumberRefs(
+  file: string,
+  scenarios: ParsedScenario[]
+): string[] {
+  const baseRefs = scenarios.map((s) => cucumberRef(file, s.name));
+  const counts = new Map<string, number>();
+  for (const r of baseRefs) counts.set(r, (counts.get(r) ?? 0) + 1);
+
+  // Pre-seed with the refs that are already unique so a disambiguated ref can
+  // never collide with one of them.
+  const used = new Set<string>(baseRefs.filter((r) => counts.get(r) === 1));
+
+  return scenarios.map((s, i) => {
+    const base = baseRefs[i];
+    if (counts.get(base) === 1) return base;
+    const rowKey = s.exampleRow?.length ? `${base}::${s.exampleRow.join("|")}` : base;
+    let ref = rowKey;
+    // Positional tiebreaker for the degenerate case of identical Examples rows
+    // (or no row at all), so the ref is always unique within the file.
+    for (let n = 2; used.has(ref); n++) ref = `${rowKey}#${n}`;
+    used.add(ref);
+    return ref;
+  });
 }
 
 // GET /manual-tests
@@ -254,7 +288,9 @@ router.post("/import-features", async (req, res) => {
           errors.push({ file: f.path, error: "no scenarios found" });
           continue;
         }
-        for (const scenario of feature.scenarios) {
+        const refs = resolveCucumberRefs(f.path, feature.scenarios);
+        for (let si = 0; si < feature.scenarios.length; si++) {
+          const scenario = feature.scenarios[si];
           scanned++;
           const steps = scenarioToManualSteps(feature, scenario);
           // Merge feature-level tags into scenario tags for filter parity:
@@ -262,7 +298,7 @@ router.post("/import-features", async (req, res) => {
           // De-dupe in case the same tag appears at both levels.
           const merged = Array.from(new Set([...feature.tags, ...scenario.tags]));
           const tags = merged.map((t) => t.replace(/^@/, ""));
-          const ref = cucumberRef(f.path, scenario.name);
+          const ref = refs[si];
 
           const result = await tenantQuery(
             req.user!.orgId,

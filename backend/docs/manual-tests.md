@@ -39,7 +39,11 @@ test with:
 - `source_file` = the file path as uploaded
 
 **Scenario Outlines** are expanded into one manual test per `Examples:`
-row, so each concrete case is tracked separately.
+row (across every `Examples:` block — an outline may have more than one),
+so each concrete case is tracked separately. When the outline name has no
+`<placeholder>` every row would otherwise share one `source_ref`; the
+importer disambiguates colliding refs by the row's `Examples` values
+(`<path>::<scenario name>::<col1>|<col2>…`) so no row overwrites another.
 
 ### Re-importing
 

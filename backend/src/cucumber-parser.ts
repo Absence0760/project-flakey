@@ -18,6 +18,11 @@ export interface ParsedScenario {
   tags: string[];
   steps: ParsedStep[];
   lineNumber: number;
+  // For scenarios produced by expanding a Scenario Outline, the Examples row
+  // they came from (the raw cell values). Undefined for plain scenarios. Lets
+  // a consumer disambiguate identically-named expansions (an outline whose name
+  // has no <placeholder> yields the same name for every row).
+  exampleRow?: string[];
 }
 
 export interface ParsedFeature {
@@ -118,6 +123,7 @@ export function parseFeature(source: string): ParsedFeature {
           name: substituteExamples(template.name, headers, row),
           tags: [...blockTags],
           lineNumber: template.lineNumber,
+          exampleRow: [...row],
           steps: template.steps.map((s) => ({
             keyword: s.keyword,
             text: substituteExamples(s.text, headers, row),
