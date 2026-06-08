@@ -1,5 +1,6 @@
 -- Error groups: persisted status and metadata for recurring errors
--- fingerprint = md5(error_message || test_title || suite_name) for stable identity
+-- fingerprint = md5(error_message || '|' || suite_name) for stable identity
+-- (see src/routes/errors.ts / analyze.ts / seed.ts — kept in lockstep)
 CREATE TABLE IF NOT EXISTS error_groups (
   id          SERIAL PRIMARY KEY,
   org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
