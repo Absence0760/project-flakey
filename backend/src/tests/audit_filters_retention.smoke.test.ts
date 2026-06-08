@@ -15,6 +15,15 @@
  *        and asserts the row is visible via GET /audit with the deleted_count +
  *        retention_days detail an investigator needs.
  *
+ *   F8 — retention cleanup must isolate artifact-delete failures. The DB row is
+ *        DELETEd (and committed) before storage.deleteRun is called, so a
+ *        transient storage failure on one run must NOT abort the remaining runs
+ *        or the audit write — earlier, the unguarded loop let a single throw
+ *        propagate to the outer catch, silently skipping every later run's
+ *        artifact delete, the audit row, and the invite/token prune. This
+ *        injects a storage stub that throws on every deleteRun and asserts the
+ *        loop still visits every run and still writes the audit row.
+ *
  * Strategy mirrors audit_coverage.smoke.test.ts: act via the HTTP API, then
  * read back through an admin DB client / the API. Retention is invoked
  * in-process (the exported `runRetentionCleanup`) since it has no HTTP surface;
@@ -26,6 +35,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import pg from "pg";
 import { runRetentionCleanup } from "../retention.js";
+import type { Storage } from "../storage.js";
 
 const PORT = 3960;
 const BASE = `http://localhost:${PORT}`;
@@ -267,4 +277,64 @@ test("runRetentionCleanup writes a 'retention.cleanup' audit row for an org that
     "detail.deleted_count must record how many runs were removed",
   );
   assert.equal(row.detail!.retention_days, 1, "detail.retention_days must record the policy that triggered the delete");
+});
+
+// ── F8: an artifact-delete failure on one run must not abort the rest ────
+
+test("runRetentionCleanup isolates storage.deleteRun failures: every run is visited and the audit row still lands", async () => {
+  const owner = await registerOwner("retention-storage-fail");
+
+  // Two eligible runs in the same org, both backdated past a 1-day window.
+  const runA = await uploadRun(owner.token, `fr-retfail-a-${Date.now()}`);
+  const runB = await uploadRun(owner.token, `fr-retfail-b-${Date.now()}`);
+  await fetch(`${BASE}/orgs/${owner.orgId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.token}` },
+    body: JSON.stringify({ retention_days: 1 }),
+  });
+  await dbAdmin.query(
+    "UPDATE runs SET created_at = NOW() - INTERVAL '10 days' WHERE id = ANY($1::int[])",
+    [[runA, runB]],
+  );
+
+  // A storage that records every run it's asked to delete and throws on each —
+  // standing in for a transient S3 outage. Only deleteRun is exercised, so the
+  // rest of the Storage surface is left unimplemented.
+  const attempted: number[] = [];
+  const failingStorage = {
+    async deleteRun(runId: number): Promise<void> {
+      attempted.push(runId);
+      throw new Error(`simulated storage outage for run ${runId}`);
+    },
+  } as unknown as Storage;
+
+  // Must resolve, not reject: the per-run boundary swallows (and logs) the
+  // throw rather than letting it propagate to the outer catch.
+  await runRetentionCleanup(failingStorage);
+
+  // The loop visited BOTH runs despite the first throw — the bug was that the
+  // first throw aborted the loop, so runB's deleteRun was never attempted.
+  assert.ok(attempted.includes(runA), "deleteRun must be attempted for the first run");
+  assert.ok(attempted.includes(runB), "deleteRun must be attempted for the second run even though the first threw");
+
+  // The DB rows are gone (DELETE commits before any storage call).
+  const remaining = await dbAdmin.query(
+    "SELECT id FROM runs WHERE id = ANY($1::int[])",
+    [[runA, runB]],
+  );
+  assert.equal(remaining.rows.length, 0, "both backdated runs must be deleted from the DB");
+
+  // And the audit row still landed — before the fix, the storage throw skipped
+  // the logAudit call entirely, leaving the forensic gap F7 closed reopened on
+  // any storage hiccup.
+  const res = await fetch(
+    `${BASE}/audit?action=retention.cleanup&limit=1000`,
+    { headers: { Authorization: `Bearer ${owner.token}` } },
+  );
+  assert.equal(res.status, 200);
+  const rows = (await res.json()) as { action: string; detail: { deleted_count?: number } | null }[];
+  assert.ok(
+    rows.some((r) => r.action === "retention.cleanup" && (r.detail?.deleted_count ?? 0) >= 2),
+    "a retention.cleanup audit row (deleted_count >= 2) must be written even when artifact deletes fail",
+  );
 });
