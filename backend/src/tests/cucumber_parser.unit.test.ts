@@ -261,6 +261,80 @@ Scenario: With table
   assert.equal(step.table!.length, 3, "header + 2 rows");
 });
 
+test("parseFeature: escaped pipes and escape sequences in table cells", () => {
+  // Gherkin cell escapes: `\|` → literal pipe, `\\` → literal backslash,
+  // `\n` → newline. A naive split("|") would shred any cell containing a pipe.
+  const f = parseFeature(`Feature: F
+
+Scenario: Escapes
+  Given the following:
+    | expr   | note         |
+    | a \\| b | one\\ntwo     |
+    | c\\\\d   | back\\\\slash  |
+`);
+  const table = f.scenarios[0].steps[0].table!;
+  assert.deepEqual(table[0], ["expr", "note"], "header row intact");
+  assert.deepEqual(table[1], ["a | b", "one\ntwo"], "escaped pipe and newline decoded");
+  assert.deepEqual(table[2], ["c\\d", "back\\slash"], "escaped backslash decoded");
+});
+
+test("parseFeature: a literal '|' inside an Examples cell is preserved", () => {
+  // Same escaping applies to Examples rows, which flow through parseTableRow.
+  const f = parseFeature(`Feature: F
+
+Scenario Outline: Pipe <op>
+  Given I run <op>
+
+Examples:
+  | op    |
+  | a \\| b |
+`);
+  assert.equal(f.scenarios.length, 1);
+  assert.equal(f.scenarios[0].name, "Pipe a | b", "escaped pipe survives examples substitution");
+  assert.equal(f.scenarios[0].steps[0].text, "I run a | b");
+});
+
+test("parseFeature: docstring opener with a content type ('\"\"\"json') is recognized", () => {
+  // Gherkin allows a media type immediately after the fence; it's metadata we
+  // don't retain, but it must still open the docstring (not be mistaken for a
+  // step) and the body must be captured.
+  const f = parseFeature(`Feature: F
+
+Scenario: Typed docstring
+  Given a payload:
+    """json
+    {"hello": "world"}
+    """
+  Then it works
+`);
+  const steps = f.scenarios[0].steps;
+  assert.equal(steps.length, 2, "Given + Then — the body must not be parsed as steps");
+  assert.ok(steps[0].docstring?.includes('"hello": "world"'), "docstring body captured");
+  assert.ok(!steps[0].docstring?.includes("json"), "content-type token is not part of the body");
+  assert.equal(steps[1].keyword, "Then");
+});
+
+test("parseFeature: a mismatched fence inside a docstring is kept as content", () => {
+  // A docstring opened with `"""` only closes on `"""`; a ``` line inside it
+  // is body text, not a premature close.
+  const f = parseFeature(`Feature: F
+
+Scenario: Nested fence
+  Given markdown:
+    """
+    here is a code block:
+    \`\`\`
+    code
+    \`\`\`
+    """
+  Then done
+`);
+  const steps = f.scenarios[0].steps;
+  assert.equal(steps.length, 2, "Given + Then, nothing leaked out of the docstring");
+  assert.ok(steps[0].docstring?.includes("```"), "inner ``` fence preserved verbatim");
+  assert.ok(steps[0].docstring?.includes("code"), "inner code preserved");
+});
+
 // ── Robustness ──────────────────────────────────────────────────────────
 
 test("parseFeature: trailing whitespace + CRLF line endings", () => {
