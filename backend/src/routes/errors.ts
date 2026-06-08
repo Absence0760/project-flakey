@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     const status = req.query.status as string | undefined;
 
     const conditions: string[] = ["t.status = 'failed'", "t.error_message IS NOT NULL"];
-    const params: (string | number)[] = [];
+    const params: (string | number | null)[] = [];
     let paramIndex = 1;
 
     if (suite) {
@@ -22,6 +22,17 @@ router.get("/", async (req, res) => {
     }
 
     const where = conditions.join(" AND ");
+
+    // The status filter must be applied BEFORE the top-100 LIMIT, not after.
+    // Status lives in error_groups (defaulting to 'open' for unstamped groups),
+    // so we join + filter in the `ranked` CTE, then LIMIT — otherwise filtering
+    // a status that's rarer than the 100 most-recent groups would silently
+    // truncate matches that fall outside that window. An invalid/absent status
+    // passes NULL, which the `$N IS NULL` guard turns into "no status filter"
+    // (preserving the prior lenient behaviour for unknown values).
+    const statusFilter = status && VALID_STATUSES.includes(status) ? status : null;
+    const statusParam = paramIndex++;
+    params.push(statusFilter);
 
     const result = await tenantQuery(req.user!.orgId,
       `WITH error_agg AS (
@@ -43,16 +54,22 @@ router.get("/", async (req, res) => {
         JOIN runs r ON r.id = s.run_id
         WHERE ${where}
         GROUP BY t.error_message, r.suite_name
-        ORDER BY last_seen DESC, occurrence_count DESC
+      ),
+      ranked AS (
+        SELECT ea.*,
+          eg.id AS group_id,
+          COALESCE(eg.status, 'open') AS status
+        FROM error_agg ea
+        LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
+          AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+        WHERE $${statusParam}::text IS NULL
+          OR COALESCE(eg.status, 'open') = $${statusParam}::text
+        ORDER BY ea.last_seen DESC, ea.occurrence_count DESC
         LIMIT 100
       )
-      SELECT ea.*,
-        eg.id AS group_id,
-        COALESCE(eg.status, 'open') AS status,
+      SELECT ranked.*,
         COALESCE(nc.cnt, 0) AS note_count
-      FROM error_agg ea
-      LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
-        AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+      FROM ranked
       LEFT JOIN LATERAL (
         -- Explicit org_id predicate alongside RLS. The notes_tenant
         -- policy already enforces this, but the explicit predicate
@@ -60,18 +77,13 @@ router.get("/", async (req, res) => {
         -- planner use the org_id-leading composite index.
         SELECT COUNT(*)::int AS cnt FROM notes n
         WHERE n.org_id = (SELECT current_setting('app.current_org_id', true)::int)
-          AND n.target_type = 'error' AND n.target_key = ea.fingerprint
+          AND n.target_type = 'error' AND n.target_key = ranked.fingerprint
       ) nc ON TRUE
-      ORDER BY ea.last_seen DESC, ea.occurrence_count DESC`,
+      ORDER BY ranked.last_seen DESC, ranked.occurrence_count DESC`,
       params
     );
 
-    let rows = result.rows;
-    if (status && VALID_STATUSES.includes(status)) {
-      rows = rows.filter((r) => r.status === status);
-    }
-
-    res.json(rows);
+    res.json(result.rows);
   } catch (err) {
     console.error("GET /errors error:", err);
     res.status(500).json({ error: "Internal server error" });
