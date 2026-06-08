@@ -21,7 +21,7 @@ import path from "node:path";
 
 import multer from "multer";
 
-import { safeUnlinkTmp, wrapMulter } from "../upload-filters.js";
+import { safeUnlinkTmp, wrapMulter, rejectExecutableAttachments } from "../upload-filters.js";
 import { fixFilename } from "../routes/uploads.js";
 
 // Multer decodes the multipart `filename` header as Latin-1, but browsers send
@@ -229,4 +229,88 @@ test("wrapMulter calls next() and sends no response when there is no error", () 
   const { statusCode, nextCalled } = runWrapMulter(null, FIELD_CAPS);
   assert.equal(nextCalled, true);
   assert.equal(statusCode, 0);
+});
+
+// ── rejectExecutableAttachments ─────────────────────────────────────────────
+// The multer fileFilter boundary that keeps stored-XSS payloads (SVG/HTML run
+// <script> when served inline) out of an org's artifact bucket. Extension AND
+// claimed MIME are both checked because a reporter can lie about either. The
+// HTTP-level behaviour is covered in uploads_filter.smoke.test.ts (~3 cases);
+// this pins the FULL forbidden lists so dropping any entry — .svgz/.htm/.xhtml
+// or the application/xhtml+xml MIME the smoke tests never exercise — fails here.
+
+// rejectExecutableAttachments only reads originalname + mimetype off the file.
+function runFilter(originalname: unknown, mimetype: unknown): { rejected: boolean; accepted: boolean; message?: string } {
+  let rejected = false;
+  let accepted = false;
+  let message: string | undefined;
+  const cb = (err: Error | null, accept?: boolean) => {
+    if (err) { rejected = true; message = err.message; }
+    else { accepted = accept === true; }
+  };
+  // Cast: the filter touches only these two fields of Express.Multer.File.
+  rejectExecutableAttachments!(
+    {} as never,
+    { originalname, mimetype } as never,
+    cb as never,
+  );
+  return { rejected, accepted, message };
+}
+
+for (const ext of [".svg", ".svgz", ".html", ".htm", ".xhtml"]) {
+  test(`rejectExecutableAttachments rejects a "${ext}" extension (benign-looking MIME)`, () => {
+    const { rejected, accepted } = runFilter(`screenshot${ext}`, "image/png");
+    assert.equal(rejected, true);
+    assert.equal(accepted, false);
+  });
+}
+
+for (const mime of ["image/svg+xml", "image/svg", "text/html", "application/xhtml+xml"]) {
+  test(`rejectExecutableAttachments rejects a "${mime}" MIME (benign-looking extension)`, () => {
+    const { rejected, accepted } = runFilter("screenshot.png", mime);
+    assert.equal(rejected, true);
+    assert.equal(accepted, false);
+  });
+}
+
+test("rejectExecutableAttachments rejection is case-insensitive on extension", () => {
+  assert.equal(runFilter("SCREENSHOT.SVG", "image/png").rejected, true);
+  assert.equal(runFilter("Evil.XHTML", "image/png").rejected, true);
+});
+
+test("rejectExecutableAttachments rejection is case-insensitive on MIME", () => {
+  assert.equal(runFilter("screenshot.png", "IMAGE/SVG+XML").rejected, true);
+  assert.equal(runFilter("screenshot.png", "Text/HTML").rejected, true);
+});
+
+test("rejectExecutableAttachments accepts a plain PNG (happy path untouched)", () => {
+  const { rejected, accepted } = runFilter("screenshot.png", "image/png");
+  assert.equal(rejected, false);
+  assert.equal(accepted, true);
+});
+
+test("rejectExecutableAttachments accepts common safe artifact types", () => {
+  for (const [name, mime] of [
+    ["clip.mp4", "video/mp4"],
+    ["clip.webm", "video/webm"],
+    ["trace.json", "application/json"],
+    ["shot.jpg", "image/jpeg"],
+  ] as const) {
+    assert.equal(runFilter(name, mime).accepted, true, `${name} should be accepted`);
+  }
+});
+
+test("rejectExecutableAttachments tolerates a missing originalname/mimetype without throwing", () => {
+  // Defensive: the `?? ""` coalescing must not let an undefined field crash the
+  // filter (which would surface as a 500 on every upload).
+  assert.equal(runFilter(undefined, undefined).accepted, true);
+  assert.equal(runFilter("ok.png", undefined).accepted, true);
+  assert.equal(runFilter(undefined, "image/png").accepted, true);
+  // …but an undefined name still can't smuggle an SVG MIME past the gate.
+  assert.equal(runFilter(undefined, "image/svg+xml").rejected, true);
+});
+
+test("rejectExecutableAttachments does not reject a benign name that merely contains 'svg' mid-string", () => {
+  // endsWith — not includes — so "svg-helper.png" is fine.
+  assert.equal(runFilter("svg-diagram-export.png", "image/png").accepted, true);
 });
