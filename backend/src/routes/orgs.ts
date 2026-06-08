@@ -8,8 +8,10 @@ import { validateWebhookUrl } from "./webhooks.js";
 
 // Mirrors the organizations_git_provider_check CHECK constraint (migration
 // 044). Validate here so an unknown value is a clean 400 rather than a 23514
-// surfacing as a 500.
-const GIT_PROVIDERS = ["github", "gitlab", "bitbucket"];
+// surfacing as a 500. Exported so a smoke test can assert this list stays in
+// lockstep with the DB constraint (every value here must be one the CHECK
+// accepts) — there's no codegen tying the two together.
+export const GIT_PROVIDERS = ["github", "gitlab", "bitbucket"];
 
 // This router uses raw `pool.query` (not `tenantQuery`) throughout. The
 // tables touched here — organizations, org_members, org_invites, users —

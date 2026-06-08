@@ -10,8 +10,9 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { GIT_PROVIDERS } from "../routes/orgs.js";
 
-const PORT = 3970;
+const PORT = 3902;
 const BASE = `http://localhost:${PORT}`;
 
 let server: ChildProcess;
@@ -147,4 +148,16 @@ test("PATCH settings accepts empty git_provider to clear it", async () => {
   assert.equal(res.status, 200, `expected 200; got ${res.status}`);
   const data = (await (await getSettings()).json()) as { git_provider: string | null };
   assert.equal(data.git_provider, null);
+});
+
+test("every GIT_PROVIDERS value is accepted by the DB CHECK constraint (no drift)", async () => {
+  // Lockstep guard: the route's allow-list and organizations_git_provider_check
+  // (migration 044) are hand-synced. If a value is added to GIT_PROVIDERS that
+  // the CHECK doesn't allow, this PATCH 500s on the constraint instead of 200.
+  for (const provider of GIT_PROVIDERS) {
+    const res = await patchSettings({ git_provider: provider });
+    assert.equal(res.status, 200, `git_provider="${provider}" must be accepted by the CHECK; got ${res.status}`);
+    const data = (await (await getSettings()).json()) as { git_provider: string };
+    assert.equal(data.git_provider, provider);
+  }
 });
