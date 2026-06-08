@@ -3,7 +3,7 @@ import pool from "../db.js";
 import { tenantQuery } from "../db.js";
 import { decryptSecret } from "../crypto.js";
 import { safeLog } from "../log.js";
-import type { NormalizedRun } from "../types.js";
+import type { NormalizedRun, NormalizedSpec, NormalizedTest } from "../types.js";
 
 export interface JiraConfig {
   baseUrl: string;
@@ -182,6 +182,35 @@ export async function createIssueForFingerprint(
   }
 }
 
+// Cap auto-created Jira issues per run so a catastrophic run (hundreds of
+// failures) doesn't fan out into hundreds of ticket-creating HTTP calls and
+// flood the project — mirrors annotations.ts's MAX_ANNOTATIONS. This also
+// bounds the post-upload pipeline's worst case: createIssueForFingerprint
+// holds one pooled connection + a per-fingerprint advisory lock across each
+// (bounded-timeout) Jira call on the first-time-create path, so the cap caps
+// that exposure too. Failures beyond the cap still appear in the PR comment
+// and the dashboard — they just don't get an auto-filed ticket.
+export const MAX_AUTO_CREATE_ISSUES = 20;
+
+/**
+ * Flatten a run's failed tests into the (spec, test) pairs auto-create will
+ * open issues for, capped at `cap`. Pure and exported so the cap + drop
+ * accounting are unit-testable without a DB or the Jira API. `dropped` is the
+ * count beyond the cap, so the caller can log a truncation rather than
+ * silently dropping tickets (guard rail: no silent caps).
+ */
+export function selectFailuresForAutoCreate(
+  run: NormalizedRun,
+  cap = MAX_AUTO_CREATE_ISSUES,
+): { selected: Array<{ spec: NormalizedSpec; test: NormalizedTest }>; dropped: number } {
+  const failed = run.specs.flatMap((spec) =>
+    spec.tests
+      .filter((t) => t.status === "failed")
+      .map((test) => ({ spec, test })),
+  );
+  return { selected: failed.slice(0, cap), dropped: Math.max(0, failed.length - cap) };
+}
+
 /**
  * Auto-create issues for new failing tests in a completed run. No-op if not
  * enabled. Errors are swallowed so upload flow isn't affected.
@@ -198,13 +227,18 @@ export async function autoCreateIssuesForRun(
 
     const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
-    const failed = run.specs.flatMap((spec) =>
-      spec.tests
-        .filter((t) => t.status === "failed")
-        .map((t) => ({ spec, test: t }))
-    );
+    const { selected, dropped } = selectFailuresForAutoCreate(run);
+    if (dropped > 0) {
+      // Don't truncate silently: a busy run losing tickets past the cap should
+      // be visible to an operator, not look like full coverage.
+      console.warn(
+        `Jira auto-create: run ${runId} (org ${orgId}) has ${selected.length + dropped} failed tests, ` +
+        `over the ${MAX_AUTO_CREATE_ISSUES}-issue cap — ${dropped} did not get a ticket ` +
+        `(still listed in the PR comment + dashboard).`
+      );
+    }
 
-    for (const { spec, test } of failed.slice(0, 20)) {
+    for (const { spec, test } of selected) {
       const fingerprint = hashString(`${spec.file_path}::${test.full_title}`);
       const summary = `[${run.meta.suite_name}] ${test.full_title}`;
       const description = [

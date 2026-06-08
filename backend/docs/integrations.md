@@ -113,7 +113,10 @@ real credentials does not need the ceremony.
      the target project
    - **Auto-create for new failures** — if enabled, the upload flow will
      automatically open an issue for each failing test (deduped per
-     fingerprint so re-runs do not spam Jira)
+     fingerprint so re-runs do not spam Jira), up to **20 issues per run** so a
+     catastrophic run can't flood the project. Failures beyond that cap still
+     appear in the PR comment and the dashboard — they just don't get an
+     auto-filed ticket, and the overflow is logged server-side.
 4. Click **Save**, then **Test credentials** to verify — it hits
    `/rest/api/2/myself` and reports the HTTP status
 
