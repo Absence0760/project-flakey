@@ -213,6 +213,89 @@ Examples:
   }
 });
 
+test("parseFeature: multiple Examples blocks under one Outline all expand", () => {
+  // Regression: a Scenario Outline may carry more than one Examples table
+  // (each with its own header + rows). An earlier implementation only kept the
+  // LAST block — opening a second Examples reset the buffer without expanding
+  // the first — so its rows were silently dropped on import.
+  const f = parseFeature(`Feature: F
+
+Scenario Outline: Login as <role>
+  Given I am a <role>
+  Then I land on <page>
+
+Examples: privileged
+  | role  | page      |
+  | admin | dashboard |
+  | owner | console   |
+
+Examples: unprivileged
+  | role  | page |
+  | guest | home |
+`);
+  // 2 + 1 rows across two blocks → 3 expanded scenarios, none dropped.
+  assert.equal(f.scenarios.length, 3, "all rows from both Examples blocks must expand");
+  const names = f.scenarios.map((s) => s.name).sort();
+  assert.deepEqual(names, ["Login as admin", "Login as guest", "Login as owner"]);
+  // Substitution still applied per row across both blocks.
+  const guest = f.scenarios.find((s) => s.name === "Login as guest")!;
+  assert.ok(guest.steps.some((st) => st.text === "I land on home"), "second-block row substituted");
+});
+
+test("parseFeature: each Examples block may have its own headers", () => {
+  // The two blocks below use different column sets; expansion must use the
+  // header row of the block the data row belongs to, not a shared one.
+  const f = parseFeature(`Feature: F
+
+Scenario Outline: <thing>
+  Given <thing> with <detail>
+
+Examples:
+  | thing | detail |
+  | a     | one    |
+
+Examples:
+  | thing | detail |
+  | b     | two    |
+`);
+  assert.equal(f.scenarios.length, 2);
+  const a = f.scenarios.find((s) => s.name === "a")!;
+  const b = f.scenarios.find((s) => s.name === "b")!;
+  assert.equal(a.steps[0].text, "a with one");
+  assert.equal(b.steps[0].text, "b with two");
+});
+
+test("parseFeature: tags on an Examples block apply to that block, not the next scenario", () => {
+  // Regression: tags before an `Examples:` line were left on the pending-tag
+  // buffer (Examples didn't consume them), so they leaked onto the NEXT
+  // scenario. They should attach to the expanded rows of their own block.
+  const f = parseFeature(`Feature: F
+
+@outline
+Scenario Outline: Case <n>
+  Given <n>
+
+@happy
+Examples:
+  | n |
+  | 1 |
+
+@sad
+Examples:
+  | n |
+  | 2 |
+
+Scenario: Standalone
+  Given X
+`);
+  const one = f.scenarios.find((s) => s.name === "Case 1")!;
+  const two = f.scenarios.find((s) => s.name === "Case 2")!;
+  const standalone = f.scenarios.find((s) => s.name === "Standalone")!;
+  assert.deepEqual(one.tags.sort(), ["@happy", "@outline"], "first block's rows get outline + its own block tag");
+  assert.deepEqual(two.tags.sort(), ["@outline", "@sad"], "second block's rows get outline + its own block tag");
+  assert.deepEqual(standalone.tags, [], "Examples-block tags must NOT leak onto the following scenario");
+});
+
 // ── Docstrings + tables ──────────────────────────────────────────────────
 
 test("parseFeature: docstring after a step is captured verbatim", () => {
