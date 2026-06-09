@@ -215,6 +215,61 @@ export async function recordResult(
   return res.json();
 }
 
+/** Start a session, returning the full response (for asserting status codes). */
+export async function startSessionRes(
+  page: Page,
+  token: string,
+  releaseId: number,
+  mode = "full",
+) {
+  return page.request.post(`${API}/releases/${releaseId}/sessions`, {
+    headers: authHeaders(token),
+    data: { mode, label: "e2e session" },
+  });
+}
+
+/** PATCH a session (status/label/target_date). Returns the response. */
+export async function patchSession(
+  page: Page,
+  token: string,
+  releaseId: number,
+  sessionId: number,
+  body: Record<string, unknown>,
+) {
+  return page.request.patch(`${API}/releases/${releaseId}/sessions/${sessionId}`, {
+    headers: authHeaders(token),
+    data: body,
+  });
+}
+
+/** Attach a requirement (ref_key) to a manual test, optionally with a title. */
+export async function attachRequirement(
+  page: Page,
+  token: string,
+  manualTestId: number,
+  refKey: string,
+  refTitle?: string,
+): Promise<void> {
+  const res = await page.request.post(`${API}/manual-tests/${manualTestId}/requirements`, {
+    headers: authHeaders(token),
+    data: { ref_key: refKey, ...(refTitle ? { ref_title: refTitle } : {}) },
+  });
+  expect(res.status(), "POST requirement should return 201").toBe(201);
+}
+
+/** GET the release's requirements-coverage rollup. */
+export async function getRequirements(
+  page: Page,
+  token: string,
+  releaseId: number,
+): Promise<any[]> {
+  const res = await page.request.get(`${API}/releases/${releaseId}/requirements`, {
+    headers: bearer(token),
+  });
+  expect(res.ok(), "GET requirements should be ok").toBeTruthy();
+  return res.json();
+}
+
 /** The signed-in user's own id (via GET /auth/me). */
 export async function getMyUserId(page: Page, token: string): Promise<number> {
   const res = await page.request.get(`${API}/auth/me`, { headers: bearer(token) });
