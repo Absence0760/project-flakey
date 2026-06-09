@@ -229,6 +229,21 @@ jobs:
           --health-timeout 3s
           --health-retries 10
           --tmpfs /var/lib/postgresql/data
+      # SMTP sink for the email-verification and connectivity email-probe
+      # specs (email-verification-flow.spec.ts, connectivity.spec.ts),
+      # mirroring the Mailpit service in the backend job + docker-compose.yml.
+      # SMTP on 1025 (the backend's default SMTP_PORT, reached via
+      # SMTP_HOST=127.0.0.1 on the Start backend step); web/API on 8025
+      # (MAILPIT_URL on the Run Playwright step). No health gate — the specs
+      # poll Mailpit until it's up. Without this the email specs ECONNREFUSED.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - "1025:1025"
+          - "8025:8025"
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: 1
+          MP_SMTP_AUTH_ALLOW_INSECURE: 1
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
