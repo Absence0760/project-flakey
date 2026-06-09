@@ -19,7 +19,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { categorizeChange } from "../routes/compare.js";
+import { categorizeChange, buildComparison, type CompareTestRow } from "../routes/compare.js";
+
+function row(over: Partial<CompareTestRow> = {}): CompareTestRow {
+  return { id: 1, title: "t", status: "passed", duration_ms: 100, error_message: null, file_path: "a.spec.ts", ...over };
+}
 
 // ── Missing-side semantics ───────────────────────────────────────────────
 
@@ -137,4 +141,39 @@ test("categorizeChange: full status matrix is locked down", () => {
       );
     }
   }
+});
+
+// ── buildComparison: file_path/title come from the row, not a key split ──────
+
+test("buildComparison: a title containing '::' is preserved, not truncated", () => {
+  // Regression: the handler did `const [file_path, title] = key.split("::")`,
+  // so a namespaced title like "Service::handles edge case" rendered as just
+  // "Service". Reading from the row keeps it intact.
+  const key = "auth.spec.ts::Service::handles edge case";
+  const a = row({ file_path: "auth.spec.ts", title: "Service::handles edge case", status: "passed" });
+  const b = row({ file_path: "auth.spec.ts", title: "Service::handles edge case", status: "failed" });
+
+  const out = buildComparison(key, a, b);
+  assert.equal(out.title, "Service::handles edge case", "the full '::'-containing title must survive");
+  assert.equal(out.file_path, "auth.spec.ts");
+  assert.equal(out.category, "regression");
+  assert.equal(out.key, key, "the synthetic key is still carried through as a stable id");
+});
+
+test("buildComparison: an added test (only side B) takes its title from side B", () => {
+  const b = row({ title: "Brand::new", file_path: "new.spec.ts", status: "passed" });
+  const out = buildComparison("new.spec.ts::Brand::new", null, b);
+  assert.equal(out.category, "added");
+  assert.equal(out.title, "Brand::new");
+  assert.equal(out.a, null);
+});
+
+test("buildComparison: duration_delta is a percentage and null-safe when A is missing or zero", () => {
+  // +50% slower
+  const slower = buildComparison("f::t", row({ duration_ms: 100 }), row({ duration_ms: 150 }));
+  assert.equal(slower.duration_delta, 50);
+  // A missing → null (can't compute a delta from nothing)
+  assert.equal(buildComparison("f::t", null, row()).duration_delta, null);
+  // A duration 0 → null (no divide-by-zero)
+  assert.equal(buildComparison("f::t", row({ duration_ms: 0 }), row({ duration_ms: 100 })).duration_delta, null);
 });
