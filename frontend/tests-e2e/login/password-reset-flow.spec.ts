@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 import { ADMIN_USER } from "../fixtures/users";
@@ -44,7 +46,7 @@ async function registerFreshUser(
   adminToken: string,
   orgId: number,
 ): Promise<{ email: string; password: string }> {
-  const email = `e2e-reset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}@example.test`;
+  const email = `e2e-reset-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}@example.test`;
   const password = "OriginalPass!2024";
 
   const inviteRes = await request.post(`${BACKEND}/orgs/${orgId}/invites`, {
