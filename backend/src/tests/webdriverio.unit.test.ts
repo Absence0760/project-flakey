@@ -141,3 +141,38 @@ test("parseWebdriverIO: empty nested suite yields zero tests and does not crash"
   // finished_at must be a representable ISO string for the Postgres write.
   assert.doesNotThrow(() => new Date(out.meta.finished_at).toISOString());
 });
+
+// ── Duration coercion: never propagate a negative/NaN/string duration ───────
+// Regression: webdriverio used a bare `?? 0`, which only guards null/undefined.
+// A negative duration (clock skew) or a stringified number would flow into the
+// summed spec/run totals — a negative run duration, or string concatenation.
+// safeDuration (shared with mochawesome/playwright) clamps these to 0.
+
+test("parseWebdriverIO: a negative test duration is clamped, not summed into a negative total", () => {
+  const out = parseWebdriverIO({
+    suites: [{
+      name: "S", file: "s.e2e.ts",
+      tests: [
+        { name: "a", state: "passed", duration: 100 },
+        { name: "b", state: "failed", duration: -5000 },
+      ],
+    }],
+  } as any, META);
+  assert.ok(out.stats.duration_ms >= 0, `run duration must not go negative, got ${out.stats.duration_ms}`);
+  assert.equal(out.specs[0].tests[1].duration_ms, 0, "a negative duration is clamped to 0");
+});
+
+test("parseWebdriverIO: a stringified duration is coerced to a number, not concatenated", () => {
+  const out = parseWebdriverIO({
+    suites: [{
+      name: "S", file: "s.e2e.ts",
+      tests: [
+        { name: "a", state: "passed", duration: "100" },
+        { name: "b", state: "passed", duration: "200" },
+      ],
+    }],
+  } as any, META);
+  // Bare `?? 0` would leave strings → reduce concatenates ("0100200"); safeDuration coerces.
+  assert.equal(typeof out.stats.duration_ms, "number");
+  assert.equal(out.specs[0].stats.duration_ms, 300, "string durations are summed numerically");
+});
