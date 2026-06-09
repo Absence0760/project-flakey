@@ -261,6 +261,15 @@ test("viewer cannot POST /reports (scheduled reports)", async () => {
   assert.equal(res.status, 403);
 });
 
+test("viewer cannot GET /reports (destination is a webhook/Slack posting credential)", async () => {
+  // The report `destination` is a webhook/Slack URL — a posting credential for
+  // those channels, the same secret class GET /webhooks is admin-only to
+  // protect. A viewer must not be able to read it, so the list is admin-only
+  // on read just like every other /reports verb.
+  const res = await asViewer().get("/reports");
+  assert.equal(res.status, 403, "viewer must NOT be able to read scheduled-report destinations");
+});
+
 test("viewer cannot PATCH /coverage/settings", async () => {
   const res = await asViewer().patch("/coverage/settings", {
     coverage_threshold: 0,
