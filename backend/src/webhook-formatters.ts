@@ -85,6 +85,14 @@ const TEAMS_TEXT_LIMIT = 256;
 const DISCORD_TITLE_LIMIT = 256;
 // Discord embed field values must be 1–1024 chars; empty or oversized → reject.
 const DISCORD_FIELD_VALUE_LIMIT = 1024;
+// Cap how many list rows a Discord embed renders, like Slack/Teams. Without
+// this the description was built from the FULL list and then hard-truncated to
+// 4000 chars (see below) — cutting mid-line with no indication, while the
+// header still claimed the full count. Cap + an "…and N more" row instead.
+const DISCORD_LIST_CAP = 20;
+function discordOverflow(total: number): string | null {
+  return total > DISCORD_LIST_CAP ? `…and ${total - DISCORD_LIST_CAP} more` : null;
+}
 
 // The "…and N more" overflow row Teams appends when a list is capped.
 function teamsOverflow(total: number): object | null {
@@ -388,30 +396,38 @@ function formatDiscord(p: WebhookRunPayload): object {
   let description = "";
 
   if (p.event === "flaky.detected" && p.flaky_tests && p.flaky_tests.length > 0) {
-    const lines = p.flaky_tests.map((t) =>
+    const lines = p.flaky_tests.slice(0, DISCORD_LIST_CAP).map((t) =>
       `\ud83c\udfb2 **${truncate(t.full_title, 60)}** \u2014 ${t.flaky_rate}% flaky (${t.fail_count}/${t.total_runs} failed, ${t.flip_count} flips)`
     );
+    const more = discordOverflow(p.flaky_tests.length);
+    if (more) lines.push(more);
     description = `**${p.flaky_tests.length} Flaky Test${p.flaky_tests.length > 1 ? "s" : ""} Detected:**\n${lines.join("\n")}`;
   } else if (p.event === "new.failures" && p.new_failures && p.new_failures.length > 0) {
-    const newLines = p.new_failures.map((t) => {
+    const newLines = p.new_failures.slice(0, DISCORD_LIST_CAP).map((t) => {
       const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
       return `\ud83d\udea8 **${truncate(t.full_title, 60)}**${err}`;
     });
+    const moreNew = discordOverflow(p.new_failures.length);
+    if (moreNew) newLines.push(moreNew);
     description = `**${p.new_failures.length} New Failure${p.new_failures.length > 1 ? "s" : ""}** (passed last run):\n${newLines.join("\n")}`;
 
     if (p.failed_tests.length > p.new_failures.length) {
       description += `\n\n**All ${p.failed_tests.length} failures:**\n`;
-      const allLines = p.failed_tests.map((t) => {
+      const allLines = p.failed_tests.slice(0, DISCORD_LIST_CAP).map((t) => {
         const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
         return `\u2022 **${truncate(t.full_title, 60)}**${err}`;
       });
+      const moreAll = discordOverflow(p.failed_tests.length);
+      if (moreAll) allLines.push(moreAll);
       description += allLines.join("\n");
     }
   } else if (p.failed_tests.length > 0 && p.event !== "run.passed") {
-    const lines = p.failed_tests.map((t) => {
+    const lines = p.failed_tests.slice(0, DISCORD_LIST_CAP).map((t) => {
       const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
       return `\u2022 **${truncate(t.full_title, 60)}**${err}`;
     });
+    const more = discordOverflow(p.failed_tests.length);
+    if (more) lines.push(more);
     description = lines.join("\n");
   }
 
