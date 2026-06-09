@@ -215,6 +215,22 @@ export async function recordResult(
   return res.json();
 }
 
+/** Defer a failed/blocked result as a known issue (optionally with a ref). */
+export async function acceptResult(
+  page: Page,
+  token: string,
+  releaseId: number,
+  sessionId: number,
+  testId: number,
+  knownIssueRef?: string,
+): Promise<void> {
+  const res = await page.request.post(
+    `${API}/releases/${releaseId}/sessions/${sessionId}/results/${testId}/accept`,
+    { headers: authHeaders(token), data: knownIssueRef ? { known_issue_ref: knownIssueRef } : {} },
+  );
+  expect(res.status(), "POST .../accept should return 2xx").toBeLessThan(400);
+}
+
 export async function getReadiness(
   page: Page,
   token: string,
