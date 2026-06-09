@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import AdmZip from "adm-zip";
 
-import { parseTrace, parseAndSaveTrace } from "../index.ts";
+import { parseTrace, parseAndSaveTrace, cleanSelector } from "../index.ts";
 
 /**
  * Unit tests for the Playwright trace parser.
@@ -331,12 +331,14 @@ test("parseAndSaveTrace gzip-writes the snapshot bundle and returns the file pat
   assert.ok(snapshotPath, "expected a non-null snapshotPath");
   assert.ok(existsSync(snapshotPath), "the snapshot file should exist on disk");
 
-  // Filename: <safe-spec>--<safe-title>.json.gz
+  // Filename: <safe-spec>--<safe-title>-<sha8>.json.gz
   //   spec  "tests/auth/login.spec.ts"        → "tests__auth__login.spec.ts"
   //   title "Auth flow > should sign in"      → "Auth-flow-should-sign-in"
   //         (the `>` is non-alphanum, gets stripped; surrounding spaces
   //          collapse with the rest into single dashes via \s+ → '-')
-  assert.match(snapshotPath, /tests__auth__login\.spec\.ts--Auth-flow-should-sign-in\.json\.gz$/);
+  //   plus an 8-hex-char hash of the raw spec::title identity to disambiguate
+  //   distinct tests that sanitize to the same name.
+  assert.match(snapshotPath, /tests__auth__login\.spec\.ts--Auth-flow-should-sign-in-[0-9a-f]{8}\.json\.gz$/);
 
   // The file is gzipped JSON of a SnapshotBundle.
   const parsed = JSON.parse(gunzipSync(readFileSync(snapshotPath)).toString("utf8"));
@@ -539,10 +541,12 @@ test("a corrupt/garbage image resource is base64'd verbatim (parser does not val
   );
 });
 
-test("filename collision: two titles that sanitize to the same name OVERWRITE (last write wins, no uniquification)", () => {
+test("two DISTINCT tests that sanitize to the same name get distinct files (hash suffix prevents clobber)", () => {
   // Both titles sanitize identically: "Login: works!" and "Login  works"
   //   strip non-alphanum (drops ':' and '!') then collapse \s+ → '-'
-  //   → both become "Login-works".
+  //   → both become "Login-works". Before the hash suffix, the second silently
+  //   overwrote the first — a whole test's snapshots lost. Now the raw-title
+  //   hash disambiguates them.
   const buildOneStepTrace = (sha1: string, body: Buffer): string => {
     const zip = new AdmZip();
     const lines = [
@@ -561,37 +565,83 @@ test("filename collision: two titles that sanitize to the same name OVERWRITE (l
   const firstBody = Buffer.from("FIRST");
   const secondBody = Buffer.from("SECOND");
 
-  const first = parseAndSaveTrace(
-    buildOneStepTrace("aaa", firstBody),
-    "Login: works!",
-    "spec.ts",
-    outputDir,
-  );
-  const second = parseAndSaveTrace(
-    buildOneStepTrace("bbb", secondBody),
-    "Login  works",
-    "spec.ts",
-    outputDir,
-  );
+  const first = parseAndSaveTrace(buildOneStepTrace("aaa", firstBody), "Login: works!", "spec.ts", outputDir);
+  const second = parseAndSaveTrace(buildOneStepTrace("bbb", secondBody), "Login  works", "spec.ts", outputDir);
 
-  // Documented behavior: identical sanitized names → identical output path.
   assert.ok(first.snapshotPath && second.snapshotPath);
-  assert.equal(second.snapshotPath, first.snapshotPath,
-    "two titles that sanitize to the same name resolve to the SAME file path");
-  assert.match(second.snapshotPath, /spec\.ts--Login-works\.json\.gz$/);
+  assert.notEqual(second.snapshotPath, first.snapshotPath,
+    "distinct tests must resolve to DISTINCT files even when their names sanitize identically");
+  // Both share the sanitized stem but differ in the trailing hash.
+  assert.match(first.snapshotPath, /spec\.ts--Login-works-[0-9a-f]{8}\.json\.gz$/);
+  assert.match(second.snapshotPath, /spec\.ts--Login-works-[0-9a-f]{8}\.json\.gz$/);
 
-  // The second write OVERWRITES the first — there is no -1/-2 uniquification.
-  // Prove it by reading the file back: it must contain SECOND's frame, not FIRST's.
-  const parsed = JSON.parse(gunzipSync(readFileSync(second.snapshotPath)).toString("utf8"));
-  assert.equal(parsed.testTitle, "Login  works",
-    "the surviving bundle is the second (last) write — first was overwritten");
-  assert.ok(
-    parsed.steps[0].html.includes(secondBody.toString("base64")),
-    "the on-disk frame is SECOND's; the first bundle is gone (overwrite, not uniquify)",
-  );
-  assert.equal(
-    parsed.steps[0].html.includes(firstBody.toString("base64")),
-    false,
-    "FIRST's frame must NOT survive — confirming overwrite, not a second uniquified file",
-  );
+  // Both bundles survive on disk — neither clobbered the other.
+  const p1 = JSON.parse(gunzipSync(readFileSync(first.snapshotPath)).toString("utf8"));
+  const p2 = JSON.parse(gunzipSync(readFileSync(second.snapshotPath)).toString("utf8"));
+  assert.ok(p1.steps[0].html.includes(firstBody.toString("base64")), "FIRST's bundle survives");
+  assert.ok(p2.steps[0].html.includes(secondBody.toString("base64")), "SECOND's bundle survives");
+});
+
+test("the SAME test (same raw title) resolves to one stable file across calls — its retries don't pile up files", () => {
+  const buildOneStepTrace = (sha1: string, body: Buffer): string => {
+    const zip = new AdmZip();
+    const lines = [
+      { type: "screencastFrame", sha1, timestamp: 150, width: 100, height: 100 },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 200 },
+    ];
+    zip.addFile("0-trace.trace", Buffer.from(lines.map((l) => JSON.stringify(l)).join("\n"), "utf8"));
+    zip.addFile(`resources/${sha1}.jpeg`, body);
+    const p = join(tmpRoot, `trace-${sha1}.zip`);
+    zip.writeZip(p);
+    return p;
+  };
+
+  const outputDir = join(tmpRoot, "stable");
+  const a = parseAndSaveTrace(buildOneStepTrace("aaa", Buffer.from("ATTEMPT1")), "flaky test", "spec.ts", outputDir);
+  const b = parseAndSaveTrace(buildOneStepTrace("bbb", Buffer.from("ATTEMPT2")), "flaky test", "spec.ts", outputDir);
+
+  assert.ok(a.snapshotPath && b.snapshotPath);
+  assert.equal(a.snapshotPath, b.snapshotPath,
+    "identical raw title → identical (stable) path; last write wins for the same test");
+  const parsed = JSON.parse(gunzipSync(readFileSync(b.snapshotPath)).toString("utf8"));
+  assert.ok(parsed.steps[0].html.includes(Buffer.from("ATTEMPT2").toString("base64")),
+    "the surviving bundle is the latest attempt");
+});
+
+// ─── cleanSelector ──────────────────────────────────────────────────────────
+// Playwright internal selector syntax → readable display form. Regressions
+// here garble the step labels shown on the dashboard.
+
+test("cleanSelector: testid strips the internal: prefix and trailing strict flag", () => {
+  assert.equal(cleanSelector('internal:testid=[data-testid="login"]s'), '[data-testid="login"]');
+  assert.equal(cleanSelector('internal:testid=[data-testid="login"]'), '[data-testid="login"]');
+});
+
+test("cleanSelector: role with a name keeps its bracket; bare role loses internal: prefix", () => {
+  assert.equal(cleanSelector('internal:role=button[name="Save"]'), 'role=button[name="Save"]');
+  // Regression: a bracket-less getByRole("button") used to keep the
+  // internal: prefix because the old regex required a following `[`.
+  assert.equal(cleanSelector("internal:role=button"), "role=button");
+});
+
+test("cleanSelector: text with an apostrophe inside double quotes is NOT truncated", () => {
+  // Regression: `[^"']` stopped at the apostrophe → produced "text=it".
+  assert.equal(cleanSelector(`internal:text="it's done"s`), "text=it's done");
+});
+
+test("cleanSelector: text strips the trailing strict/case-insensitive flag", () => {
+  // Regression: trailing `s` survived → "text=it workss".
+  assert.equal(cleanSelector('internal:text="it works"s'), "text=it works");
+  assert.equal(cleanSelector('internal:text="case"i'), "text=case");
+  assert.equal(cleanSelector('internal:text="no flag"'), "text=no flag");
+});
+
+test("cleanSelector: single-quoted text keeps an inner double quote", () => {
+  assert.equal(cleanSelector(`internal:text='say "hi"'`), 'text=say "hi"');
+});
+
+test("cleanSelector: a plain CSS selector passes through untouched", () => {
+  assert.equal(cleanSelector("button.primary"), "button.primary");
+  assert.equal(cleanSelector("#email"), "#email");
 });

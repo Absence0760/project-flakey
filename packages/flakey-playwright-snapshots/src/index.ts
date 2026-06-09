@@ -13,6 +13,7 @@
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { gzipSync } from "zlib";
+import { createHash } from "crypto";
 import AdmZip from "adm-zip";
 
 interface TraceAction {
@@ -67,13 +68,28 @@ interface ParseResult {
 
 const ACTION_CLASSES = new Set(["Frame", "Page", "Locator", "ElementHandle", "JSHandle"]);
 
-function cleanSelector(sel: string): string {
-  // Convert internal selectors to readable form
-  // internal:testid=[data-testid="email-input"s] → [data-testid="email-input"]
+// Exported for unit testing (src/tests/parse-trace.test.ts).
+export function cleanSelector(sel: string): string {
+  // Convert Playwright's internal selector engine syntax to readable form.
+  // The trailing `s` / `i` after a value is the match-mode flag Playwright
+  // appends (strict / case-insensitive) — strip it.
+  //   internal:testid=[data-testid="email-input"]s → [data-testid="email-input"]
+  //   internal:role=button[name="x"]               → role=button[name="x"]
+  //   internal:role=button                         → role=button
+  //   internal:text="it's done"s                   → text=it's done
+  //   internal:text='quote " inside'               → text=quote " inside
   return sel
     .replace(/internal:testid=\[([^\]]+)\]s?/g, "[$1]")
-    .replace(/internal:role=([^[]+)\[/g, "role=$1[")
-    .replace(/internal:text=["']([^"']+)["']/g, "text=$1");
+    // Strip the prefix only — keep any trailing `[name=…]` AND match the bare
+    // `getByRole("button")` form with no bracket at all (the old `([^[]+)\[`
+    // required a `[`, so a bracket-less role kept the `internal:` prefix).
+    .replace(/internal:role=/g, "role=")
+    // Separate the double- and single-quoted forms so the capture's stop char
+    // is the *opposite* quote — `[^"']` (the old form) stopped at either, so
+    // `getByText("it's done")` truncated at the apostrophe to `text=it`. Each
+    // form also strips the trailing strict/case-insensitive flag letter.
+    .replace(/internal:text="([^"]*)"[a-z]?/g, "text=$1")
+    .replace(/internal:text='([^']*)'[a-z]?/g, "text=$1");
 }
 
 function formatAction(method: string, params: Record<string, any>): { name: string; message: string } {
@@ -286,7 +302,15 @@ export function parseAndSaveTrace(
     .replace(/[^a-zA-Z0-9_\-./]/g, "")
     .replace(/\//g, "__");
 
-  const fileName = `${safeSpec}--${safeName}.json.gz`;
+  // Hash the raw (pre-sanitization) spec::title identity and append a short
+  // suffix. Without it, two DISTINCT tests whose titles sanitize to the same
+  // name (e.g. "Login: works!" and "Login  works", or a parameterized test and
+  // its sibling) write to the same path and the second silently clobbers the
+  // first — losing a whole test's snapshots. The hash is stable for a given
+  // test, so its own retries still resolve to one file (last-write-wins, which
+  // is intended). Mirrors the @flakeytesting/cypress-snapshots plugin.
+  const hash = createHash("sha1").update(`${specFile}::${testTitle}`).digest("hex").slice(0, 8);
+  const fileName = `${safeSpec}--${safeName}-${hash}.json.gz`;
   const filePath = join(outputDir, fileName);
 
   const compressed = gzipSync(Buffer.from(JSON.stringify(snapshotBundle)));
