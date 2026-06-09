@@ -17,6 +17,7 @@
  */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { format } from "node:util";
 import pool from "../db.js";
 import { logAudit } from "../audit.js";
 
@@ -31,8 +32,12 @@ after(async () => {
 test("logAudit swallows a write failure and logs it with org/action/target context", async () => {
   const captured: string[] = [];
   const realError = console.error;
+  // logAudit logs via a constant printf format string + value args (so
+  // user-controlled action/target can't sit in the format-string position —
+  // see audit.ts). Reconstruct the line the way console.error actually renders
+  // it, applying the %s substitutions, instead of joining the raw args.
   console.error = (...args: unknown[]) => {
-    captured.push(args.map((a) => String(a)).join(" "));
+    captured.push(format(...(args as [unknown, ...unknown[]])));
   };
 
   try {
