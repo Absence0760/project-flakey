@@ -178,6 +178,33 @@ test("retry handling: a failed test with retry < retries is DROPPED (only the fi
     "the two earlier failed retries must NOT count toward failed");
 });
 
+test("retry handling: a non-final timedOut/interrupted attempt is DROPPED too (not just 'failed')", async () => {
+  // Regression: the guard only checked status === "failed", so a test that
+  // timed out (or was interrupted) on a non-final attempt and then passed
+  // produced TWO rows — the bogus timeout failure plus the real pass.
+  const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+
+  const timedOut = pwTest({ title: "slow", file: "a.spec.ts", retries: 2, titlePath: ["A", "slow"] });
+  r.onTestEnd(timedOut, pwResult({ status: "timedOut", retry: 0, duration: 5000 }));
+  r.onTestEnd(timedOut, pwResult({ status: "passed", retry: 1, duration: 120 }));
+
+  const interrupted = pwTest({ title: "killed", file: "a.spec.ts", retries: 2, titlePath: ["A", "killed"] });
+  r.onTestEnd(interrupted, pwResult({ status: "interrupted", retry: 0, duration: 0 }));
+  r.onTestEnd(interrupted, pwResult({ status: "passed", retry: 1, duration: 80 }));
+
+  await r.onEnd({ status: "passed" });
+
+  const payload = uploadPayload(fetchMock.calls);
+  const rows = payload.specs[0].tests;
+  assert.equal(rows.length, 2, "exactly one row per test — non-final timeout/interrupt dropped");
+  assert.equal(rows.find((x: any) => x.title === "slow").status, "passed");
+  assert.equal(rows.find((x: any) => x.title === "killed").status, "passed");
+  assert.equal(payload.specs[0].stats.total, 2);
+  assert.equal(payload.specs[0].stats.passed, 2);
+  assert.equal(payload.specs[0].stats.failed, 0,
+    "the non-final timeout and interrupt must NOT count toward failed");
+});
+
 test("a final-retry FAILED test (retry == retries) is kept", async () => {
   const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
   const t = pwTest({ title: "always-fails", file: "a.spec.ts", retries: 2, titlePath: ["A", "always-fails"] });
@@ -455,6 +482,38 @@ test("options win over env: explicit url/apiKey/suite override FLAKEY_* env vars
     delete process.env.FLAKEY_API_KEY;
     delete process.env.FLAKEY_SUITE;
   }
+});
+
+test("started_at comes from FullResult.startTime (run start), not the reporter's construction time", async () => {
+  // Construct the reporter "early" — in CI this is config-eval time, well
+  // before workers launch. Playwright passes the real run start in onEnd.
+  const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+  r.onTestEnd(
+    pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+    pwResult({ status: "passed", duration: 1 }),
+  );
+
+  const runStart = new Date("2026-05-08T12:00:00.000Z");
+  await r.onEnd({ status: "passed", startTime: runStart } as any);
+
+  const payload = uploadPayload(fetchMock.calls);
+  assert.equal(payload.meta.started_at, runStart.toISOString(),
+    "started_at must reflect the authoritative run start, not constructor time");
+});
+
+test("started_at falls back to construction time when FullResult has no startTime (older Playwright)", async () => {
+  const r = new FlakeyPlaywrightReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+  r.onTestEnd(
+    pwTest({ title: "x", file: "a.spec.ts", titlePath: ["A", "x"] }),
+    pwResult({ status: "passed", duration: 1 }),
+  );
+  await r.onEnd({ status: "passed" });
+
+  const payload = uploadPayload(fetchMock.calls);
+  // No startTime on the result → the constructor timestamp is used. It must
+  // still be a valid ISO string (not undefined/"Invalid Date").
+  assert.match(payload.meta.started_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(new Date(payload.meta.started_at).toString() === "Invalid Date", false);
 });
 
 test("onEnd with zero collected tests still POSTs (covers the 'all tests skipped' edge — playwright sometimes calls onEnd without onTestEnd)", async () => {

@@ -35,6 +35,11 @@ interface PlaywrightTestResult {
 
 interface PlaywrightFullResult {
   status: "passed" | "failed" | "timedout" | "interrupted";
+  // Authoritative run start — set by Playwright when the first worker
+  // begins, not when the config is evaluated. Optional because it was
+  // added in a later Playwright version than our >=1.30 peer floor.
+  startTime?: Date;
+  duration?: number;
 }
 
 export default class FlakeyPlaywrightReporter {
@@ -67,7 +72,15 @@ export default class FlakeyPlaywrightReporter {
   onTestEnd(test: PlaywrightTestCase, result: PlaywrightTestResult) {
     // Skip non-final retry attempts to avoid inflating counts.
     // result.retry is 0-based; test.retries is the configured max.
-    if (result.status === "failed" && result.retry < test.retries) return;
+    // A failing attempt can have any of three statuses — "failed",
+    // "timedOut", or "interrupted" — and a retry follows all three. Only
+    // checking "failed" let a non-final timeout/interrupt through as its
+    // own row, double-counting a test that later passed on retry.
+    const isFailingAttempt =
+      result.status === "failed" ||
+      result.status === "timedOut" ||
+      result.status === "interrupted";
+    if (isFailingAttempt && result.retry < test.retries) return;
 
     const filePath = test.location.file;
     const specTitle = test.parent.title || filePath;
@@ -152,6 +165,12 @@ export default class FlakeyPlaywrightReporter {
   }
 
   async onEnd(_result: PlaywrightFullResult) {
+    // Prefer Playwright's authoritative run start over the reporter's
+    // construction time. `this.startedAt` is set when the config module is
+    // evaluated — before workers launch — so in CI with slow worker startup
+    // it can be tens of seconds early. `_result.startTime` is the real
+    // first-test timestamp; fall back to construction time when absent.
+    const startedAt = _result?.startTime ?? this.startedAt;
     const specs: NormalizedSpec[] = [];
     let total = 0, passed = 0, failed = 0, skipped = 0, duration = 0;
 
@@ -206,7 +225,7 @@ export default class FlakeyPlaywrightReporter {
         branch: this.options.branch ?? process.env.BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? process.env.BITBUCKET_BRANCH ?? "",
         commit_sha: this.options.commitSha ?? process.env.COMMIT_SHA ?? process.env.GITHUB_SHA ?? process.env.BITBUCKET_COMMIT ?? "",
         ci_run_id: this.options.ciRunId ?? process.env.CI_RUN_ID ?? process.env.GITHUB_RUN_ID ?? process.env.BITBUCKET_BUILD_NUMBER ?? "",
-        started_at: this.startedAt.toISOString(),
+        started_at: startedAt.toISOString(),
         finished_at: new Date().toISOString(),
         reporter: "playwright",
         ...(this.options.release || process.env.FLAKEY_RELEASE
