@@ -16,7 +16,11 @@ export const state: {
   testStartTime: number;
   /** Number of per-step cap trips in the current test. */
   cappedCount: number;
-  /** Number of steps evicted by the aggregate-bundle cap in the current test. */
+  /**
+   * Number of steps evicted in the current test — by EITHER the step-count
+   * ring buffer (MAX_STEPS) or the aggregate-byte cap. Both are real losses
+   * the operator should see in the end-of-test summary / `evictedSteps` field.
+   */
   evictedCount: number;
   /** Running total of `html.length` across steps. Kept in sync by pushStep. */
   bundleBytes: number;
@@ -178,7 +182,12 @@ export function appendStep(step: SnapshotStep): void {
   state.bundleBytes += step.html.length;
   while (state.steps.length > MAX_STEPS) {
     const dropped = state.steps.shift();
-    if (dropped) state.bundleBytes -= dropped.html.length;
+    if (dropped) {
+      state.bundleBytes -= dropped.html.length;
+      // Count ring-buffer evictions too — otherwise a test with >300 commands
+      // silently drops its oldest steps while the summary reports "0 evicted".
+      state.evictedCount++;
+    }
   }
   enforceBundleSize();
 }

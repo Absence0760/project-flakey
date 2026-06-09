@@ -89,6 +89,9 @@ test("appendStep() ring-buffer caps at 300 steps and keeps bundleBytes accountin
   assert.equal(state.steps[0].index, 5, "oldest 5 steps should have been evicted FIFO");
   // bundleBytes = 300 × 100.
   assert.equal(state.bundleBytes, 300 * 100);
+  // Ring-buffer evictions must be counted too — otherwise a >300-command test
+  // reports "0 evicted" while it silently dropped its oldest steps.
+  assert.equal(state.evictedCount, 5, "the 5 ring-buffer evictions are surfaced in evictedCount");
 });
 
 test("enforceBundleSize() evicts FIFO until bundleBytes ≤ maxBundleBytes", () => {
