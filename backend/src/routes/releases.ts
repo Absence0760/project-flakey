@@ -84,7 +84,7 @@ async function evaluateCriticalTestsPassing(
   // single most recent run for the org so the rule still has a signal.
   const linked = await tenantQuery(
     orgId,
-    `SELECT r.id, r.failed, r.total, r.passed
+    `SELECT r.id, r.failed, r.total, r.passed, r.finished_at
        FROM release_runs rr
        JOIN runs r ON r.id = rr.run_id
       WHERE rr.release_id = $1
@@ -96,7 +96,7 @@ async function evaluateCriticalTestsPassing(
   if (rows.length === 0) {
     const latest = await tenantQuery(
       orgId,
-      "SELECT id, failed, total, passed FROM runs ORDER BY created_at DESC LIMIT 1"
+      "SELECT id, failed, total, passed, finished_at FROM runs ORDER BY created_at DESC LIMIT 1"
     );
     rows = latest.rows;
     scope = "latest";
@@ -118,6 +118,21 @@ async function evaluateCriticalTestsPassing(
     return {
       met: false,
       details: `${aborted.rows.length} linked run(s) aborted — rerun required`,
+    };
+  }
+
+  // An unfinished (live/in-progress) run hasn't produced a final result yet, so
+  // its `failed = 0` is not a real pass — the suite simply hasn't failed YET.
+  // Mirror the run-status definition (runs.ts: passing ⇔ finished_at IS NOT
+  // NULL AND failed = 0 AND NOT aborted): an in-progress run can't satisfy the
+  // gate, or a brand-new live run with zero events would green-light a release.
+  const inProgress = rows.filter((r) => r.finished_at === null);
+  if (inProgress.length > 0) {
+    return {
+      met: false,
+      details: scope === "linked"
+        ? `${inProgress.length} linked run(s) still in progress`
+        : "latest run still in progress",
     };
   }
 
@@ -174,14 +189,19 @@ async function evaluateManualRegressionExecuted(
     const session = latestSession.rows[0];
     const results = await tenantQuery(
       orgId,
+      // Join release_manual_tests so a test UNLINKED after the session was
+      // seeded stops counting — its stale session_result row would otherwise
+      // block the rule forever (a leftover not_run) or inflate the clean count.
       `SELECT r.status, r.accepted_as_known_issue, r.manual_test_id,
               mt.title, mt.priority, g.name AS group_name
          FROM release_test_session_results r
          JOIN manual_tests mt ON mt.id = r.manual_test_id
+         JOIN release_manual_tests rmt
+           ON rmt.manual_test_id = r.manual_test_id AND rmt.release_id = $2
          LEFT JOIN manual_test_groups g ON g.id = mt.group_id
         WHERE r.session_id = $1
         ORDER BY mt.priority DESC, mt.title`,
-      [session.id]
+      [session.id, releaseId]
     );
     const rows = results.rows;
     if (rows.length === 0) {
@@ -292,11 +312,14 @@ async function refreshAutoItems(orgId: number, releaseId: number): Promise<void>
     const result = await evaluateRule(it.auto_rule, orgId, releaseId);
     await tenantQuery(
       orgId,
+      // When the rule is met, stamp checked_at once (keep the first time). When
+      // it reverts to not-met, CLEAR checked_at/checked_by — otherwise an
+      // unchecked item keeps a stale "checked at <past>" in the audit trail.
       `UPDATE release_checklist_items
           SET checked       = $1,
               auto_details  = $2,
-              checked_at    = CASE WHEN $1 AND checked_at IS NULL THEN NOW() ELSE checked_at END,
-              checked_by    = CASE WHEN $1 AND checked_by IS NULL THEN NULL ELSE checked_by END
+              checked_at    = CASE WHEN $1 THEN COALESCE(checked_at, NOW()) ELSE NULL END,
+              checked_by    = CASE WHEN $1 THEN checked_by ELSE NULL END
         WHERE id = $3`,
       [result.met, result.details, it.id]
     );
@@ -430,16 +453,20 @@ router.get("/:id/readiness", async (req, res) => {
     if (latestSessionId.rows.length > 0) {
       manualStats = await tenantQuery(
         orgId,
+        // Join release_manual_tests so results for tests unlinked after the
+        // session was seeded don't skew the card counts (matches the rule).
         `SELECT COUNT(*)::int AS linked,
-                COUNT(*) FILTER (WHERE status = 'passed')::int  AS passed,
-                COUNT(*) FILTER (WHERE status = 'failed')::int  AS failed,
-                COUNT(*) FILTER (WHERE status = 'blocked')::int AS blocked,
-                COUNT(*) FILTER (WHERE status = 'skipped')::int AS skipped,
-                COUNT(*) FILTER (WHERE status = 'not_run')::int AS not_run,
-                COUNT(*) FILTER (WHERE accepted_as_known_issue = TRUE)::int AS accepted
-           FROM release_test_session_results
-          WHERE session_id = $1`,
-        [latestSessionId.rows[0].id]
+                COUNT(*) FILTER (WHERE r.status = 'passed')::int  AS passed,
+                COUNT(*) FILTER (WHERE r.status = 'failed')::int  AS failed,
+                COUNT(*) FILTER (WHERE r.status = 'blocked')::int AS blocked,
+                COUNT(*) FILTER (WHERE r.status = 'skipped')::int AS skipped,
+                COUNT(*) FILTER (WHERE r.status = 'not_run')::int AS not_run,
+                COUNT(*) FILTER (WHERE r.accepted_as_known_issue = TRUE)::int AS accepted
+           FROM release_test_session_results r
+           JOIN release_manual_tests rmt
+             ON rmt.manual_test_id = r.manual_test_id AND rmt.release_id = $2
+          WHERE r.session_id = $1`,
+        [latestSessionId.rows[0].id, releaseId]
       );
     } else {
       manualStats = await tenantQuery(
@@ -552,7 +579,12 @@ router.patch("/:id", async (req, res) => {
     if (req.body.name !== undefined) assign("name", req.body.name);
     if (req.body.description !== undefined) assign("description", req.body.description);
     if (req.body.target_date !== undefined) assign("target_date", req.body.target_date);
-    if (req.body.status !== undefined && STATUSES.includes(req.body.status)) assign("status", req.body.status);
+    // "signed_off" must go through POST /:id/sign-off — that path enforces the
+    // checklist gate and stamps signed_off_by/signed_off_at. A bare PATCH would
+    // skip the gate and leave a release "signed off" by nobody.
+    if (req.body.status !== undefined && STATUSES.includes(req.body.status) && req.body.status !== "signed_off") {
+      assign("status", req.body.status);
+    }
     if (req.body.version !== undefined) assign("version", req.body.version);
     sets.push("updated_at = NOW()");
 
@@ -581,6 +613,23 @@ router.post("/:id/sign-off", async (req, res) => {
       res.status(403).json({ error: "Admin or owner role required" });
       return;
     }
+    // Only a draft/in-progress release can be signed off. Guard before any
+    // checklist work so signing off a cancelled release (which would override
+    // its cancellation) or re-signing an already-signed one (which would
+    // rewrite signed_off_by/at) is rejected outright.
+    const current = await tenantQuery(
+      req.user!.orgId,
+      "SELECT status FROM releases WHERE id = $1",
+      [req.params.id]
+    );
+    if (current.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (!["draft", "in_progress"].includes(current.rows[0].status)) {
+      res.status(409).json({ error: `Release is not in a signable state (status: ${current.rows[0].status})` });
+      return;
+    }
     // Refresh auto-evaluated items so the gate reflects current data.
     await refreshAutoItems(req.user!.orgId, Number(req.params.id));
 
@@ -599,7 +648,7 @@ router.post("/:id/sign-off", async (req, res) => {
     await tenantQuery(
       req.user!.orgId,
       `UPDATE releases SET status = 'signed_off', signed_off_by = $1, signed_off_at = NOW(), updated_at = NOW()
-         WHERE id = $2`,
+         WHERE id = $2 AND status IN ('draft', 'in_progress')`,
       [req.user!.id, req.params.id]
     );
     await logAudit(req.user!.orgId, req.user!.id, "release.sign_off", "release", req.params.id);
@@ -1641,6 +1690,21 @@ router.post("/:id/sessions/:sessionId/results/:testId/assign", async (req, res) 
     const normalised = userId === null || userId === undefined
       ? null
       : Number.isInteger(Number(userId)) ? Number(userId) : null;
+
+    // Only org members may be assigned. `users` has no RLS, and the session GET
+    // joins users to return assigned_to_email — so without this check an admin
+    // could write any user id and read back a cross-org user's email (IDOR).
+    if (normalised !== null) {
+      const member = await tenantQuery(
+        req.user!.orgId,
+        "SELECT 1 FROM org_members WHERE org_id = $1 AND user_id = $2",
+        [req.user!.orgId, normalised]
+      );
+      if (member.rows.length === 0) {
+        res.status(400).json({ error: "User is not a member of this org" });
+        return;
+      }
+    }
 
     await tenantQuery(
       req.user!.orgId,
