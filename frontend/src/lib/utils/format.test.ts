@@ -18,6 +18,14 @@ describe("timeAgo", () => {
     expect(timeAgo("")).toBe("—");
   });
 
+  it("renders an em dash for an unparseable date (not 'NaNy ago')", () => {
+    // Regression: timeAgo lacked the NaN guard its siblings carry, so a bad
+    // timestamp fell through every tier and emitted "NaNy ago".
+    expect(timeAgo("not-a-date")).toBe("—");
+    expect(timeAgo("2026-13-99")).toBe("—");
+    expect(timeAgo("garbage")).toBe("—");
+  });
+
   it("steps through the relative tiers", () => {
     expect(timeAgo(ago(10 * SEC))).toBe("just now");
     expect(timeAgo(ago(5 * MIN))).toBe("5m ago");
