@@ -57,6 +57,55 @@ export function categorizeChange(
   return "unchanged";
 }
 
+export interface CompareTestRow {
+  id: number;
+  title: string;
+  status: string;
+  duration_ms: number;
+  error_message: string | null;
+  file_path: string;
+}
+
+export interface Comparison {
+  key: string;
+  file_path: string;
+  title: string;
+  category: CompareCategory;
+  a: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
+  b: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
+  duration_delta: number | null;
+}
+
+/**
+ * Build one diff row for a test present on side A, side B, or both.
+ *
+ * file_path / title are read from the test ROW (a ?? b), NOT by splitting the
+ * synthetic `${file_path}::${title}` map key — a title containing "::" (Rust /
+ * C++ / namespaced names) would otherwise truncate at the first "::" and the
+ * compare row would show the wrong title. At least one of a/b is always present
+ * because the key originated from one of the two test maps.
+ */
+export function buildComparison(
+  key: string,
+  a: CompareTestRow | null,
+  b: CompareTestRow | null,
+): Comparison {
+  const src = (a ?? b)!;
+  let duration_delta: number | null = null;
+  if (a && b && a.duration_ms > 0) {
+    duration_delta = Math.round(((b.duration_ms - a.duration_ms) / a.duration_ms) * 100);
+  }
+  return {
+    key,
+    file_path: src.file_path,
+    title: src.title,
+    category: categorizeChange(a?.status ?? null, b?.status ?? null),
+    a: a ? { id: a.id, status: a.status, duration_ms: a.duration_ms, error_message: a.error_message } : null,
+    b: b ? { id: b.id, status: b.status, duration_ms: b.duration_ms, error_message: b.error_message } : null,
+    duration_delta,
+  };
+}
+
 // GET /compare?a=42&b=43
 router.get("/", async (req, res) => {
   try {
@@ -110,37 +159,9 @@ router.get("/", async (req, res) => {
     // All unique keys
     const allKeys = new Set([...mapA.keys(), ...mapB.keys()]);
 
-    const comparisons: {
-      key: string;
-      file_path: string;
-      title: string;
-      category: string;
-      a: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
-      b: { id: number; status: string; duration_ms: number; error_message: string | null } | null;
-      duration_delta: number | null;
-    }[] = [];
-
+    const comparisons: Comparison[] = [];
     for (const key of allKeys) {
-      const a = mapA.get(key) ?? null;
-      const b = mapB.get(key) ?? null;
-      const [file_path, title] = key.split("::");
-
-      const category = categorizeChange(a?.status ?? null, b?.status ?? null);
-
-      let durationDelta: number | null = null;
-      if (a && b && a.duration_ms > 0) {
-        durationDelta = Math.round(((b.duration_ms - a.duration_ms) / a.duration_ms) * 100);
-      }
-
-      comparisons.push({
-        key,
-        file_path,
-        title,
-        category,
-        a: a ? { id: a.id, status: a.status, duration_ms: a.duration_ms, error_message: a.error_message } : null,
-        b: b ? { id: b.id, status: b.status, duration_ms: b.duration_ms, error_message: b.error_message } : null,
-        duration_delta: durationDelta,
-      });
+      comparisons.push(buildComparison(key, mapA.get(key) ?? null, mapB.get(key) ?? null));
     }
 
     // Sort by severity: hard regressions first, then "soft" regressions
