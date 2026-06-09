@@ -39,6 +39,24 @@ test.describe("URL state — bookmarkable filters", () => {
     await expect(select).toHaveValue("auth-e2e");
   });
 
+  test("an intentionally-empty filter value survives the URL write-back + reload", async ({ page }) => {
+    // Regression: syncFiltersToUrl used `if (v && v !== def)`, which dropped any
+    // empty-string value from the URL even when "" was a deliberate, non-default
+    // selection (e.g. a run with a blank suite name). The fixed guard compares
+    // against the default only (`v !== def`), so `suite=""` — which differs from
+    // the "all" default — must be written and persist across a reload.
+    await page.goto("/runs?suite=");
+    // Content-agnostic gate: the empty-suite filter may match zero rows, so we
+    // cannot wait on tr.run-row. data-ready flips once the fetch settles.
+    await expect(page.locator(".page[data-ready='true']")).toBeVisible({ timeout: 15_000 });
+    // The on-mount sync effect re-writes the URL; the empty param must remain
+    // (the old guard would have stripped it back to a bare /runs).
+    await expect(page).toHaveURL(/[?&]suite=(?:&|$)/, { timeout: 10_000 });
+    await page.reload();
+    await expect(page.locator(".page[data-ready='true']")).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/[?&]suite=(?:&|$)/);
+  });
+
   test("/slowest?sort=p95_ms lands with P95 tab active", async ({ page }) => {
     await page.goto("/slowest?sort=p95_ms");
     await expect(page.locator(".filter-tab", { hasText: "P95" })).toHaveClass(/active/, {
