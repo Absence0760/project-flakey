@@ -6,6 +6,20 @@
 - [Node.js](https://nodejs.org/) v22+ (CI runs 22/24)
 - [pnpm](https://pnpm.io/) (for the frontend)
 
+## TL;DR
+
+After `pnpm install` (and `cd backend && npm install`), one command brings up
+the core infra (Postgres + Mailpit, waited until healthy) and starts the app:
+
+```bash
+pnpm dev:all          # docker compose up -d --wait  →  backend :3000 + frontend :7778
+pnpm db:seed          # once, for sample data + a login (admin@example.com / admin)
+```
+
+`pnpm dev:all` deliberately leaves the opt-in services (MinIO, webhook sink,
+Ollama, Keycloak/Authentik) out — start those on demand (`pnpm storage:up`,
+`pnpm ai:up`, …). The step-by-step setup below explains each piece.
+
 ## Setup
 
 ### 1. Start the local services
@@ -110,6 +124,9 @@ From the project root:
 pnpm dev
 ```
 
+(Or skip steps 1 and 5 with `pnpm dev:all`, which brings up the core infra —
+waited until healthy — and then runs `pnpm dev` for you.)
+
 This starts both services concurrently:
 
 - **Backend API** — http://localhost:3000
@@ -200,7 +217,8 @@ npx tsx src/index.ts \
 | `pnpm services:up` / `pnpm services:down` | Start / stop every local service at once |
 | `pnpm db:down` | Stop the core services |
 | `pnpm db:reset` | Stop core services, delete data, and restart (migrated-but-empty — seed after) |
-| `pnpm dev` | Start backend + frontend |
+| `pnpm dev:all` | Core infra (Postgres + Mailpit, waited healthy) + backend + frontend in one command |
+| `pnpm dev` | Start backend + frontend (assumes infra already up) |
 | `pnpm dev:backend` | Start backend only |
 | `pnpm dev:frontend` | Start frontend only |
 | `pnpm db:seed` (or `cd backend && npm run seed`) | Seed sample data — additive; for a clean baseline run `pnpm db:reset && pnpm db:seed` |

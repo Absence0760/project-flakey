@@ -37,7 +37,8 @@ Start from the entry point for your task — don't rediscover what's already wri
 
 Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 
-- `pnpm dev` — start backend (3000) and frontend (7778) concurrently
+- `pnpm dev:all` — **one-command local start**: brings up the core Docker infra (Postgres + Mailpit) and blocks until healthy (`docker compose up -d --wait`), then starts backend + frontend. Use this from a fresh clone. Opt-in services (MinIO, webhook sink, Ollama, Keycloak/Authentik) are deliberately *not* included — start them separately (`pnpm storage:up`, `pnpm ai:up`, etc.). Seed once with `pnpm db:seed` (it's additive — don't run it on every start)
+- `pnpm dev` — start backend (3000) and frontend (7778) concurrently (assumes infra is already up)
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
 - `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025). Migrations auto-apply on a fresh volume (compose mounts `backend/migrations` into `/docker-entrypoint-initdb.d`), so a reset leaves a migrated-but-empty DB — seed separately
 - `pnpm db:seed` — load sample data (`cd backend && npm run seed`): `admin@example.com`/`admin` + demo users, sample orgs/runs, and worker tenants. **The seed is additive** — re-running adds another generation rather than resetting, so for a clean baseline run `pnpm db:reset && pnpm db:seed`, not `db:seed` twice

@@ -21,14 +21,14 @@ Each subdirectory has its own `CLAUDE.md` with the conventions specific to that 
 ```bash
 git clone https://github.com/Absence0760/project-flakey.git
 cd project-flakey
-pnpm install
-pnpm db:up                              # Postgres in Docker
+pnpm setup                              # install frontend + packages (pnpm) and backend (npm)
                                         # env: committed backend/.env.development works as-is;
                                         # put personal secrets in backend/.env.development.local (gitignored)
-cd backend && ./migrate.sh              # apply migrations
-cd backend && npm run seed              # load sample data + worker tenants
-cd .. && pnpm dev                       # backend :3000, frontend :7778
+pnpm dev:all                            # core infra (Postgres + Mailpit, waited healthy) + backend + frontend
+pnpm db:seed                            # in another shell, once: sample data + worker tenants
 ```
+
+A fresh Docker volume auto-applies all migrations on first `up`. When you later pull **new** migrations onto an existing volume, apply them with `cd backend && ./migrate.sh`.
 
 Seeded login: `admin@example.com` / `admin`. See `backend/CLAUDE.md` for the full seed manifest.
 

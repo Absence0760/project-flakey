@@ -375,9 +375,9 @@ Flakey is MIT-licensed and the entire stack — backend, frontend, reporters, in
 ```bash
 git clone https://github.com/Absence0760/project-flakey.git
 cd project-flakey
-pnpm install
-pnpm db:up                       # start Postgres in Docker
-pnpm dev                         # backend :3000, frontend :7778 — committed .env.development, no setup
+pnpm setup                       # install frontend + packages (pnpm) and backend (npm)
+pnpm dev:all                     # infra (Postgres + Mailpit, waited healthy) + backend :3000 + frontend :7778
+pnpm db:seed                     # once: sample data + a login (admin@example.com / admin)
 ```
 
 The dev defaults run everything on one machine straight from a clone — backend and frontend each ship a committed `.env.development`. For production-like secrets, drop them in `backend/.env.development.local` (gitignored): generate real values with `openssl rand -hex 32`; `JWT_SECRET` and `FLAKEY_ENCRYPTION_KEY` are required in production (the backend refuses to boot without them when `NODE_ENV=production`). See [docs/run-locally.md](docs/run-locally.md).
