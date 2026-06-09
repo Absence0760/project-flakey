@@ -243,6 +243,13 @@ async function deliverEmailReport(to: string, subject: string, body: string): Pr
   try {
     await sendEmail({ to, subject, text: body });
   } catch (err) {
+    // Re-throw after logging. The caller (sendReportNow and the scheduled
+    // sweep) stamps last_sent_at only when deliverReport RESOLVES. Swallowing
+    // here marked a never-delivered email report as "sent", and the dedup SQL
+    // (DAILY_NOT_SENT_TODAY / WEEKLY_NOT_SENT_THIS_WEEK, both keyed on
+    // last_sent_at) then blocked every retry — the report was silently lost.
+    // The webhook deliverer throws on non-2xx for exactly this reason.
     console.log(`[scheduled-report] email delivery failed to=${to} subject="${subject}": ${(err as Error).message}`);
+    throw err;
   }
 }
