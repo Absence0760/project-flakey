@@ -196,6 +196,58 @@ test.describe("live run flow (real-time test progress)", () => {
     await deleteRun(page, token, runId);
   });
 
+  test("pending tests are their own summary bucket — never counted or labeled as Skipped", async ({
+    page,
+  }) => {
+    // Regression: a `pending` test (queued / not yet run — normal
+    // mid-flight on a live run) used to be lumped into the "Skipped"
+    // summary stat + filter tab, so the header claimed a still-running
+    // test was skipped while the detail drawer correctly said PENDING.
+    // pending and skipped are distinct states and must read distinctly.
+    test.setTimeout(60_000);
+
+    await page.goto("/dashboard");
+    const token = await getToken(page);
+    const runId = await startLiveRun(page, token, `live-pending-${Date.now().toString(36)}`);
+    const specPath = "tests/probe/embedding.spec.ts";
+
+    await page.goto(`/runs/${runId}`);
+    await expect(page.locator(".live-badge")).toBeVisible({ timeout: 10_000 });
+
+    // Three started (→ pending) tests; pass one so we have a 2-pending /
+    // 1-passed / 0-skipped mix with no failures (keeps statusFilter "all").
+    await postLiveEvent(page, token, runId, { type: "spec.started", spec: specPath });
+    const titles = ["probe A", "probe B", "probe C"] as const;
+    for (const t of titles) {
+      await postLiveEvent(page, token, runId, { type: "test.started", spec: specPath, test: t });
+    }
+    await postLiveEvent(page, token, runId, {
+      type: "test.passed", spec: specPath, test: titles[0], duration_ms: 700,
+    });
+
+    // Summary: Skipped must stay 0 (the bug showed 2 here), and a
+    // distinct Pending stat must surface the 2 not-yet-run tests.
+    const skippedStat = page.locator('.stat-item:has(.stat-label:text-is("Skipped")) .stat-num');
+    const pendingStat = page.locator('.stat-item:has(.stat-label:text-is("Pending")) .stat-num');
+    await expect.poll(async () => (await pendingStat.textContent())?.trim(), {
+      timeout: 15_000, message: "Pending stat should report the 2 not-yet-run tests",
+    }).toBe("2");
+    await expect(skippedStat).toHaveText("0");
+
+    // A Pending filter tab appears (only when pending > 0) and filters
+    // to exactly the pending rows.
+    const pendingTab = page.locator(".filter-tab", { hasText: "Pending" });
+    await expect(pendingTab).toBeVisible();
+    await pendingTab.click();
+    await expect.poll(async () => await page.locator(".test-row").count(), {
+      timeout: 5_000, message: "Pending filter should show only the 2 pending rows",
+    }).toBe(2);
+    expect(await page.locator(".test-status-dot.pending").count()).toBe(2);
+    expect(await page.locator(".test-status-dot.skipped").count()).toBe(0);
+
+    await deleteRun(page, token, runId);
+  });
+
   test("live feed sidebar surfaces incoming events (connected → spec.started → test.passed)", async ({
     page,
   }) => {

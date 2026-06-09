@@ -210,7 +210,7 @@
 
     // Feature 5: read URL filter param
     const urlStatus = $page.url.searchParams.get("status");
-    const urlStatusExplicit = !!urlStatus && ["all", "passed", "failed", "skipped"].includes(urlStatus);
+    const urlStatusExplicit = !!urlStatus && ["all", "passed", "failed", "skipped", "pending"].includes(urlStatus);
     if (urlStatusExplicit) {
       statusFilter = urlStatus!;
     }
@@ -484,11 +484,7 @@
         spec.title?.toLowerCase().includes(q)
       );
       const tests = spec.tests.filter((t) => {
-        if (statusFilter !== "all") {
-          if (statusFilter === "skipped") {
-            if (t.status !== "skipped" && t.status !== "pending") return false;
-          } else if (t.status !== statusFilter) return false;
-        }
+        if (statusFilter !== "all" && t.status !== statusFilter) return false;
         if (q && !specMatches && !t.title.toLowerCase().includes(q) && !t.full_title?.toLowerCase().includes(q)) return false;
         return true;
       });
@@ -507,13 +503,18 @@
   }
 
   let filterCounts = $derived.by(() => {
-    if (!run) return { all: 0, passed: 0, failed: 0, skipped: 0 };
+    if (!run) return { all: 0, passed: 0, failed: 0, skipped: 0, pending: 0 };
     const all = run.specs.flatMap((s) => s.tests);
     return {
       all: all.length,
       passed: all.filter((t) => t.status === "passed").length,
       failed: all.filter((t) => t.status === "failed").length,
-      skipped: all.filter((t) => t.status === "skipped" || t.status === "pending").length,
+      // "skipped" (deliberately not run) and "pending" (queued / not yet
+      // run — common mid-flight on a live run) are distinct states. Count
+      // them separately so the summary doesn't claim a still-running test
+      // was skipped. See the detail drawer, which always showed PENDING.
+      skipped: all.filter((t) => t.status === "skipped").length,
+      pending: all.filter((t) => t.status === "pending").length,
     };
   });
 
@@ -675,6 +676,13 @@
           <span class="stat-num skip">{filterCounts.skipped}</span>
           <span class="stat-label">Skipped</span>
         </div>
+        {#if filterCounts.pending > 0}
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-num pending">{filterCounts.pending}</span>
+            <span class="stat-label">Pending</span>
+          </div>
+        {/if}
       </div>
     </header>
 
@@ -797,6 +805,11 @@
         <button class="filter-tab" class:active={statusFilter === "skipped"} onclick={() => setStatusFilter("skipped")}>
           <span class="dot skip"></span> Skipped <span class="tab-count">{filterCounts.skipped}</span>
         </button>
+        {#if filterCounts.pending > 0}
+          <button class="filter-tab" class:active={statusFilter === "pending"} onclick={() => setStatusFilter("pending")}>
+            <span class="dot pending"></span> Pending <span class="tab-count">{filterCounts.pending}</span>
+          </button>
+        {/if}
       </div>
       <div class="toolbar-right">
       {#if filterCounts.failed > 0}
@@ -858,7 +871,8 @@
           <div class="spec-badges">
             {#if spec.passed > 0}<span class="spec-badge pass">{spec.passed}</span>{/if}
             {#if spec.failed > 0}<span class="spec-badge fail">{spec.failed}</span>{/if}
-            {#if spec.skipped + spec.pending > 0}<span class="spec-badge skip">{spec.skipped + spec.pending}</span>{/if}
+            {#if spec.skipped > 0}<span class="spec-badge skip">{spec.skipped}</span>{/if}
+            {#if spec.pending > 0}<span class="spec-badge pending">{spec.pending}</span>{/if}
             <span class="spec-duration">{formatDuration(spec.duration_ms)}</span>
           </div>
         </div>
@@ -1136,6 +1150,7 @@
   .stat-num.pass { color: var(--color-pass); }
   .stat-num.fail { color: var(--color-fail); }
   .stat-num.skip { color: var(--color-skip); }
+  .stat-num.pending { color: var(--color-pending); }
 
   .stat-label {
     font-size: 0.7rem;
@@ -1360,6 +1375,12 @@
   .dot.pass { background: var(--color-pass); }
   .dot.fail { background: var(--color-fail); }
   .dot.skip { background: var(--color-skip); }
+  /* Hollow ring = "queued, not yet run" — distinct from the solid
+     amber skip dot. */
+  .dot.pending {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--color-pending);
+  }
 
   .toolbar-right {
     display: flex;
@@ -1508,6 +1529,11 @@
     color: var(--color-skip);
   }
 
+  .spec-badge.pending {
+    background: color-mix(in srgb, var(--color-pending) 15%, transparent);
+    color: var(--color-pending);
+  }
+
   .spec-duration {
     font-family: monospace;
     font-size: 0.72rem;
@@ -1541,8 +1567,12 @@
 
   .test-status-dot.passed { background: var(--color-pass); }
   .test-status-dot.failed { background: var(--color-fail); }
-  .test-status-dot.skipped,
-  .test-status-dot.pending { background: var(--color-skip); }
+  .test-status-dot.skipped { background: var(--color-skip); }
+  /* Hollow ring = queued / not yet run, distinct from the solid amber skip. */
+  .test-status-dot.pending {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--color-pending);
+  }
 
   .test-name {
     flex: 1;

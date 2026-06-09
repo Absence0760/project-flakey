@@ -5,6 +5,10 @@
 	--color-pass: #22863a;
 	--color-fail: #cb2431;
 	--color-skip: #b08800;
+	/* Pending = queued / not yet run. Deliberately neutral (slate-gray)
+	   so it reads as "awaiting a result", NOT as the amber "deliberately
+	   skipped". The two are distinct test states and must look distinct. */
+	--color-pending: #6e7781;
 
 	/* Light theme */
 	--bg: #ffffff;
@@ -50,6 +54,7 @@
 		--color-pass: #3fb950;
 		--color-fail: #f85149;
 		--color-skip: #d29922;
+		--color-pending: #8b949e;
 	}
 }
 

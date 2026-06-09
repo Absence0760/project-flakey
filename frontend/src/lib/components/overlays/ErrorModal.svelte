@@ -1209,7 +1209,8 @@
   }
   .topbar.status-failed::before { background: var(--color-fail); }
   .topbar.status-passed::before { background: var(--color-pass); }
-  .topbar.status-skipped::before, .topbar.status-pending::before { background: var(--color-skip); }
+  .topbar.status-skipped::before { background: var(--color-skip); }
+  .topbar.status-pending::before { background: var(--color-pending); }
 
   .topbar-title {
     margin: 0;
@@ -1253,7 +1254,8 @@
 
   .badge.failed { background: var(--color-fail); }
   .badge.passed { background: var(--color-pass); }
-  .badge.skipped, .badge.pending { background: var(--color-skip); }
+  .badge.skipped { background: var(--color-skip); }
+  .badge.pending { background: var(--color-pending); }
 
   .nav-group {
     display: flex;
@@ -1618,7 +1620,8 @@
 
   .info-status.passed { color: var(--color-pass); }
   .info-status.failed { color: var(--color-fail); }
-  .info-status.skipped, .info-status.pending { color: var(--color-skip); }
+  .info-status.skipped { color: var(--color-skip); }
+  .info-status.pending { color: var(--color-pending); }
 
   /* Lifted error block — sits above .pane-tabs in the right pane so
      the error message is always visible regardless of which tab the
@@ -2309,7 +2312,8 @@
 
   .history-dot.passed { background: var(--color-pass); }
   .history-dot.failed { background: var(--color-fail); }
-  .history-dot.skipped, .history-dot.pending { background: var(--color-skip); }
+  .history-dot.skipped { background: var(--color-skip); }
+  .history-dot.pending { background: var(--color-pending); }
 
   .history-content {
     flex: 1;
