@@ -77,8 +77,11 @@ function readLiveRunIdForPlugin(): number {
   }
   // Singleton fallback — see reporter.ts for rationale. ~/.flakey-reporter/
   // is stable across all processes even when TMPDIR / cwd diverge.
+  // Overridable via FLAKEY_REPORTER_HOME (same override the reporter + the
+  // live-reporter writer honor) so tests can isolate it.
   try {
-    const id = Number(readFileSync(join(homedir(), ".flakey-reporter", "latest-run-id"), "utf8").trim());
+    const homeBase = join(process.env.FLAKEY_REPORTER_HOME || homedir(), ".flakey-reporter");
+    const id = Number(readFileSync(join(homeBase, "latest-run-id"), "utf8").trim());
     if (id) return id;
   } catch { /* try TMPDIR */ }
   try {
@@ -224,20 +227,29 @@ export function flakeyReporter(
   // batch can merge them back onto the matching test result.
   on("task", {
     "flakey:saveCommandLog"(data: { testTitle: string; specFile: string; commands: object[] }) {
-      const { cmd } = getBufferDirs();
-      mkdirSync(cmd, { recursive: true, mode: 0o700 });
-      const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
-      safeBufferWrite(join(cmd, `${safeName}.json`), JSON.stringify(data));
+      // A task that throws fails the support file's `afterEach`, which Cypress
+      // counts as the test failing — flipping a green test red purely because
+      // our bookkeeping write hit a full/read-only disk. Capture must never
+      // change pass/fail, so swallow every error and return null. The lost
+      // command log degrades diagnostics, not the verdict.
+      try {
+        const { cmd } = getBufferDirs();
+        mkdirSync(cmd, { recursive: true, mode: 0o700 });
+        const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
+        safeBufferWrite(join(cmd, `${safeName}.json`), JSON.stringify(data));
+      } catch { /* bookkeeping must never fail a test */ }
       return null;
     },
     "flakey:saveFailureContext"(data: { testTitle: string; specFile: string; failureContext: object }) {
-      const { fc } = getBufferDirs();
-      mkdirSync(fc, { recursive: true, mode: 0o700 });
-      const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
-      // The support file accumulates the retry trail and re-sends on every
-      // attempt; the final write wins and carries the complete context.
-      try { unlinkSync(join(fc, `${safeName}.json`)); } catch { /* first write */ }
-      safeBufferWrite(join(fc, `${safeName}.json`), JSON.stringify(data));
+      try {
+        const { fc } = getBufferDirs();
+        mkdirSync(fc, { recursive: true, mode: 0o700 });
+        const safeName = `${data.specFile}::${data.testTitle}`.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 150);
+        // The support file accumulates the retry trail and re-sends on every
+        // attempt; the final write wins and carries the complete context.
+        try { unlinkSync(join(fc, `${safeName}.json`)); } catch { /* first write */ }
+        safeBufferWrite(join(fc, `${safeName}.json`), JSON.stringify(data));
+      } catch { /* bookkeeping must never fail a test */ }
       return null;
     },
   });

@@ -99,13 +99,23 @@ let fetchMock: ReturnType<typeof makeFetchMock>;
 // default, so this is fine.
 const BUFFER_DIR = join(tmpdir(), "flakey-reporter");
 
+// Isolate the home-based singleton fallback (~/.flakey-reporter/latest-run-id)
+// from the real home dir. readLiveRunId() reads FLAKEY_REPORTER_HOME at call
+// time, so pointing it at a fresh per-process temp dir means a stale singleton
+// left by a prior real `cypress run` (or another test) can't leak a live-run
+// id into the "no active live run" assertions. The dir is created on demand by
+// the writer only; we just need it to NOT contain a latest-run-id file.
+const HOME_OVERRIDE = join(tmpdir(), `flakey-reporter-home-${process.pid}`);
+
 function wipeBufferDir() {
   rmSync(BUFFER_DIR, { recursive: true, force: true });
+  rmSync(join(HOME_OVERRIDE, ".flakey-reporter"), { recursive: true, force: true });
 }
 
 beforeEach(() => {
   fetchMock = makeFetchMock();
   globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+  process.env.FLAKEY_REPORTER_HOME = HOME_OVERRIDE;
   wipeBufferDir();
   delete process.env.FLAKEY_LIVE_RUN_ID;
 });
@@ -114,6 +124,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   wipeBufferDir();
   delete process.env.FLAKEY_LIVE_RUN_ID;
+  delete process.env.FLAKEY_REPORTER_HOME;
 });
 
 function readBufferedSpecs(): any[] {

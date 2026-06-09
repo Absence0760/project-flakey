@@ -35,7 +35,10 @@ const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
 // TMPDIR env vars); homedir() is. cwd() would also work but process.cwd()
 // in the Mocha reporter subprocess is NOT guaranteed to match the cypress
 // invocation dir in Cypress 15.
-const FLAKEY_HOME_DIR = join(homedir(), ".flakey-reporter");
+// Overridable via FLAKEY_REPORTER_HOME (the cypress-reporter reader honors the
+// same override) so tests can isolate the singleton from a real, possibly
+// stale, ~/.flakey-reporter. Defaults to homedir().
+const FLAKEY_HOME_DIR = join(process.env.FLAKEY_REPORTER_HOME || homedir(), ".flakey-reporter");
 
 // Walk the current process's ancestor chain (self → parent → parent's parent
 // → …). The Mocha reporter (running in a different process tree branch than

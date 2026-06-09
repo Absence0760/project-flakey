@@ -192,6 +192,30 @@ test("merge spreads support-side context onto reporter-set resolved_stack (both 
   assert.equal(fc.network_failures[0], "GET /api → 500");
 });
 
+test("save tasks never throw — a write error returns null instead of failing the test's afterEach", () => {
+  // A task that throws makes the support file's afterEach fail, which Cypress
+  // counts as the TEST failing — a green test goes red purely because our
+  // bookkeeping write hit an error. Capture must never change pass/fail.
+  // Force the throw with a circular payload (JSON.stringify rejects it) and
+  // assert the handler swallows it and returns null.
+  const rec = recordingOn();
+  flakeyReporter(rec.on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false });
+
+  const circular: any = { testTitle: "t", specFile: "s.cy.ts" };
+  circular.failureContext = { self: circular }; // circular → JSON.stringify throws
+
+  assert.doesNotThrow(() => {
+    const out = rec.tasks["flakey:saveFailureContext"](circular);
+    assert.equal(out, null, "the task must return null even when the write throws");
+  });
+
+  const circularCmd: any = { testTitle: "t", specFile: "s.cy.ts" };
+  circularCmd.commands = [circularCmd]; // circular → JSON.stringify throws
+  assert.doesNotThrow(() => {
+    assert.equal(rec.tasks["flakey:saveCommandLog"](circularCmd), null);
+  });
+});
+
 test("the failure-context buffer dir is removed after the run", async () => {
   const rec = recordingOn();
   const afterRun = flakeyReporter(rec.on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false })!;

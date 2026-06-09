@@ -133,6 +133,15 @@ function extractResolvedStack(e: any): { resolved_stack?: ResolvedFrame[]; code_
 
 const FLAKEY_BASE_DIR = join(tmpdir(), "flakey-reporter");
 
+// Home-based singleton fallback dir. `~/.flakey-reporter` is stable across
+// processes even when TMPDIR / cwd diverge (the Cypress 15+ case). Resolved at
+// call time and overridable via FLAKEY_REPORTER_HOME so tests can isolate it
+// from a real (possibly stale) ~/.flakey-reporter; the live-reporter writer
+// honors the same override.
+function reporterHomeDir(): string {
+  return join(process.env.FLAKEY_REPORTER_HOME || homedir(), ".flakey-reporter");
+}
+
 function getAncestorPids(startPid: number, maxDepth = 12): number[] {
   const chain = [startPid];
   let pid = startPid;
@@ -164,7 +173,7 @@ function readLiveRunId(): number {
   // cwd than the plugin. live-reporter writes a singleton file to ~/.flakey-reporter/
   // which is stable across all processes. Check there first, then tmpdir.
   try {
-    const id = Number(readFileSync(join(homedir(), ".flakey-reporter", "latest-run-id"), "utf8").trim());
+    const id = Number(readFileSync(join(reporterHomeDir(), "latest-run-id"), "utf8").trim());
     if (id) return id;
   } catch { /* try TMPDIR fallback */ }
   try {

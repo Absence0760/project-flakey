@@ -120,6 +120,8 @@ Resolution order inside `readLiveRunId()`:
 
 If you see tests running but no per-test events or no `/runs` upload in the dashboard, run both processes with `[flakey-diag]` logs enabled and confirm the reporter's ancestor chain contains a pid the plugin wrote. Usually it does; if it doesn't, the plugin's ancestry walk needs to go deeper (bump `maxDepth`) or the user's Cypress setup is non-standard (ask them to share their config).
 
+**`FLAKEY_REPORTER_HOME` override.** The home-based singleton fallback (`~/.flakey-reporter/latest-run-id`) is resolved against `process.env.FLAKEY_REPORTER_HOME` when set, else `homedir()`. The reporter + plugin readers and the `live-reporter` writer all honor it, so tests (and any setup that needs a non-home base) can isolate the singleton from a real, possibly stale, `~/.flakey-reporter`.
+
 **Concurrency safety.** Two concurrent `cypress run` invocations have distinct cypress-CLI pids. Each plugin writes files under its own cypress-CLI pid (and its own children), and each reporter finds only its own cypress-CLI pid in its ancestor walk, so they never collide — no shared tmpfile, no `TMPDIR` workaround.
 
 ## Spec buffer directory (live-run-id scoped)

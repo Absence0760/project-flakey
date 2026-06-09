@@ -27,6 +27,7 @@ All three adapters (mocha, playwright, webdriverio) read these from `process.env
 | `FLAKEY_API_KEY` | all | Auth token; overridden by `config.apiKey` |
 | `FLAKEY_SUITE` | all | Suite name fallback; overridden by `config.suite` |
 | `FLAKEY_LIVE_RUN_ID` | all | Pre-set run id; skips `/live/start` call when set |
+| `FLAKEY_REPORTER_HOME` | mocha | Override base for the singleton `latest-run-id` handoff (default `homedir()`). The `cypress-reporter` reader honors the same override; used to isolate the singleton in tests |
 | `BRANCH` / `GITHUB_HEAD_REF` / `GITHUB_REF_NAME` / `BITBUCKET_BRANCH` | all | Branch fallback chain |
 | `COMMIT_SHA` / `GITHUB_SHA` / `BITBUCKET_COMMIT` | all | Commit SHA fallback chain |
 | `CI_RUN_ID` / `GITHUB_RUN_ID` / `BITBUCKET_BUILD_NUMBER` | all | CI run id fallback; `mocha.ts` also writes the resolved value into `process.env.CI_RUN_ID` after `/live/start` so sibling plugins (cypress-snapshots streaming) and the end-of-run upload pick it up |

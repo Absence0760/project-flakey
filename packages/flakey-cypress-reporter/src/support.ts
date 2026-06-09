@@ -55,10 +55,17 @@ const MAX_COMMANDS_TAIL = 50;
 let consoleBuffer: string[] = [];
 let networkBuffer: string[] = [];
 let uncaughtBuffer: string[] = [];
-// Per-attempt error trail, keyed by leaf test title (matches how command logs
-// are keyed). Accumulates across retries so the pass/fail delta is available;
-// non-final attempts stay uncounted by the reporter — this only retains errors.
-const retryErrorsByTitle = new Map<string, { attempt: number; message: string; stack?: string }[]>();
+// Per-attempt error trail, keyed by spec + full (describe-path) title.
+// Accumulates across retries so the pass/fail delta is available; non-final
+// attempts stay uncounted by the reporter — this only retains errors.
+//
+// The key MUST be more than the leaf title: this module's state outlives a
+// single test, and two tests can share a leaf title (e.g. `it("works")` in
+// two different `describe` blocks, or two specs that share the module). Keyed
+// by leaf alone, a clean passing test would inherit an earlier same-named
+// test's error trail and upload bogus `retry_errors`. Spec + full title is
+// unique per test and identical across that test's own retries.
+const retryErrorsByKey = new Map<string, { attempt: number; message: string; stack?: string }[]>();
 
 function fmtArg(arg: unknown): string {
   if (typeof arg === "string") return arg;
@@ -148,6 +155,12 @@ afterEach(() => {
   const testTitle = cy_.currentTest?.title ?? "unknown";
   const specFile = cy_.spec?.relative ?? Cypress.spec?.name ?? "unknown";
   const failed = (cy_.currentTest?.state ?? cy_.state?.("runnable")?.state) === "failed";
+  // Full describe-path title disambiguates same-leaf-title tests; fall back to
+  // the leaf when fullTitle() isn't available (defensive — Mocha always has it).
+  const fullTitle = typeof cy_.currentTest?.fullTitle === "function"
+    ? cy_.currentTest.fullTitle()
+    : testTitle;
+  const retryKey = `${specFile}::${fullTitle}`;
 
   // Update the last command's state if the test failed
   if (failed && currentCommands.length > 0) {
@@ -166,16 +179,16 @@ afterEach(() => {
   // retried-then-passing test still carries every attempt's error.
   if (failed) {
     const err = cy_.state?.("runnable")?.err ?? cy_.currentTest?.err;
-    const trail = retryErrorsByTitle.get(testTitle) ?? [];
+    const trail = retryErrorsByKey.get(retryKey) ?? [];
     trail.push({
       attempt: trail.length,
       message: err?.message ?? "unknown error",
       stack: err?.stack,
     });
-    retryErrorsByTitle.set(testTitle, trail);
+    retryErrorsByKey.set(retryKey, trail);
   }
 
-  const retryTrail = retryErrorsByTitle.get(testTitle) ?? [];
+  const retryTrail = retryErrorsByKey.get(retryKey) ?? [];
   const hasContext =
     failed || consoleBuffer.length > 0 || networkBuffer.length > 0 ||
     uncaughtBuffer.length > 0 || retryTrail.length > 0;
