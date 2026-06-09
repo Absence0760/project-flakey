@@ -948,7 +948,11 @@
 
 <svelte:window onkeydown={handleEsc} />
 
-<div class="page">
+<!-- data-ready flips to "true" once load() settles (release + readiness +
+	 sessions, resolved OR errored) and the page has rendered, so e2e specs gate
+	 on a real load-complete signal. Matches the convention on the other (app)
+	 routes; see tests-e2e/README.md. -->
+<div class="page" data-ready={!loading ? "true" : undefined}>
 	<a href="/releases" class="back">← All releases</a>
 
 	{#if loading}
