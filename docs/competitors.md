@@ -14,6 +14,8 @@
 | **AI / ML** | | | | | | | | | |
 | AI failure classification | ✅ | ✗ | ✗ | ✅ | ✗ | ± | ± | ✅ | ✅ |
 | AI error summaries | ✅ | ✗ | ✗ | ✗ | ✗ | ± | ✗ | ✗ | ✅ |
+| AI root-cause clustering | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
+| AI draft fix PRs | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |
 | Predictive test selection | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ | ✅ |
 | Flaky test quarantining | ✗ | ✗ | ✅ | ✗ | ✗ | ✗ | ✅ | ✅ | ✅ |
 | AI coding agent (MCP) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✅ |

@@ -305,6 +305,68 @@ or a GitHub App installation token. Without it the create returns **403**, which
 surfaces as a logged `Checks annotations error` and is otherwise harmless (the
 comment + status still post).
 
+## AI fix PRs (elevated WRITE / PR scope)
+
+`POST /analyze/fix-pr` asks the configured AI provider to rewrite the file that
+owns a failing test and opens a pull/merge request with the proposed change. It
+reuses the same git provider configuration as PR comments — **but it writes to
+the repo**, so it needs a token with an *elevated* scope beyond what PR-comment,
+commit-status, and Checks posting require.
+
+**Fix PRs are always opened as DRAFT for human review — never auto-merged.** The
+PR body carries an explicit "AI-generated — review before merging" banner and a
+link back to the failing test in Flakey. A human reviews and merges; Flakey only
+proposes.
+
+**Required token scope, per provider** — the PR-comment / Checks token in use
+today may be read-only, so this is an additional, opt-in grant:
+
+| Provider | Scope needed for fix PRs |
+|---|---|
+| **GitHub** | `contents:write` (create branch + commit a file) **and** `pull_requests:write` (open the draft PR). A fine-grained PAT with Contents + Pull requests = read/write, or a GitHub App installation token. A read-only or comment-only token fails at branch/commit time. |
+| **GitLab** | A token with `api` scope (or `write_repository` + the merge-request API) — it must be able to create a branch, commit a file, and open a draft MR. A read-only `read_api` token is not enough. |
+| **Bitbucket** | An app password / access token with **Repositories: Write** *and* **Pull requests: Write**. Read-only repo access can post commit statuses but cannot push a branch or open a PR. |
+
+**Safety guards** (all enforced server-side, independent of provider):
+
+- **Draft-only, never auto-merged** — see above.
+- **Size cap** — a target file over 40 000 chars is refused (`413`) rather than
+  truncated; committing a truncated file would break the repo.
+- **No empty / no-op PRs** — if the model returns empty or unchanged content,
+  no PR is opened (`{ created: false, reason: "no change" }`).
+- **Truncation guard** — output under half the original file size is treated as
+  a model truncation and rejected (`422`), not committed.
+- **Idempotent** — while a fix PR for the same `(org, target)` is still open, a
+  repeat call returns the existing PR (`{ created: false, reason: "exists" }`)
+  rather than opening a duplicate. Tracked in the `ai_fix_prs` table.
+- **No provider detail leaks** — a mid-flow provider/model failure returns a
+  fixed `502`; the underlying error (which can carry tokens) is logged
+  server-side only.
+
+The route is **contributor+** (it both calls the model and writes the repo);
+viewers get a `403`. It needs an AI provider configured (`503` otherwise) — and
+that provider can be a fully local, **air-gapped** Ollama (see below).
+
+## Air-gapped AI
+
+The AI-assisted features — failure root-cause analysis, flaky-test analysis,
+root-cause **clustering** (`POST /analyze/clusters`), and the **draft fix PRs**
+above — all call the instance-configured AI provider. Point that provider at a
+**local model and no data leaves the box**:
+
+```bash
+# backend/.env.development.local
+AI_PROVIDER=openai
+AI_BASE_URL=http://localhost:11434/v1   # local Ollama (pnpm ai:up), OpenAI-compatible
+```
+
+With this set, prompts (error messages, stack traces, source files) go only to
+your local Ollama — there is no outbound call to a hosted LLM. AI is
+**instance-wide** (not per-org): once configured, `isAIEnabled()` is true for
+every org. Leave it unset and the generation routes return `503` while cached
+results still read, and clustering still works (its similarity grouping is
+deterministic and model-free).
+
 ### 3. Uploading coverage from CI
 
 Use the CLI subcommand from a post-test step in your pipeline:
@@ -440,6 +502,7 @@ Account and data-lifecycle events are audited too:
 - `auth.api_key.create` / `auth.api_key.delete` — API-key issuance / revocation
 - `org.member.remove` / `org.member.role_change`
 - `run.delete` — a run (and its specs, tests, artifacts) removed
+- `quarantine.auto` — a test auto-quarantined at run finalization (system-initiated, no acting user; detail carries the suite, reason, flip_count, total_runs)
 
 View the audit log under **Settings → Audit log**, or query it directly:
 

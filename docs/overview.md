@@ -83,17 +83,19 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **Failure classification**: auto-categorize errors as product bug, automation bug, environment issue, etc.
 - **Error summaries**: AI-generated plain-English explanations with suggested fixes
 - **Similar failure detection**: token-based similarity matching across error groups
+- **Root-cause clustering**: group distinct failures into clusters by similarity, with an AI-generated theme label per multi-error cluster
 - **Flaky test analysis**: root cause analysis and stabilization suggestions
+- **Draft fix PRs**: open an AI-proposed fix as a *draft* PR/MR on GitHub, GitLab, or Bitbucket for human review — never auto-merged (needs a git token with write/PR scope)
 - **Predictive test selection**: recommend which tests to run based on changed files
-- **Flaky test quarantining**: isolate flaky tests so they don't block CI
-- Supports Claude API or any OpenAI-compatible local model (Ollama, vLLM, LM Studio)
+- **Flaky test quarantining**: isolate flaky tests so they don't block CI — manually, or via an opt-in **auto-quarantine** policy that fences off a known-flaky test at run finalization (the dashboard/badge keep reporting its honest state; only the PR merge gate relaxes)
+- **Air-gapped**: supports Claude API or any OpenAI-compatible local model (Ollama, vLLM, LM Studio) — with a local model, no prompt data leaves the box
 
 ### CI/PR Integration
 - **Commit status checks**: pass/fail status on commits for GitHub, GitLab, Bitbucket
 - **PR comments**: test result summary posted as PR/MR comments, auto-updated on re-runs
 - **Smart spec balancing**: split specs across CI workers balanced by historical duration
 - **Auto-cancellation**: CI workers can check failure threshold and exit early
-- **Webhook notifications**: Slack, Teams, Discord, or generic JSON on run failure, new failures, and flaky test detection
+- **Webhook notifications**: Slack, Teams, Discord, or generic JSON on run failure, new failures, flaky test detection, and a configurable per-org flaky-rate threshold alert
 
 ### Auth & Multi-tenancy
 - **JWT authentication** for web sessions, **API keys** for CLI/programmatic access

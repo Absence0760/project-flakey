@@ -238,6 +238,9 @@ Create an API key from the Settings page for permanent access (no expiry).
 - **Copy for tickets** — formatted run summary for Jira (wiki markup) or Markdown with status icons
 - **Error modal** — screenshots with zoomable lightbox, video player, command log, source code, stack trace, resizable split panes
 - **Flaky tests** — server-side detection with flakiness rate, flip count, visual pass/fail timeline, suite filter, and sortable rankings
+- **Auto-quarantine** — opt-in policy (enable + min flips / min runs) that fences off a known-flaky test at run finalization so it stops blocking PR merges, while the dashboard and badge keep reporting its honest failure state. Never overwrites a manual quarantine.
+- **AI failure analysis** — per-error and per-test root-cause classification, summary, and suggested fix (cached per fingerprint)
+- **AI root-cause clustering** — groups the org's distinct failures into clusters by similarity, with an AI-generated theme label per multi-error cluster
 - **Slowest tests** — ranked by duration with P50/P95/P99 percentiles, trend analysis (getting slower/faster), mini sparkline, and expandable duration history chart
 - **Error tracking** — failures grouped by error message with status (open/investigating/known/fixed/ignored), first/last seen, affected run count, and team notes thread
 - **Test history** — pass/fail timeline for a single test across runs
@@ -272,9 +275,13 @@ Create an API key from the Settings page for permanent access (no expiry).
 - **Jira integration** — auto-create deduped issues for new failures or open tickets manually from the error view
 - **PagerDuty integration** — fire Events API v2 incidents on run failure with configurable severity and per-suite dedup keys
 - **Scheduled reports** — daily/weekly test digests delivered via email, Slack, or webhook; filterable by suite; advisory-lock coordinated so multi-replica backends don't double-fire
-- **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON
+- **Webhook notifications** — rich formatted messages for Slack (Block Kit), Teams (Adaptive Cards), Discord (Embeds), or generic JSON; events include run results, new failures, flaky detection, and a configurable per-org **flaky-rate threshold** alert (`flaky.threshold.exceeded`)
+- **AI draft fix PRs** — open a *draft* pull/merge request with an AI-proposed fix for a failing test on GitHub, GitLab, or Bitbucket. Always a draft for human review — never auto-merged — with file-size and truncation guards and per-target idempotency. Needs a git token with write/PR scope (see [backend/docs/integrations.md](backend/docs/integrations.md))
 - **Status badges** — embeddable SVG badge for READMEs: `![tests](https://your-flakey-instance.com/badge/my-suite)`
 - **Secrets encryption at rest** — Jira tokens and PagerDuty keys are AES-256-GCM encrypted (via `FLAKEY_ENCRYPTION_KEY`); gracefully falls back to plaintext in local dev
+
+### Air-gapped AI
+All AI-assisted features — failure root-cause analysis, flaky-test analysis, root-cause clustering, and the draft fix PRs — run against the instance-configured AI provider. Point that provider at a **local model and no data leaves the box**: set `AI_PROVIDER=openai` and `AI_BASE_URL=http://localhost:11434/v1` to drive a local Ollama (`pnpm ai:up`). Prompts (error messages, stack traces, source files) go only to your own model — there is no outbound call to a hosted LLM, which keeps AI features usable in regulated / air-gapped deployments. AI is instance-wide and off by default; leave it unconfigured and the generation routes return 503 while everything else works unchanged. See [backend/docs/integrations.md](backend/docs/integrations.md#air-gapped-ai).
 
 ### Admin
 - Team management (invite, roles, remove)
