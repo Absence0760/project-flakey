@@ -98,6 +98,13 @@ test.describe("settings/integrations — scheduled reports CRUD + run", () => {
     expect(ran.status(), "run-now POST must succeed for an email report").toBe(200);
     expect(await ran.json()).toMatchObject({ triggered: true });
 
+    // runReport() surfaces an explicit status line on dispatch (so a failed
+    // run isn't silent) — assert the success message appears.
+    await expect(
+      page.getByText("Report sent."),
+      "run-now should surface an explicit success status",
+    ).toBeVisible({ timeout: 10_000 });
+
     // The row's "Last sent" cell no longer reads "never" once the list
     // reloads with the stamped last_sent_at.
     await expect(

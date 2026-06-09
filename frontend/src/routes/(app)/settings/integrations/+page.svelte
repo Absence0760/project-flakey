@@ -19,6 +19,7 @@
 	let pd = $state({ has_key: false, pagerduty_severity: 'error', pagerduty_auto_trigger: false });
 	let pdKey = $state('');
 	let pdStatus = $state<string | null>(null);
+	let reportStatus = $state<string | null>(null);
 
 	// Coverage gating
 	let coverage = $state({ coverage_threshold: 80, coverage_gate_enabled: false });
@@ -47,8 +48,14 @@
 		suite_filter: '',
 	});
 
+	// Flips true once the onMount loaders have all settled. Surfaced as
+	// data-ready on the page root so e2e can gate on a real load-complete
+	// signal instead of guessing at content — matching the other (app) routes.
+	let ready = $state(false);
+
 	onMount(async () => {
-		await Promise.all([loadJira(), loadPagerDuty(), loadCoverage(), loadReports()]);
+		await Promise.allSettled([loadJira(), loadPagerDuty(), loadCoverage(), loadReports()]);
+		ready = true;
 	});
 
 	async function loadJira() {
@@ -162,12 +169,13 @@
 		await loadReports();
 	}
 	async function runReport(id: number) {
-		await authFetch(`${API_URL}/reports/${id}/run`, { method: 'POST' });
+		const res = await authFetch(`${API_URL}/reports/${id}/run`, { method: 'POST' });
+		reportStatus = res.ok ? 'Report sent.' : `Run failed (${res.status}).`;
 		await loadReports();
 	}
 </script>
 
-<div class="page">
+<div class="page" data-ready={ready ? "true" : undefined}>
 	<a href="/settings" class="back">← Settings</a>
 	<h1>Integrations & automation</h1>
 
@@ -251,6 +259,7 @@
 			<input placeholder="Suite filter (optional)" bind:value={newReport.suite_filter} />
 			<button class="btn-primary" onclick={createReport}>Add</button>
 		</div>
+		{#if reportStatus}<p class="status">{reportStatus}</p>{/if}
 
 		{#if reports.length > 0}
 			<table>
