@@ -56,7 +56,10 @@ function meta(type, id) {
 // checks Authentik does before create (userName/externalId/displayName eq …).
 function parseEq(filter) {
   if (!filter) return null;
-  const m = /(\w+)\s+eq\s+"([^"]*)"/i.exec(filter);
+  // Anchored at the string start so the engine doesn't re-try `\w+` at every
+  // offset (that retry is the O(n²) polynomial-ReDoS blowup on a long, no-match
+  // input). Still matches the leading `attr eq "value"` clause of any filter.
+  const m = /^\s*(\w+)\s+eq\s+"([^"]*)"/i.exec(filter);
   return m ? { attr: m[1], value: m[2] } : null;
 }
 
