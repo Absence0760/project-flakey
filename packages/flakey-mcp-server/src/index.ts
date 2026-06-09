@@ -31,7 +31,10 @@ async function main() {
   registerTools(server, {
     api: createApi(API_URL, API_KEY),
     allowMutations: ALLOW_MUTATIONS,
-    uploadsUrl: `${API_URL.replace(/\/$/, "")}/uploads`,
+    // Strip ALL trailing slashes (matches createApi above). `http://host//`
+    // with a single-slash strip would yield `http://host//uploads`, a double-
+    // slash artifact URL some clients reject.
+    uploadsUrl: `${API_URL.replace(/\/+$/, "")}/uploads`,
   });
 
   const transport = new StdioServerTransport();

@@ -368,3 +368,21 @@ test("installShutdownHandler returns a teardown that prevents subsequent SIGINT-
 
   client.stop();
 });
+
+test("stop() cancels the retry timer scheduled after a failed flush (no events post-stop)", async () => {
+  // A failed flush re-queues the batch and schedules a 500ms retry. stop()
+  // (called by every adapter at end-of-run) must cancel that timer so it never
+  // posts stale events to an already-finished run.
+  const fetchMock = mock.fn(async () => new Response("down", { status: 503 }));
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  const client = new LiveClient({ url: URL, apiKey: API_KEY, runId: RUN_ID, heartbeatIntervalMs: 0 });
+  client.send({ type: "test.passed", test: "x" });
+  await client.flush();            // 503 → batch retained + 500ms retry scheduled
+  const callsAfterFlush = fetchMock.mock.callCount();
+  client.stop();                   // must cancel the pending retry
+
+  await new Promise((r) => setTimeout(r, 700)); // outlast the 500ms retry window
+  assert.equal(fetchMock.mock.callCount(), callsAfterFlush,
+    "no further POST after stop() — the retry timer was cancelled");
+});

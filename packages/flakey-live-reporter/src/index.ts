@@ -66,7 +66,14 @@ export class LiveClient {
   send(event: LiveEvent): void {
     this.queue.push({ ...event, timestamp: event.timestamp ?? Date.now() });
     if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => this.flush(), 500);
+      // Match the retry timer below: swallow rejections and unref so a pending
+      // auto-flush never holds the process open past end-of-run. The adapters
+      // explicitly flush in their end hooks, but an abnormal exit between send
+      // and that flush shouldn't keep the process alive for up to 500ms.
+      this.flushTimer = setTimeout(() => this.flush().catch(() => {}), 500);
+      if (typeof (this.flushTimer as { unref?: () => void }).unref === "function") {
+        (this.flushTimer as { unref: () => void }).unref();
+      }
     }
   }
 
