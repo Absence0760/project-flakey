@@ -29,7 +29,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_fix_prs_target ON ai_fix_prs(org_id, target_ty
 
 ALTER TABLE ai_fix_prs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_fix_prs FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS ai_fix_prs_org_isolation ON ai_fix_prs;
-CREATE POLICY ai_fix_prs_org_isolation ON ai_fix_prs
+-- Canonical *_tenant policy name (the convention since migrations 042/043 —
+-- NOT the legacy *_org_isolation form, which rls_policy_uniqueness pins against).
+DROP POLICY IF EXISTS ai_fix_prs_tenant ON ai_fix_prs;
+CREATE POLICY ai_fix_prs_tenant ON ai_fix_prs
   USING (org_id::text = current_setting('app.current_org_id', true))
   WITH CHECK (org_id::text = current_setting('app.current_org_id', true));

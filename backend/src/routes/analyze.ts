@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { tenantQuery } from "../db.js";
-import { analyzeCluster, analyzeFailure, analyzeFlakyTest, clusterBySimilarity, computeSimilarity, isAIEnabled, testConnection } from "../ai.js";
+import { analyzeCluster, analyzeFailure, analyzeFlakyTest, clusterBySimilarity, computeSimilarity, generateFixPatch, isAIEnabled, testConnection } from "../ai.js";
+import { getProviderForOrg } from "../git-providers/index.js";
 import { safeLog } from "../log.js";
 
 const router = Router();
@@ -544,6 +545,236 @@ router.post("/clusters", async (req, res) => {
     res.json({ clusters });
   } catch (err) {
     console.error("POST /analyze/clusters error:", safeLog(err));
+    res.status(500).json({ error: "Analysis failed" });
+  }
+});
+
+// Largest file we'll feed to the model for an automated fix. Above this we
+// refuse rather than truncate (a truncated file committed = a broken file).
+const MAX_FIX_FILE_CHARS = 40_000;
+
+// A fix target resolved from either a testId or a fingerprint: the file to
+// patch, the failing test's title, its error message, and the
+// (target_type, target_key) pair used for idempotency + the ai_fix_prs row.
+interface FixTarget {
+  targetType: "error" | "flaky";
+  targetKey: string;
+  filePath: string;
+  testTitle: string;
+  errorMessage: string;
+}
+
+// POST /analyze/fix-pr — open a DRAFT pull/merge request with an AI-proposed
+// fix for a failing test. SAFETY: always a DRAFT, never auto-merged; bounded by
+// a file-size cap; guarded against empty / unchanged / truncated model output;
+// idempotent per (org, target). Contributor+ only (model call + repo write).
+//
+// Body: exactly one of { testId } or { fingerprint }.
+router.post("/fix-pr", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+    const { testId, fingerprint } = req.body ?? {};
+
+    // Exactly one selector — reject zero or both so the target is unambiguous.
+    const hasTestId = testId !== undefined && testId !== null;
+    const hasFingerprint = typeof fingerprint === "string" && fingerprint.length > 0;
+    if (hasTestId === hasFingerprint) {
+      res.status(400).json({ error: "Provide exactly one of testId or fingerprint" });
+      return;
+    }
+
+    // Cost + repo-write gate: contributor+ only.
+    if (blockViewerGeneration(req, res)) return;
+
+    // Resolve the target (file_path, title, error_message, target_type/key).
+    let target: FixTarget | null = null;
+    if (hasTestId) {
+      const id = Number(testId);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: "Invalid test id" });
+        return;
+      }
+      // RLS scopes this to the caller's org, so a foreign id simply 404s.
+      const result = await tenantQuery(orgId,
+        `SELECT t.full_title, t.error_message, s.file_path, r.suite_name,
+                md5(t.error_message || '|' || r.suite_name) AS fingerprint
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs r ON r.id = s.run_id
+         WHERE t.id = $1 AND t.status = 'failed' AND t.error_message IS NOT NULL
+         LIMIT 1`,
+        [id]
+      );
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        target = {
+          targetType: "error",
+          targetKey: row.fingerprint,
+          filePath: row.file_path,
+          testTitle: row.full_title,
+          errorMessage: row.error_message,
+        };
+      }
+    } else {
+      // From a fingerprint → a representative failed test for that error group
+      // (mirrors /analyze/error's resolution).
+      const result = await tenantQuery(orgId,
+        `SELECT t.full_title, t.error_message, s.file_path
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs r ON r.id = s.run_id
+         WHERE t.status = 'failed' AND t.error_message IS NOT NULL
+           AND md5(t.error_message || '|' || r.suite_name) = $1
+         ORDER BY r.created_at DESC LIMIT 1`,
+        [fingerprint]
+      );
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        target = {
+          targetType: "error",
+          targetKey: fingerprint,
+          filePath: row.file_path,
+          testTitle: row.full_title,
+          errorMessage: row.error_message,
+        };
+      }
+    }
+
+    if (!target) {
+      res.status(404).json({ error: "Failed test with an error message not found" });
+      return;
+    }
+
+    // A git provider must be configured to open a PR.
+    const prov = await getProviderForOrg(orgId);
+    if (!prov) {
+      res.status(409).json({ error: "No git provider configured" });
+      return;
+    }
+
+    // Generating the patch calls the model — gate on AI being enabled.
+    if (!isAIEnabled()) {
+      res.status(503).json({ error: "AI analysis requires an AI provider to be configured" });
+      return;
+    }
+
+    // Concurrency + idempotency: CLAIM the (target) slot with an open row
+    // BEFORE talking to the git provider. A partial unique index
+    // (ai_fix_prs_one_open_per_target, status='open' — migration 062) means a
+    // second concurrent request loses the INSERT race and returns the existing
+    // PR instead of opening a duplicate against the customer's repo. The branch
+    // name is deterministic from target_key, so it's known up front.
+    const branch = `flakey/fix-${createHash("md5").update(target.targetKey).digest("hex").slice(0, 8)}`;
+    const claim = await tenantQuery(orgId,
+      `INSERT INTO ai_fix_prs (org_id, target_type, target_key, provider, branch, file_path, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (org_id, target_type, target_key) WHERE status = 'open' DO NOTHING
+       RETURNING id`,
+      [orgId, target.targetType, target.targetKey, prov.platform, branch, target.filePath, req.user!.id]
+    );
+    if (claim.rows.length === 0) {
+      // Lost the race (or an open PR already exists) — return it, don't duplicate.
+      const existing = await tenantQuery(orgId,
+        `SELECT pr_number, pr_url, branch FROM ai_fix_prs
+         WHERE target_type = $1 AND target_key = $2 AND status = 'open'
+         ORDER BY created_at DESC LIMIT 1`,
+        [target.targetType, target.targetKey]
+      );
+      const row = existing.rows[0] ?? {};
+      res.json({ created: false, reason: "exists", pr_url: row.pr_url ?? null, pr_number: row.pr_number ?? null, branch: row.branch ?? null });
+      return;
+    }
+    const claimId = claim.rows[0].id as number;
+    // Free the claimed slot so a later attempt can retry (used on every early
+    // return below that doesn't actually open a PR, and on provider failure).
+    const releaseClaim = () =>
+      tenantQuery(orgId, "DELETE FROM ai_fix_prs WHERE id = $1", [claimId]).catch(() => {});
+
+    // Everything below talks to the git provider + the model. Wrap it so a
+    // mid-way failure releases the claim and returns a generic 502 — never echo
+    // provider detail/tokens.
+    try {
+      const base = await prov.provider.getDefaultBranch();
+      const file = await prov.provider.getFileContent(target.filePath, base.sha);
+      if (!file) {
+        await releaseClaim();
+        res.status(422).json({ error: "Target file not found in repo" });
+        return;
+      }
+      // SIZE GUARD: don't even call the model on an oversized file.
+      if (file.content.length > MAX_FIX_FILE_CHARS) {
+        await releaseClaim();
+        res.status(413).json({ error: "File too large for automated fix" });
+        return;
+      }
+
+      const result = await generateFixPatch({
+        filePath: target.filePath,
+        fileContent: file.content,
+        errorMessage: target.errorMessage,
+        testTitle: target.testTitle,
+      });
+
+      // GUARD: empty or unchanged → don't open an empty PR.
+      if (!result.content || result.content === file.content) {
+        await releaseClaim();
+        res.json({ created: false, reason: "no change" });
+        return;
+      }
+      // TRUNCATION GUARD: a result less than half the original is almost
+      // certainly a model truncation — never commit it.
+      if (result.content.length < file.content.length * 0.5) {
+        await releaseClaim();
+        res.status(422).json({ error: "Generated patch looked truncated" });
+        return;
+      }
+
+      // Strip control chars from the test title before it lands in a git commit
+      // message / PR title (some normalizers allow newlines in full_title).
+      const safeTitle = target.testTitle.replace(/[\r\n\t]+/g, " ").slice(0, 200);
+      const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
+      const body = [
+        result.explanation,
+        "",
+        "---",
+        "⚠️ **AI-generated — review before merging.** This change was proposed automatically by Flakey and opened as a draft. A human must review and merge it.",
+        "",
+        `[View the failing test in Flakey](${frontendUrl}/errors/${target.targetKey})`,
+      ].join("\n");
+
+      await prov.provider.createBranch(branch, base.sha);
+      await prov.provider.commitFile({
+        branch,
+        path: target.filePath,
+        content: result.content,
+        message: `[Flakey] Proposed fix: ${safeTitle}`,
+        sha: file.sha,
+      });
+      const pr = await prov.provider.createPullRequest({
+        head: branch,
+        base: base.name,
+        title: `[Flakey] Proposed fix: ${safeTitle}`,
+        body,
+        draft: true,
+      });
+
+      // Fill the claimed row with the opened PR's details.
+      await tenantQuery(orgId,
+        `UPDATE ai_fix_prs SET pr_number = $1, pr_url = $2 WHERE id = $3`,
+        [pr.number, pr.url, claimId]
+      );
+
+      res.json({ created: true, pr_url: pr.url, pr_number: pr.number, branch });
+    } catch (err) {
+      // Provider/model failure mid-flow — release the claim, log detail
+      // server-side, return a fixed message so no provider token/detail reaches
+      // the client.
+      await releaseClaim();
+      console.error("POST /analyze/fix-pr provider error:", safeLog(err));
+      res.status(502).json({ error: "Failed to open fix PR" });
+    }
+  } catch (err) {
+    console.error("POST /analyze/fix-pr error:", safeLog(err));
     res.status(500).json({ error: "Analysis failed" });
   }
 });

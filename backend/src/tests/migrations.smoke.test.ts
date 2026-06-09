@@ -241,7 +241,7 @@ test("migrations: RLS is enabled on tenant-scoped tables", async () => {
 
   // RLS-on tables: catastrophic if disabled, since the app runs as
   // flakey_app expecting rows to be filtered by current_org_id GUC.
-  const tenantTables = ["runs", "specs", "tests", "manual_tests", "webhooks", "audit_log"];
+  const tenantTables = ["runs", "specs", "tests", "manual_tests", "webhooks", "audit_log", "ai_fix_prs"];
   const result = await testClient!.query<{ tablename: string; rowsecurity: boolean }>(
     `SELECT tablename, rowsecurity FROM pg_tables
      WHERE schemaname = 'public' AND tablename = ANY($1)`,

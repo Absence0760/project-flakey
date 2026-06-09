@@ -340,6 +340,63 @@ Respond with ONLY a JSON object (no markdown fences):
 }
 
 /**
+ * Generate a proposed fix for a failing test's source file. Returns the FULL
+ * corrected file content plus a one-paragraph explanation, so the caller can
+ * commit the whole file on a branch and open a DRAFT PR for human review.
+ *
+ * Provider-abstracted via chatJSON (Anthropic forced tool-use; OpenAI-compatible
+ * JSON mode + parseJSON fallback) so it works air-gapped against a local Ollama.
+ * Inputs are bounded by the CALLER (the route enforces a file-size cap before
+ * calling) — never auto-applied: the route guards against an empty / unchanged /
+ * truncated result before committing anything.
+ */
+export async function generateFixPatch(params: {
+  filePath: string;
+  fileContent: string;
+  errorMessage: string;
+  testTitle?: string;
+  context?: string;
+}): Promise<{ content: string; explanation: string }> {
+  const prompt = `You are proposing a fix for a failing automated test. Return the COMPLETE corrected file content (the whole file, not a diff or a snippet) plus a one-paragraph explanation of the change.
+
+**File:** ${params.filePath}
+${params.testTitle ? `**Failing test:** ${params.testTitle}` : ""}
+
+**Error message:**
+${params.errorMessage.slice(0, 2000)}
+
+${params.context ? `**Additional context:**\n${params.context.slice(0, 1000)}` : ""}
+
+**Current file content:**
+\`\`\`
+${params.fileContent}
+\`\`\`
+
+Respond with ONLY a JSON object (no markdown fences):
+{
+  "content": "<the COMPLETE corrected file content — the entire file, with your fix applied>",
+  "explanation": "<one paragraph explaining what you changed and why it should fix the failure>"
+}`;
+
+  return chatJSON(prompt, {
+    name: "report_fix_patch",
+    description: "Report a proposed fix as the complete corrected file content plus an explanation.",
+    input_schema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "The COMPLETE corrected file content — the entire file with the fix applied, not a diff or snippet." },
+        explanation: { type: "string", description: "One paragraph explaining what changed and why it should fix the failure." },
+      },
+      required: ["content", "explanation"],
+    },
+  }, {
+    // Empty content → the route's "no change" guard fires and nothing is opened.
+    content: "",
+    explanation: "The AI model did not return a usable fix for this failure.",
+  });
+}
+
+/**
  * Analyze a flaky test and suggest stabilization strategies.
  */
 export async function analyzeFlakyTest(params: {
