@@ -39,8 +39,13 @@ Each of these is one regression away from coming back. Sweep them.
 4. **Heartbeat / stale-run.** `LiveClient` (in `packages/flakey-live-reporter/src/index.ts`) ticks an `unref`'d 30s interval that calls `flush({ allowEmpty: true })` so the backend's `/events` route bumps `lastEventAt` via `LiveEventBus.touch()` even with no real events. Confirm:
    - The interval is `unref`'d (so it doesn't keep Node alive)
    - Each adapter (`mocha.ts`, `playwright.ts`, `webdriverio.ts`) calls `client.stop()` alongside `flush()` at end-of-run, so the heartbeat doesn't tick past `run.finished`
-   - The backend's `events` POST handler calls `liveEvents.touch(runId)` regardless of payload size
+   - The backend's `events` POST handler calls `liveEvents.touch(runId)` regardless of payload size **and** bumps the DB-authoritative `runs.last_event_at` (folded into the ownership `UPDATE … RETURNING id`) on every POST including empty heartbeats
    - `FLAKEY_LIVE_TIMEOUT_MS` env var still gates the threshold (default 10 min, tests use 1500ms)
+
+4b. **DB-backed stale reconciler (durable layer).** The in-memory `getStaleRuns` sweep only sees runs tracked on the current task, so it can't rescue runs orphaned by a restart or by a `run.finished` that never got its end-of-run upload — both stay `finished_at IS NULL` forever and render LIVE. `reconcileStaleLiveRuns()` (`backend/src/routes/live.ts`) re-derives staleness from `runs.last_event_at` (migration 059) per org and aborts via the same `abortRun` path. Confirm:
+   - It's scheduled from `index.ts` at boot (one-shot ~15s in) **and** on a periodic interval
+   - The staleness predicate is `finished_at IS NULL AND no run.aborted event AND COALESCE(last_event_at, started_at) < NOW() - FLAKEY_LIVE_TIMEOUT_MS` — so a heartbeating-but-quiet run (its `last_event_at` keeps advancing) is **never** false-aborted
+   - `abortRun` is idempotent: its terminal-state guard (`finished_at` set OR a `run.aborted` event exists) returns early, so the fast + durable layers — or two reconcile passes — can't double-abort one run
 
 5. **`run.aborted` is sticky.** Once a run is in the `live_events` table with a `run.aborted` event, `GET /runs` and `GET /runs/:id` return `aborted: true`. Confirm the SELECT in `runs.ts` still has the `EXISTS (SELECT 1 FROM live_events …)` clause and that `getStaleRuns` removes the run from `activeRuns` after the abort emits (so the same run isn't repeatedly re-aborted on every check tick).
 

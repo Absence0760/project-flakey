@@ -416,21 +416,29 @@ a dashboard client parked on task B. Payloads are capped under the ~8 KB
 `NOTIFY` limit (a giant error message is trimmed; the full text is still
 persisted and served via REST).
 
-Two pieces of state are deliberately **not** replicated across tasks:
+Liveness is **DB-authoritative**, so it's correct on whichever task serves a
+request and survives a restart:
 
 - **The active-run snapshot** sent on `/live/stream` connect (and `/live/active`)
   is read from the DB (`runs.finished_at IS NULL AND` no `run.aborted` event),
   not from in-memory state — so it's correct on whichever task serves the
   connection.
-- **Stale-run detection** (the inactivity timer that aborts a run whose
-  reporter died) runs per task against the in-memory `lastEventAt`. A run is
-  tracked by whichever task receives its events; with keep-alive reporter
-  connections that's a single task, so this is correct in practice. If a task
-  dies mid-run the run is orphaned until an operator clears it — the same
-  outcome as the single-task deployment. Fully task-independent stale
-  detection would need a DB-backed `last_event_at` swept under an advisory
-  lock (as the scheduled-reports dispatcher does); that's the path to take if
-  this ever proves insufficient.
+- **Stale-run detection runs at two layers.** The fast layer is a per-task
+  inactivity timer against the in-memory `lastEventAt` (bumped by the
+  heartbeat) — it reacts within seconds and pushes `run.aborted` to connected
+  clients, but only sees runs tracked on its own task. The durable layer is
+  `reconcileStaleLiveRuns()` (`backend/src/routes/live.ts`, scheduled from
+  `index.ts` at boot + every 10 min): it re-derives staleness from the DB —
+  `runs.last_event_at` (migration 059, advanced on **every** `/live/:id/events`
+  POST, empty heartbeats included) older than `FLAKEY_LIVE_TIMEOUT_MS` — and
+  aborts through the same idempotent `abortRun` path. Because the heartbeat
+  advances `last_event_at`, a healthy-but-quiet run is never false-aborted.
+  This closes the two orphan classes the in-memory timer can't see — runs
+  stranded by a backend restart (in-memory registry gone) and runs whose
+  reporter emitted `run.finished` but whose end-of-run upload never landed —
+  both of which would otherwise stay `finished_at IS NULL` forever and render
+  LIVE indefinitely. Correct across tasks because it reads the DB, not any one
+  task's in-memory set.
 
 ### 8. Secrets encryption (`backend/src/crypto.ts`)
 

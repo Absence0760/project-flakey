@@ -21,7 +21,7 @@ import analyzeRouter from "./routes/analyze.js";
 import quarantineRouter from "./routes/quarantine.js";
 import predictRouter from "./routes/predict.js";
 import connectivityRouter from "./routes/connectivity.js";
-import liveRouter from "./routes/live.js";
+import liveRouter, { reconcileStaleLiveRuns } from "./routes/live.js";
 import jiraRouter from "./routes/jira.js";
 import pagerdutyRouter from "./routes/pagerduty.js";
 import reportsRouter from "./routes/reports.js";
@@ -432,4 +432,13 @@ app.listen(PORT, () => {
   // Scheduled reports — check every 30 minutes
   setTimeout(runScheduledReports, 20000);
   setInterval(runScheduledReports, 30 * 60 * 1000);
+
+  // Reconcile orphaned live runs from the DB. The in-memory stale sweeper in
+  // routes/live.ts only sees runs tracked on this task, so it can't rescue runs
+  // stranded by a restart (in-memory state gone) or by a run.finished that
+  // never got its end-of-run upload. Run once shortly after boot (catch
+  // restart orphans) and then periodically as a backstop. DB-authoritative, so
+  // it's correct across restarts and across ECS tasks.
+  setTimeout(() => { void reconcileStaleLiveRuns(); }, 15000);
+  setInterval(() => { void reconcileStaleLiveRuns(); }, 10 * 60 * 1000);
 });

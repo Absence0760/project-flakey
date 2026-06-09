@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import multer from "multer";
-import { tenantQuery } from "../db.js";
+import pool, { tenantQuery } from "../db.js";
 import { liveEvents, type LiveTestEvent } from "../live-events.js";
 import { getStorage } from "../storage.js";
 import { safeUnlinkTmp } from "../upload-filters.js";
@@ -179,8 +179,8 @@ router.post("/start", async (req, res) => {
       // finished_at is intentionally omitted so it stays NULL ("not yet
       // finished") until the run merges/completes (migration 050). The old
       // NOW() here was a meaningless INSERT-time value later overwritten.
-      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment)
-       VALUES ($1, $2, $3, $4, 'live', NOW(), 0, 0, 0, 0, 0, 0, $5, $6)
+      `INSERT INTO runs (suite_name, branch, commit_sha, ci_run_id, reporter, started_at, total, passed, failed, skipped, pending, duration_ms, org_id, environment, last_event_at)
+       VALUES ($1, $2, $3, $4, 'live', NOW(), 0, 0, 0, 0, 0, 0, $5, $6, NOW())
        ON CONFLICT (org_id, suite_name, ci_run_id) WHERE ci_run_id <> ''
        DO UPDATE SET reporter = runs.reporter
        RETURNING id, (xmax = 0) AS inserted`,
@@ -268,7 +268,15 @@ router.post("/:runId/events", async (req, res) => {
   // Verify the run belongs to the caller's org before emitting any SSE events.
   // Without this check an authenticated user from a different org could inject
   // events into another org's live stream (cross-org SSE stream poisoning).
-  const owns = await tenantQuery(orgId, "SELECT 1 FROM runs WHERE id = $1", [runId]);
+  //
+  // Fold the DB-authoritative liveness bump into the same round trip: every
+  // events POST — including empty-body heartbeats — advances last_event_at, so
+  // reconcileStaleLiveRuns() can judge whether a run is still alive from the DB
+  // alone (correct across a backend restart and across ECS tasks, neither of
+  // which the in-memory bus survives). RLS scopes the UPDATE to the caller's
+  // org, so a foreign/unknown run id updates zero rows => 404 as before.
+  const owns = await tenantQuery(orgId,
+    "UPDATE runs SET last_event_at = NOW() WHERE id = $1 RETURNING id", [runId]);
   if (!owns.rowCount) {
     res.status(404).json({ error: "Run not found" });
     return;
@@ -899,22 +907,45 @@ router.get("/:runId/stream", async (req, res) => {
   });
 });
 
-/** Emit and persist a run.aborted event, removing the run from the active set. */
-async function abortRun(runId: number, orgId: number, reason: string): Promise<void> {
+/**
+ * Emit and persist a run.aborted event, removing the run from the active set.
+ * Returns true when this call actually aborted the run, false when it no-op'd
+ * because the run was already gone or already terminal — so callers (the DB
+ * reconciler) can report a truthful count rather than counting skipped no-ops.
+ */
+async function abortRun(runId: number, orgId: number, reason: string): Promise<boolean> {
+  let didAbort = false;
   // Run on the per-run chain so the abort observes any in-flight /events
   // POSTs that haven't yet inserted their pending rows. Without this, an
   // abort racing a not-yet-committed test.started would UPDATE zero rows;
   // the pending INSERT then lands afterwards and is never transitioned,
   // leaving a row stuck in 'pending' even though the run is aborted.
   await enqueueOnRun(runId, async () => {
-    // Bail if forgetLiveRun() has already wiped this run from the bus —
-    // the stale-detection timer can capture a runId in its sweep,
-    // queue abortRun onto the chain, and then a DELETE /runs/:id can
-    // race in BEFORE this chained work executes. Without this guard,
-    // transitionPendingTestsAfterAbort + persistEventAwaited both
-    // FK-fail because runs.id is gone, and stderr fills with
-    // `live_events_run_id_fkey` on every deleted run.
-    if (!liveEvents.hasRun(runId)) return;
+    // Abort iff the run still exists and isn't already terminal. This DB check
+    // replaces the old `if (!liveEvents.hasRun(runId)) return` bus gate, which
+    // had two problems:
+    //   1. It skipped any run not in THIS task's in-memory bus — but that's
+    //      exactly the orphan set reconcileStaleLiveRuns() exists to abort
+    //      (runs stranded by a backend restart or living on another ECS task).
+    //   2. The bus says nothing about whether the row was actually deleted.
+    // The gate's real job was "don't write to a deleted run" — the FK-noise
+    // race where the stale timer queues abortRun, then DELETE /runs/:id +
+    // forgetLiveRun land before this chained work runs. A direct existence
+    // check covers that AND lets legitimate orphan aborts through. The
+    // already-aborted/finished guard makes abortRun idempotent, so the
+    // in-memory sweeper, an explicit POST /abort, and the DB reconciler can
+    // never double-abort one run (a second run.aborted event). The narrow
+    // delete-during-chain race that survives this check is still swallowed
+    // downstream by isPostDeleteRace.
+    const state = await tenantQuery(orgId,
+      `SELECT r.finished_at IS NOT NULL AS finished,
+              EXISTS (SELECT 1 FROM live_events le
+                       WHERE le.run_id = r.id AND le.event_type = 'run.aborted') AS aborted
+         FROM runs r WHERE r.id = $1`,
+      [runId]
+    );
+    if (!state.rowCount) return; // deleted between queueing and running
+    if (state.rows[0].finished || state.rows[0].aborted) return; // already terminal
 
     // Make the DB fully reflect the abort BEFORE emitting anything, so any
     // SSE-driven refetch observes the terminal state. Two ordered steps:
@@ -938,7 +969,9 @@ async function abortRun(runId: number, orgId: number, reason: string): Promise<v
     };
     await persistEventAwaited(orgId, runId, event);
     liveEvents.emit(runId, event);
+    didAbort = true;
   });
+  return didAbort;
 }
 
 async function transitionPendingTestsAfterAbort(
@@ -981,6 +1014,9 @@ const STALE_INACTIVITY_MS = Math.max(
 );
 const STALE_CHECK_INTERVAL_MS = Math.max(500, Math.min(30_000, Math.floor(STALE_INACTIVITY_MS / 4)));
 
+const STALE_ABORT_REASON =
+  "Run stopped unexpectedly — the test process may have been killed or the terminal was closed.";
+
 // unref() so the interval doesn't keep the event loop alive on its own — the
 // Express server is the thing that keeps the process running; test harnesses
 // that spawn+kill the server shouldn't hang waiting for this timer.
@@ -988,9 +1024,82 @@ const staleCheckTimer = setInterval(() => {
   const stale = liveEvents.getStaleRuns(STALE_INACTIVITY_MS);
   for (const { runId, orgId } of stale) {
     console.log(`[live] Run ${runId} is stale — marking as aborted`);
-    void abortRun(runId, orgId, "Run stopped unexpectedly — the test process may have been killed or the terminal was closed.");
+    void abortRun(runId, orgId, STALE_ABORT_REASON);
   }
 }, STALE_CHECK_INTERVAL_MS);
 staleCheckTimer.unref();
+
+/**
+ * DB-backed backstop for the in-memory stale sweeper above.
+ *
+ * `getStaleRuns` only sees runs whose events landed on THIS task's in-memory
+ * bus, so it misses two orphan classes that otherwise stay `finished_at IS
+ * NULL` forever (and therefore render LIVE indefinitely via activeRunIdsForOrg):
+ *   1. Runs that were live when the backend restarted — the in-memory registry
+ *      is gone, so nothing tracks them.
+ *   2. Runs whose reporter emitted `run.finished` (which removes them from the
+ *      active set) but whose authoritative end-of-run upload never landed, so
+ *      `finished_at` was never set.
+ *
+ * This re-derives staleness from the DB — `last_event_at` (bumped on every
+ * /events POST, heartbeats included) older than the stale window — and aborts
+ * through the same idempotent `abortRun` path. Because heartbeats advance
+ * `last_event_at`, a healthy-but-quiet run is never false-aborted.
+ *
+ * Per-org `tenantQuery` (RLS) rather than a cross-org scan, matching retention:
+ * `runs` only admits per-org context, and isolating each org means one org's DB
+ * hiccup can't starve the rest. Pass `orgIds` to bound the sweep (used by tests
+ * to avoid touching other orgs' runs); omit it to reconcile every org.
+ *
+ * Returns the number of runs aborted. Safe to call repeatedly — already-aborted
+ * runs are excluded by the query and by abortRun's own terminal-state guard.
+ */
+export async function reconcileStaleLiveRuns(orgIds?: number[]): Promise<number> {
+  let orgs: number[];
+  if (orgIds) {
+    orgs = orgIds;
+  } else {
+    try {
+      const r = await pool.query("SELECT id FROM organizations");
+      orgs = r.rows.map((row) => row.id as number);
+    } catch (err) {
+      console.error("[live] stale-run reconcile: failed to list orgs:", err instanceof Error ? err.message : String(err));
+      return 0;
+    }
+  }
+
+  let aborted = 0;
+  for (const orgId of orgs) {
+    let stale: { rows: Array<{ id: number }> };
+    try {
+      stale = await tenantQuery(orgId,
+        `SELECT r.id
+           FROM runs r
+          WHERE r.finished_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM live_events le
+              WHERE le.run_id = r.id AND le.event_type = 'run.aborted'
+            )
+            AND COALESCE(r.last_event_at, r.started_at) < NOW() - make_interval(secs => $1)
+          ORDER BY r.id`,
+        [STALE_INACTIVITY_MS / 1000]
+      ) as { rows: Array<{ id: number }> };
+    } catch (err) {
+      console.error(`[live] stale-run reconcile query failed for org ${orgId}:`, err instanceof Error ? err.message : String(err));
+      continue;
+    }
+    for (const { id: runId } of stale.rows) {
+      // abortRun returns false if the run went terminal between the SELECT
+      // above and the chained abort running — don't count a no-op.
+      const did = await abortRun(runId, orgId, STALE_ABORT_REASON);
+      if (did) {
+        aborted++;
+        console.log(`[live] Reconciled orphaned live run ${runId} (org ${orgId}) — marked as aborted`);
+      }
+    }
+  }
+  if (aborted) console.log(`[live] reconciled ${aborted} orphaned live run(s) from the DB`);
+  return aborted;
+}
 
 export default router;
