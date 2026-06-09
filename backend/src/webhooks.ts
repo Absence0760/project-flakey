@@ -1,4 +1,4 @@
-import { tenantQuery } from "./db.js";
+import pool, { tenantQuery } from "./db.js";
 import { computeFlakyTests } from "./flaky-analysis.js";
 import { formatPayload, type WebhookRunPayload } from "./webhook-formatters.js";
 import type { NormalizedRun } from "./types.js";
@@ -196,6 +196,45 @@ export async function dispatchRunEvents(orgId: number, runId: number, run: Norma
           event: "flaky.detected",
           flaky_tests: flakyTests,
         });
+      }
+
+      // flaky.threshold.exceeded — alert when a test's flaky_rate crosses the
+      // org-configured threshold. Reuses the same `candidates` window above.
+      // The org threshold lives in `organizations`, which has no RLS, so it's
+      // read via pool.query keyed on the trusted orgId (the established pattern,
+      // see getProviderConfig in src/git-providers/index.ts). A NULL column
+      // means alerting is off — skip. Guard the whole block so a failed
+      // config read logs and doesn't abort the rest of dispatch.
+      try {
+        const thresholdResult = await pool.query(
+          "SELECT flaky_alert_threshold FROM organizations WHERE id = $1",
+          [orgId]
+        );
+        const rawThreshold = thresholdResult.rows[0]?.flaky_alert_threshold;
+        if (rawThreshold != null) {
+          const threshold = Number(rawThreshold);
+          const thresholdTests = candidates
+            .filter((t) => t.total_runs >= 3 && t.flaky_rate >= threshold)
+            .map((t) => ({
+              full_title: t.full_title,
+              file_path: t.file_path,
+              flaky_rate: t.flaky_rate,
+              flip_count: t.flip_count,
+              fail_count: t.fail_count,
+              total_runs: t.total_runs,
+            }))
+            .slice(0, 10);
+
+          if (thresholdTests.length > 0) {
+            dispatchWebhooks(orgId, "flaky.threshold.exceeded", {
+              ...basePayload,
+              event: "flaky.threshold.exceeded",
+              flaky_tests: thresholdTests,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("flaky.threshold.exceeded detection error:", err);
       }
     }
   } catch (err) {
