@@ -214,3 +214,48 @@ test("junit: a property missing @name is dropped (no undefined key)", () => {
 
   assert.deepEqual(props, { kept: "yes" }, "nameless property contributes no key");
 });
+
+// ── timestamp / time robustness: never throw on garbage time values ───────
+// parseJUnit is deliberately defensive ("rather record an empty run than 500 a
+// CI pipeline"), but the finished_at math used raw parseFloat + new Date()
+// without the NaN guard parseSeconds/playwright.ts already apply. A non-numeric
+// time= or a garbage timestamp= produced new Date(NaN).toISOString() → a thrown
+// RangeError that 500'd the upload. These pin the representable-ISO invariant.
+
+test("junit: a non-numeric testsuites time= does not throw and yields a representable finished_at", () => {
+  const xml = `<?xml version="1.0"?>
+<testsuites time="not-a-number">
+  <testsuite name="S" tests="1">
+    <testcase name="t" classname="C" time="0.1"/>
+  </testsuite>
+</testsuites>`;
+  let out!: NormalizedRun;
+  assert.doesNotThrow(() => { out = parseJUnit(xml, META); }, "a bad testsuites time= must not crash the parser");
+  assert.doesNotThrow(() => new Date(out.meta.finished_at).toISOString(), "finished_at must be a representable ISO string");
+  assert.equal(out.stats.total, 1, "the run is still recorded, not dropped");
+});
+
+test("junit: a garbage testsuite timestamp= does not throw and yields a representable finished_at", () => {
+  const xml = `<?xml version="1.0"?>
+<testsuite name="S" tests="1" timestamp="yesterday-ish">
+  <testcase name="t" classname="C" time="0.5"/>
+</testsuite>`;
+  let out!: NormalizedRun;
+  assert.doesNotThrow(() => { out = parseJUnit(xml, META); }, "a bad timestamp= must not crash the parser");
+  assert.doesNotThrow(() => new Date(out.meta.started_at).toISOString(), "started_at must be a representable ISO string");
+  assert.doesNotThrow(() => new Date(out.meta.finished_at).toISOString(), "finished_at must be a representable ISO string");
+  assert.equal(out.stats.total, 1);
+});
+
+test("junit: a valid testsuites time= still drives the run duration", () => {
+  // Guard the fix didn't regress the happy path: a numeric time= is honoured.
+  const xml = `<?xml version="1.0"?>
+<testsuites time="2.5">
+  <testsuite name="S" tests="1">
+    <testcase name="t" classname="C" time="2.5"/>
+  </testsuite>
+</testsuites>`;
+  const out = parseJUnit(xml, META);
+  const span = new Date(out.meta.finished_at).getTime() - new Date(out.meta.started_at).getTime();
+  assert.equal(span, 2500, "finished_at - started_at must reflect the 2.5s testsuites time");
+});
