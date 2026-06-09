@@ -1,4 +1,5 @@
 import { tenantQuery } from "./db.js";
+import { computeFlakyTests } from "./flaky-analysis.js";
 import { formatPayload, type WebhookRunPayload } from "./webhook-formatters.js";
 import type { NormalizedRun } from "./types.js";
 
@@ -164,49 +165,29 @@ export async function dispatchRunEvents(orgId: number, runId: number, run: Norma
 
   // flaky.detected — check if any tests in this run are flaky (alternating pass/fail)
   try {
-    const flakyResult = await tenantQuery(orgId,
-      `WITH recent_runs AS (
-        SELECT id, created_at FROM runs
-        WHERE suite_name = $1
-        ORDER BY created_at DESC LIMIT 20
-      ),
-      test_results AS (
-        SELECT t.full_title, s.file_path, t.status, r.id AS run_id
-        FROM tests t
-        JOIN specs s ON s.id = t.spec_id
-        JOIN recent_runs r ON r.id = s.run_id
-        WHERE t.status IN ('passed', 'failed')
-      )
-      SELECT
-        full_title, file_path,
-        COUNT(*)::int AS total_runs,
-        COUNT(*) FILTER (WHERE status = 'passed')::int AS pass_count,
-        COUNT(*) FILTER (WHERE status = 'failed')::int AS fail_count,
-        ARRAY_AGG(status ORDER BY run_id ASC) AS timeline
-      FROM test_results
-      GROUP BY full_title, file_path
-      HAVING COUNT(*) FILTER (WHERE status = 'passed') > 0
-         AND COUNT(*) FILTER (WHERE status = 'failed') > 0
-         AND COUNT(*) >= 3`,
-      [run.meta.suite_name]
-    );
+    // Windowed (20-run) flaky detection via the shared module. The SQL HAVING
+    // already requires both a pass and a fail; we keep the >= 3 total-runs
+    // floor and the >= 2 flips threshold here.
+    const candidates = await computeFlakyTests(orgId, {
+      suite: run.meta.suite_name,
+      runWindow: 20,
+      // Preserve this path's original `run_id ASC` timeline ordering — run_id
+      // and created_at can diverge under concurrent/live uploads, which would
+      // otherwise shift flip_count and change whether flaky.detected fires.
+      orderBy: "run_id",
+    });
 
-    if (flakyResult.rows.length > 0) {
-      const flakyTests = flakyResult.rows.map((row: any) => {
-        const timeline: string[] = row.timeline;
-        let flipCount = 0;
-        for (let i = 1; i < timeline.length; i++) {
-          if (timeline[i] !== timeline[i - 1]) flipCount++;
-        }
-        return {
-          full_title: row.full_title,
-          file_path: row.file_path,
-          flaky_rate: Math.round((row.fail_count / row.total_runs) * 1000) / 10,
-          flip_count: flipCount,
-          fail_count: row.fail_count,
-          total_runs: row.total_runs,
-        };
-      }).filter((t: any) => t.flip_count >= 2) // At least 2 flips to be considered flaky
+    if (candidates.length > 0) {
+      const flakyTests = candidates
+        .filter((t) => t.total_runs >= 3 && t.flip_count >= 2) // >= 2 flips to be considered flaky
+        .map((t) => ({
+          full_title: t.full_title,
+          file_path: t.file_path,
+          flaky_rate: t.flaky_rate,
+          flip_count: t.flip_count,
+          fail_count: t.fail_count,
+          total_runs: t.total_runs,
+        }))
         .slice(0, 10);
 
       if (flakyTests.length > 0) {

@@ -114,7 +114,9 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
     const currentIcon = run.stats.failed > 0 ? "\u274c" : "\u2705";
     const trend = trendIcons + currentIcon;
 
-    // Detect flaky tests: tests that changed status between this run and the previous one
+    // Detect flaky tests: tests that changed status between this run and the previous one.
+    // NOTE: this is a distinct 2-run (this-vs-previous) diff, NOT the N-run windowed
+    // detection in flaky-analysis.ts — intentionally kept separate.
     const flakyTests: string[] = [];
     const prevRunResult = await tenantQuery(orgId,
       `SELECT id FROM runs WHERE suite_name = $1 AND id < $2
