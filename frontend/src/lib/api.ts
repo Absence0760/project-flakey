@@ -634,6 +634,7 @@ export interface QuarantinedTest {
   file_path: string;
   suite_name: string;
   reason: string | null;
+  source: string;
   quarantined_by_name: string;
   created_at: string;
 }
