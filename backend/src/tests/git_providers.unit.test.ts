@@ -505,6 +505,398 @@ test("bitbucket: missing `values` key yields null (no crash)", async () => {
   }
 });
 
+// ── Repo-write: DRAFT fix PRs (B3) ──────────────────────────────────────────
+// All three providers gained getDefaultBranch / getFileContent / createBranch /
+// commitFile / createPullRequest so analyze.ts can open an AI-suggested fix as a
+// DRAFT PR. Pin URL/method/body/auth shape + response parsing per platform.
+
+// GitHub ----------------------------------------------------------------------
+
+test("github: getDefaultBranch reads /repos then /git/ref and returns name+sha", async () => {
+  const calls: string[] = [];
+  const restore = mockFetch(async (url) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.endsWith("/repos/o/r")) return jsonRes(200, { default_branch: "main" });
+    if (u.includes("/git/ref/heads/main")) return jsonRes(200, { object: { sha: "abc123" } });
+    return jsonRes(404, {});
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const res = await p.getDefaultBranch();
+    assert.deepEqual(res, { name: "main", sha: "abc123" });
+    assert.ok(calls.some((u) => u.includes("/git/ref/heads/main")));
+  } finally {
+    restore();
+  }
+});
+
+test("github: getFileContent base64-decodes content and returns blob sha", async () => {
+  let seenUrl = "";
+  const restore = mockFetch(async (url) => {
+    seenUrl = String(url);
+    return jsonRes(200, {
+      content: Buffer.from("hello world", "utf-8").toString("base64"),
+      encoding: "base64",
+      sha: "blob9",
+    });
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const res = await p.getFileContent("src/a.ts", "main");
+    assert.deepEqual(res, { content: "hello world", sha: "blob9" });
+    assert.match(seenUrl, /\/repos\/o\/r\/contents\/src%2Fa\.ts\?ref=main$/);
+  } finally {
+    restore();
+  }
+});
+
+test("github: getFileContent returns null on 404 (file absent)", async () => {
+  const restore = mockFetch(async () => jsonRes(404, { message: "Not Found" }));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    assert.equal(await p.getFileContent("nope.ts", "main"), null);
+  } finally {
+    restore();
+  }
+});
+
+test("github: createBranch POSTs a refs/heads/<name> ref at fromSha", async () => {
+  let seen: { url: string; method?: string; body: any } = { url: "", body: null };
+  const restore = mockFetch(async (url, init) => {
+    seen = { url: String(url), method: init?.method, body: init?.body ? JSON.parse(init.body as string) : null };
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await p.createBranch("flakey/fix-1", "abc123");
+    assert.match(seen.url, /\/repos\/o\/r\/git\/refs$/);
+    assert.equal(seen.method, "POST");
+    assert.equal(seen.body.ref, "refs/heads/flakey/fix-1");
+    assert.equal(seen.body.sha, "abc123");
+  } finally {
+    restore();
+  }
+});
+
+test("github: commitFile PUTs base64 content + sha when updating", async () => {
+  let body: any = null;
+  const restore = mockFetch(async (_url, init) => {
+    body = init?.body ? JSON.parse(init.body as string) : null;
+    return jsonRes(200, {});
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await p.commitFile({ branch: "b", path: "src/a.ts", content: "new code", message: "fix", sha: "old" });
+    assert.equal(Buffer.from(body.content, "base64").toString("utf-8"), "new code");
+    assert.equal(body.branch, "b");
+    assert.equal(body.sha, "old");
+    assert.equal(body.message, "fix");
+  } finally {
+    restore();
+  }
+});
+
+test("github: commitFile omits sha when creating a new file", async () => {
+  let body: any = null;
+  const restore = mockFetch(async (_url, init) => {
+    body = init?.body ? JSON.parse(init.body as string) : null;
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await p.commitFile({ branch: "b", path: "new.ts", content: "x", message: "add" });
+    assert.equal("sha" in body, false, "no sha key on create");
+  } finally {
+    restore();
+  }
+});
+
+test("github: createPullRequest POSTs draft:true and maps html_url→url", async () => {
+  let seen: { url: string; method?: string; body: any } = { url: "", body: null };
+  const restore = mockFetch(async (url, init) => {
+    seen = { url: String(url), method: init?.method, body: init?.body ? JSON.parse(init.body as string) : null };
+    return jsonRes(201, { number: 77, html_url: "https://github.com/o/r/pull/77" });
+  });
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    const res = await p.createPullRequest({ head: "fix", base: "main", title: "T", body: "B", draft: true });
+    assert.match(seen.url, /\/repos\/o\/r\/pulls$/);
+    assert.equal(seen.body.draft, true);
+    assert.equal(seen.body.head, "fix");
+    assert.equal(seen.body.base, "main");
+    assert.deepEqual(res, { number: 77, url: "https://github.com/o/r/pull/77" });
+  } finally {
+    restore();
+  }
+});
+
+test("github: createPullRequest throws on 422 (validation)", async () => {
+  const restore = mockFetch(async () => jsonRes(422, { message: "A pull request already exists" }));
+  try {
+    const p = createGitHubProvider({ platform: "github", token: "t", repo: "o/r" });
+    await assert.rejects(
+      () => p.createPullRequest({ head: "fix", base: "main", title: "T", body: "B", draft: true }),
+      /422/,
+    );
+  } finally {
+    restore();
+  }
+});
+
+// GitLab ----------------------------------------------------------------------
+
+test("gitlab: getDefaultBranch reads project default_branch then branch commit id", async () => {
+  const restore = mockFetch(async (url) => {
+    const u = String(url);
+    if (/\/projects\/[^/]+$/.test(u)) return jsonRes(200, { default_branch: "main" });
+    if (u.includes("/repository/branches/main")) return jsonRes(200, { commit: { id: "sha9" } });
+    return jsonRes(404, {});
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    assert.deepEqual(await p.getDefaultBranch(), { name: "main", sha: "sha9" });
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: getFileContent base64-decodes and returns blob_id as sha", async () => {
+  let seenUrl = "";
+  const restore = mockFetch(async (url) => {
+    seenUrl = String(url);
+    return jsonRes(200, {
+      content: Buffer.from("body", "utf-8").toString("base64"),
+      encoding: "base64",
+      blob_id: "bid1",
+    });
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    const res = await p.getFileContent("dir/f.ts", "main");
+    assert.deepEqual(res, { content: "body", sha: "bid1" });
+    assert.match(seenUrl, /\/repository\/files\/dir%2Ff\.ts\?ref=main$/);
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: getFileContent returns null on 404", async () => {
+  const restore = mockFetch(async () => jsonRes(404, { message: "404 File Not Found" }));
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    assert.equal(await p.getFileContent("nope", "main"), null);
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: createBranch POSTs with branch + ref query params", async () => {
+  let seen: { url: string; method?: string } = { url: "" };
+  const restore = mockFetch(async (url, init) => {
+    seen = { url: String(url), method: init?.method };
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    await p.createBranch("fix-x", "sha9");
+    assert.equal(seen.method, "POST");
+    assert.match(seen.url, /\/repository\/branches\?branch=fix-x&ref=sha9$/);
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: commitFile PUTs when file exists (probe returns 200)", async () => {
+  const methods: string[] = [];
+  const restore = mockFetch(async (url, init) => {
+    const u = String(url);
+    if (init?.method === undefined || init?.method === "GET") {
+      // the existence probe (getFileContent)
+      return jsonRes(200, { content: Buffer.from("old").toString("base64"), encoding: "base64", blob_id: "b" });
+    }
+    methods.push(`${init?.method} ${u.includes("/repository/files/") ? "files" : "other"}`);
+    return jsonRes(200, {});
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    await p.commitFile({ branch: "b", path: "f.ts", content: "new", message: "m" });
+    assert.deepEqual(methods, ["PUT files"]);
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: commitFile POSTs when file is new (probe returns 404)", async () => {
+  const methods: string[] = [];
+  const restore = mockFetch(async (url, init) => {
+    if (init?.method === undefined || init?.method === "GET") return jsonRes(404, {});
+    methods.push(String(init?.method));
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    await p.commitFile({ branch: "b", path: "new.ts", content: "x", message: "m" });
+    assert.deepEqual(methods, ["POST"]);
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: createMergeRequest prefixes Draft: and maps iid→number, web_url→url", async () => {
+  let body: any = null;
+  const restore = mockFetch(async (_url, init) => {
+    body = init?.body ? JSON.parse(init.body as string) : null;
+    return jsonRes(201, { iid: 12, web_url: "https://gitlab.com/g/p/-/merge_requests/12" });
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    const res = await p.createPullRequest({ head: "fix", base: "main", title: "T", body: "B", draft: true });
+    assert.equal(body.title, "Draft: T");
+    assert.equal(body.source_branch, "fix");
+    assert.equal(body.target_branch, "main");
+    assert.deepEqual(res, { number: 12, url: "https://gitlab.com/g/p/-/merge_requests/12" });
+  } finally {
+    restore();
+  }
+});
+
+test("gitlab: createMergeRequest leaves title unprefixed when draft=false", async () => {
+  let title = "";
+  const restore = mockFetch(async (_url, init) => {
+    title = JSON.parse(init!.body as string).title;
+    return jsonRes(201, { iid: 1, web_url: "u" });
+  });
+  try {
+    const p = createGitLabProvider({ platform: "gitlab", token: "t", repo: "g/p" });
+    await p.createPullRequest({ head: "h", base: "b", title: "Plain", body: "x", draft: false });
+    assert.equal(title, "Plain");
+  } finally {
+    restore();
+  }
+});
+
+// Bitbucket -------------------------------------------------------------------
+
+test("bitbucket: getDefaultBranch reads mainbranch then branch target hash", async () => {
+  const restore = mockFetch(async (url) => {
+    const u = String(url);
+    if (/\/repositories\/ws\/repo$/.test(u)) return jsonRes(200, { mainbranch: { name: "main" } });
+    if (u.includes("/refs/branches/main")) return jsonRes(200, { target: { hash: "h9" } });
+    return jsonRes(404, {});
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    assert.deepEqual(await p.getDefaultBranch(), { name: "main", sha: "h9" });
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: getFileContent returns raw text and the ref as sha", async () => {
+  let seenUrl = "";
+  const restore = mockFetch(async (url) => {
+    seenUrl = String(url);
+    return new Response("raw file body", { status: 200 });
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    const res = await p.getFileContent("src/a.ts", "abc");
+    assert.deepEqual(res, { content: "raw file body", sha: "abc" });
+    assert.match(seenUrl, /\/repositories\/ws\/repo\/src\/abc\/src\/a\.ts$/);
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: getFileContent returns null on 404", async () => {
+  const restore = mockFetch(async () => new Response("Not found", { status: 404 }));
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    assert.equal(await p.getFileContent("nope", "abc"), null);
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: createBranch POSTs name + target.hash", async () => {
+  let body: any = null;
+  const restore = mockFetch(async (_url, init) => {
+    body = init?.body ? JSON.parse(init.body as string) : null;
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    await p.createBranch("fix-x", "h9");
+    assert.equal(body.name, "fix-x");
+    assert.deepEqual(body.target, { hash: "h9" });
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: commitFile form-encodes path→content, branch, message", async () => {
+  let contentType = "";
+  let parsed: URLSearchParams | null = null;
+  const restore = mockFetch(async (url, init) => {
+    contentType = (init?.headers as any)?.["Content-Type"] ?? "";
+    parsed = new URLSearchParams(init?.body as string);
+    assert.match(String(url), /\/repositories\/ws\/repo\/src$/);
+    return jsonRes(201, {});
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    await p.commitFile({ branch: "b", path: "src/a.ts", content: "new code", message: "fix" });
+    assert.equal(contentType, "application/x-www-form-urlencoded");
+    assert.equal(parsed!.get("src/a.ts"), "new code");
+    assert.equal(parsed!.get("branch"), "b");
+    assert.equal(parsed!.get("message"), "fix");
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: createPullRequest opens normally + prefixes AI note, maps id→number and links.html.href→url", async () => {
+  let body: any = null;
+  const restore = mockFetch(async (_url, init) => {
+    body = init?.body ? JSON.parse(init.body as string) : null;
+    return jsonRes(201, { id: 5, links: { html: { href: "https://bitbucket.org/ws/repo/pull-requests/5" } } });
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    const res = await p.createPullRequest({ head: "fix", base: "main", title: "T", body: "Body", draft: true });
+    assert.equal(body.source.branch.name, "fix");
+    assert.equal(body.destination.branch.name, "main");
+    assert.match(body.description, /AI-generated/i, "draft note is prefixed since Bitbucket has no draft flag");
+    assert.match(body.description, /Body/);
+    assert.deepEqual(res, { number: 5, url: "https://bitbucket.org/ws/repo/pull-requests/5" });
+  } finally {
+    restore();
+  }
+});
+
+test("bitbucket: createPullRequest does not prefix the AI note when draft=false", async () => {
+  let description = "";
+  const restore = mockFetch(async (_url, init) => {
+    description = JSON.parse(init!.body as string).description;
+    return jsonRes(201, { id: 1, links: { html: { href: "u" } } });
+  });
+  try {
+    const p = createBitbucketProvider({ platform: "bitbucket", token: "t", repo: "ws/repo" });
+    await p.createPullRequest({ head: "h", base: "b", title: "T", body: "Plain", draft: false });
+    assert.equal(description, "Plain");
+  } finally {
+    restore();
+  }
+});
+
+// getProviderForOrg is covered by analyze-route tests (needs a DB); the export
+// existence is asserted here so the wiring can't silently disappear.
+test("index: getProviderForOrg is exported", async () => {
+  const mod = await import("../git-providers/index.js");
+  assert.equal(typeof mod.getProviderForOrg, "function");
+});
+
 // ── GitHub Checks annotations (Phase 14) ────────────────────────────────────
 
 import { buildCheckAnnotations, MAX_ANNOTATIONS } from "../git-providers/annotations.js";

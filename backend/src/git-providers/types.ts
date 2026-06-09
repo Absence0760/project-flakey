@@ -50,4 +50,24 @@ export interface GitProvider {
   // GitHub implements it (the Checks API); GitLab/Bitbucket omit it and callers
   // guard with `provider.postChecksAnnotations?.(…)`.
   postChecksAnnotations?(params: CheckRunParams): Promise<void>;
+
+  // ── Repo-write capability (open an AI-suggested fix as a DRAFT PR) ────────
+  // All three providers implement these. DRAFT PRs only — there is
+  // deliberately NO merge capability here; a human reviews and merges.
+
+  // The repo's default branch + its current head sha (the base/branch-point
+  // for a fix branch).
+  getDefaultBranch(): Promise<{ name: string; sha: string }>;
+  // Decoded utf-8 file content + the blob sha (needed by GitHub to update an
+  // existing file). Returns null when the file does not exist at `ref`.
+  getFileContent(path: string, ref: string): Promise<{ content: string; sha: string } | null>;
+  // Create a new branch `name` pointing at `fromSha`.
+  createBranch(name: string, fromSha: string): Promise<void>;
+  // Create or update a single file on `branch`. Pass `sha` (the existing blob
+  // sha from getFileContent) when updating an existing file — GitHub requires
+  // it; GitLab/Bitbucket ignore it and switch create→update by themselves.
+  commitFile(params: { branch: string; path: string; content: string; message: string; sha?: string }): Promise<void>;
+  // Open a pull/merge request. `draft` opens it as a draft where the platform
+  // supports it (Bitbucket Cloud has no draft flag — it opens normally).
+  createPullRequest(params: { head: string; base: string; title: string; body: string; draft: boolean }): Promise<{ number: number; url: string }>;
 }

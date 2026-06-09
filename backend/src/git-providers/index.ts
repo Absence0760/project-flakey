@@ -35,6 +35,20 @@ function createProvider(config: GitProviderConfig): GitProvider {
 }
 
 /**
+ * Resolve a configured git provider for an org so callers outside this module
+ * (e.g. analyze.ts opening an AI fix PR) can drive repo-write operations
+ * without re-implementing config lookup. Returns null when the org has no git
+ * provider configured.
+ */
+export async function getProviderForOrg(
+  orgId: number,
+): Promise<{ provider: GitProvider; platform: GitPlatform } | null> {
+  const config = await getProviderConfig(orgId);
+  if (!config) return null;
+  return { provider: createProvider(config), platform: config.platform };
+}
+
+/**
  * Decide whether every failed test in a run is quarantined — the gate that
  * relaxes the external git merge check (commit status / Checks conclusion)
  * for a known-flaky-only failure.

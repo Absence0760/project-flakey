@@ -137,5 +137,79 @@ export function createGitHubProvider(config: GitProviderConfig): GitProvider {
         });
       }
     },
+
+    // ── Repo-write (DRAFT fix PRs) ──────────────────────────────────────────
+
+    async getDefaultBranch() {
+      const repoRes = await api(`/repos/${owner}/${repo}`);
+      if (!repoRes.ok) {
+        const body = await repoRes.text().catch(() => "");
+        throw new Error(`GitHub GET /repos/${owner}/${repo} → ${repoRes.status}: ${body.slice(0, 200)}`);
+      }
+      const { default_branch } = await repoRes.json() as { default_branch: string };
+      const refRes = await api(`/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(default_branch)}`);
+      if (!refRes.ok) {
+        const body = await refRes.text().catch(() => "");
+        throw new Error(`GitHub GET /git/ref/heads/${default_branch} → ${refRes.status}: ${body.slice(0, 200)}`);
+      }
+      const ref = await refRes.json() as { object: { sha: string } };
+      return { name: default_branch, sha: ref.object.sha };
+    },
+
+    async getFileContent(path, ref) {
+      const res = await api(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`GitHub GET /contents/${path} → ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const data = await res.json() as { content: string; encoding: string; sha: string };
+      const content = data.encoding === "base64"
+        ? Buffer.from(data.content, "base64").toString("utf-8")
+        : data.content;
+      return { content, sha: data.sha };
+    },
+
+    async createBranch(name, fromSha) {
+      await apiOrThrow(`/repos/${owner}/${repo}/git/refs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: `refs/heads/${name}`, sha: fromSha }),
+      });
+    },
+
+    async commitFile(params) {
+      await apiOrThrow(`/repos/${owner}/${repo}/contents/${encodeURIComponent(params.path)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: params.message,
+          content: Buffer.from(params.content, "utf-8").toString("base64"),
+          branch: params.branch,
+          // Updating an existing file requires its current blob sha; omit on create.
+          ...(params.sha ? { sha: params.sha } : {}),
+        }),
+      });
+    },
+
+    async createPullRequest(params) {
+      const res = await api(`/repos/${owner}/${repo}/pulls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          head: params.head,
+          base: params.base,
+          title: params.title,
+          body: params.body,
+          draft: params.draft,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`GitHub POST /pulls → ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const pr = await res.json() as { number: number; html_url: string };
+      return { number: pr.number, url: pr.html_url };
+    },
   };
 }
