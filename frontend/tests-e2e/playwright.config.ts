@@ -28,8 +28,13 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: ".",
-  // Don't recurse into .auth/ or fixtures/ from the testDir glob.
-  testIgnore: ["**/node_modules/**", "**/.auth/**", "**/fixtures/**"],
+  // Don't recurse into .auth/ or fixtures/ from the testDir glob. The sso/
+  // suite is excluded too: it has its own configs (playwright.sso*.config.ts)
+  // and hard-requires the opt-in IdP stack (Keycloak :8081, Authentik :9002,
+  // SCIM target :8082) plus FLAKEY_SSO_ENABLED — none of which the main e2e
+  // run (local `pnpm test:e2e` or the CI Tests workflow) provisions. Run it
+  // via `pnpm test:e2e:sso` against `pnpm idp:up` / `pnpm idp:scim:up`.
+  testIgnore: ["**/node_modules/**", "**/.auth/**", "**/fixtures/**", "**/sso/**"],
 
   // Stable on CI even with the dev server taking a beat to warm up.
   timeout: 30_000,
