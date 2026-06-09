@@ -58,6 +58,15 @@ interface WdioReport {
   state?: { passed: number; failed: number; skipped: number };
 }
 
+// Coerce a reporter-supplied duration to a sane non-negative number, matching
+// mochawesome.ts / playwright.ts. A bare `?? 0` only guards null/undefined — it
+// lets a NaN, a negative (clock skew), or a stringified number through, which
+// then poisons the summed run/spec totals. Keep all four normalizers consistent.
+function safeDuration(d: unknown): number {
+  const n = typeof d === "number" ? d : Number(d);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function mapStatus(state: string): NormalizedTest["status"] {
   switch (state) {
     case "passed": return "passed";
@@ -93,7 +102,7 @@ function collectTests(suite: WdioSuiteResult, parentTitle = ""): NormalizedTest[
       title,
       full_title: test.fullTitle || `${fullPrefix} > ${title}`,
       status,
-      duration_ms: test.duration ?? 0,
+      duration_ms: safeDuration(test.duration),
       error,
       screenshot_paths: [],
       ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
@@ -125,7 +134,7 @@ function parseSuiteToSpec(suite: WdioSuiteResult, filePath: string): NormalizedS
       failed,
       skipped,
       pending,
-      duration_ms: suite.duration ?? tests.reduce((s, t) => s + t.duration_ms, 0),
+      duration_ms: safeDuration(suite.duration ?? tests.reduce((s, t) => s + t.duration_ms, 0)),
     },
     tests,
   };
