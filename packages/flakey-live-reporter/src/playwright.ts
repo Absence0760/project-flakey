@@ -74,13 +74,26 @@ export default class PlaywrightLiveReporter {
           }),
         });
         if (res.ok) {
-          const data = await res.json() as { id: number; ci_run_id: string };
+          const data = await res.json() as { id?: unknown; ci_run_id?: unknown };
+          // Validate the run id is a finite positive integer before it flows
+          // into LiveClient's URL building. A non-numeric id (a UUID string,
+          // NaN, an object) is truthy, so the `if (!this.runId)` check below
+          // wouldn't catch it — it would build `/live/<garbage>/events`, 404
+          // on every event, and silently drop the entire live feed. Mirrors
+          // the mocha adapter's guard.
+          if (typeof data.id !== "number" || !Number.isFinite(data.id) || data.id <= 0) {
+            if (this.verbose) {
+              console.warn("[flakey-live] /live/start returned a non-numeric id; skipping live stream");
+            }
+            return;
+          }
           this.runId = data.id;
-          if (data.ci_run_id) {
-            process.env.CI_RUN_ID = data.ci_run_id;
+          const ciRunId = typeof data.ci_run_id === "string" ? data.ci_run_id : "";
+          if (ciRunId) {
+            process.env.CI_RUN_ID = ciRunId;
           }
           if (this.verbose) {
-            console.log(`[flakey-live] Live run started: #${this.runId} (ci_run_id: ${data.ci_run_id})`);
+            console.log(`[flakey-live] Live run started: #${this.runId} (ci_run_id: ${ciRunId})`);
           }
         }
       } catch (err) {
@@ -110,9 +123,14 @@ export default class PlaywrightLiveReporter {
 
   onTestEnd(test: { title: string; parent?: { location?: { file: string } } },
             result: { status: string; duration: number; error?: { message?: string } }) {
+    // Only "skipped" maps to test.skipped. Everything that isn't a clean pass
+    // or an explicit skip — "failed", "timedOut", and "interrupted" (process
+    // killed mid-test, e.g. Ctrl-C / CI job kill) — is a failure. The previous
+    // form let "interrupted" fall through to test.skipped, so a killed CI job
+    // showed every in-flight test as skipped on the live dashboard.
     const type = result.status === "passed" ? "test.passed"
-      : result.status === "failed" || result.status === "timedOut" ? "test.failed"
-      : "test.skipped";
+      : result.status === "skipped" ? "test.skipped"
+      : "test.failed";
 
     this.client?.send({
       type,

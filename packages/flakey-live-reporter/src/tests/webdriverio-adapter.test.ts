@@ -167,3 +167,31 @@ test("after /live/start sets process.env.CI_RUN_ID for the main reporter merge",
     delete process.env.CI_RUN_ID;
   }
 });
+
+test("a non-numeric /live/start id is rejected — no events stream to a garbage run id", async () => {
+  // Mirrors the playwright + mocha guard: a truthy-but-non-numeric id would
+  // bypass the `!this.runId` check and build /live/<garbage>/events, dropping
+  // every event on a 404. The guard must skip the stream entirely.
+  fetchMock = {
+    fn: mock.fn(async (url: string, opts: any) => {
+      fetchMock.calls.push({ url, opts });
+      if (url.endsWith("/live/start")) {
+        return new Response(JSON.stringify({ id: null, ci_run_id: "x" }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }),
+    calls: [],
+  };
+  globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+
+  const r = new WebdriverIOLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+  await r.onRunnerStart();
+  r.onTestPass({ title: "x", file: "a.spec.ts", duration: 1 });
+  await r.onRunnerEnd();
+
+  assert.ok(fetchMock.calls.some((c) => c.url.endsWith("/live/start")));
+  assert.equal(
+    fetchMock.calls.filter((c) => c.url.includes("/events")).length, 0,
+    "no events stream when /live/start returns a non-numeric id",
+  );
+});

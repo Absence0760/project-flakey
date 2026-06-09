@@ -126,6 +126,13 @@ test("onTestEnd maps result.status → test.passed / test.failed / test.skipped 
     { title: "s", parent: { location: { file: "a.spec.ts" } } },
     { status: "skipped", duration: 0 },
   );
+  // "interrupted" = process killed mid-test (Ctrl-C / CI job kill). It is a
+  // failure, NOT a skip — a killed job must not paint in-flight tests green-
+  // adjacent on the live dashboard.
+  r.onTestEnd(
+    { title: "int", parent: { location: { file: "a.spec.ts" } } },
+    { status: "interrupted", duration: 0 },
+  );
 
   await r.onEnd({ status: "passed" });
 
@@ -137,6 +144,36 @@ test("onTestEnd maps result.status → test.passed / test.failed / test.skipped 
   assert.equal(byTest("f")?.error, "bang");
   assert.equal(byTest("to")?.type, "test.failed", "timedOut should map to test.failed");
   assert.equal(byTest("s")?.type, "test.skipped");
+  assert.equal(byTest("int")?.type, "test.failed", "interrupted should map to test.failed, not skipped");
+});
+
+test("a non-numeric /live/start id is rejected — no events stream to a garbage run id", async () => {
+  // A backend that returns a string/UUID/NaN id is truthy, so the `!this.runId`
+  // check wouldn't catch it; without validation the adapter would build
+  // /live/<garbage>/events and 404 every event. The guard must skip the stream.
+  fetchMock = {
+    fn: mock.fn(async (url: string, opts: any) => {
+      fetchMock.calls.push({ url, opts });
+      if (url.endsWith("/live/start")) {
+        return new Response(JSON.stringify({ id: "not-a-number", ci_run_id: "x" }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }),
+    calls: [],
+  };
+  globalThis.fetch = fetchMock.fn as unknown as typeof fetch;
+
+  const r = new PlaywrightLiveReporter({ url: URL, apiKey: API_KEY, suite: SUITE });
+  await r.onBegin({}, { allTests: () => [{}] });
+  r.onTestEnd({ title: "x", parent: { location: { file: "a.spec.ts" } } }, { status: "passed", duration: 1 });
+  await r.onEnd({ status: "passed" });
+
+  // /live/start was called, but NO /events POST went out — the bad id is dropped.
+  assert.ok(fetchMock.calls.some((c) => c.url.endsWith("/live/start")));
+  assert.equal(
+    fetchMock.calls.filter((c) => c.url.includes("/events")).length, 0,
+    "no events stream when /live/start returns a non-numeric id",
+  );
 });
 
 test("onEnd emits run.finished and flushes the queue (no events left buffered)", async () => {

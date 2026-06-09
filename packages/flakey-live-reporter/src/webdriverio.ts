@@ -73,9 +73,20 @@ export default class WebdriverIOLiveReporter {
           }),
         });
         if (res.ok) {
-          const data = await res.json() as { id: number; ci_run_id: string };
+          const data = await res.json() as { id?: unknown; ci_run_id?: unknown };
+          // Validate the run id is a finite positive integer before it flows
+          // into LiveClient's URL building. A non-numeric id is truthy, so the
+          // `if (!this.runId)` check below wouldn't catch it — it would build
+          // `/live/<garbage>/events`, 404 on every event, and silently drop
+          // the entire live feed. Mirrors the mocha adapter's guard.
+          if (typeof data.id !== "number" || !Number.isFinite(data.id) || data.id <= 0) {
+            if (this.verbose) {
+              console.warn("[flakey-live] /live/start returned a non-numeric id; skipping live stream");
+            }
+            return;
+          }
           this.runId = data.id;
-          if (data.ci_run_id) {
+          if (typeof data.ci_run_id === "string") {
             process.env.CI_RUN_ID = data.ci_run_id;
           }
           if (this.verbose) {
