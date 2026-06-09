@@ -13,7 +13,10 @@
   let aiEnabled = $state(false);
   let aiResults = $state<Record<string, FlakyAnalysis>>({});
   let aiLoading = $state<Record<string, boolean>>({});
-  let quarantinedSet = $state<Set<string>>(new Set());
+  // Keyed by qKey(); carries source ('manual'|'auto') + reason so a
+  // quarantined row can show where it came from and why.
+  type QuarantineMeta = { source: string; reason: string | null };
+  let quarantined = $state<Map<string, QuarantineMeta>>(new Map());
 
   function qKey(t: FlakyTest) { return `${t.full_title}|${t.suite_name}`; }
 
@@ -85,7 +88,7 @@
     total: tests.length,
     high: tests.filter((t) => t.flaky_rate >= 40).length,
     medium: tests.filter((t) => t.flaky_rate >= 20 && t.flaky_rate < 40).length,
-    quarantined: tests.filter((t) => quarantinedSet.has(qKey(t))).length,
+    quarantined: tests.filter((t) => quarantined.has(qKey(t))).length,
   });
 
   // Client-side pagination — render the first N rows so a very long
@@ -130,7 +133,7 @@
       tests = flakyData;
       allRuns = runs;
       aiEnabled = ai;
-      quarantinedSet = new Set(qt.map(q => `${q.full_title}|${q.suite_name}`));
+      quarantined = new Map(qt.map(q => [`${q.full_title}|${q.suite_name}`, { source: q.source, reason: q.reason }]));
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load data";
     } finally {
@@ -218,15 +221,23 @@
 
   async function toggleQuarantine(test: FlakyTest) {
     const key = qKey(test);
-    if (quarantinedSet.has(key)) {
+    if (quarantined.has(key)) {
       await unquarantineTest(test.full_title, test.suite_name);
-      quarantinedSet.delete(key);
-      quarantinedSet = new Set(quarantinedSet);
+      quarantined.delete(key);
+      quarantined = new Map(quarantined);
     } else {
-      await quarantineTest(test.full_title, test.file_path, test.suite_name, `Flaky rate: ${test.flaky_rate}%`);
-      quarantinedSet.add(key);
-      quarantinedSet = new Set(quarantinedSet);
+      await quarantineWith(test, `Flaky rate: ${test.flaky_rate}%`);
     }
+  }
+
+  // Manual quarantine with an explicit reason (shared by the row's
+  // Quarantine button and the "AI recommends quarantine" one-click action).
+  // Source is always 'manual' — clicking this never triggers auto-quarantine.
+  async function quarantineWith(test: FlakyTest, reason: string) {
+    const key = qKey(test);
+    await quarantineTest(test.full_title, test.file_path, test.suite_name, reason);
+    quarantined.set(key, { source: "manual", reason });
+    quarantined = new Map(quarantined);
   }
 
   // Mirror the open row into ?expanded=<key> so the panel is deep-linkable.
@@ -411,13 +422,23 @@
               tabindex="0"
               class="flaky-row"
               class:expanded={expandedIndex === i}
-              class:quarantined-row={quarantinedSet.has(qKey(test))}
+              class:quarantined-row={quarantined.has(qKey(test))}
               onclick={() => expandRow(test, i)}
               onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
             >
               <td class="col-test">
                 <div class="test-cell">
-                  <span class="test-title" title={test.title}>{test.title}</span>
+                  <span class="test-title-row">
+                    <span class="test-title" title={test.title}>{test.title}</span>
+                    {#if quarantined.has(qKey(test))}
+                      {@const q = quarantined.get(qKey(test))}
+                      <span
+                        class="q-badge"
+                        class:auto={q?.source === "auto"}
+                        title={q?.reason ?? (q?.source === "auto" ? "Auto-quarantined" : "Quarantined")}
+                      >{q?.source === "auto" ? "Auto" : "Quarantined"}</span>
+                    {/if}
+                  </span>
                   <span class="test-spec" title={test.file_path}>{test.file_path}</span>
                 </div>
               </td>
@@ -440,8 +461,8 @@
               <tr class="flaky-detail-row">
                 <td colspan="7" class="flaky-detail">
                   <div class="detail-actions">
-                    <button class="q-btn" class:quarantined={quarantinedSet.has(qKey(test))} onclick={() => toggleQuarantine(test)}>
-                      {quarantinedSet.has(qKey(test)) ? "Unquarantine" : "Quarantine"}
+                    <button class="q-btn" class:quarantined={quarantined.has(qKey(test))} onclick={() => toggleQuarantine(test)}>
+                      {quarantined.has(qKey(test)) ? "Unquarantine" : "Quarantine"}
                     </button>
                     {#if aiEnabled && !aiResults[qKey(test)]}
                       <button class="analyze-btn" onclick={() => handleAnalyzeFlaky(test)} disabled={aiLoading[qKey(test)]}>
@@ -451,8 +472,12 @@
                     <span class="meta-spacer"></span>
                     <span class="meta-tag" title={absoluteDate(test.first_seen)}>first seen {timeAgo(test.first_seen)}</span>
                   </div>
-                  {#if quarantinedSet.has(qKey(test))}
-                    <div class="q-banner">This test is quarantined. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code></div>
+                  {#if quarantined.has(qKey(test))}
+                    {@const q = quarantined.get(qKey(test))}
+                    <div class="q-banner">
+                      <span class="q-badge" class:auto={q?.source === "auto"}>{q?.source === "auto" ? "Auto" : "Manual"}</span>
+                      This test is quarantined{q?.reason ? ` — ${q.reason}` : ""}. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code>
+                    </div>
                   {/if}
                   {#if aiResults[qKey(test)]}
                     {@const ai = aiResults[qKey(test)]}
@@ -460,7 +485,10 @@
                       <div class="ai-header">
                         <span class="ai-severity" class:high={ai.severity === "high"} class:medium={ai.severity === "medium"}>{ai.severity} severity</span>
                         {#if ai.shouldQuarantine}
-                          <span class="ai-rec">Quarantine recommended</span>
+                          <span class="ai-rec">AI recommends quarantine</span>
+                          {#if !quarantined.has(qKey(test))}
+                            <button class="ai-quarantine-btn" onclick={() => quarantineWith(test, `AI: ${ai.rootCause}`)}>Quarantine now</button>
+                          {/if}
                         {/if}
                       </div>
                       <p class="ai-text"><strong>Root cause:</strong> {ai.rootCause}</p>
@@ -665,7 +693,19 @@
   .col-last     { width: 100px; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
 
   .test-cell { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-  .test-title { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .test-title-row { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+  .test-title { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+  /* Quarantine source badge — neutral for manual, amber for auto so an
+     auto-quarantined test reads differently at a glance. */
+  .q-badge {
+    flex-shrink: 0; padding: 0.05rem 0.4rem; border-radius: 10px;
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    background: var(--bg-secondary); color: var(--text-secondary);
+  }
+  .q-badge.auto {
+    background: color-mix(in srgb, #dfb317 18%, transparent); color: #dfb317;
+  }
   .test-spec  { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .suite-chip {
@@ -729,6 +769,7 @@
   .analyze-btn:disabled { opacity: 0.5; cursor: wait; }
 
   .q-banner {
+    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
     padding: 0.4rem 0.65rem; margin-bottom: 0.5rem;
     background: color-mix(in srgb, #dfb317 8%, transparent);
     border: 1px solid #dfb317; border-radius: 6px;
@@ -749,6 +790,12 @@
   }
   .ai-severity.medium { background: #dfb317; }
   .ai-severity.high { background: var(--color-fail); }
-  .ai-rec { font-size: 0.7rem; color: #dfb317; font-weight: 500; }
+  .ai-rec { font-size: 0.7rem; color: #dfb317; font-weight: 600; }
+  .ai-quarantine-btn {
+    padding: 0.2rem 0.55rem; border: 1px solid #dfb317; border-radius: 6px;
+    background: color-mix(in srgb, #dfb317 10%, transparent); color: #dfb317;
+    font-size: 0.7rem; font-weight: 600; cursor: pointer;
+  }
+  .ai-quarantine-btn:hover { background: color-mix(in srgb, #dfb317 20%, transparent); }
   .ai-text { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.2rem; }
 </style>
