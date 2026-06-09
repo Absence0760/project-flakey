@@ -3,7 +3,7 @@
   import { timeAgo } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
-  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError } from "$lib/api";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster } from "$lib/api";
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
   import { classificationLabels } from "$lib/utils/ai";
@@ -18,6 +18,18 @@
   let aiLoading = $state<Record<string, boolean>>({});
   let similarResults = $state<Record<string, SimilarError[]>>({});
   let similarLoading = $state<Record<string, boolean>>({});
+
+  // Root-cause clustering (B2). The flat list is the default view; toggling
+  // "Group by root cause" lazily fetches clusters. Clusters group on the
+  // backend deterministically even with AI off — theme/summary are the only
+  // AI-dependent fields and may be null.
+  type ViewMode = "list" | "clusters";
+  let viewMode = $state<ViewMode>("list");
+  let clusters = $state<ErrorCluster[]>([]);
+  let clustersLoading = $state(false);
+  let clustersError = $state<string | null>(null);
+  let clustersLoaded = $state(false);
+  let expandedClusters = $state<Record<string, boolean>>({});
 
   let selectedSuite = $state("all");
   let selectedStatus = $state("all");
@@ -171,6 +183,46 @@
   }
 
 
+  async function loadClusters() {
+    clustersLoading = true;
+    clustersError = null;
+    try {
+      clusters = await fetchErrorClusters();
+      clustersLoaded = true;
+    } catch (e) {
+      clustersError = e instanceof Error ? e.message : "Failed to load clusters";
+    } finally {
+      clustersLoading = false;
+    }
+  }
+
+  function setView(mode: ViewMode) {
+    if (viewMode === mode) return;
+    viewMode = mode;
+    if (mode === "clusters" && !clustersLoaded && !clustersLoading) loadClusters();
+  }
+
+  function toggleCluster(key: string) {
+    expandedClusters = { ...expandedClusters, [key]: !expandedClusters[key] };
+  }
+
+  // Jump from a cluster member to the flat-list inspector for that fingerprint.
+  // If the error is hidden by the current filters (status/suite server-side, or
+  // the client-side search), selecting it alone leaves the detail pane on its
+  // empty state — selectedError is derived from the *filtered* list. So when the
+  // target isn't visible, clear every filter and reload before selecting it.
+  async function openMember(fingerprint: string) {
+    viewMode = "list";
+    if (!filteredErrors.some((e) => e.fingerprint === fingerprint)) {
+      searchQuery = "";
+      selectedSuite = "all";
+      selectedStatus = "all";
+      await applyFilters();
+    }
+    const err = errors.find((e) => e.fingerprint === fingerprint);
+    if (err) selectError(err);
+  }
+
   async function applyFilters() {
     loading = true;
     try {
@@ -243,6 +295,22 @@
   {/if}
 
   <div class="filters">
+    <div class="view-toggle" role="tablist" aria-label="Error view">
+      <button
+        class="view-tab"
+        class:active={viewMode === "list"}
+        role="tab"
+        aria-selected={viewMode === "list"}
+        onclick={() => setView("list")}
+      >List</button>
+      <button
+        class="view-tab"
+        class:active={viewMode === "clusters"}
+        role="tab"
+        aria-selected={viewMode === "clusters"}
+        onclick={() => setView("clusters")}
+      >Group by root cause</button>
+    </div>
     <select bind:value={selectedSuite} onchange={onSuiteChange}>
       <option value="all">All suites</option>
       {#each suites as suite}
@@ -270,6 +338,77 @@
     <p class="status-text">Loading...</p>
   {:else if loadError}
     <p class="status-text error">{loadError}</p>
+  {:else if viewMode === "clusters"}
+    <!-- Root-cause clustering view. Grouping is deterministic on the
+         backend even with AI off; the theme label is shown when present
+         and falls back to the representative error message otherwise. -->
+    {#if clustersLoading}
+      <p class="status-text">Clustering errors...</p>
+    {:else if clustersError}
+      <p class="status-text error">{clustersError}</p>
+    {:else if clusters.length === 0}
+      <div class="empty">
+        <p>No clusters found.</p>
+        <p class="hint">Clusters appear here once there are failed errors to group.</p>
+      </div>
+    {:else}
+      {#if !aiEnabled}
+        <p class="cluster-note">
+          AI is off — errors are grouped by message similarity, but theme labels
+          aren't generated. Each cluster shows its most-frequent error instead.
+        </p>
+      {/if}
+      <div class="cluster-list">
+        {#each clusters as cluster (cluster.target_key)}
+          {@const rep = cluster.members.find((m) => m.fingerprint === cluster.representative_fingerprint) ?? cluster.members[0]}
+          {@const open = expandedClusters[cluster.target_key] ?? false}
+          <div class="cluster-card" class:expanded={open}>
+            <button
+              class="cluster-head"
+              aria-expanded={open}
+              onclick={() => toggleCluster(cluster.target_key)}
+            >
+              <span class="cluster-chevron" class:open>›</span>
+              <span class="cluster-title">
+                {#if cluster.theme}
+                  <span class="cluster-theme">
+                    {#if aiEnabled}<span class="ai-tag">AI</span>{/if}
+                    {cluster.theme}
+                  </span>
+                  {#if cluster.summary}<span class="cluster-summary">{cluster.summary}</span>{/if}
+                {:else}
+                  <span class="cluster-theme fallback" title={rep?.error_message}>{rep?.error_message ?? "(no message)"}</span>
+                {/if}
+              </span>
+              <span class="cluster-stats">
+                <span class="cluster-stat" title="{cluster.member_count} distinct errors">{cluster.member_count} error{cluster.member_count === 1 ? "" : "s"}</span>
+                <span class="cluster-stat occ" title="{cluster.total_occurrences} total occurrences">{cluster.total_occurrences}x</span>
+              </span>
+            </button>
+            {#if open}
+              <div class="cluster-members">
+                {#each cluster.members as m}
+                  <button class="cluster-member" onclick={() => openMember(m.fingerprint)}>
+                    <span class="status-dot" style="background: {statusInfo(m.status).color}"></span>
+                    <span class="member-count">{m.occurrence_count}x</span>
+                    <span class="member-main">
+                      <span class="member-msg" title={m.error_message}>{m.error_message}</span>
+                      <span class="member-meta">
+                        <span
+                          class="status-chip status-{m.status}"
+                          style="--chip-color: {statusInfo(m.status).color}"
+                        >{statusInfo(m.status).label}</span>
+                        <span class="error-suite">{m.suite_name}</span>
+                      </span>
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   {:else if filteredErrors.length === 0}
     <div class="empty">
       <p>No errors found.</p>
@@ -700,4 +839,94 @@
   .similar-msg { font-size: 0.78rem; color: var(--text); }
   .similar-meta { font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; }
   .status-badge.mini { font-size: 0.6rem; padding: 0.05rem 0.3rem; }
+
+  /* View toggle (List vs. Group by root cause) */
+  .view-toggle {
+    display: inline-flex; gap: 0; border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden; background: var(--bg);
+  }
+  .view-tab {
+    padding: 0.35rem 0.7rem; border: none; background: transparent;
+    color: var(--text-secondary); font: inherit; font-size: 0.8rem; cursor: pointer;
+  }
+  .view-tab + .view-tab { border-left: 1px solid var(--border); }
+  .view-tab:hover { background: var(--bg-hover); color: var(--text); }
+  .view-tab.active { background: var(--link); color: #fff; }
+
+  /* Clustering view */
+  .cluster-note {
+    font-size: 0.78rem; color: var(--text-secondary);
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0 0 0.75rem;
+  }
+  .cluster-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .cluster-card {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+    overflow: hidden;
+  }
+  .cluster-card.expanded { border-color: color-mix(in srgb, var(--link) 35%, var(--border)); }
+  .cluster-head {
+    display: grid; grid-template-columns: 14px 1fr auto;
+    gap: 0.6rem; align-items: center;
+    width: 100%; padding: 0.6rem 0.85rem;
+    background: transparent; border: none; text-align: left;
+    font: inherit; color: var(--text); cursor: pointer;
+  }
+  .cluster-head:hover { background: var(--bg-hover); }
+  .cluster-chevron {
+    font-size: 1.1rem; color: var(--text-muted); line-height: 1;
+    transition: transform 0.12s; display: inline-block;
+  }
+  .cluster-chevron.open { transform: rotate(90deg); }
+  .cluster-title { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .cluster-theme {
+    font-size: 0.9rem; font-weight: 600; color: var(--text);
+    display: flex; align-items: center; gap: 0.4rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cluster-theme.fallback {
+    font-weight: 500; font-family: monospace; font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .ai-tag {
+    flex-shrink: 0; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
+    padding: 0.05rem 0.35rem; border-radius: 6px;
+    background: color-mix(in srgb, var(--link) 18%, transparent); color: var(--link);
+  }
+  .cluster-summary {
+    font-size: 0.78rem; color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cluster-stats { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
+  .cluster-stat {
+    font-size: 0.72rem; color: var(--text-muted);
+    padding: 0.1rem 0.45rem; border-radius: 8px; background: var(--bg-secondary);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .cluster-stat.occ { font-weight: 700; color: var(--color-fail); }
+
+  .cluster-members {
+    display: flex; flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+  .cluster-member {
+    display: grid; grid-template-columns: 10px 36px 1fr;
+    gap: 0.5rem; align-items: start;
+    padding: 0.45rem 0.85rem 0.45rem 1.5rem;
+    background: var(--bg); border: none; border-bottom: 1px solid var(--border-light);
+    text-align: left; font: inherit; color: var(--text); cursor: pointer; width: 100%;
+  }
+  .cluster-member:last-child { border-bottom: none; }
+  .cluster-member:hover { background: var(--bg-hover); }
+  .cluster-member .status-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 0.35rem; }
+  .member-count {
+    font-family: monospace; font-weight: 700; font-size: 0.8rem;
+    color: var(--color-fail); text-align: right; padding-top: 0.1rem;
+  }
+  .member-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .member-msg {
+    font-size: 0.82rem; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .member-meta { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; font-size: 0.68rem; color: var(--text-muted); }
 </style>

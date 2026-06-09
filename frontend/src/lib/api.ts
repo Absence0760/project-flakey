@@ -626,6 +626,36 @@ export async function findSimilarErrors(fingerprint: string): Promise<SimilarErr
   return res.json();
 }
 
+// --- Root-cause clustering (B2) ---
+// Deterministic grouping of an org's distinct failed errors by token similarity.
+// Clusters are always returned even with AI off; `theme`/`summary` are the only
+// AI-dependent fields and stay null until labeled (AI off, viewer, or singleton).
+
+export interface ErrorClusterMember {
+  fingerprint: string;
+  error_message: string;
+  suite_name: string;
+  occurrence_count: number;
+  status: string;
+}
+
+export interface ErrorCluster {
+  target_key: string;
+  theme: string | null;
+  summary: string | null;
+  member_count: number;
+  total_occurrences: number;
+  representative_fingerprint: string;
+  members: ErrorClusterMember[];
+}
+
+export async function fetchErrorClusters(): Promise<ErrorCluster[]> {
+  const res = await authFetch(`${API_URL}/analyze/clusters`, { method: "POST" });
+  if (!res.ok) throw new Error("Analysis failed");
+  const data = await res.json() as { clusters: ErrorCluster[] };
+  return data.clusters;
+}
+
 // --- Quarantine ---
 
 export interface QuarantinedTest {
