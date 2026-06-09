@@ -160,7 +160,7 @@ Wired into [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml) â€
 1. Stands up Postgres 16 as a service container (tmpfs-backed), matching `docker-compose.yml`.
 2. Runs `./migrate.sh` + `npm run seed` in `backend/` (the seed creates the `flakey_app` role and the per-worker `acme-w<N>` tenants the fixtures bind to).
 3. Starts the backend on `:3000` in the background with a freshly-generated `JWT_SECRET` and waits on `/health`. The frontend lifecycle is handled by the `webServer` block in `playwright.config.ts`.
-4. Runs Playwright as a **4-shard matrix** (`--shard=N/4`), gated on the `backend` job so a PR that's already broken below doesn't burn e2e spend.
+4. Runs Playwright as a **14-shard matrix** (`--shard=N/14`). The job is independent â€” it stands up its own Postgres + backend + seed, so it's not gated on the `backend` job and runs in parallel for faster feedback.
 5. Uploads each shard's `playwright-report/` as an artifact (`playwright-report-shard-N`, 14-day retention).
 
 `retries: 1` on CI (see `playwright.config.ts`) still absorbs incidental dev-server/HMR noise. With the `data-ready` / `data-sse-connected` readiness signals now in place (see above), the SSE-timing class of flake it was covering is gone; dropping to `0` is a reasonable next step once a stretch of green shard runs confirms no residual flake.

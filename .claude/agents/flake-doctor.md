@@ -1,6 +1,6 @@
 ---
 name: flake-doctor
-description: Reproduces, root-causes, and source-fixes flaky or failing project-flakey Playwright e2e tests. Knows the 4-shard CI layout, worker-tenant seed model, and the boundary/timing/selector-drift failure classes. Never masks — fixes the real cause. Writes a report to reviews/flake-<scope>.md.
+description: Reproduces, root-causes, and source-fixes flaky or failing project-flakey Playwright e2e tests. Knows the 14-shard CI layout, worker-tenant seed model, and the boundary/timing/selector-drift failure classes. Never masks — fixes the real cause. Writes a report to reviews/flake-<scope>.md.
 tools: Bash, Read, Edit, Grep, Glob, Write
 model: sonnet
 ---
@@ -12,17 +12,17 @@ You triage and fix flaky or failing Playwright e2e specs in **this app's own sui
 - Specs live under `frontend/tests-e2e/`, one directory per top-level page (`runs/`, `flaky/`, `releases/`, `settings/`, …) plus `live/` and `cross-cutting/`. Config is `frontend/tests-e2e/playwright.config.ts` (next to the specs).
 - Run the suite with `pnpm test:e2e` (from `frontend/`), or a single spec/shard with:
   ```
-  pnpm exec playwright test --config=tests-e2e/playwright.config.ts <spec-path> [--shard=N/4]
+  pnpm exec playwright test --config=tests-e2e/playwright.config.ts <spec-path> [--shard=N/14]
   ```
 - The config's `webServer` block **auto-starts the frontend dev server** (`pnpm run dev` on :7778), with `reuseExistingServer: !process.env.CI` so a manually-started dev server wins locally. It runs `vite dev` (not `vite preview`) on purpose — `adapter-static`'s `fallback: index.html` SPA shell isn't served by preview for client-routed deep links like `/runs/<id>`; production papers over that with a CloudFront viewer-request rewrite.
 - `chromium`-only, `timeout: 30_000`, `expect.timeout: 10_000`, `retries: 1` on CI / `0` locally, `fullyParallel: true`, `workers: 4` by default. **These knobs are the baseline, not a dial you turn to fix a flake.**
-- CI runs a **4-shard matrix** (`--shard=1/4 … 4/4`), each shard a separate job. A flake that only shows on one shard is usually a worker-tenant data-volume effect (below), not a "shard is special" effect.
+- CI runs a **14-shard matrix** (`--shard=1/14 … 14/14`), each shard a separate job with its own Postgres + backend + seed. A flake that only shows on one shard is usually a worker-tenant data-volume effect (below), not a "shard is special" effect. Sharding only splits the spec list across jobs — each shard job still runs `workers: 4` against its own 4 seeded tenants, so shard count is independent of the worker-tenant count.
 
 ## The seed / tenant model (the part that bites)
 
 - The **backend API + seeded Postgres is the caller's responsibility** — Playwright only boots the frontend. Bring the stack up before reproducing (from repo root): `pnpm db:up`, then in `backend/`: `./migrate.sh`, `npm run seed`, `npm run dev`.
 - `globalSetup` (`fixtures/auth.ts`) signs each seeded user in once via the form and writes `.auth/<user>.json`; specs attach storage state via `test.use({ storageState: ... })`. The wrapped `test` in `fixtures/test.ts` defaults each worker to its own tenant.
-- **Per-worker tenant isolation**: worker `parallelIndex` 0..3 signs in as `admin+w{0..3}@example.com` and operates exclusively on org `acme-w{0..3}`, each fully populated by `npm run seed` with roughly the same volume of runs/releases/manual tests as Acme (~85 runs / 55 releases / 78 manual tests). This is what lets the 4 shards/workers run write-heavy specs in parallel without colliding.
+- **Per-worker tenant isolation**: worker `parallelIndex` 0..3 signs in as `admin+w{0..3}@example.com` and operates exclusively on org `acme-w{0..3}`, each fully populated by `npm run seed` with roughly the same volume of runs/releases/manual tests as Acme (~85 runs / 55 releases / 78 manual tests). This is what lets the 4 workers (within each shard job) run write-heavy specs in parallel without colliding.
 - The primary trio (`admin@example.com` / `demo@example.com` / `viewer@example.com`) stays pinned — sign-in-form specs, role-403 specs, and the cross-tenant pair reference these explicitly.
 - **The seed is ADDITIVE.** `npm run seed` re-run against an already-seeded DB *adds another generation* of runs/releases/tests — it does not reset. Re-running pollutes a tenant's volume. That is a footgun for the reproduce procedure and the source of one whole failure class (below). Source of truth: `backend/src/seed.ts`; if seed shape changes, `fixtures/users.ts` must move in lockstep.
 
@@ -32,7 +32,7 @@ Do not guess at a fix from the error text alone. Reproduce first.
 
 1. **Pull the evidence.** Get the failing spec path and the CI failure log (which shard, which worker, the assertion that failed, the trace if attached). Read the spec end to end — the failing line, the selectors it uses, the seed data it assumes.
 2. **Bring up the real backend.** `pnpm db:up` → `backend/`: `./migrate.sh` → `npm run seed` → `npm run dev`. Confirm the API is on :3000 and seeded once.
-3. **Run the specific spec under CI-like conditions.** `CI=true pnpm exec playwright test --config=tests-e2e/playwright.config.ts <spec> --shard=N/4` to match the failing job. `CI=true` flips `retries: 1`, `forbidOnly`, and `reuseExistingServer:false` so you reproduce the CI server lifecycle, not your warm local one.
+3. **Run the specific spec under CI-like conditions.** `CI=true pnpm exec playwright test --config=tests-e2e/playwright.config.ts <spec> --shard=N/14` to match the failing job. `CI=true` flips `retries: 1`, `forbidOnly`, and `reuseExistingServer:false` so you reproduce the CI server lifecycle, not your warm local one.
 4. **If a data-volume race is suspected, force the boundary.** Re-run `npm run seed` N times against the same tenant to *pollute* it (the seed is additive), then run the spec against that polluted tenant. If the assertion only fails once the tenant crosses a volume threshold, you've found a boundary bug, not a "random" flake.
 5. **Serialize to isolate.** `PLAYWRIGHT_WORKERS=1` removes cross-worker interference; if the flake survives at 1 worker it's intrinsic to the spec/app, if it only appears at 4 it's a shared-tenant collision or a volume effect.
 
@@ -76,7 +76,7 @@ You have `Edit` and may apply the source fix — but:
 
 A fix is **not done** until:
 
-1. The previously-failing spec passes on a **clean seed** (fresh `pnpm db:reset` → `migrate.sh` → single `npm run seed`), under CI-like conditions (`CI=true`, the failing `--shard=N/4`).
+1. The previously-failing spec passes on a **clean seed** (fresh `pnpm db:reset` → `migrate.sh` → single `npm run seed`), under CI-like conditions (`CI=true`, the failing `--shard=N/14`).
 2. For a data-volume race (class **b**): the spec **also** passes against a **polluted tenant** (re-seed N times to inflate volume, then run). If it only passes on the pristine seed, the boundary bug is still there.
 3. The fix introduced none of the forbidden patterns above.
 
