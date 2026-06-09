@@ -90,7 +90,7 @@ function post(path: string, body: unknown) {
 
 // Upload one run whose failed tests carry the given error messages.
 // Each failed test gets a distinct full_title so they're real, separate rows.
-async function uploadFailures(messages: string[]): Promise<void> {
+async function uploadFailures(messages: string[], suite: string = suiteName): Promise<void> {
   const fd = new FormData();
   const tests = messages.map((message, i) => ({
     title: `case ${i}`,
@@ -104,7 +104,7 @@ async function uploadFailures(messages: string[]): Promise<void> {
     "payload",
     JSON.stringify({
       meta: {
-        suite_name: suiteName,
+        suite_name: suite,
         branch: "main",
         commit_sha: crypto.randomUUID().slice(0, 8),
         ci_run_id: `ci-analyze-${crypto.randomUUID()}`,
@@ -415,6 +415,43 @@ test("POST /analyze/similar dedups identical error messages via DISTINCT ON", as
   const rows = (await res.json()) as Array<{ error_message: string }>;
   const highCount = rows.filter((r) => r.error_message === HIGH_MSG).length;
   assert.equal(highCount, 1, "duplicate error messages must be collapsed to one row");
+});
+
+test("POST /analyze/similar: a message spanning suites collapses to its most-recent representative", async () => {
+  // Contract test for the deterministic representative the query now guarantees.
+  // The SAME error message in two suites has two fingerprints; DISTINCT ON
+  // (error_message) keeps one, and the fix's inner ORDER BY (error_message,
+  // created_at DESC, t.id DESC) makes that one the MOST-RECENT occurrence.
+  //
+  // NOTE: this pins the forward contract — it does NOT reliably fail against the
+  // pre-fix no-ORDER-BY query, because DISTINCT ON without ORDER BY is
+  // plan-dependent and can coincidentally return the most-recent row anyway.
+  // Nondeterminism isn't reliably catchable behaviourally; what this guards is
+  // that a future change can't quietly flip the representative (e.g. to oldest).
+  // SHARED is 0.8-similar to TARGET_MSG, so it clears the > 0.3 threshold.
+  const SHARED = "alpha beta gamma delta omega";
+  const oldSuite = `xsuite-old-${Date.now()}`;
+  const newSuite = `xsuite-new-${Date.now()}`;
+
+  await uploadFailures([SHARED], oldSuite);
+  await uploadFailures([SHARED], newSuite);
+
+  const fp = fingerprintOf(TARGET_MSG, suiteName);
+  const first = (await (await post(`/analyze/similar/${fp}`, {})).json()) as Array<{ error_message: string; suite_name: string }>;
+  const second = (await (await post(`/analyze/similar/${fp}`, {})).json()) as typeof first;
+
+  // Stable across identical calls.
+  assert.deepEqual(first, second, "two identical /similar calls must return identical results");
+
+  // SHARED collapses to exactly one row (dedup preserved) ...
+  const sharedRows = first.filter((r) => r.error_message === SHARED);
+  assert.equal(sharedRows.length, 1, "the cross-suite message must collapse to one row");
+  // ... whose representative is the most-recent occurrence's suite.
+  assert.equal(
+    sharedRows[0].suite_name,
+    newSuite,
+    "the representative must be the most-recent occurrence's suite",
+  );
 });
 
 test("POST /analyze/similar/:fingerprint returns 404 for a non-existent fingerprint", async () => {
