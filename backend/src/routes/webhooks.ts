@@ -9,6 +9,25 @@ const router = Router();
 const VALID_EVENTS = ["run.failed", "run.passed", "run.completed", "new.failures", "flaky.detected", "flaky.threshold.exceeded"];
 const VALID_PLATFORMS = ["generic", "slack", "teams", "discord"];
 
+// Friendly labels for the selectable webhook events. VALID_EVENTS is the single
+// source of truth; an event missing here falls back to a derived title-cased
+// label so a new dispatcher event is never silently unselectable.
+const EVENT_LABELS: Record<string, string> = {
+  "run.failed": "Run failed",
+  "run.passed": "Run passed",
+  "run.completed": "Run completed",
+  "new.failures": "New failures",
+  "flaky.detected": "Flaky detected",
+  "flaky.threshold.exceeded": "Flaky rate threshold exceeded",
+};
+
+function labelForEvent(event: string): string {
+  return EVENT_LABELS[event] ?? event
+    .split(".")
+    .join(" ")
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
 /**
  * Reject URLs we never want the backend to dispatch to. Two layers:
  *
@@ -126,6 +145,13 @@ export function validateWebhookUrl(url: unknown): { ok: true } | { ok: false; er
   }
   return { ok: true };
 }
+
+// GET /webhooks/events — selectable event types + friendly labels.
+// Read-only metadata (any role). Derived from VALID_EVENTS so the frontend's
+// event picker can't drift from what the dispatcher actually emits.
+router.get("/events", (_req, res) => {
+  res.json({ events: VALID_EVENTS.map((event) => ({ event, label: labelForEvent(event) })) });
+});
 
 // GET /webhooks
 router.get("/", async (req, res) => {

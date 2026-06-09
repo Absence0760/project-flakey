@@ -329,3 +329,48 @@ test("a webhook with active=false does not receive POSTs", async () => {
     await deleteWebhook(id);
   }
 });
+
+// ── 6. GET /webhooks/events is the single source of truth for the picker ─
+
+// The frontend's event-selection UI used to hardcode the event list,
+// which could silently drift from the dispatcher's VALID_EVENTS. The
+// endpoint now serves the list so the picker can't drift. The set it
+// returns must therefore exactly match every event the dispatch path
+// can actually emit — anything missing is unselectable, anything extra
+// is a dead option. The dispatchable events are the union of the
+// per-event scenarios above; assert the endpoint covers them with
+// non-empty friendly labels.
+test("GET /webhooks/events returns every dispatchable event with a friendly label", async () => {
+  const res = await fetch(`${BASE}/webhooks/events`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.ok(res.ok, `GET /webhooks/events should succeed; got ${res.status}`);
+  const body = (await res.json()) as { events: Array<{ event: string; label: string }> };
+
+  assert.ok(Array.isArray(body.events) && body.events.length > 0, "events must be a non-empty array");
+
+  // Every entry pairs a non-empty event key with a non-empty label.
+  for (const e of body.events) {
+    assert.ok(typeof e.event === "string" && e.event.length > 0, "each entry must carry an event key");
+    assert.ok(typeof e.label === "string" && e.label.trim().length > 0, `event ${e.event} must carry a non-empty label`);
+  }
+
+  // The list must cover every event the dispatcher actually emits.
+  // These are the exact events the scenarios above prove are dispatched
+  // plus the flaky-alert events; keep this in lockstep with the
+  // dispatcher's VALID_EVENTS.
+  const returned = new Set(body.events.map((e) => e.event));
+  const dispatchable = [
+    "run.failed", "run.passed", "run.completed",
+    "new.failures", "flaky.detected", "flaky.threshold.exceeded",
+  ];
+  for (const ev of dispatchable) {
+    assert.ok(returned.has(ev), `GET /webhooks/events must include dispatchable event '${ev}'`);
+  }
+
+  // Spot-check the friendly wording for the two events whose labels
+  // aren't a trivial title-case of the key.
+  const byEvent = new Map(body.events.map((e) => [e.event, e.label]));
+  assert.equal(byEvent.get("run.failed"), "Run failed");
+  assert.equal(byEvent.get("flaky.threshold.exceeded"), "Flaky rate threshold exceeded");
+});
