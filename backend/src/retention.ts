@@ -2,10 +2,40 @@ import pool, { tenantQuery, maintenanceQuery } from "./db.js";
 import { getStorage, type Storage } from "./storage.js";
 import { logAudit } from "./audit.js";
 
-// `storage` is injectable so tests can drive the failure-isolation paths with a
-// stub that throws; production callers (index.ts timer) pass nothing and get the
-// real singleton.
-export async function runRetentionCleanup(storage: Storage = getStorage()): Promise<void> {
+// Delete expired org invites; returns how many rows went. Plain pool.query:
+// org_invites carries no RLS, so no tenant context is needed.
+export async function pruneExpiredInvites(): Promise<number> {
+  const r = await pool.query("DELETE FROM org_invites WHERE expires_at < NOW()");
+  return r.rowCount ?? 0;
+}
+
+// Prune long-dead refresh-token revocation rows. A revoked jti is only useful
+// until the token's own exp passes (max 7d), so rows older than 14 days can
+// never gate a replay. The table is FORCE-RLS user-scoped, so this system-level
+// prune runs via maintenanceQuery (app.maintenance='on'), which the
+// migration-052 DELETE policy admits. Bounds table growth (the TODO from
+// migration 037). Returns how many rows went.
+export async function pruneRevokedRefreshTokens(): Promise<number> {
+  const r = await maintenanceQuery(
+    "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days'"
+  );
+  return r.rowCount ?? 0;
+}
+
+// `storage` and the two prune steps are injectable so tests can drive the
+// failure-isolation paths with stubs that throw; production callers (the
+// index.ts timer) pass nothing and get the real singleton + DB-backed prunes.
+export interface RetentionDeps {
+  pruneInvites?: () => Promise<number>;
+  pruneRevokedTokens?: () => Promise<number>;
+}
+
+export async function runRetentionCleanup(
+  storage: Storage = getStorage(),
+  deps: RetentionDeps = {}
+): Promise<void> {
+  const pruneInvites = deps.pruneInvites ?? pruneExpiredInvites;
+  const pruneRevokedTokens = deps.pruneRevokedTokens ?? pruneRevokedRefreshTokens;
   try {
     const orgs = await pool.query(
       "SELECT id, retention_days FROM organizations WHERE retention_days IS NOT NULL"
@@ -22,37 +52,23 @@ export async function runRetentionCleanup(storage: Storage = getStorage()): Prom
         console.error(`Retention cleanup error for org ${org.id}:`, err);
       }
     }
-    // Clean up expired org invites. Own error boundary: these two global
-    // prunes are unrelated maintenance tasks, so an invite-prune failure (a
-    // lock timeout, a transient DB error) must not skip the refresh-token
-    // prune below it. They previously shared one try block — a throw here fell
-    // through to the outer catch and silently skipped the token prune for the
-    // whole night. This extends the same per-org isolation discipline above to
-    // the global prunes.
+
+    // The two global prunes are unrelated maintenance tasks, so each gets its
+    // own error boundary: a failure in one (a lock timeout, a transient DB
+    // error) must not skip the other. They previously shared one try block — a
+    // throw in the invite prune fell through to the outer catch and silently
+    // skipped the token prune for the whole night. This extends the same
+    // per-org isolation discipline above to the global prunes.
     try {
-      const invites = await pool.query(
-        "DELETE FROM org_invites WHERE expires_at < NOW()"
-      );
-      if (invites.rowCount && invites.rowCount > 0) {
-        console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
-      }
+      const n = await pruneInvites();
+      if (n > 0) console.log(`Retention: deleted ${n} expired invite(s)`);
     } catch (err) {
       console.error("Retention: expired-invite prune failed:", err);
     }
 
-    // Prune long-dead refresh-token revocation rows. A revoked jti is only
-    // useful until the token's own exp passes (max 7d), so rows older than
-    // 14 days can never gate a replay. The table is FORCE-RLS user-scoped, so
-    // this system-level prune runs via maintenanceQuery (app.maintenance='on'),
-    // which the migration-052 DELETE policy admits. Bounds table growth
-    // (the TODO from migration 037). Own error boundary, as above.
     try {
-      const revoked = await maintenanceQuery(
-        "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days'"
-      );
-      if (revoked.rowCount && revoked.rowCount > 0) {
-        console.log(`Retention: pruned ${revoked.rowCount} expired revoked-refresh-token row(s)`);
-      }
+      const n = await pruneRevokedTokens();
+      if (n > 0) console.log(`Retention: pruned ${n} expired revoked-refresh-token row(s)`);
     } catch (err) {
       console.error("Retention: revoked-refresh-token prune failed:", err);
     }
