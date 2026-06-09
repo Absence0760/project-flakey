@@ -321,6 +321,12 @@ const SLACK_FIELD_TEXT_LIMIT = 2000;
 const TEAMS_LIST_CAP = 20;
 const TEAMS_TEXT_LIMIT = 256;
 const DISCORD_TITLE_LIMIT = 256;
+const DISCORD_LIST_CAP = 20; // mirrors webhook-formatters.ts
+
+function discordDescriptionLines(out: unknown): string[] {
+  const desc = (out as { embeds?: Array<{ description?: string }> }).embeds?.[0]?.description ?? "";
+  return desc.split("\n");
+}
 
 function slackHeaderText(out: unknown): string | undefined {
   const blocks = (out as { blocks?: Array<Record<string, unknown>> }).blocks ?? [];
@@ -459,6 +465,47 @@ test("teams: caps flaky rows at the list cap with an overflow row", () => {
   assert.ok(
     blocks.some((t) => t.includes(`…and ${30 - TEAMS_LIST_CAP} more`)),
     "teams flaky overflow indicator missing",
+  );
+});
+
+test("discord: caps flaky rows at the list cap with an overflow row (not a mid-line truncation)", () => {
+  // Regression: Discord built its description from the FULL flaky list and then
+  // hard-truncated to 4000 chars — cutting mid-line, dropping the tail with no
+  // indication, while the header still claimed the full count. Slack/Teams cap
+  // with an "…and N more" row; Discord must too.
+  const flaky_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Flaky ${i}`,
+    file_path: `f_${i}.cy.ts`,
+    flaky_rate: 30,
+    flip_count: i,
+    fail_count: 1,
+    total_runs: 10,
+  }));
+  const lines = discordDescriptionLines(formatPayload("discord", basePayload({ event: "flaky.detected", flaky_tests })));
+
+  const rows = lines.filter((l) => l.includes("🎲"));
+  assert.ok(rows.length <= DISCORD_LIST_CAP, `discord rendered ${rows.length} flaky rows, expected <= ${DISCORD_LIST_CAP}`);
+  assert.ok(!lines.some((l) => l.includes("Flaky 29")), "a flaky row beyond the cap must not render");
+  assert.ok(
+    lines.some((l) => l.includes(`…and ${30 - DISCORD_LIST_CAP} more`)),
+    "discord flaky overflow indicator missing",
+  );
+});
+
+test("discord: caps failed-test rows at the list cap with an overflow row", () => {
+  const failed_tests = Array.from({ length: 30 }, (_, i) => ({
+    full_title: `Failure ${i}`,
+    error_message: null,
+    spec_file: `f_${i}.cy.ts`,
+  }));
+  const lines = discordDescriptionLines(formatPayload("discord", basePayload({ failed_tests })));
+
+  const rows = lines.filter((l) => l.startsWith("•"));
+  assert.ok(rows.length <= DISCORD_LIST_CAP, `discord rendered ${rows.length} failure rows, expected <= ${DISCORD_LIST_CAP}`);
+  assert.ok(!lines.some((l) => l.includes("Failure 29")), "a failure row beyond the cap must not render");
+  assert.ok(
+    lines.some((l) => l.includes(`…and ${30 - DISCORD_LIST_CAP} more`)),
+    "discord failure overflow indicator missing",
   );
 });
 
