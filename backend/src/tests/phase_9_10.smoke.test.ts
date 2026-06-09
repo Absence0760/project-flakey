@@ -12,6 +12,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 
 const PORT = 3999;
 const BASE = `http://localhost:${PORT}`;
@@ -823,7 +824,14 @@ test("POST /live/:runId/snapshot stores blob, sanitizes filename, links test row
   assert.equal(ok.status, 200);
   const { key } = (await ok.json()) as { key: string };
   assert.ok(key.startsWith(`runs/${liveRunId}/snapshots/`), `key should be run-scoped, got: ${key}`);
-  assert.match(key, /login\.cy\.ts--Login-flow-should-redirect-after-logout\.json\.gz$/);
+  // The key is suffixed with sha1(FULL title)[:8] (collision-proofing added in
+  // 01562a5; mirrors snapshotFileName() in @flakeytesting/cypress-snapshots), so
+  // assert the exact deterministic filename including that hash.
+  const titleHash = createHash("sha1").update(fullTitle).digest("hex").slice(0, 8);
+  assert.match(
+    key,
+    new RegExp(`login\\.cy\\.ts--Login-flow-should-redirect-after-logout-${titleHash}\\.json\\.gz$`),
+  );
 
   // snapshot_path should propagate to the tests row (UPDATE runs right after put)
   const tests = await waitFor(
