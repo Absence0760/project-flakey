@@ -215,6 +215,55 @@ export async function recordResult(
   return res.json();
 }
 
+/** The signed-in user's own id (via GET /auth/me). */
+export async function getMyUserId(page: Page, token: string): Promise<number> {
+  const res = await page.request.get(`${API}/auth/me`, { headers: bearer(token) });
+  expect(res.ok(), "GET /auth/me should be ok").toBeTruthy();
+  return (await res.json()).user.id as number;
+}
+
+/** Assign (or, with null, un-assign) a tester to a test-in-session. Returns the response. */
+export async function assignTester(
+  page: Page,
+  token: string,
+  releaseId: number,
+  sessionId: number,
+  testId: number,
+  userId: number | null,
+) {
+  return page.request.post(
+    `${API}/releases/${releaseId}/sessions/${sessionId}/results/${testId}/assign`,
+    { headers: authHeaders(token), data: { user_id: userId } },
+  );
+}
+
+/** Full session detail (results incl. assigned_to_email). */
+export async function getSessionDetail(
+  page: Page,
+  token: string,
+  releaseId: number,
+  sessionId: number,
+): Promise<any> {
+  const res = await page.request.get(`${API}/releases/${releaseId}/sessions/${sessionId}`, {
+    headers: bearer(token),
+  });
+  expect(res.ok(), "GET session detail should be ok").toBeTruthy();
+  return res.json();
+}
+
+export async function unlinkManualTest(
+  page: Page,
+  token: string,
+  releaseId: number,
+  manualTestId: number,
+): Promise<void> {
+  const res = await page.request.delete(
+    `${API}/releases/${releaseId}/manual-tests/${manualTestId}`,
+    { headers: bearer(token) },
+  );
+  expect(res.status(), "DELETE manual-test link should 2xx").toBeLessThan(400);
+}
+
 /** Defer a failed/blocked result as a known issue (optionally with a ref). */
 export async function acceptResult(
   page: Page,
