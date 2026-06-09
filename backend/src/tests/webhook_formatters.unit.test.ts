@@ -94,6 +94,92 @@ for (const platform of PLATFORMS) {
   });
 }
 
+// ── flaky.threshold.exceeded event variant ───────────────────────────────
+//
+// Feature A: when a test's flaky_rate crosses the org's configured
+// flaky_alert_threshold, webhooks.ts dispatches a flaky.threshold.exceeded
+// event carrying the same flaky_tests payload as flaky.detected — only the
+// heading/title differs. Mirror the flaky.detected coverage: every platform
+// must produce serializable output, surface a sensible title, and render the
+// flaky rows.
+
+// Pull a flat list of every string the formatter emitted (titles, headings,
+// row text) so we can assert content regardless of where each platform puts it.
+function collectStrings(out: unknown): string[] {
+  const acc: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") acc.push(v);
+    // The generic format passes flaky_tests through as objects with numeric
+    // fields (flaky_rate etc.) rather than baking them into a text string;
+    // capture numbers too so "the rate is present" holds across platforms.
+    else if (typeof v === "number") acc.push(String(v));
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(out);
+  return acc;
+}
+
+for (const platform of PLATFORMS) {
+  test(`${platform}: flaky.threshold.exceeded event with flaky_tests array`, () => {
+    const out = formatPayload(platform, basePayload({
+      event: "flaky.threshold.exceeded",
+      flaky_tests: [
+        { full_title: "API > flaky over threshold", file_path: "api.cy.ts",
+          flaky_rate: 62, flip_count: 6, fail_count: 6, total_runs: 10 },
+      ],
+    }));
+    const json = JSON.stringify(out);
+    assert.ok(json.length > 0, `${platform}: produced empty output`);
+    JSON.parse(json); // serializable round-trip
+
+    const strings = collectStrings(out);
+    const blob = strings.join("\n");
+    // Sensible title that names the threshold-exceeded condition (not the
+    // generic "failed" or the flaky.detected heading).
+    assert.match(
+      blob,
+      /threshold/i,
+      `${platform}: threshold event must carry a title naming the threshold condition`,
+    );
+    // The flaky test row is rendered (title + rate).
+    assert.ok(blob.includes("API > flaky over threshold"), `${platform}: flaky test title missing`);
+    assert.ok(blob.includes("62"), `${platform}: flaky_rate not rendered`);
+  });
+
+  test(`${platform}: flaky.threshold.exceeded without flaky_tests array does not crash`, () => {
+    const out = formatPayload(platform, basePayload({
+      event: "flaky.threshold.exceeded",
+      flaky_tests: undefined,
+    }));
+    JSON.stringify(out);
+    assert.ok(out);
+  });
+}
+
+// flaky.detected output must be UNCHANGED by the threshold addition — the two
+// events share the flaky_tests payload but their headings/titles must differ
+// and flaky.detected must keep its own wording.
+test("flaky.detected output is unchanged and distinct from flaky.threshold.exceeded", () => {
+  const flaky_tests = [
+    { full_title: "API > should return 200", file_path: "api.cy.ts",
+      flaky_rate: 30, flip_count: 4, fail_count: 3, total_runs: 10 },
+  ];
+  for (const platform of PLATFORMS) {
+    const detected = collectStrings(formatPayload(platform, basePayload({ event: "flaky.detected", flaky_tests }))).join("\n");
+    const threshold = collectStrings(formatPayload(platform, basePayload({ event: "flaky.threshold.exceeded", flaky_tests }))).join("\n");
+
+    // flaky.detected keeps its "flaky"/"detected" wording (generic uses
+    // "flaky test(s) detected"; the rich platforms use "Flaky Tests Detected").
+    assert.match(detected, /flaky/i, `${platform}: flaky.detected lost its 'flaky' wording`);
+    assert.match(detected, /detect/i, `${platform}: flaky.detected lost its 'detected' wording`);
+    // The two events must not produce byte-identical output — the heading differs.
+    assert.notEqual(detected, threshold, `${platform}: the two flaky events must render distinct headings`);
+    // And flaky.detected must NOT advertise the threshold condition.
+    assert.ok(!/threshold/i.test(detected), `${platform}: flaky.detected must not mention 'threshold'`);
+  }
+});
+
 // ── new.failures event variant ───────────────────────────────────────────
 
 for (const platform of PLATFORMS) {

@@ -35,6 +35,25 @@ function createProvider(config: GitProviderConfig): GitProvider {
 }
 
 /**
+ * Decide whether every failed test in a run is quarantined — the gate that
+ * relaxes the external git merge check (commit status / Checks conclusion)
+ * for a known-flaky-only failure.
+ *
+ * FAIL CLOSED: requires at least one actual failed title. If a normalizer ever
+ * reports stats.failed > 0 with no status==='failed' tests in specs, the title
+ * list is empty and `nonQuarantinedFailed === 0` would vacuously soften a
+ * genuinely-failed run (fail-open). An empty failedTitles must therefore return
+ * false so the run keeps reporting its honest failure state.
+ */
+export function computeAllFailuresQuarantined(
+  failedTitles: string[],
+  quarantined: Set<string>,
+): boolean {
+  const nonQuarantinedFailed = failedTitles.filter((t) => !quarantined.has(t)).length;
+  return failedTitles.length > 0 && nonQuarantinedFailed === 0;
+}
+
+/**
  * Post or update a PR/MR comment with test results, and set commit status.
  * Fires and forgets — errors are logged but don't affect the upload response.
  */
@@ -68,12 +87,7 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
           [meta.suite_name]
         );
         const quarantined = new Set<string>(quarantinedResult.rows.map((r) => r.full_title));
-        const nonQuarantinedFailed = failedTitles.filter((t) => !quarantined.has(t)).length;
-        // Require at least one actual failed title to compare against: if a
-        // normalizer ever reports stats.failed > 0 with no status==='failed'
-        // tests in specs, failedTitles is empty and `=== 0` would vacuously
-        // soften a genuinely-failed run (fail-open). Fail closed instead.
-        allFailuresQuarantined = failedTitles.length > 0 && nonQuarantinedFailed === 0;
+        allFailuresQuarantined = computeAllFailuresQuarantined(failedTitles, quarantined);
       } catch (err) {
         console.error("Quarantine lookup error:", err);
         allFailuresQuarantined = false; // fall back to the honest failure state

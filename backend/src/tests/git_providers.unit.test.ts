@@ -623,3 +623,47 @@ test("github: postChecksAnnotations throws on 403 (token lacks checks:write)", a
     restore();
   }
 });
+
+// ── Quarantine-gate decision (Feature A: soften the external merge check) ────
+//
+// postPRComment relaxes ONLY the external git merge gate (commit status /
+// Checks conclusion) when every failed test in a run is quarantined. The
+// decision is extracted into computeAllFailuresQuarantined so it can be
+// unit-tested without standing up a provider + DB. The three cases below pin
+// the contract; postPRComment delegates to this exact function.
+
+import { computeAllFailuresQuarantined } from "../git-providers/index.js";
+
+test("computeAllFailuresQuarantined: every failed test quarantined → true (soften the gate)", () => {
+  const failed = ["Suite > a flaky test", "Suite > another flaky test"];
+  const quarantined = new Set(failed);
+  assert.equal(
+    computeAllFailuresQuarantined(failed, quarantined),
+    true,
+    "when all failures are quarantined the external merge gate is softened",
+  );
+});
+
+test("computeAllFailuresQuarantined: one genuine (non-quarantined) failure → false", () => {
+  const failed = ["Suite > a flaky test", "Suite > a real regression"];
+  // Only the flaky one is quarantined; the real regression must keep the gate red.
+  const quarantined = new Set(["Suite > a flaky test"]);
+  assert.equal(
+    computeAllFailuresQuarantined(failed, quarantined),
+    false,
+    "a single non-quarantined failure must keep the merge gate failing",
+  );
+});
+
+test("computeAllFailuresQuarantined: empty failedTitles → false (fail-closed guard)", () => {
+  // stats.failed > 0 but no status==='failed' tests in specs (a normalizer
+  // quirk) yields an empty title list. `nonQuarantinedFailed === 0` would
+  // vacuously soften a genuinely-failed run — the helper must fail closed.
+  assert.equal(
+    computeAllFailuresQuarantined([], new Set(["anything"])),
+    false,
+    "empty failedTitles must NOT soften the gate (fail-closed)",
+  );
+  // Also fail-closed when there are simply no quarantine entries at all.
+  assert.equal(computeAllFailuresQuarantined([], new Set<string>()), false);
+});
