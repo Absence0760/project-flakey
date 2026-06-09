@@ -1,16 +1,14 @@
 name: Tests
 
 # Runs the full test surface on every PR + every push to main, plus
-# on manual workflow_dispatch. Four jobs, all independent (parallel):
-# backend, packages, frontend-check, and Playwright e2e. The e2e job
-# is NOT gated on the backend suite — it stands up its own Postgres +
-# backend + seed, so it can fail or pass on its own and gives faster,
-# parallel feedback (the tradeoff: a PR broken at the backend layer
-# still spends e2e runner minutes). The e2e job itself is a 14-shard
-# matrix — each shard runs Playwright's `--shard=N/14` slice against
-# its own Postgres + backend, so spec-execution wall time is
-# parallelized across runners on top of the per-shard `workers: 4`
-# already in playwright.config.ts.
+# on manual workflow_dispatch. Four jobs, three of them independent
+# (parallel) and one (Playwright e2e) gated on the backend suite so
+# we don't burn e2e spend on a PR that already failed at the backend
+# unit/smoke layer. The e2e job itself is a 4-shard matrix — each
+# shard runs Playwright's `--shard=N/4` slice against its own
+# Postgres + backend, so spec-execution wall time is parallelized
+# across runners on top of the per-shard `workers: 4` already in
+# playwright.config.ts.
 #
 # Service containers: Postgres 16-alpine matching docker-compose.yml,
 # seeded with the same admin@example.com / demo@example.com /
@@ -91,7 +89,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
@@ -114,7 +112,7 @@ jobs:
     name: Package tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
         with:
           version: 9
@@ -144,7 +142,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
         with:
           version: 9
@@ -162,20 +160,18 @@ jobs:
       - run: pnpm check
 
   e2e:
-    name: Frontend e2e (Playwright) — shard ${{ matrix.shard }}/14
+    name: Frontend e2e (Playwright) — shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    # Intentionally NOT gated on the backend suite: e2e stands up its own
-    # Postgres + backend + seed, so it's a fully independent signal and runs
-    # in parallel for faster feedback. Tradeoff: a PR already broken at the
-    # backend layer still spends e2e runner minutes. If e2e spend ever needs
-    # reining in, re-add `needs: [backend]` here.
+    # Gate e2e on the backend suite passing so we don't burn Playwright
+    # spend on a PR that's already broken below.
+    needs: [backend]
     strategy:
       # Don't cancel sibling shards on the first failure — surfacing
       # every failing shard's report makes triage cheaper than
       # re-running CI to see what else broke.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16-alpine
@@ -199,7 +195,7 @@ jobs:
           --health-retries 10
           --tmpfs /var/lib/postgresql/data
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
         with:
           version: 9
@@ -294,12 +290,12 @@ jobs:
           cat /tmp/backend.log
           exit 1
 
-      - name: Run Playwright (shard ${{ matrix.shard }}/14)
+      - name: Run Playwright (shard ${{ matrix.shard }}/4)
         working-directory: frontend
         env:
           # webServer baseURL is 7778; CI flag tightens retries/reporters.
           CI: "true"
-        run: pnpm exec playwright test --config=tests-e2e/playwright.config.ts --shard=${{ matrix.shard }}/14
+        run: pnpm exec playwright test --config=tests-e2e/playwright.config.ts --shard=${{ matrix.shard }}/4
 
       - name: Backend log on failure
         if: failure()
@@ -309,7 +305,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          # Suffix with shard — the parallel matrix jobs would otherwise
+          # Suffix with shard — 4 parallel matrix jobs would otherwise
           # collide on the upload-artifact name.
           name: playwright-report-shard-${{ matrix.shard }}
           path: frontend/playwright-report/
