@@ -27,6 +27,10 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 const BACKEND = "http://localhost:3000";
+// Mailpit web API. Overridable via MAILPIT_URL so CI can pin it to 127.0.0.1
+// — on the GitHub runner `localhost` resolves to ::1 first, but Docker
+// publishes the Mailpit port on IPv4 only, so the default would ECONNREFUSED.
+const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:8025";
 // The reset link Mailpit captures points at the frontend, whose base URL is
 // FRONTEND_URL (default http://localhost:7778 — the Playwright baseURL too).
 const RESET_LINK_RE = /\/reset-password\/([a-f0-9]{64})/;
@@ -93,7 +97,7 @@ async function requestResetTokenViaMailpit(
       async () => {
         // Mailpit's search API filters by recipient; newest first.
         const res = await request.get(
-          `http://localhost:8025/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`,
+          `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`,
         );
         if (!res.ok()) return "";
         const list = (await res.json()) as {
@@ -105,7 +109,7 @@ async function requestResetTokenViaMailpit(
         );
         if (!hit) return "";
 
-        const msgRes = await request.get(`http://localhost:8025/api/v1/message/${hit.ID}`);
+        const msgRes = await request.get(`${MAILPIT}/api/v1/message/${hit.ID}`);
         if (!msgRes.ok()) return "";
         const msg = (await msgRes.json()) as { Text: string; HTML: string };
         const match =

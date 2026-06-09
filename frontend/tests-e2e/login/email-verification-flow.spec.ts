@@ -35,7 +35,10 @@ import { ADMIN_USER } from "../fixtures/users";
  */
 
 const BACKEND = "http://localhost:3000";
-const MAILPIT = "http://localhost:8025";
+// Mailpit web API. Overridable via MAILPIT_URL so CI can pin it to 127.0.0.1
+// — on the GitHub runner `localhost` resolves to ::1 first, but Docker
+// publishes the Mailpit port on IPv4 only, so the default would ECONNREFUSED.
+const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:8025";
 
 async function getToken(page: Page): Promise<string> {
   return page.evaluate(() => localStorage.getItem("bt_token") ?? "");

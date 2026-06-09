@@ -305,6 +305,19 @@ jobs:
           ALLOW_REGISTRATION: "true"
           NODE_ENV: test
           CORS_ORIGINS: http://localhost:7778
+          # Mailpit SMTP sink (service container above). Pin the host to
+          # 127.0.0.1: `localhost` resolves to ::1 first on the runner, but
+          # Docker publishes the Mailpit ports on IPv4 only, so the default
+          # SMTP_HOST=localhost would ECONNREFUSED and the email-probe /
+          # verification / reset specs would fail to send.
+          SMTP_HOST: 127.0.0.1
+          # AI config-enabled so the connectivity AI "Test connection" button
+          # renders (isAIEnabled() keys off AI_BASE_URL for the openai
+          # provider). Nothing listens on :11434 here, so the probe
+          # deterministically fails with the fixed "AI provider connection
+          # failed" string — exactly what connectivity.spec.ts asserts.
+          AI_PROVIDER: openai
+          AI_BASE_URL: http://127.0.0.1:11434/v1
         # Generate the JWT signing key in-job. Repo secrets aren't
         # available on forked PRs, and a static fallback would let a
         # forked-PR author predict the CI backend's signing key. A
@@ -330,6 +343,10 @@ jobs:
         env:
           # webServer baseURL is 7778; CI flag tightens retries/reporters.
           CI: "true"
+          # Mailpit web API for the verification / reset specs. 127.0.0.1, not
+          # localhost — see the SMTP_HOST note on the Start backend step (the
+          # runner resolves localhost to ::1, Docker publishes IPv4 only).
+          MAILPIT_URL: http://127.0.0.1:8025
         run: pnpm exec playwright test --config=tests-e2e/playwright.config.ts --shard=${{ matrix.shard }}/14
 
       - name: Backend log on failure
