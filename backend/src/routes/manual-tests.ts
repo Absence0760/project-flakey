@@ -497,6 +497,14 @@ router.post("/:id/result", async (req, res) => {
       res.status(400).json({ error: "Invalid status" });
       return;
     }
+    // Recording a result means an execution happened — 'not_run' is the absence
+    // of one. The manual_test_runs history table's CHECK excludes it, so a
+    // 'not_run' record would commit the manual_tests UPDATE and then 500 on the
+    // history INSERT, leaving a partial write. Reject it up front.
+    if (finalStatus === "not_run") {
+      res.status(400).json({ error: "Cannot record a 'not_run' result" });
+      return;
+    }
 
     // The history INSERT's FK bypasses RLS, so gate it on the UPDATE actually
     // matching a row this org can see — otherwise an unknown id 500s on the FK
