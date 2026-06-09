@@ -42,7 +42,7 @@
     "upload": "cd packages/flakey-cli && node dist/index.js"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "concurrently": "^10.0.3"
   },
   "pnpm": {
     "overrides": {
