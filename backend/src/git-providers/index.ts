@@ -49,17 +49,52 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
     const provider = createProvider(config);
     const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
 
+    // DELIBERATE ASYMMETRY: when a run has failures but every failed test is
+    // quarantined for this suite, we relax only the *external* git merge gate
+    // (commit status / Checks conclusion below). classifyRunStatus() and the
+    // badge intentionally keep reporting "failed" — the Flakey dashboard never
+    // lies; quarantine just stops a known-flaky test from blocking the PR.
+    // Best-effort like everything else here: a failed quarantine lookup falls
+    // back to the honest failure state and must not throw out of this function.
+    let allFailuresQuarantined = false;
+    if (run.stats.failed > 0) {
+      const failedTitles = run.specs
+        .flatMap((s) => s.tests)
+        .filter((t) => t.status === "failed")
+        .map((t) => t.full_title);
+      try {
+        const quarantinedResult = await tenantQuery(orgId,
+          "SELECT full_title FROM quarantined_tests WHERE suite_name = $1",
+          [meta.suite_name]
+        );
+        const quarantined = new Set<string>(quarantinedResult.rows.map((r) => r.full_title));
+        const nonQuarantinedFailed = failedTitles.filter((t) => !quarantined.has(t)).length;
+        // Require at least one actual failed title to compare against: if a
+        // normalizer ever reports stats.failed > 0 with no status==='failed'
+        // tests in specs, failedTitles is empty and `=== 0` would vacuously
+        // soften a genuinely-failed run (fail-open). Fail closed instead.
+        allFailuresQuarantined = failedTitles.length > 0 && nonQuarantinedFailed === 0;
+      } catch (err) {
+        console.error("Quarantine lookup error:", err);
+        allFailuresQuarantined = false; // fall back to the honest failure state
+      }
+    }
+
     // Post commit status check (independent of PR existence)
     if (meta.commit_sha) {
       const passRate = run.stats.total > 0 ? ((run.stats.passed / run.stats.total) * 100).toFixed(1) : "0";
       try {
         await provider.postCommitStatus({
           commitSha: meta.commit_sha,
-          state: run.stats.failed > 0 ? "failure" : "success",
+          // Quarantined-only failures don't block the merge (GitLab/Bitbucket
+          // have no neutral state, so "success" is how they unblock too).
+          state: run.stats.failed > 0 && !allFailuresQuarantined ? "failure" : "success",
           targetUrl: `${frontendUrl}/runs/${runId}`,
-          description: run.stats.failed > 0
-            ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
-            : `${run.stats.passed} passed (${passRate}%)`,
+          description: allFailuresQuarantined
+            ? `${run.stats.failed} quarantined (flaky) — not blocking`
+            : run.stats.failed > 0
+              ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
+              : `${run.stats.passed} passed (${passRate}%)`,
           context: `flakey/${meta.suite_name}`,
         });
       } catch (err) {
@@ -77,11 +112,14 @@ export async function postPRComment(orgId: number, runId: number, run: Normalize
           await provider.postChecksAnnotations({
             commitSha: meta.commit_sha,
             name: `flakey/${meta.suite_name}`,
-            title: run.stats.failed > 0
-              ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
-              : `${run.stats.passed} passed (${passRate}%)`,
+            title: allFailuresQuarantined
+              ? `${run.stats.failed} quarantined (flaky) — not blocking`
+              : run.stats.failed > 0
+                ? `${run.stats.failed} failed, ${run.stats.passed} passed (${passRate}%)`
+                : `${run.stats.passed} passed (${passRate}%)`,
             summary: `[View the full run in Flakey](${frontendUrl}/runs/${runId})`,
-            conclusion: run.stats.failed > 0 ? "failure" : "success",
+            // "neutral" surfaces the failures without failing the required check.
+            conclusion: allFailuresQuarantined ? "neutral" : run.stats.failed > 0 ? "failure" : "success",
             detailsUrl: `${frontendUrl}/runs/${runId}`,
             annotations,
           });
