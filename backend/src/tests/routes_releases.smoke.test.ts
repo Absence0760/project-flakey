@@ -361,21 +361,15 @@ test("POST result on completed session returns 409", async () => {
 });
 
 test("POST sessions with mode=failures_only after completion seeds 0 (no failures) and 400s", async () => {
-  // Prior session passed everything → failures_only has nothing to seed
-  // → falls back to full → seeds full scope (1 test) → 201.  Pin the
-  // current behaviour: successful seeding even on "failures_only".
+  // Prior session passed everything → failures_only has a prior session but
+  // no unresolved (failed/blocked, not-yet-accepted) results to retry. Per the
+  // session-hardening contract this must 400 ("nothing to retry") rather than
+  // silently widen into a full re-run that re-blocks the whole release.
   const res = await post(`/releases/${releaseId}/sessions`, { mode: "failures_only" });
-  assert.equal(res.status, 201,
-    "failures_only with no failures should fall back to full-scope seeding");
-  const data = (await res.json()) as { id: number; mode: string };
-  // Mode is preserved as requested even though scope falls back.
-  assert.equal(data.mode, "failures_only");
-
-  // Cleanup: complete this session too.
-  await post(
-    `/releases/${releaseId}/sessions/${data.id}/results/${manualTestId}`,
-    { status: "passed", notes: "second smoke OK" }
-  );
+  assert.equal(res.status, 400,
+    "failures_only with a prior all-passed session has nothing to retry");
+  const data = (await res.json()) as { error: string };
+  assert.match(data.error, /nothing to retry/i);
 });
 
 // ── Accept-as-known-issue ───────────────────────────────────────────────
