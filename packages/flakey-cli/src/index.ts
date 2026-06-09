@@ -3,7 +3,11 @@
 import { readFileSync, readdirSync, existsSync, statSync } from "fs";
 import { join, resolve, basename, dirname, isAbsolute } from "path";
 
-const API_URL = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
+// Strip trailing slashes so a configured FLAKEY_API_URL like
+// "https://api.flakey.io/" doesn't produce "https://api.flakey.io//runs",
+// which Express does not route (every upload 404s). Mirrors the same
+// normalization ApiClient applies in @flakeytesting/core.
+const API_URL = (process.env.FLAKEY_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 const API_KEY = process.env.FLAKEY_API_KEY ?? "";
 
 interface UploadOptions {
@@ -50,19 +54,32 @@ export function resolveOptions(opts: Record<string, string>): UploadOptions {
   };
 }
 
-function parseArgs(): UploadOptions {
-  const args = process.argv.slice(2);
+// Exported for unit testing (src/tests/cli.test.ts).
+//
+// Parse `--flag value` pairs into a map. A flag whose next token is itself
+// a `--flag` (i.e. the value was omitted) is recorded as "" rather than
+// swallowing the following flag as its value — otherwise
+// `--report-dir --suite x` would set reportDir="--suite" and drop --suite
+// entirely, silently filing the run under the wrong directory/suite.
+export function parseFlags(args: string[]): Record<string, string> {
   const opts: Record<string, string> = {};
-
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith("--")) {
       const key = args[i].slice(2);
-      opts[key] = args[i + 1] ?? "";
-      i++;
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        opts[key] = next;
+        i++;
+      } else {
+        opts[key] = "";
+      }
     }
   }
+  return opts;
+}
 
-  return resolveOptions(opts);
+function parseArgs(): UploadOptions {
+  return resolveOptions(parseFlags(process.argv.slice(2)));
 }
 
 // Exported for unit testing (src/tests/cli.test.ts).
@@ -282,14 +299,7 @@ async function uploadMultipart(payload: object, screenshots: string[], videos: s
 //   flakey-cli ui-coverage --suite X --file visits.json
 
 function parseSubArgs(args: string[]): Record<string, string> {
-  const opts: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) {
-      opts[args[i].slice(2)] = args[i + 1] ?? "";
-      i++;
-    }
-  }
-  return opts;
+  return parseFlags(args);
 }
 
 async function postJSON(path: string, body: unknown, apiKey: string): Promise<void> {
@@ -361,6 +371,12 @@ async function uploadA11y(args: string[]): Promise<void> {
   // axe-core results have shape: { violations: [...], passes: [...], incomplete: [...], url?: string }
   // Accept either a single result or an array — take the first.
   const result = Array.isArray(raw) ? raw[0] : raw;
+  // An empty array (`[]`) — or a JSON `null` — yields no result object;
+  // bail with a clear message instead of throwing on `result.url`.
+  if (!result || typeof result !== "object") {
+    console.error(`No axe-core results found in ${file}`);
+    process.exit(1);
+  }
   const payload = {
     run_id: runId,
     url: url ?? result.url ?? null,

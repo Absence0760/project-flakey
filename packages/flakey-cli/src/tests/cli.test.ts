@@ -108,7 +108,7 @@ test("`flakey-cli upload --report-dir <missing>` exits with a 'no report files' 
       "upload",
       "--report-dir",
       "/tmp/definitely-not-a-real-dir-xyz",
-      "--suite-name",
+      "--suite",
       "unit-test",
       "--reporter",
       "mochawesome",
@@ -121,6 +121,57 @@ test("`flakey-cli upload --report-dir <missing>` exits with a 'no report files' 
     /No report files found/,
     "should explain that the reporter dir is empty / missing",
   );
+});
+
+// ─── parseFlags ───────────────────────────────────────────────────────────
+
+test("parseFlags: parses --flag value pairs", async () => {
+  const { parseFlags } = await import("../index.ts");
+  assert.deepEqual(
+    parseFlags(["--report-dir", "cypress/reports", "--suite", "checkout"]),
+    { "report-dir": "cypress/reports", suite: "checkout" },
+  );
+});
+
+test("parseFlags: a flag with an omitted value does not swallow the next flag", async () => {
+  // Regression: `--report-dir --suite x` must NOT set report-dir="--suite"
+  // and drop --suite. The flag with no value becomes "", and the following
+  // flag is parsed normally.
+  const { parseFlags } = await import("../index.ts");
+  assert.deepEqual(
+    parseFlags(["--report-dir", "--suite", "checkout"]),
+    { "report-dir": "", suite: "checkout" },
+  );
+});
+
+test("parseFlags: a trailing flag with no value becomes an empty string", async () => {
+  const { parseFlags } = await import("../index.ts");
+  assert.deepEqual(parseFlags(["--suite"]), { suite: "" });
+});
+
+test("parseFlags: ignores leading positional tokens that are not flags", async () => {
+  const { parseFlags } = await import("../index.ts");
+  // Bare tokens before the first flag (e.g. a stray arg) are skipped.
+  assert.deepEqual(parseFlags(["junk", "--suite", "x"]), { suite: "x" });
+});
+
+test("`flakey-cli a11y` with an empty-array results file exits cleanly, not with a crash", async () => {
+  // Regression: an axe run that produced `[]` must not throw a TypeError on
+  // `result.url`; it should report "no results" and exit non-zero.
+  const dir = makeTmpDir();
+  try {
+    const file = join(dir, "axe.json");
+    writeFileSync(file, "[]");
+    const { code, stderr } = await runCli(
+      ["a11y", "--run-id", "42", "--file", file],
+      { FLAKEY_API_KEY: "dummy" },
+    );
+    assert.notEqual(code, 0, "empty axe results → non-zero exit");
+    assert.match(stderr, /No axe-core results found/);
+    assert.doesNotMatch(stderr, /TypeError|Cannot read prop/i, "must not crash");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ─── resolveOptions: CI metadata fallback chains ──────────────────────────

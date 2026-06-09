@@ -7,7 +7,10 @@ export class ApiClient {
   private apiKey: string;
 
   constructor(options: ReporterOptions) {
-    this.url = options.url.replace(/\/$/, "");
+    // Strip any number of trailing slashes — "https://api.flakey.io//"
+    // would otherwise leave one behind and produce a double-slash "//runs"
+    // path that Express does not route.
+    this.url = options.url.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
   }
 

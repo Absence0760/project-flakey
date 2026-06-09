@@ -69,6 +69,19 @@ test("postRun strips a trailing slash from the configured URL", async () => {
   assert.equal(url, "https://api.example.com/runs");
 });
 
+test("postRun strips multiple trailing slashes from the configured URL", async () => {
+  const fetchMock = globalThis.fetch as ReturnType<typeof mock.fn>;
+  fetchMock.mock.mockImplementation(async () =>
+    new Response(JSON.stringify({ id: 2 }), { status: 200 })
+  );
+
+  const client = new ApiClient({ url: "https://api.example.com///", apiKey: "k", suite: "s" });
+  await client.postRun(fixtureRun);
+
+  const [url] = fetchMock.mock.calls[0].arguments as [string];
+  assert.equal(url, "https://api.example.com/runs");
+});
+
 test("postRun throws with status + body text on non-2xx", async () => {
   const fetchMock = globalThis.fetch as ReturnType<typeof mock.fn>;
   fetchMock.mock.mockImplementation(async () =>
