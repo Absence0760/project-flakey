@@ -169,7 +169,11 @@ afterEach(() => {
 
   if (currentCommands.length > 0) {
     cy.task("flakey:saveCommandLog", {
-      testTitle,
+      // Send the FULL describe-path title (not the leaf). The plugin's
+      // after:run merge keys command logs by spec + this title and matches it
+      // against the test row's full_title; keyed by leaf, two same-leaf tests
+      // in one spec collide and one test's command log overwrites the other.
+      testTitle: fullTitle,
       specFile,
       commands: [...currentCommands],
     }, { log: false });
@@ -205,7 +209,9 @@ afterEach(() => {
   if (retryTrail.length > 0) failureContext.retry_errors = [...retryTrail];
 
   cy.task("flakey:saveFailureContext", {
-    testTitle,
+    // Full describe-path title — see the saveCommandLog call above for why the
+    // leaf title can't be the merge key.
+    testTitle: fullTitle,
     specFile,
     failureContext,
   }, { log: false });

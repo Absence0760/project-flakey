@@ -223,13 +223,15 @@ function getSpecFile(test: MochaTest): string {
 }
 
 function getSpecTitle(test: MochaTest): string {
+  // Walk up to the OUTERMOST non-root describe — the suite whose parent is the
+  // root (which has an empty title). The previous form stashed `topSuite =
+  // suite` *before* advancing, so it stopped one level too low and returned
+  // the inner describe (e.g. "Login" instead of "Auth" for Auth > Login).
   let suite: MochaSuite | undefined = test.parent;
-  let topSuite = suite;
   while (suite?.parent?.title) {
-    topSuite = suite;
     suite = suite.parent;
   }
-  return topSuite?.title ?? "unknown";
+  return suite?.title ?? "unknown";
 }
 
 // ---- Reporter (Mocha) — buffers results per spec to temp files ----

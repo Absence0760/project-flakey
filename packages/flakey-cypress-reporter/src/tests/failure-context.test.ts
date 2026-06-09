@@ -107,7 +107,8 @@ test("saveFailureContext is merged onto the matching test row before upload", as
 
   // Support file ships the failure context for that test.
   rec.tasks["flakey:saveFailureContext"]({
-    testTitle: "rejects bad password",
+    // The support file sends the FULL describe-path title (matches full_title).
+    testTitle: "Login > rejects bad password",
     specFile: "cypress/e2e/login.cy.ts",
     failureContext: {
       commands_tail: [{ name: "get", message: "#password", state: "failed" }],
@@ -128,6 +129,69 @@ test("saveFailureContext is merged onto the matching test row before upload", as
   assert.equal(fc.network_failures[0], "POST /api/login → 500");
   assert.equal(fc.commands_tail[0].name, "get");
   assert.equal(fc.retry_errors[0].attempt, 0);
+});
+
+test("two same-leaf-title tests in one spec each get their OWN failure context (keyed by full_title, no cross-attribution)", async () => {
+  const rec = recordingOn();
+  const afterRun = flakeyReporter(rec.on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false })!;
+
+  // describe("Create") it("works")  +  describe("Delete") it("works")
+  // Same leaf ("works"), same spec, distinct full_title.
+  writeSpecBuffer({
+    file_path: "items.cy.ts",
+    title: "Items",
+    stats: { total: 2, passed: 0, failed: 2, skipped: 0, duration_ms: 20 },
+    tests: [
+      { title: "works", full_title: "Create works", status: "failed", duration_ms: 10, screenshot_paths: [] },
+      { title: "works", full_title: "Delete works", status: "failed", duration_ms: 10, screenshot_paths: [] },
+    ],
+  });
+
+  // The support file ships each test's context keyed by its FULL title.
+  rec.tasks["flakey:saveFailureContext"]({
+    testTitle: "Create works", specFile: "items.cy.ts",
+    failureContext: { browser_console: ["create boom"] },
+  });
+  rec.tasks["flakey:saveFailureContext"]({
+    testTitle: "Delete works", specFile: "items.cy.ts",
+    failureContext: { browser_console: ["delete boom"] },
+  });
+
+  await afterRun({});
+
+  const body = JSON.parse(calls.find((c) => c.url.endsWith("/runs"))!.opts.body as string);
+  const rows = body.specs[0].tests;
+  const create = rows.find((t: any) => t.full_title === "Create works");
+  const del = rows.find((t: any) => t.full_title === "Delete works");
+  // Keyed by leaf, both rows would have received the same (last-written)
+  // context. Keyed by full_title, each keeps its own.
+  assert.equal(create.failure_context.browser_console[0], "create boom");
+  assert.equal(del.failure_context.browser_console[0], "delete boom");
+});
+
+test("after:screenshot streams the test title SPACE-joined (matches tests.full_title for backend linking)", async () => {
+  // Regression: the handler joined the title path with ' > ', but the backend
+  // links the screenshot by matching tests.full_title (Mocha fullTitle() —
+  // space-joined). ' > ' never matched, so screenshots for any describe-nested
+  // test were stored but never attached to the row.
+  const handlers: Record<string, any> = {};
+  const on = (event: string, h: any) => { handlers[event] = h; };
+  flakeyReporter(on as any, { reporterOptions: {} }, { url: URL, apiKey: API_KEY, suite: "s", installAfterRun: false });
+
+  const shot = join(MY_TMP, "after-shot.png");
+  writeFileSync(shot, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await handlers["after:screenshot"]({
+    path: shot,
+    specName: "login.cy.ts",
+    testTitle: ["Auth", "Login", "should sign in"],
+  });
+
+  const call = calls.find((c) => c.url.includes("/screenshot"));
+  assert.ok(call, "expected a POST /live/:id/screenshot");
+  const form = await new Request("http://x/", { method: "POST", body: call.opts.body }).formData();
+  assert.equal(form.get("testTitle"), "Auth Login should sign in",
+    "title path must be space-joined to match tests.full_title, not ' > '");
 });
 
 test("a test with no failure context uploads cleanly (failure_context stays absent)", async () => {
@@ -173,9 +237,10 @@ test("merge spreads support-side context onto reporter-set resolved_stack (both 
     }],
   });
 
-  // Support file contributes console / network for the same test.
+  // Support file contributes console / network for the same test — keyed by
+  // the full describe-path title (matches the buffered row's full_title).
   rec.tasks["flakey:saveFailureContext"]({
-    testTitle: "x",
+    testTitle: "A > x",
     specFile: "auth.cy.ts",
     failureContext: { browser_console: ["error: boom"], network_failures: ["GET /api → 500"] },
   });
@@ -227,7 +292,7 @@ test("the failure-context buffer dir is removed after the run", async () => {
     tests: [{ title: "x", full_title: "A > x", status: "failed", duration_ms: 1, screenshot_paths: [] }],
   });
   rec.tasks["flakey:saveFailureContext"]({
-    testTitle: "x",
+    testTitle: "A > x",
     specFile: "a.cy.ts",
     failureContext: { uncaught_errors: ["TypeError: nope"] },
   });

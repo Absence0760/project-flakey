@@ -277,7 +277,12 @@ export function flakeyReporter(
     const titleArr = Array.isArray(details.testTitle)
       ? details.testTitle
       : (details.testTitle ? [details.testTitle] : []);
-    const fullTitle = titleArr.filter(Boolean).join(" > ");
+    // Join with a SPACE, not " > ". The backend links the streamed screenshot
+    // by matching this against tests.full_title, which the reporter sets from
+    // Mocha's fullTitle() — a space-joined path ("Auth Login should sign in").
+    // " > " never matched, so screenshots for any test inside a describe block
+    // were stored but never attached to the test row.
+    const fullTitle = titleArr.filter(Boolean).join(" ");
     const specName = details.specName ?? "";
     if (!fullTitle || !specName) return details;
 
@@ -313,14 +318,25 @@ export function flakeyReporter(
   // Collect all buffered specs and upload after the entire run
   const afterRunHandler = async (results: any) => {
     const { tmp: tmpDir, cmd: cmdDir, fc: fcDir } = getBufferDirs();
+    // The support file's tasks may have buffered command logs / failure
+    // context even when no spec results were written (e.g. the reporter
+    // process crashed before flushing). On any early-out, still clear those
+    // task dirs — otherwise, in the unscoped (no-live-run) fallback the files
+    // persist and get merged into the NEXT run's upload.
+    const cleanupTaskDirs = () => {
+      rmSync(cmdDir, { recursive: true, force: true });
+      rmSync(fcDir, { recursive: true, force: true });
+    };
     if (!existsSync(tmpDir)) {
       console.warn("  [flakey] No spec results found — nothing to upload");
+      cleanupTaskDirs();
       return;
     }
 
     const files = readdirSync(tmpDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
       console.warn("  [flakey] No spec results found — nothing to upload");
+      cleanupTaskDirs();
       return;
     }
 
@@ -344,7 +360,10 @@ export function flakeyReporter(
       }
       for (const spec of specs) {
         for (const test of spec.tests) {
-          const key = `${spec.file_path}::${test.title}`;
+          // Key by full_title (the support file now sends the full describe-
+          // path title). Leaf titles collide for same-named tests in different
+          // describe blocks within one spec.
+          const key = `${spec.file_path}::${test.full_title}`;
           const cmds = cmdMap.get(key);
           if (cmds) test.command_log = cmds;
         }
@@ -364,7 +383,7 @@ export function flakeyReporter(
       }
       for (const spec of specs) {
         for (const test of spec.tests) {
-          const ctx = fcMap.get(`${spec.file_path}::${test.title}`);
+          const ctx = fcMap.get(`${spec.file_path}::${test.full_title}`);
           // Spread, don't replace: the reporter may have already set
           // resolved_stack / code_frame (source-map resolution) on the row;
           // the support file contributes console / network / retry context.
@@ -377,7 +396,12 @@ export function flakeyReporter(
     // Clean up temp files
     rmSync(tmpDir, { recursive: true, force: true });
 
-    if (specs.length === 0) return;
+    if (specs.length === 0) {
+      // We found buffer files but every one failed to parse — surface it
+      // rather than exiting silently as if there were genuinely no results.
+      console.error(`  [flakey] ${files.length} spec buffer file(s) present but none could be parsed — nothing uploaded`);
+      return;
+    }
 
     let total = 0, passed = 0, failed = 0, skipped = 0, duration = 0;
     for (const spec of specs) {

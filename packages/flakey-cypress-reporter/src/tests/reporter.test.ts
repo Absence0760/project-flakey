@@ -144,6 +144,36 @@ function readBufferedSpecs(): any[] {
   return out;
 }
 
+test("getSpecTitle uses the OUTERMOST describe, not the innermost (nested describe blocks)", () => {
+  const { runner, handlers } = fakeRunner();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  new (FlakeyCypressReporter as any)(runner, {
+    reporterOptions: { url: URL, apiKey: API_KEY, suite: SUITE },
+  });
+
+  // Suite chain: root("") → Auth → Login → test. spec.title must be "Auth".
+  const root = { title: "", file: "auth.cy.ts" };
+  const auth = { title: "Auth", file: "auth.cy.ts", parent: root };
+  const login = { title: "Login", file: "auth.cy.ts", parent: auth };
+  const t = {
+    title: "should sign in",
+    fullTitle: () => "Auth Login should sign in",
+    file: "auth.cy.ts",
+    parent: login,
+    duration: 5,
+    currentRetry: () => 0,
+    retries: () => 0,
+  };
+
+  handlers.get("pass")!(t);
+  handlers.get("end")!();
+
+  const spec = readBufferedSpecs().find((s) => s.file_path === "auth.cy.ts");
+  assert.ok(spec, "spec buffered");
+  assert.equal(spec.title, "Auth",
+    "spec.title is the outermost describe ('Auth'), not the inner 'Login'");
+});
+
 test("on end, the reporter writes one buffer file per spec containing the normalized rows", () => {
   const { runner, handlers } = fakeRunner();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
