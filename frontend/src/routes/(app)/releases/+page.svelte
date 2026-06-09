@@ -40,7 +40,10 @@
 	function syncUrl() {
 		const url = new URL(window.location.href);
 		const set = (k: string, v: string, def: string) => {
-			if (v && v !== def) url.searchParams.set(k, v);
+			// Compare against the default only, not truthiness — an empty string
+			// can be a deliberate non-default selection. (`q` still drops when
+			// empty because its default IS "".) Matches the other list pages.
+			if (v !== def) url.searchParams.set(k, v);
 			else url.searchParams.delete(k);
 		};
 		set('status', filterStatus, 'all');

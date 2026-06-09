@@ -47,7 +47,12 @@
   function syncFiltersToUrl() {
     const url = new URL(window.location.href);
     const set = (k: string, v: string, def: string) => {
-      if (v && v !== def) url.searchParams.set(k, v);
+      // Compare against the default only — NOT truthiness. An empty string can
+      // be a deliberate, non-default selection (e.g. a run with a blank suite
+      // name); `v && …` would silently drop it from the URL so it never
+      // persists across reload/round-trip. `q` still drops when empty because
+      // its default IS "".
+      if (v !== def) url.searchParams.set(k, v);
       else url.searchParams.delete(k);
     };
     set("suite", selectedSuite, "all");
@@ -524,7 +529,7 @@
                 <select bind:value={selectedSuite}>
                   <option value="all">All suites</option>
                   {#each suites as suite}
-                    <option value={suite}>{suite}</option>
+                    <option value={suite}>{suite || "(no suite)"}</option>
                   {/each}
                 </select>
               </label>
