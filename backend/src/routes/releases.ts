@@ -485,14 +485,26 @@ router.get("/:id/readiness", async (req, res) => {
       );
     }
 
-    const blockingItems = await tenantQuery(
+    // Derive blocking items from the SAME rule evaluation we return below
+    // (for auto items) rather than re-reading the `checked` column that
+    // refreshAutoItems wrote. Otherwise `ready` (from the stored column) and
+    // `rules.*.met` (from this evaluation) could disagree if a concurrent
+    // result write lands between the two — a self-contradictory response.
+    const requiredItems = await tenantQuery(
       orgId,
-      `SELECT id, label, auto_rule, auto_details
+      `SELECT id, label, auto_rule, auto_details, checked
          FROM release_checklist_items
-        WHERE release_id = $1 AND required = true AND checked = false
+        WHERE release_id = $1 AND required = true
         ORDER BY position, id`,
       [releaseId]
     );
+    const ruleMet: Record<string, boolean> = {
+      [RULE_CRITICAL_TESTS_PASSING]: critical.met,
+      [RULE_MANUAL_REGRESSION_EXECUTED]: manual.met,
+    };
+    const blockingItems = requiredItems.rows
+      .filter((it) => (it.auto_rule ? !ruleMet[it.auto_rule] : !it.checked))
+      .map(({ checked, ...rest }) => rest);
 
     res.json({
       runs: runStats.rows[0],
@@ -501,8 +513,8 @@ router.get("/:id/readiness", async (req, res) => {
         [RULE_CRITICAL_TESTS_PASSING]: critical,
         [RULE_MANUAL_REGRESSION_EXECUTED]: manual,
       },
-      blocking_items: blockingItems.rows,
-      ready: blockingItems.rows.length === 0,
+      blocking_items: blockingItems,
+      ready: blockingItems.length === 0,
     });
   } catch (err) {
     console.error("GET /releases/:id/readiness error:", err);
@@ -1114,6 +1126,8 @@ router.post("/:id/manual-test-groups/:groupId", async (req, res) => {
 
 const SESSION_MODES = ["full", "failures_only"];
 const SESSION_RESULT_STATUSES = ["not_run", "passed", "failed", "blocked", "skipped"];
+// A single step's status is a recorded outcome — 'not_run' has no meaning here.
+const SESSION_STEP_STATUSES = ["passed", "failed", "blocked", "skipped"];
 
 // GET /releases/:id/sessions — all sessions with progress counts
 router.get("/:id/sessions", async (req, res) => {
@@ -1183,6 +1197,7 @@ router.post("/:id/sessions", async (req, res) => {
     // recent session (failures_only). On first-ever failures_only request
     // with no prior session, fall back to linked tests.
     let scopeTestIds: number[] = [];
+    let hadPriorSession = false;
     if (mode === "failures_only") {
       const prev = await tenantQuery(
         req.user!.orgId,
@@ -1192,6 +1207,7 @@ router.post("/:id/sessions", async (req, res) => {
         [releaseId]
       );
       if (prev.rows.length > 0) {
+        hadPriorSession = true;
         // Skip results explicitly deferred as known issues — they're in the
         // "we're shipping with this" bucket, not the "run again" bucket.
         const prevResults = await tenantQuery(
@@ -1205,6 +1221,17 @@ router.post("/:id/sessions", async (req, res) => {
         scopeTestIds = prevResults.rows.map((r) => Number(r.manual_test_id));
       }
     }
+    // A failures-only retry whose prior session has no unresolved failures
+    // (everything passed since, or was accepted) has nothing to re-run — don't
+    // silently widen it into a full re-run that re-blocks the whole release.
+    if (mode === "failures_only" && hadPriorSession && scopeTestIds.length === 0) {
+      res.status(400).json({
+        error: "No unresolved failures from the previous session — nothing to retry.",
+      });
+      return;
+    }
+    // Full scope, or the first-ever failures_only run (no prior session) which
+    // falls back to all linked tests.
     if (mode === "full" || scopeTestIds.length === 0) {
       const linked = await tenantQuery(
         req.user!.orgId,
@@ -1357,6 +1384,21 @@ router.patch("/:id/sessions/:sessionId", async (req, res) => {
         res.status(400).json({ error: "Invalid status" });
         return;
       }
+      if (req.body.status === "in_progress") {
+        // Re-opening must respect the one-in-progress-session invariant
+        // (migration 031's partial unique index). Guard it here too so a
+        // concurrent re-open surfaces as 409 instead of a 500 on the constraint.
+        const active = await tenantQuery(
+          req.user!.orgId,
+          `SELECT id FROM release_test_sessions
+            WHERE release_id = $1 AND status = 'in_progress' AND id <> $2`,
+          [req.params.id, req.params.sessionId]
+        );
+        if (active.rows.length > 0) {
+          res.status(409).json({ error: "An in-progress session already exists for this release" });
+          return;
+        }
+      }
       sets.push(`status = $${i++}`);
       params.push(req.body.status);
       if (req.body.status === "completed") {
@@ -1376,6 +1418,22 @@ router.patch("/:id/sessions/:sessionId", async (req, res) => {
         WHERE id = $${i++} AND release_id = $${i}`,
       params
     );
+    // Re-opening a session means re-running it: reset its result rows to
+    // not_run so it doesn't immediately auto-complete on the first record (the
+    // auto-complete fires once no not_run rows remain) and every test is
+    // re-judged from scratch.
+    if (req.body.status === "in_progress") {
+      await tenantQuery(
+        req.user!.orgId,
+        `UPDATE release_test_session_results
+            SET status = 'not_run', run_by = NULL, run_at = NULL,
+                notes = NULL, step_results = '[]'::jsonb,
+                accepted_as_known_issue = FALSE, known_issue_ref = NULL,
+                accepted_by = NULL, accepted_at = NULL
+          WHERE session_id = $1`,
+        [req.params.sessionId]
+      );
+    }
     await logAudit(
       req.user!.orgId,
       req.user!.id,
@@ -1385,7 +1443,11 @@ router.patch("/:id/sessions/:sessionId", async (req, res) => {
       { session_id: req.params.sessionId }
     );
     res.json({ updated: true });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      res.status(409).json({ error: "An in-progress session already exists for this release" });
+      return;
+    }
     console.error("PATCH /releases/:id/sessions/:sessionId error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -1412,8 +1474,8 @@ router.post("/:id/sessions/:sessionId/results/:testId", async (req, res) => {
         return;
       }
       for (const r of step_results) {
-        if (!r || typeof r.status !== "string") {
-          res.status(400).json({ error: "Invalid step result" });
+        if (!r || typeof r.status !== "string" || !SESSION_STEP_STATUSES.includes(r.status)) {
+          res.status(400).json({ error: "Invalid step result status" });
           return;
         }
         normalizedSteps.push({
@@ -1608,6 +1670,14 @@ router.post("/:id/sessions/:sessionId/results/:testId/file-bug", async (req, res
       res.json({ key: row.filed_bug_key, url: row.filed_bug_url, already_filed: true });
       return;
     }
+    // Mirror the /accept gate: only a failed/blocked result is a "bug". Filing
+    // against a passed/not_run result would title a Jira issue "[Manual test
+    // failure]" falsely, and (with mark_known_issue) defer a passing test out
+    // of the readiness gate.
+    if (!["failed", "blocked"].includes(row.status)) {
+      res.status(400).json({ error: "Bugs can only be filed against failed or blocked results" });
+      return;
+    }
 
     // Compose a useful issue body. Keep the title under Jira's 250-char cap.
     const summary = `[Manual test failure] ${row.title}`;
@@ -1792,7 +1862,7 @@ router.post(
         // re-derives a fresh URL from `key` at read time.
         added.push({
           key,
-          filename: f.originalname,
+          filename: f.originalname.slice(0, 255),
           size: f.size,
           uploaded_by: req.user!.id,
           uploaded_at: new Date().toISOString(),
@@ -1902,7 +1972,9 @@ router.get("/:id/requirements", async (req, res) => {
            LEFT JOIN latest_results lr ON lr.manual_test_id = mt.id
           WHERE rmt.release_id = $1
        )
-       SELECT req.ref_key, req.ref_url, req.ref_title, req.provider,
+       SELECT req.ref_key, req.provider,
+              MAX(req.ref_url)   AS ref_url,
+              MAX(req.ref_title) AS ref_title,
               COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE ts.effective_status = 'passed')::int  AS passed,
               COUNT(*) FILTER (WHERE ts.effective_status = 'failed')::int  AS failed,
@@ -1916,7 +1988,10 @@ router.get("/:id/requirements", async (req, res) => {
               ) ORDER BY ts.title) AS tests
          FROM manual_test_requirements req
          JOIN test_status ts ON ts.manual_test_id = req.manual_test_id
-        GROUP BY req.ref_key, req.ref_url, req.ref_title, req.provider
+        -- Group by the ticket identity only (ref_key + provider). Two tests can
+        -- label the same ref_key with different titles/urls; grouping on those
+        -- too would split one ticket into multiple partial-count rows.
+        GROUP BY req.ref_key, req.provider
         ORDER BY req.ref_key`,
       [req.params.id]
     );
