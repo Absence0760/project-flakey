@@ -49,3 +49,22 @@ test("a short leaf title remains a substring of the filename (backend includes-m
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   assert.equal(norm(name).includes(norm("User can log in with SSO")), true);
 });
+
+test("a very long spec path is capped so the name stays <= 200 chars with the title+hash tail intact", () => {
+  // The backend's fixFilename truncates the upload filename at 200 chars. If a
+  // long spec path pushed the name past 200, the tail (past the `--`) was cut,
+  // the upload handler's indexOf("--") split broke, and the snapshot was stored
+  // but never linked to a test row. The spec prefix must yield to keep the
+  // `--<title>-<hash>.json.gz` tail whole.
+  const longSpec = "cypress/e2e/" + Array.from({ length: 30 }, (_, i) => `deeply-nested-area-${i}`).join("/") + "/spec.feature";
+  const title = "Some Feature a reasonably long scenario title that is itself near the hundred char truncation limit yes";
+  const name = snapshotFileName(longSpec, title);
+
+  assert.ok(name.length <= 200, `filename must be <= 200 chars, got ${name.length}`);
+  // The split-on-"--" tail the backend relies on must be fully present.
+  const idx = name.indexOf("--");
+  assert.ok(idx >= 0, "the '--' separator must survive");
+  const tail = name.slice(idx + 2);
+  assert.match(tail, /^[A-Za-z0-9_\- ]+-[0-9a-f]{8}\.json\.gz$/,
+    "the <title>-<hash>.json.gz tail must be intact, not truncated");
+});

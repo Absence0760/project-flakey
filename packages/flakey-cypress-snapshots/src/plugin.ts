@@ -38,10 +38,18 @@ export function snapshotFileName(specFile: string, testTitle: string): string {
     .replace(/[^a-zA-Z0-9_\- ]/g, "")
     .replace(/\s+/g, "-")
     .slice(0, 100);
+  const hash = createHash("sha1").update(testTitle).digest("hex").slice(0, 8);
+  // Cap safeSpec so the whole `${safeSpec}--${safeName}-${hash}.json.gz` name
+  // stays within the backend's 200-char fixFilename truncation. A long spec
+  // path used to push the name past 200; the upload handler then truncated the
+  // tail (past the `--`), its indexOf("--") split returned the whole prefix as
+  // the title, the title-match never hit, and the snapshot was stored but never
+  // linked to a test row. Reserve room for the fixed-size tail.
+  const tail = "--".length + safeName.length + "-".length + hash.length + ".json.gz".length;
   const safeSpec = specFile
     .replace(/[^a-zA-Z0-9_\-./]/g, "")
-    .replace(/\//g, "__");
-  const hash = createHash("sha1").update(testTitle).digest("hex").slice(0, 8);
+    .replace(/\//g, "__")
+    .slice(0, Math.max(0, 200 - tail));
   return `${safeSpec}--${safeName}-${hash}.json.gz`;
 }
 

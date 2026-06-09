@@ -97,19 +97,38 @@ export function serializeDOM(doc: Document): string {
     }
   } catch {}
   try {
-    const styleSheets = Array.from(doc.styleSheets);
+    // Fold ONLY <link>-originated stylesheets into one inline <style>. Inline
+    // <style> elements are already in the clone — re-inlining them (the old
+    // code iterated every sheet) duplicated their rules. Track which sheet
+    // hrefs we actually captured so we remove only those <link>s.
+    const captured = new Set<string>();
     let cssText = "";
-    for (const sheet of styleSheets) {
-      try { cssText += Array.from(sheet.cssRules).map((r) => r.cssText).join("\n") + "\n"; } catch {}
+    for (const sheet of Array.from(doc.styleSheets)) {
+      if (!sheet.href) continue; // skip inline <style> sheets
+      try {
+        cssText += Array.from(sheet.cssRules).map((r) => r.cssText).join("\n") + "\n";
+        captured.add(sheet.href);
+      } catch {
+        // Cross-origin sheet: cssRules throws SecurityError. Leave its <link>
+        // in place (below) so the snapshot still references the external CSS
+        // rather than silently losing it.
+      }
     }
-    if (cssText) {
+    if (cssText && head) {
       const styleEl = doc.createElement("style");
       styleEl.setAttribute("data-flakey-inlined", "true");
       styleEl.textContent = cssText;
-      if (head) {
-        head.querySelectorAll('link[rel="stylesheet"]').forEach((l) => l.remove());
-        head.appendChild(styleEl);
-      }
+      // Remove only the <link>s whose CSS we inlined; keep uncaptured/cross-
+      // origin links. Resolve each link's href against the document base so the
+      // comparison is robust for detached (cloned) nodes.
+      head.querySelectorAll('link[rel="stylesheet"]').forEach((l) => {
+        const raw = l.getAttribute("href");
+        if (!raw) return;
+        let abs: string;
+        try { abs = new URL(raw, doc.baseURI).href; } catch { return; }
+        if (captured.has(abs)) l.remove();
+      });
+      head.appendChild(styleEl);
     }
   } catch {}
   return "<!DOCTYPE html>\n" + clone.outerHTML;
