@@ -1396,7 +1396,17 @@ router.post("/:id/sessions/:sessionId/results/:testId", async (req, res) => {
               notes = $2,
               step_results = $3::jsonb,
               run_by = $4,
-              run_at = NOW()
+              run_at = NOW(),
+              -- A re-record is a fresh observation, so any prior known-issue
+              -- acceptance no longer applies: clear it. Otherwise a result
+              -- accepted for failure A, then re-run and failing for reason B,
+              -- would inherit the deferral — silently dropping a brand-new
+              -- failure from the readiness gate and failures-only reruns. The
+              -- tester re-accepts if the new result still warrants deferral.
+              accepted_as_known_issue = FALSE,
+              known_issue_ref = NULL,
+              accepted_by = NULL,
+              accepted_at = NULL
         WHERE session_id = $5 AND manual_test_id = $6
         RETURNING id`,
       [
