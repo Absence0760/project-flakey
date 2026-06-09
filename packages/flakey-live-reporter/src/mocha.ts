@@ -302,8 +302,10 @@ export function register(
     if (runId && verbose) {
       const failed = results?.totalFailed ?? 0;
       const passed = results?.totalPassed ?? 0;
-      const total = results?.totalTests ?? 0;
-      const status = failed > 0 ? `${failed} failed, ${passed} passed` : `${total} passed`;
+      // Report the actual passed count, not totalTests — totalTests includes
+      // skipped/pending, so a clean run with skips would have overstated
+      // "N passed" (e.g. 8 passed + 2 skipped logged as "10 passed").
+      const status = failed > 0 ? `${failed} failed, ${passed} passed` : `${passed} passed`;
       console.log(`[flakey-live] Run #${runId} complete — ${status}`);
     }
   };

@@ -543,3 +543,27 @@ test("valid /live/start writes a readable run-id to the homedir fallback handoff
     try { rmSync(HOME_FILE, { force: true }); } catch { /* ignore */ }
   }
 });
+
+test("verbose run-complete log reports actual passed count, not totalTests (which includes skips)", async () => {
+  // Regression: the zero-failure branch logged `${totalTests} passed`, so a
+  // clean run with skipped/pending tests overstated the passed count
+  // (8 passed + 2 skipped was logged as "10 passed").
+  const { on, handlers } = makeOn();
+  register(on as any, { url: URL, apiKey: API_KEY, suite: SUITE, verbose: true });
+
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
+  try {
+    await handlers.get("before:run")!();
+    // 10 tests, 0 failed, 8 passed, 2 skipped.
+    await handlers.get("after:run")!({ totalFailed: 0, totalPassed: 8, totalTests: 10 });
+  } finally {
+    console.log = origLog;
+  }
+
+  const complete = logs.find((l) => l.includes("Run #") && l.includes("complete"));
+  assert.ok(complete, "verbose mode should log a run-complete line");
+  assert.match(complete!, /8 passed/, "reports the real passed count");
+  assert.doesNotMatch(complete!, /10 passed/, "must not use totalTests as the passed count");
+});
