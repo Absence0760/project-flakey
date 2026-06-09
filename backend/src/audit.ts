@@ -21,8 +21,15 @@ export async function logAudit(
     // row is a compliance gap. Log enough context (org, action, target) that a
     // persistent failure is greppable and alertable instead of a faceless
     // "Audit log failed". Detail is omitted: it can carry user-supplied values.
+    // Keep user-controlled values (action/target) out of the format-string
+    // position — a value containing a printf token (e.g. "%s") would otherwise
+    // capture the error arg. Constant format string, data passed as args.
     console.error(
-      `Audit log failed for org=${orgId} action=${action} target=${targetType ?? "-"}/${targetId ?? "-"}:`,
+      "Audit log failed for org=%s action=%s target=%s/%s:",
+      orgId,
+      action,
+      targetType ?? "-",
+      targetId ?? "-",
       err
     );
   }
