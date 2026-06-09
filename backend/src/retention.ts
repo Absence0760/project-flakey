@@ -22,12 +22,22 @@ export async function runRetentionCleanup(storage: Storage = getStorage()): Prom
         console.error(`Retention cleanup error for org ${org.id}:`, err);
       }
     }
-    // Clean up expired org invites
-    const invites = await pool.query(
-      "DELETE FROM org_invites WHERE expires_at < NOW()"
-    );
-    if (invites.rowCount && invites.rowCount > 0) {
-      console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
+    // Clean up expired org invites. Own error boundary: these two global
+    // prunes are unrelated maintenance tasks, so an invite-prune failure (a
+    // lock timeout, a transient DB error) must not skip the refresh-token
+    // prune below it. They previously shared one try block — a throw here fell
+    // through to the outer catch and silently skipped the token prune for the
+    // whole night. This extends the same per-org isolation discipline above to
+    // the global prunes.
+    try {
+      const invites = await pool.query(
+        "DELETE FROM org_invites WHERE expires_at < NOW()"
+      );
+      if (invites.rowCount && invites.rowCount > 0) {
+        console.log(`Retention: deleted ${invites.rowCount} expired invite(s)`);
+      }
+    } catch (err) {
+      console.error("Retention: expired-invite prune failed:", err);
     }
 
     // Prune long-dead refresh-token revocation rows. A revoked jti is only
@@ -35,12 +45,16 @@ export async function runRetentionCleanup(storage: Storage = getStorage()): Prom
     // 14 days can never gate a replay. The table is FORCE-RLS user-scoped, so
     // this system-level prune runs via maintenanceQuery (app.maintenance='on'),
     // which the migration-052 DELETE policy admits. Bounds table growth
-    // (the TODO from migration 037).
-    const revoked = await maintenanceQuery(
-      "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days'"
-    );
-    if (revoked.rowCount && revoked.rowCount > 0) {
-      console.log(`Retention: pruned ${revoked.rowCount} expired revoked-refresh-token row(s)`);
+    // (the TODO from migration 037). Own error boundary, as above.
+    try {
+      const revoked = await maintenanceQuery(
+        "DELETE FROM revoked_refresh_tokens WHERE revoked_at < NOW() - INTERVAL '14 days'"
+      );
+      if (revoked.rowCount && revoked.rowCount > 0) {
+        console.log(`Retention: pruned ${revoked.rowCount} expired revoked-refresh-token row(s)`);
+      }
+    } catch (err) {
+      console.error("Retention: revoked-refresh-token prune failed:", err);
     }
   } catch (err) {
     console.error("Retention cleanup error:", err);
