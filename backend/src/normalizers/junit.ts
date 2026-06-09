@@ -238,16 +238,31 @@ export function parseJUnit(
     .map((s) => s["@_timestamp"])
     .filter(Boolean)
     .sort();
-  const startedAt = meta.started_at || timestamps[0] || new Date().toISOString();
-  const totalSeconds = parsed.testsuites?.["@_time"]
-    ? parseFloat(parsed.testsuites["@_time"]) * 1000
+  // startedAt must be a representable ISO string. A garbage @_timestamp
+  // (e.g. "not-a-date") survives the Boolean filter above, and
+  // new Date("not-a-date").getTime() is NaN — feeding that into the
+  // finished_at math below makes new Date(NaN).toISOString() throw
+  // RangeError, 500-ing the whole upload (the same crash playwright.ts
+  // already guards against). Validate before trusting it.
+  const startedRaw = meta.started_at || timestamps[0] || new Date().toISOString();
+  const startedDate = new Date(startedRaw);
+  const startedAt = Number.isFinite(startedDate.getTime())
+    ? startedDate.toISOString()
+    : new Date().toISOString();
+
+  // parseSeconds guards a non-numeric @_time (parseFloat → NaN) down to 0,
+  // so a bad total-time attribute degrades to a zero-length run instead of
+  // poisoning the finished_at math with NaN. (Truthy guard preserves the
+  // original "fall back to summed duration when @_time is absent/empty".)
+  const totalMs = parsed.testsuites?.["@_time"]
+    ? parseSeconds(parsed.testsuites["@_time"])
     : durationMs;
 
   return {
     meta: {
       ...meta,
       started_at: startedAt,
-      finished_at: meta.finished_at || new Date(new Date(startedAt).getTime() + totalSeconds).toISOString(),
+      finished_at: meta.finished_at || new Date(new Date(startedAt).getTime() + totalMs).toISOString(),
       reporter: "junit",
     },
     stats: {
