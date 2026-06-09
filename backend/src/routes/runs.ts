@@ -4,6 +4,7 @@ import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
 import { postPRComment } from "../git-providers/index.js";
+import { evaluateAutoQuarantine } from "../auto-quarantine.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
 import { classifyRunStatus } from "../run-status.js";
 import type { NormalizedRun } from "../types.js";
@@ -144,6 +145,16 @@ router.post("/", async (req, res) => {
     });
 
     logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged, release: run.meta.release ?? null });
+
+    // Auto-quarantine BEFORE postPRComment so the soften-check logic in
+    // git-providers sees freshly auto-quarantined tests. Awaited (not
+    // fire-and-forget) for that ordering; its internal guard means it can never
+    // throw here, but keep a try/catch so it can never break the upload response.
+    try {
+      await evaluateAutoQuarantine(req.user!.orgId, run.meta.suite_name);
+    } catch (err) {
+      console.error("auto-quarantine evaluation error:", safeLog(err));
+    }
 
     // Only dispatch webhooks and PR comments after final merge
     // (they'll update in place if called multiple times for the same run)
