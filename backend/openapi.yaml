@@ -11,10 +11,12 @@ info:
     `pnpm openapi:check` drift check (and CI) flags a stale spec.
 
     Scope: this is a **seed** covering the core, integrator-facing surface (runs,
-    tests, errors, stats, flaky, compare, auth, health). Remaining routes
-    (integrations, releases, manual tests, live SSE, uploads, quarantine, views,
-    coverage, support) are TODO — add them here as the contract is migrated off
-    the hand-synced `frontend/src/lib/api.ts`. Run `pnpm endpoint-inventory` (the
+    tests, errors, stats, flaky, compare, auth, health) plus the two AI write
+    routes that open repo PRs / cluster failures (`/analyze/clusters`,
+    `/analyze/fix-pr`). Remaining routes (other `/analyze/*`, integrations,
+    releases, manual tests, live SSE, uploads, quarantine, views, coverage,
+    support) are TODO — add them here as the contract is migrated off the
+    hand-synced `frontend/src/lib/api.ts`. Run `pnpm endpoint-inventory` (the
     skill) for the full route list to work through.
 
     Auth: every endpoint except `/health`, `/auth/login`, and `/auth/register`
@@ -34,6 +36,13 @@ tags:
   - name: tests
   - name: errors
   - name: analytics
+  - name: ai
+    description: |
+      AI-assisted analysis. All AI runs against the instance-configured provider
+      (`AI_PROVIDER` / `AI_BASE_URL`) — point it at a local Ollama for a fully
+      air-gapped, no-egress deployment. AI is instance-wide, not per-org; when no
+      provider is configured these routes 503 on generation but still serve any
+      cached result. Generation is contributor+ (viewers 403).
 
 security:
   - bearerAuth: []
@@ -361,6 +370,106 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /analyze/clusters:
+    post:
+      tags: [ai]
+      summary: Group the org's distinct failed errors into root-cause clusters
+      description: |
+        Deterministic similarity clustering over the org's distinct failed-test
+        error messages (cost-free, works with AI off). When an AI provider is
+        configured, each multi-member cluster also gets a short cached "theme"
+        label + summary; singletons and viewer/AI-off callers get `theme: null`.
+        Cached themes are returned to everyone; theme generation is contributor+.
+      responses:
+        "200":
+          description: Clusters (most-recent first), capped at the 200 newest distinct errors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters:
+                    type: array
+                    items: { $ref: "#/components/schemas/ErrorCluster" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /analyze/fix-pr:
+    post:
+      tags: [ai]
+      summary: Open a DRAFT PR with an AI-proposed fix for a failing test
+      description: |
+        Resolves the target failing test (by `testId` or `fingerprint` —
+        exactly one), asks the configured AI provider to rewrite the offending
+        file, and opens a **draft** pull/merge request on the org's configured
+        git provider with the proposed change. Always a draft — never
+        auto-merged; a human reviews and merges.
+
+        Safety guards: the target file must be ≤ 40 000 chars (else 413); empty
+        or unchanged model output opens no PR (`created: false`); output under
+        half the original size is treated as a truncation and rejected (422).
+        Idempotent per `(org, target)` — a second call while a fix PR is still
+        open returns the existing one (`created: false, reason: "exists"`).
+
+        **Requires a git provider configured with WRITE / PR scope.** This is an
+        elevated, opt-in scope beyond the read-only PR-comment / Checks token —
+        see backend/docs/integrations.md. Contributor+ only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Provide exactly one of testId or fingerprint.
+              properties:
+                testId: { type: integer, description: A failed test row id }
+                fingerprint: { type: string, description: An error-group fingerprint }
+      responses:
+        "200":
+          description: |
+            Fix-PR outcome. `created: true` with the PR ref on success; `created:
+            false` (with a `reason`) when an open PR already exists or the model
+            produced no change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FixPrResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Viewer role — generating a fix PR is contributor+
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: No matching failed test with an error message
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: No git provider configured for the org
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Target file too large for an automated fix
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Target file not found in the repo, or the generated patch looked truncated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Git provider / model call failed mid-flow
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No AI provider configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -680,3 +789,45 @@ components:
         skipped: { type: integer }
         pending: { type: integer }
         duration_ms: { type: integer }
+
+    ErrorCluster:
+      type: object
+      description: A root-cause cluster of similar failed-test errors.
+      properties:
+        target_key: { type: string, description: Stable key for the cluster (caches the theme) }
+        theme:
+          type: [string, "null"]
+          description: AI-generated short label; null when AI is off, the caller is a viewer, or the cluster is a singleton
+        summary: { type: [string, "null"], description: AI-generated cluster summary (null in the same cases as theme) }
+        member_count: { type: integer }
+        total_occurrences: { type: integer, description: Sum of occurrence_count across all members }
+        representative_fingerprint: { type: string }
+        members:
+          type: array
+          description: Up to 20 member errors (error messages truncated)
+          items:
+            type: object
+            properties:
+              fingerprint: { type: string }
+              error_message: { type: string }
+              suite_name: { type: string }
+              occurrence_count: { type: integer }
+              status: { $ref: "#/components/schemas/ErrorStatus" }
+
+    FixPrResult:
+      type: object
+      description: |
+        Outcome of POST /analyze/fix-pr. On success `created` is true and the PR
+        ref fields are present; otherwise `created` is false with a `reason`
+        (`"exists"` = an open fix PR already exists; `"no change"` = the model
+        produced no edit).
+      required: [created]
+      properties:
+        created: { type: boolean }
+        reason:
+          type: string
+          enum: [exists, "no change"]
+          description: Present only when created is false
+        pr_url: { type: string }
+        pr_number: { type: integer }
+        branch: { type: string }

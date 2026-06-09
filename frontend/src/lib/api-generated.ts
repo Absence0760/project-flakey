@@ -699,6 +699,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analyze/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Group the org's distinct failed errors into root-cause clusters
+         * @description Deterministic similarity clustering over the org's distinct failed-test
+         *     error messages (cost-free, works with AI off). When an AI provider is
+         *     configured, each multi-member cluster also gets a short cached "theme"
+         *     label + summary; singletons and viewer/AI-off callers get `theme: null`.
+         *     Cached themes are returned to everyone; theme generation is contributor+.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Clusters (most-recent first), capped at the 200 newest distinct errors */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            clusters?: components["schemas"]["ErrorCluster"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analyze/fix-pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open a DRAFT PR with an AI-proposed fix for a failing test
+         * @description Resolves the target failing test (by `testId` or `fingerprint` —
+         *     exactly one), asks the configured AI provider to rewrite the offending
+         *     file, and opens a **draft** pull/merge request on the org's configured
+         *     git provider with the proposed change. Always a draft — never
+         *     auto-merged; a human reviews and merges.
+         *
+         *     Safety guards: the target file must be ≤ 40 000 chars (else 413); empty
+         *     or unchanged model output opens no PR (`created: false`); output under
+         *     half the original size is treated as a truncation and rejected (422).
+         *     Idempotent per `(org, target)` — a second call while a fix PR is still
+         *     open returns the existing one (`created: false, reason: "exists"`).
+         *
+         *     **Requires a git provider configured with WRITE / PR scope.** This is an
+         *     elevated, opt-in scope beyond the read-only PR-comment / Checks token —
+         *     see backend/docs/integrations.md. Contributor+ only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description A failed test row id */
+                        testId?: number;
+                        /** @description An error-group fingerprint */
+                        fingerprint?: string;
+                    };
+                };
+            };
+            responses: {
+                /**
+                 * @description Fix-PR outcome. `created: true` with the PR ref on success; `created:
+                 *     false` (with a `reason`) when an open PR already exists or the model
+                 *     produced no change.
+                 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FixPrResult"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                /** @description Viewer role — generating a fix PR is contributor+ */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No matching failed test with an error message */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No git provider configured for the org */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Target file too large for an automated fix */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Target file not found in the repo, or the generated patch looked truncated */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Git provider / model call failed mid-flow */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No AI provider configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -933,6 +1110,44 @@ export interface components {
             skipped: number;
             pending: number;
             duration_ms: number;
+        };
+        /** @description A root-cause cluster of similar failed-test errors. */
+        ErrorCluster: {
+            /** @description Stable key for the cluster (caches the theme) */
+            target_key?: string;
+            /** @description AI-generated short label; null when AI is off, the caller is a viewer, or the cluster is a singleton */
+            theme?: string | null;
+            /** @description AI-generated cluster summary (null in the same cases as theme) */
+            summary?: string | null;
+            member_count?: number;
+            /** @description Sum of occurrence_count across all members */
+            total_occurrences?: number;
+            representative_fingerprint?: string;
+            /** @description Up to 20 member errors (error messages truncated) */
+            members?: {
+                fingerprint?: string;
+                error_message?: string;
+                suite_name?: string;
+                occurrence_count?: number;
+                status?: components["schemas"]["ErrorStatus"];
+            }[];
+        };
+        /**
+         * @description Outcome of POST /analyze/fix-pr. On success `created` is true and the PR
+         *     ref fields are present; otherwise `created` is false with a `reason`
+         *     (`"exists"` = an open fix PR already exists; `"no change"` = the model
+         *     produced no edit).
+         */
+        FixPrResult: {
+            created: boolean;
+            /**
+             * @description Present only when created is false
+             * @enum {string}
+             */
+            reason?: "exists" | "no change";
+            pr_url?: string;
+            pr_number?: number;
+            branch?: string;
         };
     };
     responses: {
