@@ -246,7 +246,7 @@
     <select bind:value={selectedSuite} onchange={onSuiteChange}>
       <option value="all">All suites</option>
       {#each suites as suite}
-        <option value={suite}>{suite}</option>
+        <option value={suite}>{suite || "(no suite)"}</option>
       {/each}
     </select>
     <div class="filter-tabs">
