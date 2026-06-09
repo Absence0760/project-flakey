@@ -5,7 +5,7 @@
   import { authFetch } from "$lib/stores/auth";
   import { toast, toastError } from "$lib/stores/toast";
   import { API_URL as apiUrl } from "$lib/utils/config";
-  import { fetchAuditLog, fetchFlakyAutomationSettings, updateFlakyAutomationSettings, type AuditEntry, type AuditLogFilters, type FlakyAutomationSettings } from "$lib/api";
+  import { fetchAuditLog, fetchFlakyAutomationSettings, updateFlakyAutomationSettings, fetchWebhookEvents, type AuditEntry, type AuditLogFilters, type FlakyAutomationSettings, type WebhookEventOption } from "$lib/api";
 
   // Reactive auth state — re-reads after refresh or org switch so that
   // orgId, isOwner, and isAdmin never go stale.
@@ -215,15 +215,14 @@
   let newWhPlatform = $state("generic");
   let whTestResult = $state<{ id: number; ok: boolean } | null>(null);
 
-  // Selectable webhook events. Hardcoded here for now — ideally the backend
-  // would expose the canonical event list (e.g. GET /webhooks/events) so this
-  // can't drift from what the dispatcher actually emits; until then keep this
-  // in lockstep with the backend's emitted events.
-  const WEBHOOK_EVENTS: { value: string; label: string }[] = [
-    { value: "run.failed", label: "Run failed" },
-    { value: "flaky.detected", label: "Flaky detected" },
-    { value: "flaky.threshold.exceeded", label: "Flaky threshold exceeded" },
-  ];
+  // Selectable webhook events, fetched from the backend (GET /webhooks/events)
+  // so this picker can't drift from what the dispatcher actually emits. The
+  // `event` values round-trip straight back to POST/PATCH /webhooks.
+  let webhookEvents = $state<WebhookEventOption[]>([]);
+  async function loadWebhookEvents() {
+    try { webhookEvents = await fetchWebhookEvents(); }
+    catch { /* leave empty — the picker simply shows no options */ }
+  }
   function toggleWhEvent(ev: string) {
     newWhEvents = newWhEvents.includes(ev)
       ? newWhEvents.filter((e) => e !== ev)
@@ -538,7 +537,7 @@
     // loading). Kept synchronous so the scroll-listener cleanup below can
     // still be returned from onMount.
     const loaders = [loadMembers(), loadSuites(), loadKeys(), loadRetention(), loadAIStatus()];
-    if (isAdmin) { loaders.push(loadWebhooks(), loadGitProvider(), loadAudit(), loadFlakyAutomation()); }
+    if (isAdmin) { loaders.push(loadWebhooks(), loadWebhookEvents(), loadGitProvider(), loadAudit(), loadFlakyAutomation()); }
     void Promise.allSettled(loaders).then(() => { ready = true; });
 
     const onScroll = () => updateActiveSection();
@@ -840,8 +839,8 @@
                 <option value="teams">Teams</option>
                 <option value="discord">Discord</option>
               </select>
-              {#each WEBHOOK_EVENTS as ev}
-                <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes(ev.value)} onchange={() => toggleWhEvent(ev.value)} /> {ev.label}</label>
+              {#each webhookEvents as ev}
+                <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes(ev.event)} onchange={() => toggleWhEvent(ev.event)} /> {ev.label}</label>
               {/each}
               <button class="btn-primary" onclick={createWebhook} disabled={saving}>{saving ? "Adding..." : "Add"}</button>
             </div>

@@ -6,6 +6,7 @@
 // prefer importing the generated types here as routes are migrated.
 import { authFetch, getToken } from "./stores/auth";
 import { API_URL } from "./utils/config.js";
+import type { components } from "./api-generated";
 
 // Prefer the server's `{ error }` message over a bare status code so users see
 // "Run not found" instead of "Failed to fetch run: 404". Falls back to the
@@ -654,6 +655,49 @@ export async function fetchErrorClusters(): Promise<ErrorCluster[]> {
   if (!res.ok) throw new Error("Analysis failed");
   const data = await res.json() as { clusters: ErrorCluster[] };
   return data.clusters;
+}
+
+// --- AI-generated fix PR (B3) ---
+// Pass exactly one of testId / fingerprint. The PR is always a reviewable draft,
+// never auto-merged. Type comes from openapi.yaml (the route is in the spec).
+export type FixPrResult = components["schemas"]["FixPrResult"];
+
+export async function createFixPr(
+  params: { testId?: number; fingerprint?: string },
+): Promise<FixPrResult> {
+  const res = await authFetch(`${API_URL}/analyze/fix-pr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    // Surface the backend's specific message ("No git provider configured",
+    // "File too large for automated fix", etc.) so the UI can show it.
+    let message = "Failed to open fix PR";
+    try {
+      const data = await res.json() as { error?: string };
+      if (data?.error) message = data.error;
+    } catch { /* non-JSON body — keep the generic message */ }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+// --- Webhook event catalog ---
+// The canonical list of dispatchable webhook events + friendly labels, served
+// by the backend so the settings picker can't drift from what the dispatcher
+// actually emits. These `event` values round-trip directly to POST/PATCH
+// /webhooks.
+export interface WebhookEventOption {
+  event: string;
+  label: string;
+}
+
+export async function fetchWebhookEvents(): Promise<WebhookEventOption[]> {
+  const res = await authFetch(`${API_URL}/webhooks/events`);
+  if (!res.ok) throw new Error("Failed to load webhook events");
+  const data = await res.json() as { events: WebhookEventOption[] };
+  return data.events;
 }
 
 // --- Quarantine ---

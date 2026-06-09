@@ -3,10 +3,12 @@
   import { timeAgo } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
-  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster } from "$lib/api";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult } from "$lib/api";
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
   import { classificationLabels } from "$lib/utils/ai";
+  import { toast, toastInfo, toastError } from "$lib/stores/toast";
+  import { safeHref } from "$lib/utils/safe-url";
 
   let errors = $state<ErrorGroup[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -18,6 +20,9 @@
   let aiLoading = $state<Record<string, boolean>>({});
   let similarResults = $state<Record<string, SimilarError[]>>({});
   let similarLoading = $state<Record<string, boolean>>({});
+  // AI-generated fix-PR (B3), keyed by fingerprint.
+  let fixPrLoading = $state<Record<string, boolean>>({});
+  let fixPrResults = $state<Record<string, FixPrResult>>({});
 
   // Root-cause clustering (B2). The flat list is the default view; toggling
   // "Group by root cause" lazily fetches clusters. Clusters group on the
@@ -180,6 +185,23 @@
       similarResults = { ...similarResults, [fingerprint]: result };
     } catch { /* ignore */ }
     similarLoading = { ...similarLoading, [fingerprint]: false };
+  }
+
+  // Open a DRAFT, AI-generated fix PR for this error group. The backend never
+  // merges — it opens a reviewable draft. Surface the specific backend message
+  // on the failure cases (no git provider, file too large, etc.).
+  async function handleOpenFixPr(fingerprint: string) {
+    fixPrLoading = { ...fixPrLoading, [fingerprint]: true };
+    try {
+      const result = await createFixPr({ fingerprint });
+      fixPrResults = { ...fixPrResults, [fingerprint]: result };
+      if (result.created) toast("Draft fix PR opened");
+      else if (result.reason === "exists") toastInfo("A fix PR is already open for this error");
+      else toastInfo("AI produced no change — nothing to open");
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Failed to open fix PR");
+    }
+    fixPrLoading = { ...fixPrLoading, [fingerprint]: false };
   }
 
 
@@ -546,6 +568,26 @@
                   {similarLoading[err.fingerprint] ? "Searching..." : "Find similar failures"}
                 </button>
               {/if}
+
+              <!-- Fix PR: opens a DRAFT, AI-generated pull request on the org's
+                   git provider. Always a draft — reviewed before merge. -->
+              {#if fixPrResults[err.fingerprint]?.created}
+                {@const fp = fixPrResults[err.fingerprint]}
+                {@const href = safeHref(fp.pr_url)}
+                <p class="fixpr-result">
+                  Draft fix PR opened{#if fp.branch} on <code>{fp.branch}</code>{/if}.
+                  {#if href}<a href={href} target="_blank" rel="noopener noreferrer">View PR #{fp.pr_number}</a>{/if}
+                </p>
+              {:else}
+                <button
+                  class="btn-fixpr"
+                  onclick={() => handleOpenFixPr(err.fingerprint)}
+                  disabled={fixPrLoading[err.fingerprint]}
+                  title="Generate a draft, AI-written pull request that proposes a fix. Review before merging."
+                >
+                  {fixPrLoading[err.fingerprint] ? "Opening draft PR..." : "Open AI fix PR (draft)"}
+                </button>
+              {/if}
             </div>
           {/if}
 
@@ -808,13 +850,16 @@
   /* AI Analysis */
   .ai-section { padding: 0.75rem 0; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 0.5rem; }
 
-  .btn-analyze, .btn-similar {
+  .btn-analyze, .btn-similar, .btn-fixpr {
     padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text-secondary); font-size: 0.78rem;
     cursor: pointer; align-self: flex-start;
   }
-  .btn-analyze:hover, .btn-similar:hover { background: var(--bg-hover); color: var(--text); }
-  .btn-analyze:disabled, .btn-similar:disabled { opacity: 0.5; cursor: wait; }
+  .btn-analyze:hover, .btn-similar:hover, .btn-fixpr:hover { background: var(--bg-hover); color: var(--text); }
+  .btn-analyze:disabled, .btn-similar:disabled, .btn-fixpr:disabled { opacity: 0.5; cursor: wait; }
+
+  .fixpr-result { font-size: 0.78rem; color: var(--text-secondary); margin: 0; }
+  .fixpr-result code { font-size: 0.72rem; padding: 0.05rem 0.3rem; border-radius: 4px; background: var(--bg-hover); }
 
   .ai-result {
     padding: 0.65rem; background: color-mix(in srgb, var(--link) 5%, transparent);
