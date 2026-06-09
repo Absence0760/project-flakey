@@ -150,7 +150,15 @@ export function parseMochawesome(
       passed: specs.reduce((s, sp) => s + sp.stats.passed, 0),
       failed: specs.reduce((s, sp) => s + sp.stats.failed, 0),
       skipped: specs.reduce((s, sp) => s + sp.stats.skipped, 0),
-      pending: stats.pending ?? 0,
+      // Sum pending from the per-spec tallies (derived from each test's actual
+      // status), NOT the report's self-reported stats.pending. Every other
+      // counter here is spec-derived, so pulling pending from stats.pending
+      // alone breaks the total === passed+failed+skipped+pending invariant
+      // whenever the reporter's pending count disagrees with the per-test flags
+      // (a known mochawesome/Cypress quirk). This also matches what the merge
+      // path (run-merge.ts recalculateRunStats) recomputes, so a single upload
+      // and a later shard-merged run agree. Siblings jest/webdriverio do the same.
+      pending: specs.reduce((s, sp) => s + sp.stats.pending, 0),
       duration_ms: specs.reduce((s, sp) => s + sp.stats.duration_ms, 0),
     },
     specs,
