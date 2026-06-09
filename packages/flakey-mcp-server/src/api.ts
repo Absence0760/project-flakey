@@ -11,7 +11,7 @@
 export type Api = (path: string, opts?: RequestInit) => Promise<unknown>;
 
 export function createApi(url: string, apiKey: string): Api {
-  const baseUrl = url.replace(/\/$/, "");
+  const baseUrl = url.replace(/\/+$/, "");
   return async function api(path: string, opts?: RequestInit): Promise<unknown> {
     const res = await fetch(`${baseUrl}${path}`, {
       ...opts,

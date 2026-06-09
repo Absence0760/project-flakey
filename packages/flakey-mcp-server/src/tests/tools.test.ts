@@ -138,8 +138,8 @@ test("get_flaky_tests builds the querystring from optional suite + runs", async 
   const tool = tools.find((t) => t.name === "get_flaky_tests")!;
 
   await tool.handler({});
-  assert.equal(apiHelper.calls[0].path, "/flaky?",
-    "no filters → empty querystring");
+  assert.equal(apiHelper.calls[0].path, "/flaky",
+    "no filters → no querystring at all (not a bare trailing '?')");
 
   await tool.handler({ suite: "auth-e2e" });
   assert.equal(apiHelper.calls[1].path, "/flaky?suite=auth-e2e");
@@ -210,8 +210,10 @@ test("get_quarantined_tests URL-encodes special chars in suite name (%, /, space
   await tools.find((t) => t.name === "get_quarantined_tests")!.handler({
     suite: "auth & checkout/v2",
   });
-  assert.equal(apiHelper.calls[0].path, "/quarantine?suite=auth%20%26%20checkout%2Fv2",
-    "raw suite names with special chars must be encodeURIComponent'd, not concatenated");
+  // URLSearchParams encoding (consistent across every tool now): space → "+",
+  // "&" → "%26", "/" → "%2F". The backend decodes both "+" and "%20" as space.
+  assert.equal(apiHelper.calls[0].path, "/quarantine?suite=auth+%26+checkout%2Fv2",
+    "raw suite names with special chars must be query-encoded, not concatenated");
 });
 
 test("analyze_error (mutation gate ON) POSTs /analyze/error/<fingerprint>", async () => {
@@ -246,8 +248,8 @@ test("get_stats composes optional from + to date params", async () => {
 
   const tool = tools.find((t) => t.name === "get_stats")!;
   await tool.handler({});
-  assert.equal(apiHelper.calls[0].path, "/stats?",
-    "no filters → empty querystring");
+  assert.equal(apiHelper.calls[0].path, "/stats",
+    "no filters → no querystring at all (not a bare trailing '?')");
 
   await tool.handler({ from: "2026-01-01" });
   assert.equal(apiHelper.calls[1].path, "/stats?from=2026-01-01");
@@ -375,8 +377,9 @@ test("get_slowest_tests percent-encodes a suite name with spaces + ampersand", a
   await tools.find((t) => t.name === "get_slowest_tests")!.handler({
     suite: "auth & checkout",
   });
-  // encodeURIComponent: space → %20, & → %26 (on the real /tests/slowest/list route)
-  assert.equal(apiHelper.calls[0].path, "/tests/slowest/list?suite=auth%20%26%20checkout");
+  // URLSearchParams encoding (now consistent with every other tool): space → +,
+  // & → %26 (on the real /tests/slowest/list route).
+  assert.equal(apiHelper.calls[0].path, "/tests/slowest/list?suite=auth+%26+checkout");
 });
 
 test("get_stats percent-encodes special chars in date params via URLSearchParams", async () => {
@@ -425,6 +428,33 @@ test("get_run's declared schema rejects a non-numeric run_id (model passed a str
   assert.equal(parsed.success, false, "run_id must be a number, not a numeric string");
   assert.match(JSON.stringify(parsed.error!.issues), /run_id/,
     "the validation error must name the offending field so the model can correct it");
+});
+
+test("get_flaky_tests' schema rejects runs=0 and negatives (must be a positive int)", () => {
+  // Regression: the handler used `if (runs)`, which is falsy for 0, so a
+  // model passing runs:0 silently got the backend default (30) with no signal.
+  // The schema now rejects 0 (and negatives / non-integers) up front.
+  const { server, tools } = fakeServer();
+  const { api } = fakeApi();
+  registerTools(server, { api, log: () => {} });
+
+  const schema = z.object(tools.find((t) => t.name === "get_flaky_tests")!.args as z.ZodRawShape);
+  assert.equal(schema.safeParse({ runs: 0 }).success, false, "runs:0 must be rejected");
+  assert.equal(schema.safeParse({ runs: -5 }).success, false, "negative runs must be rejected");
+  assert.equal(schema.safeParse({ runs: 2.5 }).success, false, "non-integer runs must be rejected");
+  assert.equal(schema.safeParse({ runs: 30 }).success, true, "a valid positive int passes");
+  assert.equal(schema.safeParse({}).success, true, "runs is optional — omitting it is fine");
+});
+
+test("get_test_artifacts no longer declares an unused run_id arg", () => {
+  // The backend GET /tests/:id takes no run id; the param did nothing but cost
+  // model tokens and imply the run scoped the query. It was removed.
+  const { server, tools } = fakeServer();
+  const { api } = fakeApi();
+  registerTools(server, { api, log: () => {} });
+
+  const argKeys = Object.keys(tools.find((t) => t.name === "get_test_artifacts")!.args);
+  assert.deepEqual(argKeys, ["test_id"], "only test_id is declared — no dangling run_id");
 });
 
 test("predict_tests' schema rejects changed_files when it's a string instead of string[]", async () => {

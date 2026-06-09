@@ -57,6 +57,16 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
   // already absolute (returned unchanged); local-storage paths are relative
   // keys that hang off the uploads base. With no base configured, the raw
   // path is returned so the field is never silently dropped.
+  // Append a query string only when there's at least one param. URLSearchParams
+  // stringifies to "" when empty, so `${path}?${params}` would emit a bare
+  // trailing "?" (e.g. "/flaky?") for a no-arg call — semantically wrong and a
+  // cache-key splitter on any proxy that distinguishes "?" from no query. Also
+  // gives every tool one consistent encoding (URLSearchParams, space → "+").
+  const withQuery = (path: string, params: URLSearchParams): string => {
+    const qs = params.toString();
+    return qs ? `${path}?${qs}` : path;
+  };
+
   const toArtifactUrl = (p: string | null | undefined): string | null => {
     if (!p) return null;
     if (/^https?:\/\//.test(p)) return p;
@@ -109,13 +119,16 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
     "List flaky tests — tests that alternate between passing and failing. Shows flaky rate, flip count, and timeline.",
     {
       suite: z.string().optional().describe("Filter by suite name"),
-      runs: z.number().optional().describe("Number of recent runs to analyze (default 30)"),
+      runs: z.number().int().positive().optional().describe("Number of recent runs to analyze (default 30)"),
     },
     async ({ suite, runs }) => {
       const params = new URLSearchParams();
       if (suite) params.set("suite", suite);
-      if (runs) params.set("runs", String(runs));
-      const result = await api(`/flaky?${params}`);
+      // `if (runs !== undefined)` not `if (runs)` — a literal 0 is now rejected
+      // by the schema (.int().positive()), but the explicit check keeps the
+      // param from being silently dropped should the bound ever loosen.
+      if (runs !== undefined) params.set("runs", String(runs));
+      const result = await api(withQuery("/flaky", params));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -131,7 +144,7 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
       const params = new URLSearchParams();
       if (suite) params.set("suite", suite);
       if (status) params.set("status", status);
-      const result = await api(`/errors?${params}`);
+      const result = await api(withQuery("/errors", params));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -167,8 +180,9 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
     "List tests that are quarantined (skipped in CI due to flakiness).",
     { suite: z.string().optional().describe("Filter by suite name") },
     async ({ suite }) => {
-      const params = suite ? `?suite=${encodeURIComponent(suite)}` : "";
-      const result = await api(`/quarantine${params}`);
+      const params = new URLSearchParams();
+      if (suite) params.set("suite", suite);
+      const result = await api(withQuery("/quarantine", params));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -189,8 +203,9 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
     "List the slowest tests with P50/P95/P99 duration stats and trend analysis.",
     { suite: z.string().optional().describe("Filter by suite name") },
     async ({ suite }) => {
-      const params = suite ? `?suite=${encodeURIComponent(suite)}` : "";
-      const result = await api(`/tests/slowest/list${params}`);
+      const params = new URLSearchParams();
+      if (suite) params.set("suite", suite);
+      const result = await api(withQuery("/tests/slowest/list", params));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -206,7 +221,7 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
       const params = new URLSearchParams();
       if (from) params.set("from", from);
       if (to) params.set("to", to);
-      const result = await api(`/stats?${params}`);
+      const result = await api(withQuery("/stats", params));
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -216,7 +231,6 @@ export function registerTools(server: ToolServer, opts: RegisterToolsOpts): void
     "Pull all diagnostic evidence for a single test result: screenshot/video/DOM-snapshot URLs, the command log, and (for Cypress) the captured failure context — browser console output, uncaught errors, failed network requests, and the per-attempt retry trail. Use this to diagnose one specific failure after get_run points you at it.",
     {
       test_id: z.number().describe("The test ID (from get_run's specs[].tests[].id)"),
-      run_id: z.number().optional().describe("The run the test belongs to (optional; for context only)"),
     },
     async ({ test_id }) => {
       const test = (await api(`/tests/${test_id}`)) as Record<string, any>;
