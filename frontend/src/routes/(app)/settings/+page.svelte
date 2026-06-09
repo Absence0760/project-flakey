@@ -5,7 +5,7 @@
   import { authFetch } from "$lib/stores/auth";
   import { toast, toastError } from "$lib/stores/toast";
   import { API_URL as apiUrl } from "$lib/utils/config";
-  import { fetchAuditLog, type AuditEntry, type AuditLogFilters } from "$lib/api";
+  import { fetchAuditLog, fetchFlakyAutomationSettings, updateFlakyAutomationSettings, type AuditEntry, type AuditLogFilters, type FlakyAutomationSettings } from "$lib/api";
 
   // Reactive auth state — re-reads after refresh or org switch so that
   // orgId, isOwner, and isAdmin never go stale.
@@ -215,6 +215,21 @@
   let newWhPlatform = $state("generic");
   let whTestResult = $state<{ id: number; ok: boolean } | null>(null);
 
+  // Selectable webhook events. Hardcoded here for now — ideally the backend
+  // would expose the canonical event list (e.g. GET /webhooks/events) so this
+  // can't drift from what the dispatcher actually emits; until then keep this
+  // in lockstep with the backend's emitted events.
+  const WEBHOOK_EVENTS: { value: string; label: string }[] = [
+    { value: "run.failed", label: "Run failed" },
+    { value: "flaky.detected", label: "Flaky detected" },
+    { value: "flaky.threshold.exceeded", label: "Flaky threshold exceeded" },
+  ];
+  function toggleWhEvent(ev: string) {
+    newWhEvents = newWhEvents.includes(ev)
+      ? newWhEvents.filter((e) => e !== ev)
+      : [...newWhEvents, ev];
+  }
+
   function detectPlatform(url: string): string {
     if (url.includes("hooks.slack.com")) return "slack";
     if (url.includes("webhook.office.com") || url.includes("logic.azure.com")) return "teams";
@@ -306,6 +321,54 @@
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retention_days: value }) });
     if (res.ok) { toast("Retention settings saved"); retentionSaved = true; setTimeout(() => retentionSaved = false, 2000); }
     else toastError("Failed to save retention settings");
+  }
+
+  // --- Flaky automation (migration 060) ---
+  // Auto-quarantine thresholds + the flaky-rate alert threshold. min_flips /
+  // min_runs only matter when auto-quarantine is on, so they're shown then.
+  // The alert threshold is bound as a string so an empty box means "off"
+  // (persisted as null) rather than 0.
+  let autoQuarantineEnabled = $state(false);
+  let autoQuarantineMinFlips = $state<string>("4");
+  let autoQuarantineMinRuns = $state<string>("10");
+  let flakyAlertThreshold = $state<string>("");
+  let flakySaved = $state(false);
+  let flakyError = $state<string | null>(null);
+
+  async function loadFlakyAutomation() {
+    if (orgId == null) return;
+    try {
+      const s = await fetchFlakyAutomationSettings(orgId);
+      autoQuarantineEnabled = s.auto_quarantine_enabled;
+      autoQuarantineMinFlips = String(s.auto_quarantine_min_flips);
+      autoQuarantineMinRuns = String(s.auto_quarantine_min_runs);
+      flakyAlertThreshold = s.flaky_alert_threshold == null ? "" : String(s.flaky_alert_threshold);
+    } catch { /* surfaced on save; leave defaults */ }
+  }
+
+  async function saveFlakyAutomation() {
+    if (orgId == null) return;
+    flakyError = null;
+    const patch: Partial<FlakyAutomationSettings> = {
+      auto_quarantine_enabled: autoQuarantineEnabled,
+      flaky_alert_threshold: flakyAlertThreshold.trim() === "" ? null : Number(flakyAlertThreshold),
+    };
+    // Only send the threshold knobs when auto-quarantine is enabled — they're
+    // hidden otherwise and carry the last-loaded value, which we still persist
+    // so re-enabling restores the operator's numbers.
+    if (autoQuarantineEnabled) {
+      patch.auto_quarantine_min_flips = Number(autoQuarantineMinFlips);
+      patch.auto_quarantine_min_runs = Number(autoQuarantineMinRuns);
+    }
+    try {
+      await updateFlakyAutomationSettings(orgId, patch);
+      toast("Flaky automation saved");
+      flakySaved = true;
+      setTimeout(() => flakySaved = false, 2000);
+    } catch (e) {
+      flakyError = e instanceof Error ? e.message : "Failed to save flaky automation";
+      toastError(flakyError);
+    }
   }
 
   // --- Audit ---
@@ -435,6 +498,7 @@
     { id: 'suites', label: 'Suites', adminOnly: true },
     { id: 'notifications', label: 'Notifications', adminOnly: true },
     { id: 'pr-comments', label: 'PR comments', adminOnly: true },
+    { id: 'flaky-automation', label: 'Flaky automation', adminOnly: true },
     { id: 'retention', label: 'Data retention', adminOnly: true },
     { id: 'api-keys', label: 'API keys' },
     { id: 'api-endpoint', label: 'API endpoint' },
@@ -474,7 +538,7 @@
     // loading). Kept synchronous so the scroll-listener cleanup below can
     // still be returned from onMount.
     const loaders = [loadMembers(), loadSuites(), loadKeys(), loadRetention(), loadAIStatus()];
-    if (isAdmin) { loaders.push(loadWebhooks(), loadGitProvider(), loadAudit()); }
+    if (isAdmin) { loaders.push(loadWebhooks(), loadGitProvider(), loadAudit(), loadFlakyAutomation()); }
     void Promise.allSettled(loaders).then(() => { ready = true; });
 
     const onScroll = () => updateActiveSection();
@@ -776,8 +840,9 @@
                 <option value="teams">Teams</option>
                 <option value="discord">Discord</option>
               </select>
-              <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes("run.failed")} onchange={() => { newWhEvents = newWhEvents.includes("run.failed") ? newWhEvents.filter(e => e !== "run.failed") : [...newWhEvents, "run.failed"]; }} /> Run failed</label>
-              <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes("flaky.detected")} onchange={() => { newWhEvents = newWhEvents.includes("flaky.detected") ? newWhEvents.filter(e => e !== "flaky.detected") : [...newWhEvents, "flaky.detected"]; }} /> Flaky detected</label>
+              {#each WEBHOOK_EVENTS as ev}
+                <label class="checkbox-label"><input type="checkbox" checked={newWhEvents.includes(ev.value)} onchange={() => toggleWhEvent(ev.value)} /> {ev.label}</label>
+              {/each}
               <button class="btn-primary" onclick={createWebhook} disabled={saving}>{saving ? "Adding..." : "Add"}</button>
             </div>
             {#if webhooksLoading}
@@ -842,6 +907,50 @@
             {:else}
               <p class="muted" style="margin-top: 0.25rem">Select a platform to configure PR comments.</p>
             {/if}
+          </div>
+        </section>
+
+        <!-- ═══ Flaky Automation ═══ -->
+        <section id="flaky-automation" class="settings-section">
+          <header class="section-header">
+            <div>
+              <h2 class="section-title">Flaky automation</h2>
+              <p class="section-subtitle">Automatically quarantine persistently-flaky tests and alert when a test's flaky rate crosses a threshold.</p>
+            </div>
+          </header>
+
+          <div class="card">
+            <label class="toggle-row">
+              <input type="checkbox" bind:checked={autoQuarantineEnabled} />
+              <span class="toggle-text">
+                <span class="toggle-title">Auto-quarantine flaky tests</span>
+                <span class="toggle-sub">When on, a test that keeps flipping pass/fail is quarantined automatically (marked <code>auto</code>).</span>
+              </span>
+            </label>
+
+            {#if autoQuarantineEnabled}
+              <div class="row-form" style="margin-top: 0.75rem">
+                <label class="num-field">
+                  <span class="field-label">Min flips</span>
+                  <input type="number" bind:value={autoQuarantineMinFlips} min="1" max="1000" />
+                </label>
+                <label class="num-field">
+                  <span class="field-label">Min runs</span>
+                  <input type="number" bind:value={autoQuarantineMinRuns} min="1" max="1000" />
+                </label>
+                <span class="muted" style="font-size:0.78rem">Quarantine after ≥{autoQuarantineMinFlips || "?"} flips across ≥{autoQuarantineMinRuns || "?"} runs.</span>
+              </div>
+            {/if}
+
+            <div class="row-form" style="margin-top: 0.75rem; margin-bottom: 0">
+              <label class="num-field">
+                <span class="field-label">Flaky-rate alert threshold (%)</span>
+                <input type="number" bind:value={flakyAlertThreshold} placeholder="Off" min="0" max="100" step="0.1" />
+              </label>
+              <button class="btn-primary" onclick={saveFlakyAutomation}>{flakySaved ? "Saved" : "Save"}</button>
+              <span class="muted" style="font-size:0.78rem">{flakyAlertThreshold.trim() === "" ? "Alerting off — leave empty to disable" : `Fire flaky.threshold.exceeded when a test's flaky rate ≥ ${flakyAlertThreshold}%`}</span>
+            </div>
+            {#if flakyError}<p class="form-error" style="margin-top: 0.75rem; margin-bottom: 0">{flakyError}</p>{/if}
           </div>
         </section>
 
@@ -1171,6 +1280,21 @@
   .checkbox-label {
     display: flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--text-secondary); white-space: nowrap;
   }
+
+  /* Flaky automation: a labelled toggle row + compact labelled number inputs. */
+  .toggle-row { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; }
+  .toggle-row input[type="checkbox"] { margin-top: 0.2rem; flex-shrink: 0; }
+  .toggle-text { display: flex; flex-direction: column; gap: 0.15rem; }
+  .toggle-title { font-size: 0.85rem; font-weight: 500; color: var(--text); }
+  .toggle-sub { font-size: 0.75rem; color: var(--text-muted); }
+  .toggle-sub code { font-size: 0.72rem; background: var(--bg-secondary); padding: 0.05rem 0.3rem; border-radius: 3px; }
+  .num-field { display: flex; flex-direction: column; gap: 0.2rem; }
+  .num-field .field-label { font-size: 0.72rem; color: var(--text-muted); }
+  .num-field input[type="number"] {
+    padding: 0.45rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 0.825rem; outline: none; width: 120px;
+  }
+  .num-field input[type="number"]:focus { border-color: var(--link); }
 
   .form-error {
     margin: 0 0 0.75rem; padding: 0.4rem 0.65rem; background: var(--error-bg);

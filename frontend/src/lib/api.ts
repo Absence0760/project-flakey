@@ -662,6 +662,47 @@ export async function unquarantineTest(fullTitle: string, suiteName: string): Pr
   });
 }
 
+// --- Org flaky-automation settings ---
+//
+// Read/written via the shared GET/PATCH /orgs/:id/settings route (same
+// endpoint that backs git-provider + retention). All four fields come from
+// migration 060. `flaky_alert_threshold` is a Postgres `numeric`, which
+// serializes to JSON as a string (e.g. "25") or null — coerce on read.
+export interface FlakyAutomationSettings {
+  auto_quarantine_enabled: boolean;
+  auto_quarantine_min_flips: number;
+  auto_quarantine_min_runs: number;
+  // null = alerting disabled.
+  flaky_alert_threshold: number | null;
+}
+
+export async function fetchFlakyAutomationSettings(orgId: number): Promise<FlakyAutomationSettings> {
+  const res = await authFetch(`${API_URL}/orgs/${orgId}/settings`);
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to load flaky-automation settings"));
+  const data = await res.json();
+  const threshold = data.flaky_alert_threshold;
+  return {
+    auto_quarantine_enabled: !!data.auto_quarantine_enabled,
+    auto_quarantine_min_flips: Number(data.auto_quarantine_min_flips),
+    auto_quarantine_min_runs: Number(data.auto_quarantine_min_runs),
+    flaky_alert_threshold: threshold == null ? null : Number(threshold),
+  };
+}
+
+// Partial PATCH — send only the fields that changed. `flaky_alert_threshold:
+// null` disables alerting. The backend validates/clamps each field.
+export async function updateFlakyAutomationSettings(
+  orgId: number,
+  patch: Partial<FlakyAutomationSettings>,
+): Promise<void> {
+  const res = await authFetch(`${API_URL}/orgs/${orgId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to save flaky-automation settings"));
+}
+
 // --- Audit log ---
 
 export interface AuditEntry {

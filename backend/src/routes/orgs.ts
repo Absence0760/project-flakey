@@ -327,7 +327,9 @@ router.get("/:id/settings", async (req, res) => {
       return;
     }
     const result = await pool.query(
-      "SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token FROM organizations WHERE id = $1",
+      `SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token,
+              auto_quarantine_enabled, auto_quarantine_min_flips, auto_quarantine_min_runs, flaky_alert_threshold
+       FROM organizations WHERE id = $1`,
       [req.params.id]
     );
     if (result.rows.length === 0) {
@@ -417,6 +419,60 @@ router.patch("/:id/settings", async (req, res) => {
       sets.push(`git_base_url = $${i++}`);
       params.push(raw || null);
       changed.git_base_url = raw || null;
+    }
+    if (req.body.auto_quarantine_enabled !== undefined) {
+      // Strict boolean only — reject a truthy string / number so a typo'd
+      // payload doesn't silently flip the automation on.
+      if (typeof req.body.auto_quarantine_enabled !== "boolean") {
+        res.status(400).json({ error: "auto_quarantine_enabled must be a boolean" });
+        return;
+      }
+      sets.push(`auto_quarantine_enabled = $${i++}`);
+      params.push(req.body.auto_quarantine_enabled);
+      changed.auto_quarantine_enabled = req.body.auto_quarantine_enabled;
+    }
+    if (req.body.auto_quarantine_min_flips !== undefined) {
+      // Positive int, clamped to [1, 1000] (mirrors coverage_threshold's
+      // clamp-don't-reject style). Non-numeric → 400 rather than a NaN cast.
+      const n = Number(req.body.auto_quarantine_min_flips);
+      if (!Number.isInteger(n)) {
+        res.status(400).json({ error: "auto_quarantine_min_flips must be an integer" });
+        return;
+      }
+      const v = Math.max(1, Math.min(1000, n));
+      sets.push(`auto_quarantine_min_flips = $${i++}`);
+      params.push(v);
+      changed.auto_quarantine_min_flips = v;
+    }
+    if (req.body.auto_quarantine_min_runs !== undefined) {
+      const n = Number(req.body.auto_quarantine_min_runs);
+      if (!Number.isInteger(n)) {
+        res.status(400).json({ error: "auto_quarantine_min_runs must be an integer" });
+        return;
+      }
+      const v = Math.max(1, Math.min(1000, n));
+      sets.push(`auto_quarantine_min_runs = $${i++}`);
+      params.push(v);
+      changed.auto_quarantine_min_runs = v;
+    }
+    if (req.body.flaky_alert_threshold !== undefined) {
+      // null / "" disables the alert; otherwise a number clamped to [0, 100]
+      // (it's a flaky-rate percentage). Non-numeric → 400.
+      const raw = req.body.flaky_alert_threshold;
+      let value: number | null;
+      if (raw === null || raw === "") {
+        value = null;
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          res.status(400).json({ error: "flaky_alert_threshold must be a number or null" });
+          return;
+        }
+        value = Math.max(0, Math.min(100, n));
+      }
+      sets.push(`flaky_alert_threshold = $${i++}`);
+      params.push(value);
+      changed.flaky_alert_threshold = value;
     }
 
     if (sets.length === 0) {
