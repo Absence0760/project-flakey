@@ -356,19 +356,32 @@ router.post("/similar/:fingerprint", async (req, res) => {
 
     const targetMessage = target.rows[0].error_message;
 
-    // Get other distinct errors
+    // Get other distinct errors. Dedup is by error_message (one row per
+    // distinct message, regardless of suite). Both the per-message representative
+    // AND the 200-row cap are made deterministic with explicit ORDER BYs —
+    // otherwise `DISTINCT ON` picks an arbitrary suite/fingerprint/count for a
+    // message that spans multiple suites, and `LIMIT` keeps an arbitrary subset,
+    // so two identical calls could disagree (the handler is documented as a
+    // deterministic scan). Inner ORDER BY → the most-recent occurrence is the
+    // representative; outer ORDER BY → the most-recent messages survive the cap.
     const others = await tenantQuery(orgId,
-      `SELECT DISTINCT ON (t.error_message)
-        md5(t.error_message || '|' || r.suite_name) AS fingerprint,
-        t.error_message, r.suite_name,
-        COUNT(*) OVER (PARTITION BY t.error_message, r.suite_name) AS occurrence_count,
-        COALESCE(eg.status, 'open') AS status
-       FROM tests t
-       JOIN specs s ON s.id = t.spec_id
-       JOIN runs r ON r.id = s.run_id
-       LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || r.suite_name) AND eg.org_id = r.org_id
-       WHERE t.status = 'failed' AND t.error_message IS NOT NULL
-         AND md5(t.error_message || '|' || r.suite_name) != $1
+      `SELECT fingerprint, error_message, suite_name, occurrence_count, status
+       FROM (
+         SELECT DISTINCT ON (t.error_message)
+           md5(t.error_message || '|' || r.suite_name) AS fingerprint,
+           t.error_message, r.suite_name,
+           COUNT(*) OVER (PARTITION BY t.error_message, r.suite_name) AS occurrence_count,
+           COALESCE(eg.status, 'open') AS status,
+           r.created_at AS latest_at
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs r ON r.id = s.run_id
+         LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || r.suite_name) AND eg.org_id = r.org_id
+         WHERE t.status = 'failed' AND t.error_message IS NOT NULL
+           AND md5(t.error_message || '|' || r.suite_name) != $1
+         ORDER BY t.error_message, r.created_at DESC, t.id DESC
+       ) d
+       ORDER BY d.latest_at DESC, d.fingerprint
        LIMIT 200`,
       [fingerprint]
     );
