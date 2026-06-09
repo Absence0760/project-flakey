@@ -294,15 +294,18 @@ test("parseMochawesome: hook failures in different nested suites are counted sep
   assert.ok(!billing.full_title.includes("Auth"), "Billing hook must not pick up the Auth suite");
 });
 
-// ── Run-level vs spec-level pending aggregation ──────────────────────────
+// ── Run-level pending is spec-derived (invariant-preserving) ─────────────
+// These previously pinned run-level pending = raw stats.pending. That was
+// superseded by run-merge.ts's "sum specs.pending" recompute (commit 9b187d2,
+// 2026-06-08), which made every counter spec-derived so total === passed +
+// failed + skipped + pending holds and a single upload agrees with the same
+// run after a shard merge. The parse path was left on the old stats.pending
+// behavior — these now pin the corrected, consistent behavior.
 
-test("parseMochawesome: run.pending reads raw stats.pending even when it disagrees with per-test pending counts", () => {
-  // Documented seam: spec-level pending is computed from per-test statuses,
-  // but run-level pending is taken verbatim from raw stats.pending (mirroring
-  // how the runs table has always tracked the reporter's own pending count).
-  // When the reporter's stats.pending disagrees with the test bodies, the run
-  // total trusts stats.pending — pin that so a refactor doesn't silently swap
-  // to summing spec pending.
+test("parseMochawesome: run.pending is summed from tests, not the reporter's stats.pending", () => {
+  // Reporter claims only 1 pending, but two test bodies are pending — a real
+  // mochawesome/Cypress quirk. The run total is spec-summed, so pending must
+  // be too, or total !== passed+failed+skipped+pending.
   const out = parseMochawesome({
     results: [{
       file: "pending-disagree.cy.ts",
@@ -314,18 +317,19 @@ test("parseMochawesome: run.pending reads raw stats.pending even when it disagre
         ],
       }],
     }],
-    // Reporter claims only 1 pending, but two test bodies are pending.
     stats: { pending: 1 },
   }, META);
 
   assert.equal(out.specs[0].stats.pending, 2, "spec pending counts the actual pending test bodies");
-  assert.equal(out.stats.pending, 1, "run pending trusts raw stats.pending verbatim");
+  assert.equal(out.stats.pending, 2, "run pending is the real summed count, not stats.pending=1");
+  assert.equal(
+    out.stats.total,
+    out.stats.passed + out.stats.failed + out.stats.skipped + out.stats.pending,
+    "total === passed+failed+skipped+pending must hold",
+  );
 });
 
-test("parseMochawesome: run.pending is 0 when stats.pending is absent, even with pending tests", () => {
-  // When the reporter omits stats.pending entirely, run-level pending
-  // defaults to 0 — the per-spec pending counts still reflect reality, so
-  // this is a known asymmetry, not silent data loss at the spec level.
+test("parseMochawesome: run.pending counts pending tests even when stats.pending is absent", () => {
   const out = parseMochawesome({
     results: [{
       file: "pending-absent.cy.ts",
@@ -336,15 +340,15 @@ test("parseMochawesome: run.pending is 0 when stats.pending is absent, even with
         ],
       }],
     }],
-    // No stats.pending key at all.
+    // No stats.pending key at all — the per-test flags are authoritative.
     stats: { passes: 1 },
   }, META);
 
-  assert.equal(out.specs[0].stats.pending, 1, "spec pending still counts pending test bodies");
-  assert.equal(out.stats.pending, 0, "run pending defaults to 0 when stats.pending is absent");
+  assert.equal(out.specs[0].stats.pending, 1, "spec pending counts pending test bodies");
+  assert.equal(out.stats.pending, 1, "run pending reflects the real count, not 0");
 });
 
-test("parseMochawesome: run.pending honors a present stats.pending that matches the test bodies", () => {
+test("parseMochawesome: run.pending matches when stats.pending agrees with the test bodies", () => {
   const out = parseMochawesome({
     results: [{
       file: "pending-consistent.cy.ts",
@@ -360,7 +364,7 @@ test("parseMochawesome: run.pending honors a present stats.pending that matches 
   }, META);
 
   assert.equal(out.specs[0].stats.pending, 2);
-  assert.equal(out.stats.pending, 2, "run pending reflects the consistent raw stats.pending");
+  assert.equal(out.stats.pending, 2);
 });
 
 // ── Tests directly on result (no enclosing suite) ────────────────────────
