@@ -265,6 +265,81 @@ export function computeSimilarity(a: string, b: string): number {
 }
 
 /**
+ * Group items into root-cause clusters by deterministic text similarity.
+ *
+ * Pure, single-pass greedy clustering — NO model calls, so it works cost-free
+ * and air-gapped (AI off). For each item, join it to the FIRST existing cluster
+ * whose representative (the cluster's seed / first member) scores
+ * `computeSimilarity(text, repText) >= threshold`; otherwise start a new
+ * cluster with this item as its representative. The result is deterministic for
+ * a given input order — callers that need stable output across calls must feed
+ * a deterministically-ordered `items`.
+ */
+export function clusterBySimilarity<T>(items: T[], getText: (t: T) => string, threshold: number): T[][] {
+  const clusters: T[][] = [];
+  for (const item of items) {
+    const text = getText(item);
+    let placed = false;
+    for (const cluster of clusters) {
+      // The representative is the cluster's seed (first) member — comparing
+      // against it (not every member) keeps this O(n·clusters) and makes the
+      // grouping deterministic and independent of cluster growth order.
+      const repText = getText(cluster[0]);
+      if (computeSimilarity(text, repText) >= threshold) {
+        cluster.push(item);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) clusters.push([item]);
+  }
+  return clusters;
+}
+
+/**
+ * Generate a short human "theme" label + one-sentence summary for a cluster of
+ * related failures. Mirrors analyzeFlakyTest's provider handling exactly via
+ * chatJSON (Anthropic forced tool-use; OpenAI-compatible JSON mode + parseJSON
+ * fallback) so it works air-gapped against a local Ollama. Prompt is kept small
+ * and bounded — at most 5 sample messages, each sliced to ~300 chars.
+ */
+export async function analyzeCluster(params: {
+  representativeMessage: string;
+  sampleMessages: string[];
+}): Promise<{ theme: string; summary: string }> {
+  const samples = params.sampleMessages.slice(0, 5).map((m) => `- ${m.slice(0, 300)}`).join("\n");
+
+  const prompt = `You are grouping automated-test failures by root cause. Below is one cluster of error messages that a similarity pass judged to share a cause.
+
+**Representative error message:**
+${params.representativeMessage.slice(0, 300)}
+
+${samples ? `**Sample error messages in this cluster:**\n${samples}` : ""}
+
+Respond with ONLY a JSON object (no markdown fences):
+{
+  "theme": "<a SHORT label of a few words naming the shared root cause, e.g. 'Timeout waiting for network idle'>",
+  "summary": "<one sentence describing what these failures have in common>"
+}`;
+
+  return chatJSON(prompt, {
+    name: "report_cluster_theme",
+    description: "Report a short theme label and one-sentence summary for a cluster of related test failures.",
+    input_schema: {
+      type: "object",
+      properties: {
+        theme: { type: "string", description: "A short label of a few words naming the shared root cause." },
+        summary: { type: "string", description: "One sentence describing what the failures have in common." },
+      },
+      required: ["theme", "summary"],
+    },
+  }, {
+    theme: "Unlabeled cluster",
+    summary: "The AI model did not return a usable theme for this cluster.",
+  });
+}
+
+/**
  * Analyze a flaky test and suggest stabilization strategies.
  */
 export async function analyzeFlakyTest(params: {

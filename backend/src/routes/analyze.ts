@@ -1,6 +1,7 @@
 import { Router } from "express";
+import { createHash } from "node:crypto";
 import { tenantQuery } from "../db.js";
-import { analyzeFailure, analyzeFlakyTest, computeSimilarity, isAIEnabled, testConnection } from "../ai.js";
+import { analyzeCluster, analyzeFailure, analyzeFlakyTest, clusterBySimilarity, computeSimilarity, isAIEnabled, testConnection } from "../ai.js";
 import { safeLog } from "../log.js";
 
 const router = Router();
@@ -403,6 +404,147 @@ router.post("/similar/:fingerprint", async (req, res) => {
   } catch (err) {
     console.error("POST /analyze/similar error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// A distinct-error row used as a clustering input. Mirrors the /similar query
+// shape: one row per distinct error_message.
+interface DistinctErrorRow {
+  fingerprint: string;
+  error_message: string;
+  suite_name: string;
+  occurrence_count: number;
+  status: string;
+}
+
+// Truncate an error message for the cluster-member response (the full text is
+// only needed for similarity scoring, done server-side before this).
+function truncateMessage(msg: string): string {
+  return msg.length > 300 ? msg.slice(0, 300) : msg;
+}
+
+// A cluster's cache key is a stable md5 of its SORTED member fingerprints, so
+// the theme cache hits as long as membership is unchanged (even if the input
+// order — and thus which member is the representative — shifts).
+function clusterKey(members: DistinctErrorRow[]): string {
+  const sorted = members.map((m) => m.fingerprint).sort();
+  return createHash("md5").update(sorted.join(",")).digest("hex");
+}
+
+// The representative is the highest-occurrence member, tie-broken by fingerprint
+// (deterministic). This is the member we label and summarize against.
+function clusterRepresentative(members: DistinctErrorRow[]): DistinctErrorRow {
+  return members.reduce((best, m) => {
+    if (m.occurrence_count > best.occurrence_count) return m;
+    if (m.occurrence_count === best.occurrence_count && m.fingerprint < best.fingerprint) return m;
+    return best;
+  });
+}
+
+// POST /analyze/clusters — group the org's distinct failed errors into
+// root-cause clusters. The grouping is deterministic similarity (cost-free,
+// works AI-off); when AI is configured each multi-member cluster gets a short
+// cached "theme" label. Read-cached for everyone; generate for contributor+.
+router.post("/clusters", async (req, res) => {
+  try {
+    const orgId = req.user!.orgId;
+
+    // Distinct failed errors, same DISTINCT-ON shape as /similar. Deterministic
+    // representative (most-recent occurrence) and deterministic 200-row cap.
+    const errors = await tenantQuery(orgId,
+      `SELECT fingerprint, error_message, suite_name, occurrence_count, status
+       FROM (
+         SELECT DISTINCT ON (t.error_message)
+           md5(t.error_message || '|' || r.suite_name) AS fingerprint,
+           t.error_message, r.suite_name,
+           COUNT(*) OVER (PARTITION BY t.error_message, r.suite_name) AS occurrence_count,
+           COALESCE(eg.status, 'open') AS status,
+           r.created_at AS latest_at
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs r ON r.id = s.run_id
+         LEFT JOIN error_groups eg ON eg.fingerprint = md5(t.error_message || '|' || r.suite_name) AND eg.org_id = r.org_id
+         WHERE t.status = 'failed' AND t.error_message IS NOT NULL
+         ORDER BY t.error_message, r.created_at DESC, t.id DESC
+       ) d
+       ORDER BY d.latest_at DESC, d.fingerprint
+       LIMIT 200`,
+      []
+    );
+
+    const rows: DistinctErrorRow[] = errors.rows.map((row: any) => ({
+      fingerprint: row.fingerprint,
+      error_message: row.error_message,
+      suite_name: row.suite_name,
+      occurrence_count: Number(row.occurrence_count),
+      status: row.status,
+    }));
+
+    // Deterministic greedy clustering — no model calls. Threshold 0.4.
+    const grouped = clusterBySimilarity(rows, (r) => r.error_message, 0.4);
+
+    // Labeling is gated like the other analyze routes: read cached for
+    // everyone, generate only for contributor+ when AI is configured. We never
+    // 403 the whole endpoint — viewers / AI-off callers just get theme=null
+    // (plus any already-cached themes).
+    const canGenerate = isAIEnabled() && req.user!.orgRole !== "viewer";
+
+    const clusters = [];
+    for (const members of grouped) {
+      const representative = clusterRepresentative(members);
+      const targetKey = clusterKey(members);
+      const totalOccurrences = members.reduce((sum, m) => sum + m.occurrence_count, 0);
+
+      // Read any cached theme — a plain DB read, works regardless of AI config.
+      const cached = await tenantQuery(orgId,
+        `SELECT classification, summary FROM ai_analyses
+         WHERE target_type = 'cluster' AND target_key = $1`,
+        [targetKey]
+      );
+
+      let theme: string | null = null;
+      let summary: string | null = null;
+      if (cached.rows.length > 0) {
+        theme = cached.rows[0].classification;
+        summary = cached.rows[0].summary;
+      } else if (canGenerate && members.length > 1) {
+        // Skip singleton clusters — no shared theme worth a model call.
+        const result = await analyzeCluster({
+          representativeMessage: representative.error_message,
+          sampleMessages: members.map((m) => m.error_message),
+        });
+        theme = result.theme;
+        summary = result.summary;
+        await tenantQuery(orgId,
+          `INSERT INTO ai_analyses (org_id, target_type, target_key, classification, summary, raw_result)
+           VALUES ($1, 'cluster', $2, $3, $4, $5)
+           ON CONFLICT (org_id, target_type, target_key) DO UPDATE
+           SET classification = $3, summary = $4, raw_result = $5, created_at = NOW()`,
+          [orgId, targetKey, result.theme, result.summary, JSON.stringify(result)]
+        );
+      }
+
+      clusters.push({
+        target_key: targetKey,
+        theme,
+        summary,
+        member_count: members.length,
+        total_occurrences: totalOccurrences,
+        representative_fingerprint: representative.fingerprint,
+        members: members.slice(0, 20).map((m) => ({
+          fingerprint: m.fingerprint,
+          error_message: truncateMessage(m.error_message),
+          suite_name: m.suite_name,
+          occurrence_count: m.occurrence_count,
+          status: m.status,
+        })),
+      });
+    }
+
+    res.json({ clusters });
+  } catch (err) {
+    console.error("POST /analyze/clusters error:", safeLog(err));
+    res.status(500).json({ error: "Analysis failed" });
   }
 });
 
