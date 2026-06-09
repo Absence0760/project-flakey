@@ -29,6 +29,11 @@
     "url": "https://github.com/Absence0760/project-flakey.git",
     "directory": "packages/flakey-cli"
   },
+  "homepage": "https://flakey.io",
+  "bugs": {
+    "url": "https://github.com/Absence0760/project-flakey/issues"
+  },
+  "author": "Flakey",
   "devDependencies": {
     "@types/node": "^25.9.2",
     "tsx": "^4.22.4",

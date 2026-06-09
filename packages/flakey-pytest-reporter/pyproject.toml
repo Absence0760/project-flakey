@@ -6,6 +6,12 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = ["pytest>=6.0"]
+keywords = ["pytest", "testing", "test-reporting", "flakey", "ci"]
+
+[project.urls]
+Homepage = "https://flakey.io"
+Repository = "https://github.com/Absence0760/project-flakey"
+Issues = "https://github.com/Absence0760/project-flakey/issues"
 
 [project.entry-points.pytest11]
 flakey = "flakey_pytest_reporter.plugin"

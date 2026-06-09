@@ -18,12 +18,22 @@
     "build": "tsc",
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
+  "keywords": [
+    "testing",
+    "test-reporting",
+    "flakey"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Absence0760/project-flakey.git",
     "directory": "packages/flakey-core"
   },
+  "homepage": "https://flakey.io",
+  "bugs": {
+    "url": "https://github.com/Absence0760/project-flakey/issues"
+  },
+  "author": "Flakey",
   "devDependencies": {
     "@types/node": "^25.9.2",
     "tsx": "^4.22.4",
