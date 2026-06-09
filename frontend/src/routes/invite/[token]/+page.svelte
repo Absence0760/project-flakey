@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { isLoggedIn, acceptInvite } from "$lib/stores/auth";
+  import { isLoggedIn, acceptInvite, restoreAuth } from "$lib/stores/auth";
 
   let status = $state<"loading" | "success" | "error">("loading");
   let orgName = $state("");
@@ -11,6 +11,12 @@
 
   $effect(() => {
     if (!token) return;
+
+    // This is a top-level route (outside the (app) group), so the in-memory
+    // auth singleton has not been rehydrated from localStorage yet. Restore it
+    // before the auth check — otherwise a genuinely signed-in user is always
+    // bounced to /login. Same pattern as the root index + welcome pages.
+    restoreAuth();
 
     if (!isLoggedIn()) {
       goto(`/login?invite=${token}`);
