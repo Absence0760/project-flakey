@@ -129,7 +129,7 @@ router.get("/", async (req, res) => {
        LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
-             AND a.file_path LIKE '%' || mt.source_file
+             AND right(a.file_path, length(mt.source_file)) = mt.source_file
              AND a.title = mt.title
        LEFT JOIN flakiness f ON f.manual_test_id = mt.id
        LEFT JOIN (
@@ -191,7 +191,7 @@ router.get("/:id", async (req, res) => {
        LEFT JOIN manual_test_groups g ON g.id = mt.group_id
        LEFT JOIN auto_latest a
               ON mt.source = 'cucumber'
-             AND a.file_path LIKE '%' || mt.source_file
+             AND right(a.file_path, length(mt.source_file)) = mt.source_file
              AND a.title = mt.title
        WHERE mt.id = $1`,
       [req.params.id]
@@ -565,11 +565,15 @@ router.delete("/:id", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    await tenantQuery(
+    const del = await tenantQuery(
       req.user!.orgId,
-      "DELETE FROM manual_tests WHERE id = $1",
+      "DELETE FROM manual_tests WHERE id = $1 RETURNING id",
       [req.params.id]
     );
+    if (del.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     await logAudit(req.user!.orgId, req.user!.id, "manual_test.delete", "manual_test", req.params.id);
     res.json({ deleted: true });
   } catch (err) {

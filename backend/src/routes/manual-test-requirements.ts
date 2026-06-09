@@ -135,11 +135,15 @@ router.delete("/:reqId", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    await tenantQuery(
+    const del = await tenantQuery(
       req.user!.orgId,
-      "DELETE FROM manual_test_requirements WHERE id = $1 AND manual_test_id = $2",
+      "DELETE FROM manual_test_requirements WHERE id = $1 AND manual_test_id = $2 RETURNING id",
       [req.params.reqId, parentTestId(req)]
     );
+    if (del.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     await logAudit(
       req.user!.orgId,
       req.user!.id,

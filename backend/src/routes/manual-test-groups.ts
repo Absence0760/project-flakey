@@ -126,11 +126,15 @@ router.patch("/:id", async (req, res) => {
     }
     sets.push("updated_at = NOW()");
     params.push(req.params.id);
-    await tenantQuery(
+    const upd = await tenantQuery(
       req.user!.orgId,
-      `UPDATE manual_test_groups SET ${sets.join(", ")} WHERE id = $${i}`,
+      `UPDATE manual_test_groups SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`,
       params
     );
+    if (upd.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     await logAudit(
       req.user!.orgId,
       req.user!.id,
@@ -156,11 +160,15 @@ router.delete("/:id", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    await tenantQuery(
+    const del = await tenantQuery(
       req.user!.orgId,
-      "DELETE FROM manual_test_groups WHERE id = $1",
+      "DELETE FROM manual_test_groups WHERE id = $1 RETURNING id",
       [req.params.id]
     );
+    if (del.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     await logAudit(
       req.user!.orgId,
       req.user!.id,
