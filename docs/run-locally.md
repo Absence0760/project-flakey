@@ -38,7 +38,7 @@ pnpm webhooks:up
 pnpm services:up
 ```
 
-To point the backend at MinIO, set `STORAGE=s3` and the `S3_ENDPOINT` block in `backend/.env` (see the [env table](#backend) below — the example file ships the values pre-filled and commented).
+To point the backend at MinIO, set `STORAGE=s3` and the `S3_ENDPOINT` block in `backend/.env.development.local` (see the [env table](#backend) below — `backend/.env.development` ships the values pre-filled and commented; copy the block you need into `.env.development.local`).
 
 ### 2. Install dependencies
 
@@ -55,14 +55,21 @@ cd packages/flakey-cli && pnpm install
 
 ### 3. Set up environment variables
 
+Nothing to do for the app itself. Backend and frontend each ship a **committed
+`.env.development`** with working local defaults, loaded automatically by
+`pnpm dev` — a fresh clone runs with no copying. Machine-local tweaks or real
+secrets go in a gitignored `.env.development.local` next to it (loaded last, so
+it wins); don't edit the committed `.env.development`, which would dirty the
+tree.
+
 ```bash
-# Backend
-cp backend/.env.example backend/.env
+# Optional: personal overrides for the backend (real JWT_SECRET, AI keys,
+# an S3/Ollama block). Skip entirely if the defaults are fine.
+#   backend/.env.development.local
+#   frontend/.env.development.local
 
-# Frontend (defaults work out of the box)
-cp frontend/.env.example frontend/.env
-
-# CLI (optional)
+# CLI (optional, for uploading results) — needs a real API key you create in
+# the UI, so it keeps the copy-and-fill flow:
 cp packages/flakey-cli/.env.example packages/flakey-cli/.env
 ```
 
@@ -189,7 +196,7 @@ npx tsx src/index.ts \
 | `pnpm db:up` | Start core services — PostgreSQL + Mailpit (http://localhost:8025) |
 | `pnpm storage:up` / `pnpm storage:down` | Start / stop MinIO (S3-compatible; console http://localhost:9001) |
 | `pnpm webhooks:up` / `pnpm webhooks:down` | Start / stop the webhook echo sink (:8080) |
-| `pnpm ai:up` / `pnpm ai:down` | Start / stop local Ollama (:11434) for AI features; first run pulls ~2 GB (llama3.2). Set `AI_PROVIDER=openai` + `AI_BASE_URL=http://localhost:11434/v1` in `backend/.env`. Instance-wide, not per-org |
+| `pnpm ai:up` / `pnpm ai:down` | Start / stop local Ollama (:11434) for AI features; first run pulls ~2 GB (llama3.2). Set `AI_PROVIDER=openai` + `AI_BASE_URL=http://localhost:11434/v1` in `backend/.env.development.local`. Instance-wide, not per-org |
 | `pnpm services:up` / `pnpm services:down` | Start / stop every local service at once |
 | `pnpm db:down` | Stop the core services |
 | `pnpm db:reset` | Stop core services, delete data, and restart (migrated-but-empty — seed after) |
@@ -200,6 +207,15 @@ npx tsx src/index.ts \
 | `cd backend && npm test` | Run the Phase 9/10 integration smoke tests (see [backend/docs/testing.md](../backend/docs/testing.md)) |
 
 ## Environment variables
+
+Backend and frontend read these from a committed **`.env.development`** (working
+local defaults, no secrets) plus an optional gitignored **`.env.development.local`**
+for machine-local overrides. The backend loads both via
+`--env-file=.env.development --env-file-if-exists=.env.development.local`; the
+frontend (Vite) auto-loads them in dev mode. Most variables below have a code
+default too, so the app boots even with no env file at all. `seed` and the test
+suite intentionally run on code defaults (not the env file) so seeding gets the
+`flakey` superuser while the app runs as the non-superuser `flakey_app`.
 
 ### Backend
 

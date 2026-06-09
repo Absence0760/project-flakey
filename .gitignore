@@ -10,6 +10,10 @@ dist/
 build/
 
 # Environment variables
+# Local-dev defaults live in committed `.env.development` files (backend +
+# frontend) so a fresh clone runs with no setup — they hold no secrets.
+# Machine-local overrides and real secrets go in the gitignored `*.local`
+# files below. `.env` stays ignored: it's the personal/SOPS-plaintext slot.
 .env
 .env.local
 .env.*.local

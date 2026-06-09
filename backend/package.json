@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=.env src/index.ts",
+    "dev": "tsx watch --env-file=.env.development --env-file-if-exists=.env.development.local src/index.ts",
     "seed": "tsx src/seed.ts",
     "rotate-keys": "tsx src/scripts/rotate-encryption-keys.ts",
     "replay-payload": "tsx src/scripts/replay-payload.ts",

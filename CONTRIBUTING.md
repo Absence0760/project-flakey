@@ -23,7 +23,8 @@ git clone https://github.com/Absence0760/project-flakey.git
 cd project-flakey
 pnpm install
 pnpm db:up                              # Postgres in Docker
-cp backend/.env.example backend/.env    # edit JWT_SECRET, FLAKEY_ENCRYPTION_KEY
+                                        # env: committed backend/.env.development works as-is;
+                                        # put personal secrets in backend/.env.development.local (gitignored)
 cd backend && ./migrate.sh              # apply migrations
 cd backend && npm run seed              # load sample data + worker tenants
 cd .. && pnpm dev                       # backend :3000, frontend :7778
