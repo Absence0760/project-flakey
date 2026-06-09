@@ -62,6 +62,23 @@ export async function triggerPagerDutyEvent(
   }
 }
 
+/**
+ * The PagerDuty dedup_key for a run's auto-triggered incident. Events sharing a
+ * dedup_key are merged into one incident — intended so repeated failures of the
+ * SAME suite+branch don't spam, NOT so two different suite/branch pairs collide.
+ *
+ * The parts are user-controlled (suite + branch from CI), so a plain
+ * `${suite}-${branch}` join is ambiguous at the boundary: ("api-tests","main")
+ * and ("api","tests-main") both produce "...api-tests-main", merging two
+ * unrelated incidents and SUPPRESSING the second page. Hyphenated branch/suite
+ * names are everyday, so this is reachable, not adversarial. encodeURIComponent
+ * each part and separate with "/" — encoded parts can never contain a raw "/",
+ * so the boundary is unambiguous (and any branch like "feature/x" is escaped).
+ */
+export function pagerDutyDedupKey(orgId: number, suiteName: string, branch: string): string {
+  return `flakey-${orgId}-${encodeURIComponent(suiteName)}/${encodeURIComponent(branch)}`;
+}
+
 export async function maybeTriggerPagerDutyForRun(
   orgId: number,
   runId: number,
@@ -79,7 +96,7 @@ export async function maybeTriggerPagerDutyForRun(
       `[${run.meta.suite_name}] ${run.stats.failed} failed tests on ${run.meta.branch}`,
       cfg.severity,
       `flakey/${run.meta.suite_name}`,
-      `flakey-${orgId}-${run.meta.suite_name}-${run.meta.branch}`,
+      pagerDutyDedupKey(orgId, run.meta.suite_name, run.meta.branch),
       {
         run_id: runId,
         suite: run.meta.suite_name,
