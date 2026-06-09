@@ -30,7 +30,9 @@
  *        unexpired ones; the token prune drops rows older than 14 days and keeps
  *        recent ones; and a run NEWER than retention_days is preserved (the
  *        delete is bounded by the cutoff, not a blanket wipe — F7 only proved an
- *        old run is removed, never that a recent one survives).
+ *        old run is removed, never that a recent one survives). It also pins the
+ *        per-prune isolation: the two global prunes are injectable, so a throw
+ *        in one is shown not to skip the other and not to escape the call.
  *
  * Strategy mirrors audit_coverage.smoke.test.ts: act via the HTTP API, then
  * read back through an admin DB client / the API. Retention is invoked
@@ -419,4 +421,38 @@ test("runRetentionCleanup preserves runs newer than retention_days (the delete i
 
   const survived = await dbAdmin.query("SELECT id FROM runs WHERE id = $1", [keepId]);
   assert.equal(survived.rows.length, 1, "a run newer than retention_days must NOT be deleted");
+});
+
+test("an invite-prune failure does not skip the revoked-token prune (the two are isolated)", async () => {
+  // Inject a throwing invite prune and a spy token prune. Before the per-prune
+  // error boundaries, the invite throw propagated to the outer catch and the
+  // token prune never ran. Assert the token prune still runs and the call as a
+  // whole resolves (the boundary swallows + logs the invite failure).
+  let tokenPruneRan = false;
+  await runRetentionCleanup(undefined, {
+    pruneInvites: async () => {
+      throw new Error("simulated invite-prune DB failure");
+    },
+    pruneRevokedTokens: async () => {
+      tokenPruneRan = true;
+      return 0;
+    },
+  });
+  assert.ok(tokenPruneRan, "the revoked-token prune must run even when the invite prune throws");
+});
+
+test("a revoked-token-prune failure is contained (cleanup still resolves)", async () => {
+  // The mirror case: the token prune is last, but its failure must not escape
+  // runRetentionCleanup either (a rejected cleanup would crash the cron timer).
+  let invitePruneRan = false;
+  await runRetentionCleanup(undefined, {
+    pruneInvites: async () => {
+      invitePruneRan = true;
+      return 0;
+    },
+    pruneRevokedTokens: async () => {
+      throw new Error("simulated revoked-token-prune DB failure");
+    },
+  });
+  assert.ok(invitePruneRan, "the invite prune must have run");
 });
