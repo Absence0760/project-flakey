@@ -916,13 +916,18 @@ async function abortRun(runId: number, orgId: number, reason: string): Promise<v
     // `live_events_run_id_fkey` on every deleted run.
     if (!liveEvents.hasRun(runId)) return;
 
-    // Transition pending → skipped FIRST, so the DB is consistent before any
-    // SSE listener refetches /runs/:id. The frontend's run-detail page calls
-    // fetchRun() the moment it receives a `run.aborted` event; if we emit
-    // before the UPDATE lands, the page sees stale `pending` rows and (since
-    // it also stops the 3s poll on abort) never refreshes them again. The
-    // user-visible symptom is a test row stuck in the "in progress" dot
-    // forever after a kill.
+    // Make the DB fully reflect the abort BEFORE emitting anything, so any
+    // SSE-driven refetch observes the terminal state. Two ordered steps:
+    //
+    //  1. Transition pending → skipped. The run-detail page calls fetchRun()
+    //     the moment it receives a `run.aborted` event and (since it stops its
+    //     3s poll on abort) never refreshes again; emitting before the UPDATE
+    //     lands leaves a test row stuck in the "in progress" dot forever.
+    //  2. Persist the `run.aborted` event itself. The runs LIST page refetches
+    //     /runs on the `active.remove` delta that emit() broadcasts; if that
+    //     row isn't in live_events yet, the refetch reads the run as NOT
+    //     aborted and renders it live/passed — and because active.remove is
+    //     the last delta, that stale read sticks. Persist must precede emit.
     await transitionPendingTestsAfterAbort(orgId, runId, reason);
 
     const event: LiveTestEvent = {
@@ -931,8 +936,8 @@ async function abortRun(runId: number, orgId: number, reason: string): Promise<v
       timestamp: Date.now(),
       error: reason,
     };
-    liveEvents.emit(runId, event);
     await persistEventAwaited(orgId, runId, event);
+    liveEvents.emit(runId, event);
   });
 }
 

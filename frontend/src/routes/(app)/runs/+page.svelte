@@ -31,6 +31,12 @@
   let sseConnected = $state(false);
   let liveStream: EventSource | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Monotonic token for refreshRuns(): a burst of SSE deltas (e.g. a run's
+  // active.add immediately followed by its active.remove on abort) fires
+  // overlapping fetches whose responses can land out of order. Only the
+  // latest-issued fetch may write state, so an earlier (stale) response can't
+  // clobber a newer one. Plain let — it's control flow, not reactive UI state.
+  let refreshSeq = 0;
   let selectedSuite = $state("all");
   let selectedBranch = $state("all");
   let selectedEnv = $state("all");
@@ -249,8 +255,15 @@
   }
 
   async function refreshRuns() {
+    const seq = ++refreshSeq;
     try {
       const refreshed = await fetchRunsWithSummary(0, allRuns.length || 50);
+      // Drop a stale response: if a later refreshRuns() was issued while this
+      // one was in flight, that newer call owns the result — applying this
+      // older payload would resurrect pre-delta state (the run-aborted badge
+      // race, where a run's active.add fetch lands after its active.remove
+      // fetch and re-shows the run as un-aborted/live).
+      if (seq !== refreshSeq) return;
       allRuns = refreshed.runs;
       dbSummary = refreshed.summary;
       hasMore = refreshed.hasMore;
@@ -290,7 +303,14 @@
           const changed = newSet.size !== liveRunIds.size
             || [...newSet].some((id) => !liveRunIds.has(id));
           liveRunIds = newSet;
-          if (changed) void refreshRuns();
+          // Also refresh after a snapshot restore (SvelteKit back-nav or
+          // same-URL page.goto). The snapshot.restore() path blocks the
+          // onMount fetch result (to preserve load-more rows + scroll),
+          // so the SSE initial snapshot is the only hook to pull in any
+          // runs created/aborted while the user was on another page. Even
+          // when the active set is unchanged (both snapshots empty), the
+          // allRuns list may be stale — always refresh in that case.
+          if (changed || restoredFromSnapshot) void refreshRuns();
         } else if (msg.type === "active.add") {
           if (liveRunIds.has(msg.runId)) return;
           liveRunIds = new Set([...liveRunIds, msg.runId]);
@@ -584,13 +604,17 @@
         <div class="pinned-list">
           {#each pinnedRuns as pr}
             <a href="/runs/{pr.id}" class="pinned-item" class:fail={!liveRunIds.has(pr.id) && pr.failed > 0}>
-              <StatusDot status={liveRunIds.has(pr.id) ? 'live' : pr.aborted ? 'aborted' : pr.failed > 0 ? 'fail' : 'pass'} />
+              <StatusDot status={pr.aborted ? 'aborted' : liveRunIds.has(pr.id) ? 'live' : pr.failed > 0 ? 'fail' : 'pass'} />
               <span class="pinned-id">#{pr.id}</span>
               <span class="pinned-suite">{pr.suite_name}</span>
-              {#if liveRunIds.has(pr.id)}
-                <span class="live-badge">LIVE</span>
-              {:else if pr.aborted}
+              <!-- `aborted` is DB-authoritative (a persisted run.aborted event,
+                   from GET /runs); `liveRunIds` is best-effort SSE active-set
+                   state that can lag. An aborted run is terminal, so it must
+                   never render as LIVE — check aborted FIRST. -->
+              {#if pr.aborted}
                 <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
+              {:else if liveRunIds.has(pr.id)}
+                <span class="live-badge">LIVE</span>
               {:else if pr.failed > 0}
                 <span class="fail-badge">{pr.failed} failed</span>
               {:else}
@@ -662,17 +686,19 @@
               </td>
             {/if}
             <td class="col-status">
-              <StatusDot status={liveRunIds.has(run.id) ? 'live' : run.aborted ? 'aborted' : run.failed > 0 ? 'fail' : 'pass'} />
+              <StatusDot status={run.aborted ? 'aborted' : liveRunIds.has(run.id) ? 'live' : run.failed > 0 ? 'fail' : 'pass'} />
             </td>
             <td class="col-id"><span class="run-id">#{run.id}</span></td>
             <td class="col-state">
               <!-- Dedicated badge column so the primary state (LIVE /
                    aborted / passed / failed) aligns visually across
-                   rows, regardless of how long the suite name is. -->
-              {#if liveRunIds.has(run.id)}
-                <span class="live-badge">LIVE</span>
-              {:else if run.aborted}
+                   rows, regardless of how long the suite name is.
+                   aborted is DB-authoritative and terminal, so it wins over
+                   the best-effort live active-set (which can briefly lag). -->
+              {#if run.aborted}
                 <span class="aborted-badge" title="Run was aborted before it completed (Ctrl-C, stale timeout, or explicit /abort)">aborted</span>
+              {:else if liveRunIds.has(run.id)}
+                <span class="live-badge">LIVE</span>
               {:else if run.failed > 0}
                 <span class="fail-badge">failed</span>
                 {#if run.new_failures > 0}
