@@ -3,8 +3,14 @@ name: OpenSSF Scorecard
 # Weekly scorecard analysis — measures branch-protection rules,
 # action-pinning discipline, signed releases, code-review coverage,
 # vulnerability-management posture, etc. Result publishes to the
-# Security tab as SARIF + (optionally) to the public scorecard.dev
-# leaderboard so a security badge can render in the README.
+# Security tab as SARIF.
+#
+# We do NOT publish to the public scorecard.dev tracker: nothing
+# consumes that result (there's no Scorecard badge in the README),
+# and the publish call to api.scorecard.dev intermittently times out
+# (`context deadline exceeded`), which fails the whole job for a
+# result we never read. Keeping it off also lets us drop the
+# `id-token: write` permission that only the publish step needed.
 #
 # Why this instead of a hand-written checklist: the rubric is
 # maintained by the OpenSSF foundation and updates as supply-chain
@@ -34,13 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      # The bare minimum to (a) upload SARIF to the Security tab,
-      # (b) write to the open-id-connect token used by the
-      # publish_results step. `id-token: write` is what lets the
-      # action verify-publish to scorecard.dev without a long-lived
-      # token.
+      # The bare minimum to upload SARIF to the Security tab. No
+      # `id-token: write` — that was only needed by publish_results,
+      # which we no longer use (see header comment).
       security-events: write
-      id-token: write
       contents: read
       actions: read
 
@@ -53,10 +56,9 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Publish to the public scorecard.dev tracker. Required for
-          # the README badge; the data published is the score itself
-          # (no source code, no secrets), already public-info-derived.
-          publish_results: true
+          # Do not publish to the public scorecard.dev tracker — nothing
+          # consumes it and the publish call intermittently fails the job.
+          publish_results: false
 
       - name: Upload SARIF to Security tab
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
