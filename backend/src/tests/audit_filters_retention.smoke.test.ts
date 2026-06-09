@@ -24,6 +24,14 @@
  *        injects a storage stub that throws on every deleteRun and asserts the
  *        loop still visits every run and still writes the audit row.
  *
+ *   F9 — retention's two global prunes (expired org_invites, long-dead
+ *        revoked_refresh_tokens) and the run-delete boundary had no direct
+ *        coverage. These pin: the invite prune drops expired invites and keeps
+ *        unexpired ones; the token prune drops rows older than 14 days and keeps
+ *        recent ones; and a run NEWER than retention_days is preserved (the
+ *        delete is bounded by the cutoff, not a blanket wipe — F7 only proved an
+ *        old run is removed, never that a recent one survives).
+ *
  * Strategy mirrors audit_coverage.smoke.test.ts: act via the HTTP API, then
  * read back through an admin DB client / the API. Retention is invoked
  * in-process (the exported `runRetentionCleanup`) since it has no HTTP surface;
@@ -337,4 +345,78 @@ test("runRetentionCleanup isolates storage.deleteRun failures: every run is visi
     rows.some((r) => r.action === "retention.cleanup" && (r.detail?.deleted_count ?? 0) >= 2),
     "a retention.cleanup audit row (deleted_count >= 2) must be written even when artifact deletes fail",
   );
+});
+
+// ── F9: global prunes (invites + revoked tokens) and the run-delete boundary ──
+
+test("runRetentionCleanup prunes expired org invites and preserves unexpired ones", async () => {
+  const owner = await registerOwner("invite-prune");
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // Two invites in this org: one already expired, one still valid. The prune is
+  // `expires_at < NOW()`, so only the expired one should go.
+  const expiredToken = `fr-inv-expired-${stamp}`;
+  const liveToken = `fr-inv-live-${stamp}`;
+  await dbAdmin.query(
+    `INSERT INTO org_invites (org_id, email, role, token, invited_by, expires_at)
+     VALUES ($1, $2, 'viewer', $3, $4, NOW() - INTERVAL '1 day'),
+            ($1, $5, 'viewer', $6, $4, NOW() + INTERVAL '7 days')`,
+    [owner.orgId, `expired+${stamp}@t.local`, expiredToken, owner.userId, `live+${stamp}@t.local`, liveToken],
+  );
+
+  await runRetentionCleanup();
+
+  const remaining = await dbAdmin.query(
+    "SELECT token FROM org_invites WHERE token = ANY($1::text[])",
+    [[expiredToken, liveToken]],
+  );
+  const tokens = remaining.rows.map((r) => r.token as string);
+  assert.ok(!tokens.includes(expiredToken), "an expired invite must be pruned");
+  assert.ok(tokens.includes(liveToken), "an unexpired invite must be preserved (the boundary is exclusive)");
+});
+
+test("runRetentionCleanup prunes revoked-refresh-token rows older than 14 days and keeps recent ones", async () => {
+  const owner = await registerOwner("token-prune");
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // One revocation row well past the 14-day window, one freshly revoked. Only
+  // the stale one can never gate a replay, so only it should be pruned.
+  const staleJti = `fr-jti-stale-${stamp}`;
+  const freshJti = `fr-jti-fresh-${stamp}`;
+  await dbAdmin.query(
+    `INSERT INTO revoked_refresh_tokens (jti, user_id, revoked_at)
+     VALUES ($1, $2, NOW() - INTERVAL '20 days'),
+            ($3, $2, NOW() - INTERVAL '1 day')`,
+    [staleJti, owner.userId, freshJti],
+  );
+
+  await runRetentionCleanup();
+
+  const remaining = await dbAdmin.query(
+    "SELECT jti FROM revoked_refresh_tokens WHERE jti = ANY($1::text[])",
+    [[staleJti, freshJti]],
+  );
+  const jtis = remaining.rows.map((r) => r.jti as string);
+  assert.ok(!jtis.includes(staleJti), "a revocation row older than 14 days must be pruned");
+  assert.ok(jtis.includes(freshJti), "a recently-revoked token row must be preserved (still inside its replay window)");
+});
+
+test("runRetentionCleanup preserves runs newer than retention_days (the delete is bounded, not a wipe)", async () => {
+  const owner = await registerOwner("retention-boundary");
+
+  // A fresh run (created_at ≈ now) under a 30-day policy. The cutoff is
+  // NOW() - 30 days, so this run is on the keep side of the boundary. F7 only
+  // proves an OLD run is deleted; this guards against a regression that drops
+  // the bound (or flips the comparison) and wipes runs inside the window.
+  const keepId = await uploadRun(owner.token, `fr-keep-${Date.now()}`);
+  await fetch(`${BASE}/orgs/${owner.orgId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.token}` },
+    body: JSON.stringify({ retention_days: 30 }),
+  });
+
+  await runRetentionCleanup();
+
+  const survived = await dbAdmin.query("SELECT id FROM runs WHERE id = $1", [keepId]);
+  assert.equal(survived.rows.length, 1, "a run newer than retention_days must NOT be deleted");
 });
