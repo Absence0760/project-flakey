@@ -82,6 +82,11 @@ function parseArgs(): UploadOptions {
   return resolveOptions(parseFlags(process.argv.slice(2)));
 }
 
+// The reporters whose report shape findReportFile knows how to locate. Any
+// other value (a typo, or a flag whose value got eaten) would otherwise fall
+// through to the mochawesome branch and silently grab any .json in the dir.
+export const KNOWN_REPORTERS = ["mochawesome", "junit", "playwright"] as const;
+
 // Exported for unit testing (src/tests/cli.test.ts).
 export function findReportFile(dir: string, reporter: string): { path: string; isXml: boolean } | null {
   if (!existsSync(dir)) return null;
@@ -135,6 +140,14 @@ export function findFiles(dir: string, ext: string): string[] {
 }
 
 async function upload(opts: UploadOptions): Promise<void> {
+  // Reject an unknown reporter up front rather than letting it fall through to
+  // the mochawesome path and silently parse some arbitrary .json as if it were
+  // a mochawesome report.
+  if (!(KNOWN_REPORTERS as readonly string[]).includes(opts.reporter)) {
+    console.error(`Unknown reporter "${opts.reporter}". Valid reporters: ${KNOWN_REPORTERS.join(", ")}`);
+    process.exit(1);
+  }
+
   const reportFile = findReportFile(opts.reportDir, opts.reporter);
 
   if (!reportFile) {

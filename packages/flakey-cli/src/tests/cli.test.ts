@@ -174,6 +174,25 @@ test("`flakey-cli a11y` with an empty-array results file exits cleanly, not with
   }
 });
 
+test("`flakey-cli upload --reporter <bogus>` rejects the unknown reporter instead of falling through to mochawesome", async () => {
+  // Regression: an unknown reporter used to silently use the mochawesome path
+  // and grab any .json in the report dir.
+  const dir = makeTmpDir();
+  try {
+    // A real .json is present — the old behavior would have parsed it.
+    writeFileSync(join(dir, "results.json"), "{}");
+    const { code, stderr } = await runCli(
+      ["upload", "--reporter", "totally-bogus", "--report-dir", dir],
+      { FLAKEY_API_KEY: "dummy" },
+    );
+    assert.notEqual(code, 0, "unknown reporter → non-zero exit");
+    assert.match(stderr, /Unknown reporter "totally-bogus"/);
+    assert.match(stderr, /mochawesome, junit, playwright/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ─── resolveOptions: CI metadata fallback chains ──────────────────────────
 // A CI invocation that omits the explicit flags must still derive
 // branch/commit/run-id from the provider's default env vars, in the exact
