@@ -173,6 +173,41 @@ context, plus the one change that removes the repo's biggest internal footgun.
 
 - [~] **Artifact lifecycle / TTL on S3 + table partitioning for `runs`/`tests`.** Keep storage cost bounded (artifact TTL/dedup aligned with per-org retention) and keep queries fast on large orgs (time-based partitioning of the high-volume tables). *(**Artifact TTL done** — configurable S3 lifecycle + abort-incomplete-uploads, aligned with the existing per-org retention delete. Table partitioning deferred — downtime-class migration, ops review.)*
 
+## Phase 15 — Failure triage workflow
+
+Turn the **error group** into a first-class triage unit with ownership and an
+automated lifecycle — not a Jira replacement. We already group automated
+failures by a stable fingerprint (`error_groups`), give each group a status
+(`open/investigating/known/fixed/ignored`), thread notes on it, and link it to a
+Jira ticket (`failure_jira_issues`). What's missing is everything that only
+makes sense *because we hold the run data*: who owns a failure, when it's due,
+whether a "fixed" failure **came back**, and whether a green test should close
+the loop. Design rule: **if it needs the run data (recurrence, auto-close,
+flake-driven priority), build it; if it's generic issue tracking (sprints,
+boards, custom fields), integrate — don't rebuild.** Full scope, build order, and
+the trust-boundary review gate: see
+[docs/proposals/phase-15-failure-triage.md](proposals/phase-15-failure-triage.md).
+
+- [ ] **15.1 — Ownership & lifecycle foundation.** Additive columns on
+  `error_groups` (`assigned_to`, `target_date`, `priority`) + assign / triage-update
+  routes mirroring the proven manual-session assign shape; `/errors` becomes the
+  triage surface (assignee picker, due date, "assigned to me" / "overdue"
+  filters). Fully additive — no core-table or RLS change.
+- [ ] **15.2 — Data-native automation (the moat).** Recurrence detection at
+  ingest (a `fixed` fingerprint reappearing auto-transitions to a new `regressed`
+  state, bumps `recurrence_count`, fires `error.regressed`); opt-in
+  auto-close-on-green via the existing nightly retention pass; read-time derived
+  priority from occurrence + flaky signal. The part no SaaS tracker can do.
+- [ ] **15.3 — Quarantine lifecycle.** Add `expires_at` + fingerprint link to
+  `quarantined_tests` (today quarantines never expire and rot silently); expire on
+  the nightly sweep; surface "muted, expiring / no-expiry" in triage; the
+  `flaky.detected` signal *suggests* (never auto-applies) quarantine.
+- [ ] **15.4 — Two-way Jira sync.** Outbound: fix/regression transitions reflect
+  onto the linked Jira issue (Jira can't do this — it has no run data). Inbound: an
+  HMAC-verified `POST /jira/webhook` reflects Jira-close back to the group.
+  *Inbound is a new external trust boundary — CISO / Security Analyst sign-off
+  required before landing (SOC 2 / GovRAMP).*
+
 ## What this will not do (by design)
 
 - Live test orchestration (use CI-native parallelization instead)
