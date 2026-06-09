@@ -12,6 +12,14 @@ const URL_CHANNELS = new Set(["webhook", "slack"]);
 // GET /reports — list scheduled reports
 router.get("/", async (req, res) => {
   try {
+    // Admin-only on read: a report's `destination` is a webhook/Slack URL,
+    // which for those channels is itself a posting credential. Exposing it to
+    // a viewer leaks that secret — the same reason GET /webhooks is admin-only
+    // on both read and write. Every other /reports verb already gates viewers.
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
     const result = await tenantQuery(
       req.user!.orgId,
       `SELECT id, name, cadence, day_of_week, hour_utc, channel, destination,
