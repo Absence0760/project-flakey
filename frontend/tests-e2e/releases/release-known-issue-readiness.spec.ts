@@ -54,10 +54,9 @@ import { expect, test, type Page } from "../fixtures/test";
  * the JSON shape of GET /releases/:id/readiness, and concrete DOM the page only
  * renders once its three load() fetches resolve (the verdict pill, the rule
  * <details>, the manual readiness card). No waitForTimeout, no inflated expect
- * timeouts to absorb a race, no retry reliance, no loosened assertions. The
- * release detail page has no single `data-ready` handshake, so we gate cold
- * loads on the version heading + the readiness verdict pill (both of which only
- * appear after the readiness fetch lands) — sufficient and deterministic.
+ * timeouts to absorb a race, no retry reliance, no loosened assertions. We gate
+ * cold loads on the route's `data-ready="true"` signal (set once load() has
+ * settled release + readiness + sessions), then assert the specific verdict.
  */
 
 const API = "http://localhost:3000";
@@ -210,10 +209,10 @@ test.describe("/releases/<id> — known-issue acceptance clears the readiness bl
 			);
 			expect(manualBlocker, "manual regression rule is a blocking item before accept").toBeTruthy();
 
-			// Assert the same blocked state in the rendered DOM. Cold-load gate:
-			// the version heading + the verdict pill only render after load()'s
-			// readiness fetch resolves — no timer needed.
+			// Assert the same blocked state in the rendered DOM. Gate on the
+			// route's data-ready signal (load() settled), then assert the verdict.
 			await page.goto(`/releases/${releaseId}`);
+			await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
 			const readinessSection = page.locator("section.readiness");
 			await expect(readinessSection.locator(".blocked-pill")).toBeVisible();
 			await expect(readinessSection.locator(".ready-pill")).toHaveCount(0);
@@ -265,6 +264,7 @@ test.describe("/releases/<id> — known-issue acceptance clears the readiness bl
 			// fetch; the manual rule, now without failing_items, renders as a static
 			// div.rule with the .met class.
 			await page.goto(`/releases/${releaseId}`);
+			await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
 			const readinessAfter = page.locator("section.readiness");
 			const manualRuleAfter = readinessAfter
 				.locator(".rule")

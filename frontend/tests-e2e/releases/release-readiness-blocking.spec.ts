@@ -42,10 +42,9 @@ import { expect, test, type Page } from "../fixtures/test";
  * mutation we re-goto the page and wait on a REAL signal: the release heading,
  * the readiness verdict pill text, and the specific auto-item checkbox's
  * `checked` property. The auto checkbox is `disabled` (toggleItem early-returns
- * for auto items), so we assert its checked STATE — we never click it. The
- * detail route has no single `data-ready` handshake, so we gate on the heading
- * + the readiness verdict pill rendering (the readiness fetch having landed),
- * which is sufficient and deterministic.
+ * for auto items), so we assert its checked STATE — we never click it. We gate
+ * cold loads on the route's `data-ready="true"` signal (set once load() has
+ * settled release + readiness + sessions), then assert the specific verdict.
  */
 
 const API = "http://localhost:3000";
@@ -204,13 +203,13 @@ async function recordResult(
   expect(res.status(), "POST result should return 2xx").toBeLessThan(400);
 }
 
-/** Land on the detail page and wait on real render signals (heading + verdict pill). */
+/** Land on the detail page and wait on the route's data-ready signal. */
 async function gotoRelease(page: Page, id: number): Promise<void> {
   await page.goto(`/releases/${id}`);
-  // The readiness panel renders once GET /releases/:id/readiness resolves. The
-  // verdict pill (ready OR blocked) is the deterministic "readiness landed"
-  // signal on this route (no data-ready attribute exists here).
-  await expect(page.locator("section.readiness .ready-pill, section.readiness .blocked-pill")).toBeVisible();
+  // data-ready flips to "true" once load() settles release + readiness +
+  // sessions (and the active session detail) — a single deterministic
+  // load-complete gate. The readiness panel is mounted by then.
+  await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
 }
 
 /** The <li> for an auto-ruled checklist item, scoped by its label text. */

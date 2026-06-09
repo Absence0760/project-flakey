@@ -209,11 +209,12 @@ test.describe("/releases/<id> — readiness rule failing items", () => {
 
     // --- Assert in the real UI ---
     await page.goto(`/releases/${releaseId}`);
+    // data-ready="true" once load() settled release + readiness + sessions.
+    await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
     await expect(page.getByRole("heading", { name: release.version })).toBeVisible();
 
     const readiness = page.locator("section.readiness");
-    // Readiness fetch landed when the verdict pill renders. Both rules are
-    // unmet, so the page must be in the blocked state.
+    // Both rules are unmet, so the page must be in the blocked state.
     await expect(readiness.locator(".blocked-pill")).toBeVisible();
 
     // ----- Automated rule: critical tests passing -----
@@ -252,6 +253,7 @@ test.describe("/releases/<id> — readiness rule failing items", () => {
     await autoLink.click();
     await page.waitForURL(`**/runs/${runId}`);
     await page.goBack();
+    await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
     await expect(page.getByRole("heading", { name: release.version })).toBeVisible();
 
     // ----- Manual rule: manual regression executed -----

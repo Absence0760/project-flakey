@@ -42,11 +42,10 @@ import { expect, test, type Page } from "../fixtures/test";
  * Playwright worker operates on its own seeded tenant (acme-w{parallelIndex}).
  * Cleanup deletes the release on teardown so re-runs don't accumulate rows.
  *
- * No masking: every wait is on a real DOM/network signal (the heading after
- * goto, the requirements panel expanding, the coverage text rendering). The
- * release detail page has no single `data-ready` handshake, so we gate on the
- * release heading + the requirements panel's own rendered content (which only
- * exists once GET /releases/:id/requirements resolves with ≥1 row).
+ * No masking: every wait is on a real DOM/network signal. We gate cold loads on
+ * the route's `data-ready="true"` signal (set once load() settles), then assert
+ * the requirements panel's own rendered content (which only exists once GET
+ * /releases/:id/requirements resolves with ≥1 row).
  */
 
 const API = "http://localhost:3000";
@@ -191,6 +190,7 @@ test.describe("/releases/<id> — requirements coverage ↔ session results", ()
       await recordResult(page, token, releaseId, sessionId, failTestId, "failed");
 
       await page.goto(`/releases/${releaseId}`);
+      await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
       await expect(
         page.getByRole("heading", { name: /^e2e-reqcov-/ }),
       ).toBeVisible();
@@ -239,6 +239,7 @@ test.describe("/releases/<id> — requirements coverage ↔ session results", ()
       await recordResult(page, token, releaseId, sessionId, testId, "passed");
 
       await page.goto(`/releases/${releaseId}`);
+      await expect(page.locator('.page[data-ready="true"]')).toBeVisible();
       await expect(
         page.getByRole("heading", { name: /^e2e-reqcov-/ }),
       ).toBeVisible();
