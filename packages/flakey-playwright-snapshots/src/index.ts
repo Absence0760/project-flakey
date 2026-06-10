@@ -78,8 +78,13 @@ export function cleanSelector(sel: string): string {
   //   internal:role=button                         → role=button
   //   internal:text="it's done"s                   → text=it's done
   //   internal:text='quote " inside'               → text=quote " inside
+  // The value captures are length-bounded ({0,N}) rather than unbounded
+  // (`+`/`*`): an unbounded negated class before a failable terminator is a
+  // polynomial-ReDoS shape (O(n²)) under the global flag, and `sel` comes from
+  // a parsed (untrusted) Playwright trace. No real selector value approaches
+  // this cap, so matching is unchanged for legitimate input.
   return sel
-    .replace(/internal:testid=\[([^\]]+)\]s?/g, "[$1]")
+    .replace(/internal:testid=\[([^\]]{1,1000})\]s?/g, "[$1]")
     // Strip the prefix only — keep any trailing `[name=…]` AND match the bare
     // `getByRole("button")` form with no bracket at all (the old `([^[]+)\[`
     // required a `[`, so a bracket-less role kept the `internal:` prefix).
@@ -88,8 +93,8 @@ export function cleanSelector(sel: string): string {
     // is the *opposite* quote — `[^"']` (the old form) stopped at either, so
     // `getByText("it's done")` truncated at the apostrophe to `text=it`. Each
     // form also strips the trailing strict/case-insensitive flag letter.
-    .replace(/internal:text="([^"]*)"[a-z]?/g, "text=$1")
-    .replace(/internal:text='([^']*)'[a-z]?/g, "text=$1");
+    .replace(/internal:text="([^"]{0,1000})"[a-z]?/g, "text=$1")
+    .replace(/internal:text='([^']{0,1000})'[a-z]?/g, "text=$1");
 }
 
 function formatAction(method: string, params: Record<string, any>): { name: string; message: string } {

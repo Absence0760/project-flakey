@@ -645,3 +645,15 @@ test("cleanSelector: a plain CSS selector passes through untouched", () => {
   assert.equal(cleanSelector("button.primary"), "button.primary");
   assert.equal(cleanSelector("#email"), "#email");
 });
+
+// Regression: the value captures must stay length-bounded so matching is
+// linear. The unbounded `[^\]]+` / `[^"]*` form was polynomial (O(n²)) under
+// the global flag, and `sel` comes from an untrusted trace — a crafted
+// selector that repeats the prefix without a terminator took seconds. The
+// tight timeout fails fast if anyone drops the bound back to `+`/`*`.
+test("cleanSelector: an adversarial unterminated selector is handled in linear time", { timeout: 2000 }, () => {
+  const adversarial = "internal:testid=[".repeat(50_000); // no closing ']' → no match
+  // No closing bracket means nothing to strip; the point is that it returns
+  // promptly rather than hanging.
+  assert.equal(cleanSelector(adversarial), adversarial);
+});
