@@ -57,8 +57,15 @@
   }
 
   function handleDateChange(from: string | undefined, to: string | undefined) {
-    fromDate = from ?? daysAgo(7);
-    toDate = to ?? today();
+    // Pass undefined through untouched — the picker's "Clear" sends
+    // (undefined, undefined) to mean All Time, and the stats/trends/
+    // suite endpoints treat a missing from/to as unbounded. Coercing
+    // back to the last-7-days default here made "Clear" a no-op
+    // (it silently reset to a 7-day window instead of clearing).
+    // daysAgo(7)/today() remain the *initial* default (set on the
+    // fromDate/toDate state declarations), not a floor on every change.
+    fromDate = from;
+    toDate = to;
     syncUrl();
     loadStats();
   }
