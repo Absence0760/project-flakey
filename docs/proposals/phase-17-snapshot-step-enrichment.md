@@ -100,12 +100,15 @@ Consumes the Phase 1 contract in the frontend:
   red when the step carries console **errors** or failed requests, so a problem
   step stands out in the otherwise-flat list — the direct fix for "they look
   plain".
-- **Console / Network panel** in `SnapshotViewer.svelte` — a collapsible,
-  devtools-style **tabbed** panel under the frame, scoped to the active step:
-  a Console tab and a Network tab, each with a count + a red badge when it
-  carries errors / failed requests. Console lines get a level chip
+- **Console / Network as left-pane tabs** in the ErrorModal — first-class tabs
+  next to Snapshot (not a strip buried under the frame), so they're as
+  discoverable as the DOM view and get the full pane height. Each tab shows the
+  active step's count + a red badge when it carries errors / failed requests;
+  the tabs are present whenever *any* step has data (stable as you scrub) and
+  their content follows the active step (hovering a command updates them without
+  yanking you back to the snapshot). Console lines get a level chip
   (error/warn coloured); network rows show method · url · a severity-coloured
-  status chip. The collapsed bar doubles as an at-a-glance summary.
+  status chip (2xx green, 4xx/5xx red). A header names the step in view.
 - The shared count/failure logic lives in `snapshot-match.ts`
   (`stepDiagnostics` / `isNetworkFailure`, unit-tested) so both consumers agree.
   The frontend `SnapshotStep` interfaces gained the optional

@@ -10,6 +10,7 @@
     stepDiagnostics,
     stepDurationsMs,
     slowStepIndices,
+    isNetworkFailure,
     type CommandGroup as PureCommandGroup,
     type ConsoleEntryLite,
     type NetworkEntryLite,
@@ -73,6 +74,26 @@
   // duration on each step row so you can see where a test spent its time.
   let snapDurations = $derived(stepDurationsMs(snapshotSteps));
   let slowSnapSteps = $derived(slowStepIndices(snapDurations));
+
+  // Console / Network are first-class LEFT-PANE tabs (next to Snapshot), not a
+  // strip buried under the frame. The tabs show whenever ANY step has data (so
+  // they're stable as you scrub); their content reflects the ACTIVE step.
+  let anyConsole = $derived(snapshotSteps.some((s) => (s.console?.length ?? 0) > 0));
+  let anyNetwork = $derived(snapshotSteps.some((s) => (s.network?.length ?? 0) > 0));
+
+  // HTTP status → severity class for the network status chip.
+  function netStatusClass(status: number | undefined): string {
+    if (isNetworkFailure(status)) return "fail";
+    if (status !== undefined && status >= 300) return "redirect";
+    return "ok";
+  }
+
+  // When hovering/clicking a command in the right pane, show that step's data in
+  // the left pane — but keep the user on a diagnostics tab if they chose one
+  // (don't yank them back to the snapshot as they scrub).
+  function stepViewTab(): "snapshot" | "console" | "network" {
+    return leftTab === "console" || leftTab === "network" ? leftTab : "snapshot";
+  }
 
   interface SnapshotGroup {
     headerIdx: number | null;      // snapshotSteps index of the gherkin marker, or null for synthetic pre-first-gherkin "Setup"
@@ -165,7 +186,7 @@
   }
 
   // Left panel state
-  let leftTab = $state<"screenshot" | "video" | "snapshot">("screenshot");
+  let leftTab = $state<"screenshot" | "video" | "snapshot" | "console" | "network">("screenshot");
   let currentScreenshot = $state(0);
   let lightboxOpen = $state(false);
   let lightboxIndex = $state(0);
@@ -381,6 +402,12 @@
   let lockedStep = $state<number | null>(null);
   let hoverStep = $state<number | null>(null);
   let activeSnapshotStep = $derived(hoverStep ?? lockedStep ?? snapshotStep);
+  // Console / Network for the step the user is currently looking at — drives
+  // the left-pane Console/Network tab content + their per-step count badges.
+  let activeStepConsole = $derived(snapshotSteps[activeSnapshotStep]?.console ?? []);
+  let activeStepNetwork = $derived(snapshotSteps[activeSnapshotStep]?.network ?? []);
+  let activeConsoleErrors = $derived(activeStepConsole.filter((c) => c.level === "error").length);
+  let activeNetworkFails = $derived(activeStepNetwork.filter((n) => isNetworkFailure(n.status)).length);
   let meta = $derived(test?.metadata);
   let hasMetadata = $derived(!!meta && (
     (meta.retries?.length ?? 0) > 0 ||
@@ -566,6 +593,18 @@
                   Snapshot
                 </button>
               {/if}
+              {#if anyConsole}
+                <button class="pane-tab" class:active={leftTab === "console"} onclick={() => leftTab = "console"}>
+                  Console{activeStepConsole.length ? ` (${activeStepConsole.length})` : ""}
+                  {#if activeConsoleErrors > 0}<span class="pane-tab-badge" title={`${activeConsoleErrors} error${activeConsoleErrors === 1 ? "" : "s"} on this step`}>{activeConsoleErrors}</span>{/if}
+                </button>
+              {/if}
+              {#if anyNetwork}
+                <button class="pane-tab" class:active={leftTab === "network"} onclick={() => leftTab = "network"}>
+                  Network{activeStepNetwork.length ? ` (${activeStepNetwork.length})` : ""}
+                  {#if activeNetworkFails > 0}<span class="pane-tab-badge" title={`${activeNetworkFails} failed request${activeNetworkFails === 1 ? "" : "s"} on this step`}>{activeNetworkFails}</span>{/if}
+                </button>
+              {/if}
               {#if !hasScreenshots && !hasVideo && !hasSnapshot}
                 <span class="pane-tab active">Visual</span>
               {/if}
@@ -602,6 +641,48 @@
 
               {:else if leftTab === "snapshot" && hasSnapshot}
                 <SnapshotViewer snapshotPath={test.snapshot_path!} selectedStep={activeSnapshotStep} />
+
+              {:else if leftTab === "console"}
+                <div class="diag-pane">
+                  <div class="diag-pane-head">
+                    <span class="diag-pane-step">Step {activeSnapshotStep + 1}: <b>{snapshotSteps[activeSnapshotStep]?.commandName ?? ""}</b></span>
+                    <span class="diag-pane-hint">hover a command to follow along</span>
+                  </div>
+                  {#if activeStepConsole.length > 0}
+                    <ul class="diag-list diag-console">
+                      {#each activeStepConsole as line}
+                        <li class="diag-row console-{line.level}">
+                          <span class="diag-level level-{line.level}">{line.level}</span>
+                          <span class="diag-text">{line.text}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {:else}
+                    <div class="diag-empty">No console output for this step.</div>
+                  {/if}
+                </div>
+
+              {:else if leftTab === "network"}
+                <div class="diag-pane">
+                  <div class="diag-pane-head">
+                    <span class="diag-pane-step">Step {activeSnapshotStep + 1}: <b>{snapshotSteps[activeSnapshotStep]?.commandName ?? ""}</b></span>
+                    <span class="diag-pane-hint">hover a command to follow along</span>
+                  </div>
+                  {#if activeStepNetwork.length > 0}
+                    <ul class="diag-list diag-network">
+                      {#each activeStepNetwork as req}
+                        {@const cls = netStatusClass(req.status)}
+                        <li class="diag-row net-row">
+                          <span class="net-method">{req.method}</span>
+                          <span class="net-url" title={req.url}>{req.url}</span>
+                          <span class="net-status net-status-{cls}">{req.status ?? "—"}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {:else}
+                    <div class="diag-empty">No network activity for this step.</div>
+                  {/if}
+                </div>
 
               {:else}
                 <div class="empty-visual">
@@ -807,7 +888,7 @@
                             class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
                             class:cmd-active={groupHasSnap && activeSnapshotStep === groupSnapIdx}
                             class:cmd-locked={groupHasSnap && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = stepViewTab(); } }}
                             onclick={() => {
                               toggleGroup(g);
                               if (!hasSnapshot) return;
@@ -817,7 +898,7 @@
                               }
                               lockedStep = groupSnapIdx;
                               snapshotStep = groupSnapIdx;
-                              leftTab = "snapshot";
+                              leftTab = stepViewTab();
                             }}
                           >
                             <span class="cmd-num">{(group.headerIdx ?? 0) + 1}</span>
@@ -836,7 +917,7 @@
                             class:cmd-no-snap={hasSnapshot && groupSnapIdx === null}
                             class:cmd-active={groupHasSnap && activeSnapshotStep === groupSnapIdx}
                             class:cmd-locked={groupHasSnap && lockedStep === groupSnapIdx}
-                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = "snapshot"; } }}
+                            onmouseenter={() => { if (groupHasSnap) { hoverStep = groupSnapIdx; leftTab = stepViewTab(); } }}
                             onclick={() => {
                               toggleGroup(g);
                               if (!hasSnapshot) return;
@@ -846,7 +927,7 @@
                               }
                               lockedStep = groupSnapIdx;
                               snapshotStep = groupSnapIdx;
-                              leftTab = "snapshot";
+                              leftTab = stepViewTab();
                             }}
                           >
                             <span class="cmd-num"></span>
@@ -873,7 +954,7 @@
                                 class:cmd-active={childHasSnap && activeSnapshotStep === childSnapIdx}
                                 class:cmd-locked={childHasSnap && lockedStep === childSnapIdx}
                                 class:cmd-clickable={hasSnapshot}
-                                onmouseenter={() => { if (childHasSnap) { hoverStep = childSnapIdx; leftTab = "snapshot"; } }}
+                                onmouseenter={() => { if (childHasSnap) { hoverStep = childSnapIdx; leftTab = stepViewTab(); } }}
                                 onclick={() => {
                                   if (!hasSnapshot) return;
                                   if (childSnapIdx === null) {
@@ -882,7 +963,7 @@
                                   }
                                   lockedStep = lockedStep === childSnapIdx ? null : childSnapIdx;
                                   snapshotStep = childSnapIdx;
-                                  leftTab = "snapshot";
+                                  leftTab = stepViewTab();
                                 }}
                               >
                                 <span class="cmd-num">{i + 1}</span>
@@ -921,8 +1002,8 @@
                           class:cmd-active={hasSnapshot && activeSnapshotStep === i}
                           class:cmd-locked={hasSnapshot && lockedStep === i}
                           class:cmd-clickable={hasSnapshot}
-                          onmouseenter={() => { if (hasSnapshot) { hoverStep = i; leftTab = "snapshot"; } }}
-                          onclick={() => { if (hasSnapshot) { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = "snapshot"; } }}
+                          onmouseenter={() => { if (hasSnapshot) { hoverStep = i; leftTab = stepViewTab(); } }}
+                          onclick={() => { if (hasSnapshot) { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = stepViewTab(); } }}
                         >
                           <span class="cmd-num">{i + 1}</span>
                           <span class="cmd-icon">{cmd.state === "failed" ? "\u2717" : "\u2713"}</span>
@@ -956,12 +1037,12 @@
                             class="cmd cmd-clickable cmd-gherkin"
                             class:cmd-active={activeSnapshotStep === group.headerIdx}
                             class:cmd-locked={lockedStep === group.headerIdx}
-                            onmouseenter={() => { hoverStep = group.headerIdx; leftTab = "snapshot"; }}
+                            onmouseenter={() => { hoverStep = group.headerIdx; leftTab = stepViewTab(); }}
                             onclick={() => {
                               toggleGroup(g);
                               lockedStep = group.headerIdx;
                               snapshotStep = group.headerIdx!;
-                              leftTab = "snapshot";
+                              leftTab = stepViewTab();
                             }}
                           >
                             <span class="cmd-num">{(group.headerIdx ?? 0) + 1}</span>
@@ -995,8 +1076,8 @@
                               class="cmd cmd-clickable cmd-child"
                               class:cmd-active={activeSnapshotStep === i}
                               class:cmd-locked={lockedStep === i}
-                              onmouseenter={() => { hoverStep = i; leftTab = "snapshot"; }}
-                              onclick={() => { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = "snapshot"; }}
+                              onmouseenter={() => { hoverStep = i; leftTab = stepViewTab(); }}
+                              onclick={() => { lockedStep = lockedStep === i ? null : i; snapshotStep = i; leftTab = stepViewTab(); }}
                             >
                               <span class="cmd-num">{i + 1}</span>
                               <span class="cmd-body">
@@ -1558,11 +1639,118 @@
     border-bottom-color: var(--link);
     font-weight: 600;
   }
+  .pane-tab-badge {
+    margin-left: 0.3rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #fff;
+    background: var(--color-fail);
+    border-radius: 8px;
+    padding: 0 0.3rem;
+    vertical-align: middle;
+  }
 
   .pane-content {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+  }
+
+  /* LEFT: Console / Network diagnostics panes (per active step) */
+  .diag-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+  }
+  .diag-pane-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    flex-shrink: 0;
+  }
+  .diag-pane-step { font-size: 0.78rem; color: var(--text-secondary); }
+  .diag-pane-step b { color: var(--text); font-weight: 600; }
+  .diag-pane-hint { margin-left: auto; font-size: 0.7rem; color: var(--text-muted); }
+  .diag-list {
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem 0;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .diag-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.28rem 0.75rem;
+    color: var(--text-secondary);
+    word-break: break-word;
+    border-left: 2px solid transparent;
+    line-height: 1.5;
+  }
+  .diag-row:nth-child(even) { background: color-mix(in srgb, var(--bg) 45%, transparent); }
+  .diag-row:hover { background: var(--bg-hover); }
+
+  .diag-level {
+    flex-shrink: 0;
+    width: 3.2rem;
+    text-transform: uppercase;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-align: center;
+    border-radius: 3px;
+    padding: 0.05rem 0;
+    color: var(--text-muted);
+    background: var(--bg-hover, rgba(128,128,128,0.16));
+    align-self: flex-start;
+    margin-top: 0.1rem;
+  }
+  .level-error { color: #fff; background: var(--color-fail); }
+  .level-warn { color: #1a1a1a; background: var(--color-skip); }
+  .diag-text { white-space: pre-wrap; }
+  .console-error { color: var(--color-fail); border-left-color: var(--color-fail); }
+  .console-warn { color: var(--color-skip); }
+
+  .net-method {
+    flex-shrink: 0;
+    width: 3.5rem;
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.72rem;
+  }
+  .net-url {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+  }
+  .net-status {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    padding: 0 0.4rem;
+    border-radius: 3px;
+    font-size: 0.72rem;
+  }
+  .net-status-ok { color: var(--color-pass); }
+  .net-status-redirect { color: var(--text-muted); }
+  .net-status-fail { color: #fff; background: var(--color-fail); }
+  .diag-empty {
+    padding: 2rem 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 0.85rem;
   }
 
   /* LEFT: Screenshot viewer */

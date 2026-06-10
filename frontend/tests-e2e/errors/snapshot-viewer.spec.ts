@@ -455,34 +455,31 @@ test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
     await expect(clickRow.locator(".cmd-diag-badge.has-error")).toBeVisible();
   });
 
-  test("selecting a step reveals its console + network in the viewer strip", async ({ page }) => {
+  test("Console / Network are left-pane tabs reflecting the active step's network", async ({ page }) => {
     await openGherkinRun(page);
     await openErrorModal(page);
 
     const list = page.locator(".command-list");
 
-    // The first step (visit) has no console/network → no strip rendered.
-    await expect(page.locator(".step-diag")).toHaveCount(0);
-
-    // Select the "submit" click step → its console + network tabs surface.
-    await list.locator("li.cmd-child").nth(5).click();
-
-    const strip = page.locator(".step-diag");
-    await expect(strip).toBeVisible();
-    const netTab = strip.locator(".diag-tab").filter({ hasText: "Network" });
+    // The tabs sit alongside Snapshot (some step in the bundle has data).
+    const netTab = page.locator(".pane-tab").filter({ hasText: /^Network/ });
     await expect(netTab).toBeVisible();
-    // The Network tab carries a failure badge (the GET /api/dashboard 401).
-    await expect(netTab.locator(".diag-badge.err")).toBeVisible();
 
-    // Open the Network tab and verify the request rows; the 401 is flagged.
+    // Select the "submit" click step → it's the active step, so Network's
+    // per-step badge counts its one failed request (GET /api/dashboard 401).
+    await list.locator("li.cmd-child").nth(5).click();
+    await expect(netTab.locator(".pane-tab-badge")).toBeVisible();
+
+    // Open the Network tab → full-height list; the 401 row is flagged.
     await netTab.click();
-    await expect(strip.locator(".diag-network .diag-row").filter({ hasText: "/api/login" })).toBeVisible();
-    const failRow = strip.locator(".diag-network .diag-row").filter({ has: page.locator(".net-status-fail") });
+    const pane = page.locator(".diag-pane");
+    await expect(pane.locator(".diag-network .diag-row").filter({ hasText: "/api/login" })).toBeVisible();
+    const failRow = pane.locator(".diag-network .diag-row").filter({ has: page.locator(".net-status-fail") });
     await expect(failRow).toContainText("/api/dashboard");
     await expect(failRow).toContainText("401");
   });
 
-  test("the failing step's strip shows the captured console error", async ({ page }) => {
+  test("the Console tab shows the active step's captured console error", async ({ page }) => {
     await openGherkinRun(page);
     await openErrorModal(page);
 
@@ -490,12 +487,11 @@ test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
     // The failing "should" step (last child) carries a console error.
     await list.locator("li.cmd-child").nth(6).click();
 
-    const strip = page.locator(".step-diag");
-    await expect(strip).toBeVisible();
     // Open the Console tab; the error line renders with the error level chip.
-    await strip.locator(".diag-tab").filter({ hasText: "Console" }).click();
-    await expect(strip.locator(".diag-console .diag-row.console-error")).toBeVisible();
-    await expect(strip.locator(".diag-console")).toContainText("expected /dashboard");
+    await page.locator(".pane-tab").filter({ hasText: /^Console/ }).click();
+    const pane = page.locator(".diag-pane");
+    await expect(pane.locator(".diag-console .diag-row.console-error")).toBeVisible();
+    await expect(pane.locator(".diag-console")).toContainText("expected /dashboard");
   });
 });
 

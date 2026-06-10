@@ -3,12 +3,8 @@
   import { UPLOADS_URL } from "$lib/api";
   import {
     failureStepIndex,
-    stepDiagnostics,
-    isNetworkFailure,
     stepDurationsMs,
     slowStepIndices,
-    type ConsoleEntryLite,
-    type NetworkEntryLite,
   } from "$lib/utils/snapshot-match";
   import { formatDuration } from "$lib/utils/format";
 
@@ -27,8 +23,6 @@
     html: string;
     scrollX: number;
     scrollY: number;
-    console?: ConsoleEntryLite[];
-    network?: NetworkEntryLite[];
   }
 
   interface SnapshotBundle {
@@ -69,33 +63,6 @@
     if (!bundle) return null;
     return bundle.steps[clampedStep] ?? null;
   });
-
-  // Per-step console/network strip. Open state + chosen tab persist across
-  // steps (set once, keep as you scrub). Counts drive the tab headers.
-  let diagOpen = $state(false);
-  let diagTab = $state<"console" | "network">("console");
-  let currentDiag = $derived(
-    currentStep ? stepDiagnostics(currentStep) : { consoleCount: 0, networkCount: 0, errorCount: 0 },
-  );
-  let consoleEntries = $derived(currentStep?.console ?? []);
-  let networkEntries = $derived(currentStep?.network ?? []);
-  let consoleErrorCount = $derived(consoleEntries.filter((c) => c.level === "error").length);
-  let networkFailCount = $derived(networkEntries.filter((n) => isNetworkFailure(n.status)).length);
-  // The tab actually shown: honor the user's choice, but fall back to whichever
-  // source has data so an empty tab is never displayed (a step may have only
-  // console or only network).
-  let activeTab = $derived(
-    diagTab === "network"
-      ? (networkEntries.length > 0 ? "network" : "console")
-      : (consoleEntries.length > 0 ? "console" : "network"),
-  );
-
-  // HTTP status → severity class for the network status chip.
-  function netStatusClass(status: number | undefined): string {
-    if (isNetworkFailure(status)) return "fail";
-    if (status !== undefined && status >= 300) return "redirect";
-    return "ok";
-  }
 
   // Per-step durations (ms) derived from each step's cumulative timestamp, so
   // the nav surfaces how long the active step took and flags the slow ones.
@@ -324,84 +291,6 @@
       </div>
       <button class="step-btn" onclick={goNext} disabled={clampedStep >= stepCount - 1} aria-label="Next step" title="Next step (→)">›</button>
     </div>
-
-    {#if currentDiag.consoleCount + currentDiag.networkCount > 0}
-      <!--
-        Per-step diagnostics strip: the console + network captured for the
-        ACTIVE step (Phase 1 enrichment populates these on Playwright bundles).
-        Collapsed by default so the frame stays prominent; the header shows
-        counts and turns red when the step carries errors / failed requests.
-      -->
-      <div class="step-diag" class:open={diagOpen}>
-        <div class="diag-tabs" role="tablist" aria-label="Step console and network">
-          <button
-            class="diag-toggle"
-            onclick={() => (diagOpen = !diagOpen)}
-            aria-expanded={diagOpen}
-            aria-label={diagOpen ? "Hide step console & network" : "Show step console & network"}
-            title={diagOpen ? "Hide step console & network" : "Show step console & network"}
-          >
-            <span class="diag-chevron" class:open={diagOpen} aria-hidden="true">▸</span>
-          </button>
-          {#if consoleEntries.length > 0}
-            <button
-              class="diag-tab"
-              class:active={diagOpen && activeTab === "console"}
-              role="tab"
-              aria-selected={activeTab === "console"}
-              onclick={() => { diagTab = "console"; diagOpen = true; }}
-            >
-              Console
-              <span class="diag-count">{currentDiag.consoleCount}</span>
-              {#if consoleErrorCount > 0}
-                <span class="diag-badge err" title={`${consoleErrorCount} error${consoleErrorCount === 1 ? "" : "s"}`}>{consoleErrorCount}</span>
-              {/if}
-            </button>
-          {/if}
-          {#if networkEntries.length > 0}
-            <button
-              class="diag-tab"
-              class:active={diagOpen && activeTab === "network"}
-              role="tab"
-              aria-selected={activeTab === "network"}
-              onclick={() => { diagTab = "network"; diagOpen = true; }}
-            >
-              Network
-              <span class="diag-count">{currentDiag.networkCount}</span>
-              {#if networkFailCount > 0}
-                <span class="diag-badge err" title={`${networkFailCount} failed`}>{networkFailCount}</span>
-              {/if}
-            </button>
-          {/if}
-        </div>
-
-        {#if diagOpen}
-          <div class="diag-body" role="tabpanel">
-            {#if activeTab === "console"}
-              <ul class="diag-console">
-                {#each consoleEntries as line}
-                  <li class="diag-row console-{line.level}">
-                    <span class="diag-level level-{line.level}">{line.level}</span>
-                    <span class="diag-text">{line.text}</span>
-                  </li>
-                {/each}
-              </ul>
-            {:else}
-              <ul class="diag-network">
-                {#each networkEntries as req}
-                  {@const cls = netStatusClass(req.status)}
-                  <li class="diag-row">
-                    <span class="net-method">{req.method}</span>
-                    <span class="net-url" title={req.url}>{req.url}</span>
-                    <span class="net-status net-status-{cls}">{req.status ?? "—"}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
   {:else}
     <div class="snapshot-status">
       <span class="status-icon" aria-hidden="true">∅</span>
@@ -657,161 +546,4 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
-  /* Per-step diagnostics — devtools-style Console / Network tabs */
-  .step-diag {
-    border-top: 1px solid var(--border);
-    background: var(--bg-secondary);
-    font-size: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .step-diag.open {
-    /* When open, cap the panel so the snapshot frame stays the hero; the body
-       scrolls. ~38% of the viewer, bounded. */
-    flex: 0 0 auto;
-  }
-
-  .diag-tabs {
-    display: flex;
-    align-items: stretch;
-    gap: 0;
-    padding: 0 0.5rem;
-    min-height: 2rem;
-  }
-  .diag-toggle {
-    display: inline-flex;
-    align-items: center;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0 0.4rem;
-  }
-  .diag-toggle:hover { color: var(--text); }
-  .diag-chevron {
-    font-size: 0.7rem;
-    transition: transform 0.12s ease;
-    display: inline-block;
-  }
-  .diag-chevron.open { transform: rotate(90deg); }
-
-  .diag-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0 0.6rem;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 0.72rem;
-    font-weight: 600;
-    height: 2rem;
-    white-space: nowrap;
-  }
-  .diag-tab:hover { color: var(--text); }
-  .diag-tab.active {
-    color: var(--link);
-    border-bottom-color: var(--link);
-  }
-  .diag-count {
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    font-size: 0.66rem;
-    color: var(--text-muted);
-    background: var(--bg-hover, rgba(128,128,128,0.16));
-    border-radius: 8px;
-    padding: 0 0.35rem;
-    min-width: 1.1rem;
-    text-align: center;
-  }
-  .diag-tab.active .diag-count { color: var(--text); }
-  .diag-badge {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    font-size: 0.6rem;
-    border-radius: 8px;
-    padding: 0 0.3rem;
-    min-width: 1rem;
-    text-align: center;
-    color: #fff;
-  }
-  .diag-badge.err { background: var(--color-fail); }
-
-  .diag-body {
-    max-height: 180px;
-    overflow-y: auto;
-    padding: 0.25rem 0 0.4rem;
-    border-top: 1px solid var(--border);
-  }
-  .diag-console,
-  .diag-network {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.72rem;
-  }
-  /* One row per entry — striped, full-width hover, monospace. */
-  .diag-row {
-    display: flex;
-    gap: 0.6rem;
-    align-items: baseline;
-    padding: 0.18rem 0.75rem;
-    color: var(--text-secondary);
-    word-break: break-word;
-    border-left: 2px solid transparent;
-  }
-  .diag-row:nth-child(even) { background: color-mix(in srgb, var(--bg) 40%, transparent); }
-  .diag-row:hover { background: var(--bg-hover); }
-
-  /* Console: a fixed-width level chip + the message. Error/warn rows tint. */
-  .diag-level {
-    flex-shrink: 0;
-    width: 3.1rem;
-    text-transform: uppercase;
-    font-size: 0.58rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-align: center;
-    border-radius: 3px;
-    padding: 0.05rem 0;
-    color: var(--text-muted);
-    background: var(--bg-hover, rgba(128,128,128,0.16));
-  }
-  .level-error { color: #fff; background: var(--color-fail); }
-  .level-warn { color: #1a1a1a; background: var(--color-skip); }
-  .diag-text { white-space: pre-wrap; }
-  .console-error { color: var(--color-fail); border-left-color: var(--color-fail); }
-  .console-warn { color: var(--color-skip); }
-
-  /* Network: method · url (truncates) · status chip (severity-colored). */
-  .net-method {
-    flex-shrink: 0;
-    width: 3.2rem;
-    font-weight: 700;
-    color: var(--text);
-    font-size: 0.66rem;
-  }
-  .net-url {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-secondary);
-  }
-  .net-status {
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    padding: 0 0.35rem;
-    border-radius: 3px;
-    font-size: 0.66rem;
-  }
-  .net-status-ok { color: var(--color-pass); }
-  .net-status-redirect { color: var(--text-muted); }
-  .net-status-fail { color: #fff; background: var(--color-fail); }
 </style>
