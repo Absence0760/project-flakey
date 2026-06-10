@@ -42,6 +42,22 @@ interface CommandEntry {
   state: "passed" | "failed";
 }
 
+// Per-step runtime context (Phase 1 enrichment). Both arrays are OPTIONAL so
+// pre-enrichment bundles — and steps with nothing to show — stay unchanged;
+// the SnapshotViewer renders them only when present.
+interface ConsoleLogEntry {
+  // Normalized level: log | info | warn | error | debug. Playwright emits
+  // "warning"; we fold it to "warn" so the consumer's level styling is uniform.
+  level: string;
+  text: string;
+}
+
+interface NetworkLogEntry {
+  method: string;
+  url: string;
+  status?: number;
+}
+
 interface SnapshotStep {
   index: number;
   commandName: string;
@@ -50,6 +66,8 @@ interface SnapshotStep {
   html: string;
   scrollX: number;
   scrollY: number;
+  console?: ConsoleLogEntry[];
+  network?: NetworkLogEntry[];
 }
 
 interface SnapshotBundle {
@@ -67,6 +85,19 @@ interface ParseResult {
 }
 
 const ACTION_CLASSES = new Set(["Frame", "Page", "Locator", "ElementHandle", "JSHandle"]);
+
+// Per-step caps on attached context, mirroring the byte/line discipline in
+// @flakeytesting/cypress-snapshots. A chatty page (polling XHR, console spam)
+// must not bloat the bundle past what the upload can serialize.
+const MAX_CONSOLE_PER_STEP = 100;
+const MAX_NETWORK_PER_STEP = 50;
+
+// Playwright console message types → the normalized level the viewer styles by.
+function normalizeConsoleLevel(t: string): string {
+  if (t === "warning") return "warn";
+  if (t === "error" || t === "warn" || t === "info" || t === "debug" || t === "log") return t;
+  return "log";
+}
 
 // Exported for unit testing (src/tests/parse-trace.test.ts).
 export function cleanSelector(sel: string): string {
@@ -141,8 +172,16 @@ export function parseTrace(
   // (The library trace holds the page actions; network/stacks/test-* traces
   // are excluded.)
   const traceCandidates = new Map<string, Buffer>();
+  // Network entries live in a SEPARATE file from the action trace — the very
+  // file the candidate filter below excludes. Collect it here. The name has
+  // varied across Playwright versions ("trace.network" in 1.59; older builds
+  // used "*-network.trace"), so accept both shapes rather than one literal.
+  const networkData: string[] = [];
   for (const entry of zip.getEntries()) {
     const name = entry.entryName;
+    if (name.endsWith(".network") || (name.endsWith(".trace") && name.includes("network"))) {
+      networkData.push(entry.getData().toString("utf8"));
+    }
     if (name.endsWith(".trace") && !name.includes("network") && !name.includes("stacks") && !name.startsWith("test")) {
       traceCandidates.set(name, entry.getData());
     }
@@ -171,6 +210,10 @@ export function parseTrace(
   // Parse trace lines
   const beforeActions = new Map<string, TraceAction>();
   const actions: { before: TraceAction; after: TraceAction | null }[] = [];
+  // Console events live inline in the action trace; network events in the
+  // separate file collected above. Both carry a monotonic `time` on the same
+  // clock as action start/end times, so we can bucket each to the active step.
+  const consoleEvents: { time: number; level: string; text: string }[] = [];
 
   for (const line of traceData.split("\n")) {
     if (!line.trim()) continue;
@@ -180,6 +223,14 @@ export function parseTrace(
       if (obj.type === "context-options" && obj.options?.viewport) {
         viewportWidth = obj.options.viewport.width ?? 1280;
         viewportHeight = obj.options.viewport.height ?? 720;
+      }
+
+      if (obj.type === "console") {
+        consoleEvents.push({
+          time: typeof obj.time === "number" ? obj.time : 0,
+          level: normalizeConsoleLevel(typeof obj.messageType === "string" ? obj.messageType : "log"),
+          text: typeof obj.text === "string" ? obj.text : "",
+        });
       }
 
       if (obj.type === "screencastFrame" || obj.type === "screencast-frame") {
@@ -265,6 +316,61 @@ export function parseTrace(
         scrollX: 0,
         scrollY: 0,
       });
+    }
+  }
+
+  // Parse network events from the separate network file(s).
+  const networkEvents: { time: number; method: string; url: string; status?: number }[] = [];
+  for (const data of networkData) {
+    for (const line of data.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const obj: any = JSON.parse(line);
+        if (obj.type !== "resource-snapshot") continue;
+        const snap = obj.snapshot ?? {};
+        const url = typeof snap.request?.url === "string" ? snap.request.url : "";
+        if (!url) continue;
+        const status = typeof snap.response?.status === "number" && snap.response.status >= 0
+          ? snap.response.status : undefined;
+        networkEvents.push({
+          time: typeof snap._monotonicTime === "number" ? snap._monotonicTime : 0,
+          method: typeof snap.request?.method === "string" ? snap.request.method : "",
+          url,
+          status,
+        });
+      } catch {}
+    }
+  }
+
+  // Attach console + network to the step that was active when each occurred.
+  // "Active step" = the latest step whose action had started by the event's
+  // time; events before the first step fall to step 0. Steps are a subset of
+  // actions (only those that matched a screencast frame), so bucket against the
+  // steps' own start times — and DON'T assume they're time-sorted (actions are
+  // recorded in completion order), so scan for the last match rather than
+  // breaking early.
+  if (steps.length > 0 && (consoleEvents.length > 0 || networkEvents.length > 0)) {
+    const stepStarts = steps.map((s) => actions[s.index]?.before.startTime ?? 0);
+    const stepForTime = (t: number): number => {
+      let idx = 0;
+      for (let p = 0; p < stepStarts.length; p++) {
+        if (stepStarts[p] <= t) idx = p;
+      }
+      return idx;
+    };
+    for (const ev of consoleEvents) {
+      const step = steps[stepForTime(ev.time)];
+      (step.console ??= []);
+      if (step.console.length < MAX_CONSOLE_PER_STEP) step.console.push({ level: ev.level, text: ev.text });
+    }
+    for (const ev of networkEvents) {
+      const step = steps[stepForTime(ev.time)];
+      (step.network ??= []);
+      if (step.network.length < MAX_NETWORK_PER_STEP) {
+        step.network.push(ev.status !== undefined
+          ? { method: ev.method, url: ev.url, status: ev.status }
+          : { method: ev.method, url: ev.url });
+      }
     }
   }
 

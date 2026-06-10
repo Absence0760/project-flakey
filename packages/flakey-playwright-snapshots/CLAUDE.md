@@ -12,6 +12,27 @@ No dev/watch script; consumers rebuild `@flakeytesting/playwright-reporter` to p
 
 - `adm-zip` — reads Playwright trace zip files. No alternative is wired in; don't swap it without updating the extraction paths.
 
+## What's extracted
+
+Per snapshot step (`SnapshotStep`): `commandName` / `commandMessage` (from the
+action's method + cleaned selector), a DOM/screencast frame (`html`), and —
+Phase 1 enrichment — optional `console[]` and `network[]`:
+
+- **`console`** — `{ level, text }` from inline `type:"console"` events in the
+  action trace. Playwright's `messageType:"warning"` is folded to `"warn"`.
+- **`network`** — `{ method, url, status? }` from `type:"resource-snapshot"`
+  entries in the **separate** network file (`trace.network` in 1.59; older
+  builds used `*-network.trace` — both are read). A `status` of `-1`
+  (request never completed) is omitted, not emitted.
+
+Each event is bucketed to the step that was **active** when it occurred — the
+latest step whose action had started by the event's monotonic `time`
+(console `time` / HAR `_monotonicTime` share the action clock). Events before
+the first step fall to step 0. Per-step caps (`MAX_CONSOLE_PER_STEP = 100`,
+`MAX_NETWORK_PER_STEP = 50`) bound bundle growth, mirroring the byte discipline
+in `@flakeytesting/cypress-snapshots`. Both fields are **optional** — absent
+when empty — so older bundles and the consumer stay backward-compatible.
+
 ## Consumers
 
 - `@flakeytesting/playwright-reporter` (workspace) — only consumer. This package has no standalone CLI.

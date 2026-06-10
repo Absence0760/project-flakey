@@ -39,16 +39,39 @@ afterEach(() => {
  *   - 0-trace.trace with the supplied JSON-newline lines
  *   - resources/<filename> for each entry in `resources`
  */
-function buildTraceZip(lines: any[], resources: Record<string, Buffer>): string {
+function buildTraceZip(
+  lines: any[],
+  resources: Record<string, Buffer>,
+  networkLines?: any[],
+): string {
   const zip = new AdmZip();
   const traceText = lines.map((l) => JSON.stringify(l)).join("\n");
   zip.addFile("0-trace.trace", Buffer.from(traceText, "utf8"));
+  // Network events live in a separate "*.network" file (named "trace.network"
+  // inside the zip in Playwright 1.59) — mirror that here.
+  if (networkLines && networkLines.length > 0) {
+    const netText = networkLines.map((l) => JSON.stringify(l)).join("\n");
+    zip.addFile("trace.network", Buffer.from(netText, "utf8"));
+  }
   for (const [name, buf] of Object.entries(resources)) {
     zip.addFile(`resources/${name}`, buf);
   }
   const path = join(tmpRoot, "trace.zip");
   zip.writeZip(path);
   return path;
+}
+
+// A "resource-snapshot" network entry as Playwright writes it to the .network
+// file: a HAR entry under `snapshot`, with the monotonic start time inline.
+function netEntry(method: string, url: string, status: number, monotonicTime: number) {
+  return {
+    type: "resource-snapshot",
+    snapshot: {
+      _monotonicTime: monotonicTime,
+      request: { method, url },
+      response: { status },
+    },
+  };
 }
 
 const fakeJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0xff, 0xd9]); // tiny "valid-enough" JPEG bytes
@@ -656,4 +679,120 @@ test("cleanSelector: an adversarial unterminated selector is handled in linear t
   // No closing bracket means nothing to strip; the point is that it returns
   // promptly rather than hanging.
   assert.equal(cleanSelector(adversarial), adversarial);
+});
+
+// --- Phase 1: per-step console + network enrichment ---
+
+// A two-step trace (goto @100, click @300) with screencast frames so both
+// actions produce snapshot steps. Optional network lines go in the .network
+// file. Console lines are inline in the action trace.
+function twoStepTrace(extraTraceLines: any[] = [], networkLines?: any[]): string {
+  return buildTraceZip(
+    [
+      { type: "context-options", options: { viewport: { width: 1280, height: 720 } } },
+      { type: "screencastFrame", sha1: "f1", timestamp: 160, width: 1280, height: 720 },
+      { type: "screencastFrame", sha1: "f2", timestamp: 330, width: 1280, height: 720 },
+      { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+      { type: "after", callId: "c1", endTime: 160 },
+      { type: "before", callId: "c2", class: "Locator", method: "click", params: { selector: "button#go" }, startTime: 300 },
+      { type: "after", callId: "c2", endTime: 330 },
+      ...extraTraceLines,
+    ],
+    { "f1.jpeg": fakeJpeg, "f2.jpeg": fakeJpeg },
+    networkLines,
+  );
+}
+
+test("console events attach to the step active at their time, with normalized levels", () => {
+  const path = twoStepTrace([
+    { type: "console", messageType: "log", text: "navigating", time: 150 },     // step 0 (started @100)
+    { type: "console", messageType: "warning", text: "deprecated api", time: 320 }, // step 1 (started @300)
+    { type: "console", messageType: "error", text: "boom", time: 340 },         // step 1
+  ]);
+
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.ok(snapshotBundle);
+  assert.equal(snapshotBundle!.steps.length, 2);
+
+  assert.deepEqual(snapshotBundle!.steps[0].console, [{ level: "log", text: "navigating" }]);
+  // "warning" must be folded to "warn"; both step-1 lines land on step 1 in order.
+  assert.deepEqual(snapshotBundle!.steps[1].console, [
+    { level: "warn", text: "deprecated api" },
+    { level: "error", text: "boom" },
+  ]);
+});
+
+test("network entries from the .network file attach to the active step", () => {
+  const path = twoStepTrace([], [
+    netEntry("GET", "/api/a", 200, 140),  // step 0
+    netEntry("POST", "/api/b", 500, 310), // step 1
+  ]);
+
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.ok(snapshotBundle);
+  assert.deepEqual(snapshotBundle!.steps[0].network, [{ method: "GET", url: "/api/a", status: 200 }]);
+  assert.deepEqual(snapshotBundle!.steps[1].network, [{ method: "POST", url: "/api/b", status: 500 }]);
+});
+
+test("a status of -1 (request never completed) is omitted, not emitted as -1", () => {
+  const path = twoStepTrace([], [netEntry("GET", "/api/pending", -1, 140)]);
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.deepEqual(snapshotBundle!.steps[0].network, [{ method: "GET", url: "/api/pending" }]);
+  assert.ok(!("status" in snapshotBundle!.steps[0].network![0]));
+});
+
+test("events before the first step's start time fall to step 0", () => {
+  const path = twoStepTrace(
+    [{ type: "console", messageType: "log", text: "very early", time: 10 }],   // before step 0 (@100)
+    [netEntry("GET", "/early", 204, 5)],
+  );
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.deepEqual(snapshotBundle!.steps[0].console, [{ level: "log", text: "very early" }]);
+  assert.deepEqual(snapshotBundle!.steps[0].network, [{ method: "GET", url: "/early", status: 204 }]);
+});
+
+test("steps with no console/network leave both fields absent (backward-compatible)", () => {
+  const path = twoStepTrace(); // no console lines, no network file
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  for (const step of snapshotBundle!.steps) {
+    assert.equal(step.console, undefined);
+    assert.equal(step.network, undefined);
+  }
+});
+
+test("per-step console is capped at MAX_CONSOLE_PER_STEP (100)", () => {
+  const noisy = Array.from({ length: 150 }, (_, n) => (
+    { type: "console", messageType: "log", text: `line ${n}`, time: 320 } // all land on step 1
+  ));
+  const path = twoStepTrace(noisy);
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.equal(snapshotBundle!.steps[1].console!.length, 100);
+  // The cap keeps the FIRST 100 (chronological), so line 0 survives, line 149 is dropped.
+  assert.equal(snapshotBundle!.steps[1].console![0].text, "line 0");
+});
+
+test("per-step network is capped at MAX_NETWORK_PER_STEP (50)", () => {
+  const flood = Array.from({ length: 80 }, (_, n) => netEntry("GET", `/r/${n}`, 200, 310));
+  const path = twoStepTrace([], flood);
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.equal(snapshotBundle!.steps[1].network!.length, 50);
+});
+
+test("older trace layout (network in a *-network.trace file) is still read", () => {
+  // Pre-1.59 builds named the network file "*-network.trace" rather than
+  // "*.network". The collector accepts both; assert the legacy shape works.
+  const zip = new AdmZip();
+  zip.addFile("0-trace.trace", Buffer.from([
+    { type: "context-options", options: { viewport: { width: 800, height: 600 } } },
+    { type: "screencastFrame", sha1: "f1", timestamp: 160, width: 800, height: 600 },
+    { type: "before", callId: "c1", class: "Page", method: "goto", params: { url: "/" }, startTime: 100 },
+    { type: "after", callId: "c1", endTime: 160 },
+  ].map((l) => JSON.stringify(l)).join("\n"), "utf8"));
+  zip.addFile("0-trace-network.trace", Buffer.from(JSON.stringify(netEntry("GET", "/legacy", 200, 140)), "utf8"));
+  zip.addFile("resources/f1.jpeg", fakeJpeg);
+  const path = join(tmpRoot, "trace.zip");
+  zip.writeZip(path);
+
+  const { snapshotBundle } = parseTrace(path, "t", "t.spec.ts");
+  assert.deepEqual(snapshotBundle!.steps[0].network, [{ method: "GET", url: "/legacy", status: 200 }]);
 });
