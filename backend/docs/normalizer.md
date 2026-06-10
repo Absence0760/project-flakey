@@ -92,7 +92,7 @@ interface NormalizedRun {
     ci_run_id: string
     started_at: string       // ISO 8601
     finished_at: string      // ISO 8601
-    reporter: string         // "mochawesome" | "junit" | "playwright"
+    reporter: string         // "mochawesome" | "junit" | "playwright" | "jest" | "webdriverio"
   }
   stats: {
     total: number

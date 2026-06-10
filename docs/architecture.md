@@ -237,7 +237,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `/auth/sso/*` — OIDC + SAML login flow (mints the existing Flakey JWT; additive — see § 4). Public; gated internally by the flag
 - `/sso/config` + `POST /sso/scim/token` — admin SSO config + per-org SCIM bearer-token mint
 - `/scim/v2/*` — SCIM 2.0 provisioning (per-org bearer auth, not JWT); maps create/deactivate/delete to org membership
-- Full contract in [docs/sso.md](sso.md)
+- Full contract in [backend/docs/sso.md](../backend/docs/sso.md)
 
 *Cross-org support (read-only):*
 - `POST /support/orgs/:orgId/token` — an `is_support` operator mints a 30-min read-only "view as org" JWT (see § 4)

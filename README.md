@@ -339,8 +339,10 @@ after-script:
 | Variable | Default | Description |
 |---|---|---|
 | `JWT_SECRET` | _(required in production)_ | JWT signing secret |
+| `FLAKEY_BOOTSTRAP_ADMIN_EMAIL` / `FLAKEY_BOOTSTRAP_ADMIN_PASSWORD` | — | Set **both** to idempotently create the first admin on boot (role `admin` + personal org + `owner` membership). No-ops if either is unset; never resets an existing user's password, so it's safe to leave set across restarts. The supported way to seed the first user in production (no default credentials ship). |
 | `DB_USER` | `flakey_app` | Database user (non-superuser for RLS) |
 | `DB_PASSWORD` | `flakey_app` | Database password |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | `localhost` / `5432` / `flakey` | Postgres connection target |
 | `PORT` | `3000` | API port |
 | `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Allowed origins (comma-separated). Dev default includes both the frontend (7778) and the backend itself (3000) so health probes from the same machine pass. |
 | `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
@@ -350,6 +352,8 @@ after-script:
 | `S3_BUCKET` / `S3_REGION` | — / `us-east-1` | S3 bucket name and region (only when `STORAGE=s3`). |
 | `S3_ENDPOINT` | — | Custom endpoint for an S3-compatible store (MinIO, Ceph, Backblaze). Set to `http://localhost:9000` to use the bundled MinIO (`docker compose --profile storage up -d`). Unset = real AWS S3. |
 | `S3_FORCE_PATH_STYLE` | `true` when `S3_ENDPOINT` is set | Path-style bucket addressing — required for MinIO. Set `false` to opt back out. Credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` chain (`minioadmin` / `minioadmin` for local MinIO). |
+| `S3_PREFIX` | `""` | Optional key prefix prepended to every artifact key (only when `STORAGE=s3`) — e.g. to share a bucket across environments. |
+| `CDN_URL` | — | When set, artifact URLs are served from this base (e.g. a CloudFront distribution) instead of S3 signed URLs. |
 | `NODE_ENV` | — | Set `production` to refuse boot without JWT_SECRET and FLAKEY_ENCRYPTION_KEY. CORS_ORIGINS still applies the same allow-list in any env — there's no looser dev-only fallback. |
 | `FLAKEY_ENCRYPTION_KEY` | _(required in production)_ | 32-byte key (base64 or hex) for AES-256-GCM encryption of Jira/PagerDuty secrets. Validated at boot — a malformed value refuses to start, not just an unset one. Unset = plaintext passthrough (local dev only — backend refuses to start in production). |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | — | Optional previous encryption key for rotation. Used only on the read path when the primary key fails to authenticate a v1: ciphertext. Never used for new writes. See `backend/docs/integrations.md` for the dual-key rotation procedure. |
@@ -362,6 +366,8 @@ after-script:
 | `HEALTH_RATE_LIMIT_MAX` | `600` | Per-IP cap on /health (load balancer probes bypass other limiters but get their own bucket) |
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | When `true`, webhooks can target loopback / private IP ranges. Dev already allows it, so the local `--profile integrations` echo sink works out of the box; set `true` explicitly to allow it in production. SSRF gate stays in place for other schemes. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | localhost / 1025 / — / — / `Flakey <noreply@example.com>` | SMTP settings for scheduled-report email delivery and auth verification/reset. Defaults target the bundled Mailpit (view sent mail at http://localhost:8025). |
+| `FLAKEY_SSO_ENABLED` | `false` | Enables the enterprise SSO login flow (`/auth/sso/*`) + admin config API (`/sso/config`) — OIDC/SAML/SCIM, all OFF by default. GovRAMP-scoped auth control; see [backend/docs/sso.md](backend/docs/sso.md). |
+| `PUBLIC_API_URL` | `http://localhost:3000` | Public backend base URL used to build the IdP redirect URI (`<PUBLIC_API_URL>/auth/sso/callback`). Required when `FLAKEY_SSO_ENABLED=true`. |
 
 ### Frontend
 

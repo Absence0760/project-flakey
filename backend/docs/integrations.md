@@ -184,7 +184,9 @@ Returns every fingerprint → issue mapping the org has created.
 ### 3. How dedup works
 
 Every triggered incident uses a dedup key of the form
-`flakey-<orgId>-<suite>-<branch>`. This means a suite that fails
+`flakey-<orgId>-<suite>/<branch>` (the suite and branch are each
+URL-encoded so a `-` inside either name can't make two distinct
+`(suite, branch)` pairs collide). This means a suite that fails
 repeatedly on the same branch will not create a pile of separate
 incidents — PagerDuty groups them into the same open incident. When the
 suite starts passing again, resolve the incident in PagerDuty manually
