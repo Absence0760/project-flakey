@@ -82,6 +82,15 @@ test("postRun strips multiple trailing slashes from the configured URL", async (
   assert.equal(url, "https://api.example.com/runs");
 });
 
+// Regression: the trailing-slash strip must stay linear. A `/\/+$/` regex was
+// polynomial (O(n²)) on a slash-heavy url — a 100k-slash input took seconds.
+// The tight timeout fails fast if anyone reintroduces the quadratic pattern.
+test("constructor handles a pathologically slash-heavy URL without blowing up", { timeout: 2000 }, () => {
+  const adversarial = "/".repeat(100_000) + "x"; // no trailing slash → returned unchanged
+  const client = new ApiClient({ url: adversarial, apiKey: "k", suite: "s" });
+  assert.equal((client as unknown as { url: string }).url, adversarial);
+});
+
 test("postRun throws with status + body text on non-2xx", async () => {
   const fetchMock = globalThis.fetch as ReturnType<typeof mock.fn>;
   fetchMock.mock.mockImplementation(async () =>
