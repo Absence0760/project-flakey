@@ -6,8 +6,15 @@ import { join, resolve, basename, dirname, isAbsolute } from "path";
 // Strip trailing slashes so a configured FLAKEY_API_URL like
 // "https://api.flakey.io/" doesn't produce "https://api.flakey.io//runs",
 // which Express does not route (every upload 404s). Mirrors the same
-// normalization ApiClient applies in @flakeytesting/core.
-const API_URL = (process.env.FLAKEY_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+// normalization ApiClient applies in @flakeytesting/core. Done as a linear
+// scan, not a `/\/+$/` regex: that pattern is polynomial (O(n²)) on a
+// slash-heavy string.
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+const API_URL = stripTrailingSlashes(process.env.FLAKEY_API_URL ?? "http://localhost:3000");
 const API_KEY = process.env.FLAKEY_API_KEY ?? "";
 
 interface UploadOptions {
