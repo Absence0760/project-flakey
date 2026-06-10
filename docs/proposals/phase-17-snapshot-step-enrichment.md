@@ -150,6 +150,27 @@ The cost — it runs inside every customer Cypress test — is bounded by the
 per-step caps and gated by `FLAKEY_SNAPSHOTS_ENABLED` (`instrumentWindow` no-ops
 when snapshots are off, so suites that don't opt in pay nothing).
 
+## Follow-up — per-step timing (done)
+
+Surfaces *where a test spent its time*, step by step (test-level timing already
+exists via `/slowest`). Reuses data we already capture: every `SnapshotStep`
+carries a cumulative `timestamp`, so per-step duration is the gap between
+consecutive timestamps — no new capture.
+
+- **Latent bug fixed first:** the two producers disagreed on units — Cypress
+  emitted `timestamp` in ms, Playwright multiplied by 1000 (µs). Dormant because
+  nothing read the field; reconciled to **ms** in `@flakeytesting/playwright-snapshots`.
+- `stepDurationsMs` / `slowStepIndices` (pure, in `snapshot-match.ts`, unit-tested)
+  derive durations and flag the outliers (≥ 250ms floor AND ≥ 50% of the slowest).
+- **UI:** a duration on each step row in the ErrorModal command list (amber for
+  the slow outliers) + the active step's duration in the SnapshotViewer nav (with
+  a `slow` flag). Covered by e2e (`snapshot-viewer.spec.ts`).
+- The seed gives the demo bundle a non-uniform profile (the submit step is ~3.2s)
+  so the slow-step highlight is visible in dev and exercised by e2e.
+
+Playwright's timing-unit fix ships with that package's next publish; the Cypress
+side already emitted ms.
+
 ## Why this order
 
 Phase 0 ships the highest-value, lowest-risk slice (data already captured, just

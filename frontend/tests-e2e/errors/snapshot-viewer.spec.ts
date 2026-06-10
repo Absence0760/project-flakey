@@ -495,3 +495,47 @@ test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
     await expect(strip.locator(".diag-console")).toContainText("expected /dashboard");
   });
 });
+
+test.describe("ErrorModal per-step timing", () => {
+  // The seed gives the gherkin demo a non-uniform timing profile: the "submit"
+  // click step is ~3.2s (a slow login request); the rest are 150–600ms. So
+  // exactly one step is flagged slow.
+  test("step rows show durations and flag the slow outlier", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+    const clickRow = list.locator("li.cmd-child").nth(5);
+    await expect(clickRow).toContainText("submit");
+    const dur = clickRow.locator(".cmd-dur");
+    await expect(dur).toHaveText(/3\.2s/);
+    await expect(dur).toHaveClass(/\bslow\b/);
+
+    // A fast step (get email, ~150ms) shows a duration but isn't flagged slow.
+    const fastDur = list.locator("li.cmd-child").nth(1).locator(".cmd-dur");
+    await expect(fastDur).toBeVisible();
+    await expect(fastDur).not.toHaveClass(/\bslow\b/);
+
+    // Exactly one slow step in this test.
+    await expect(list.locator("li.cmd-child .cmd-dur.slow")).toHaveCount(1);
+  });
+
+  test("the viewer nav shows the active step's duration and flags the slow one", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+
+    // Select the slow click step → nav shows 3.2s + the slow flag.
+    await list.locator("li.cmd-child").nth(5).click();
+    const navDur = page.locator(".snapshot-viewer .step-dur");
+    await expect(navDur).toHaveText(/3\.2s/);
+    await expect(navDur).toHaveClass(/\bslow\b/);
+    await expect(page.locator(".snapshot-viewer .step-dur-flag")).toBeVisible();
+
+    // Select a fast step → duration shown, no slow flag.
+    await list.locator("li.cmd-child").nth(1).click();
+    await expect(page.locator(".snapshot-viewer .step-dur")).not.toHaveClass(/\bslow\b/);
+    await expect(page.locator(".snapshot-viewer .step-dur-flag")).toHaveCount(0);
+  });
+});

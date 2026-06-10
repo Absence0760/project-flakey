@@ -8,6 +8,8 @@
     snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
     snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
     stepDiagnostics,
+    stepDurationsMs,
+    slowStepIndices,
     type CommandGroup as PureCommandGroup,
     type ConsoleEntryLite,
     type NetworkEntryLite,
@@ -61,11 +63,16 @@
     index: number;
     commandName: string;
     commandMessage: string;
+    timestamp?: number;
     console?: ConsoleEntryLite[];
     network?: NetworkEntryLite[];
   }
   let snapshotSteps = $state<SnapshotStep[]>([]);
   let collapsedGroups = $state<Set<number>>(new Set());
+  // Per-step durations (ms) + which steps are the slow outliers — surfaced as a
+  // duration on each step row so you can see where a test spent its time.
+  let snapDurations = $derived(stepDurationsMs(snapshotSteps));
+  let slowSnapSteps = $derived(slowStepIndices(snapDurations));
 
   interface SnapshotGroup {
     headerIdx: number | null;      // snapshotSteps index of the gherkin marker, or null for synthetic pre-first-gherkin "Setup"
@@ -884,6 +891,9 @@
                                   <span class="cmd-name">{cmd.name}</span>
                                   {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
                                 </span>
+                                {#if childSnapIdx !== null}
+                                  <span class="cmd-dur" class:slow={slowSnapSteps.has(childSnapIdx)} title={slowSnapSteps.has(childSnapIdx) ? "One of the slowest steps in this test" : "Time taken by this step"}>{formatDuration(snapDurations[childSnapIdx] ?? 0)}</span>
+                                {/if}
                                 {#if childDiag && childDiag.errorCount > 0}
                                   <span class="cmd-diag-badge has-error" title={`${childDiag.errorCount} console error(s) / failed request(s) on this step`}>{childDiag.errorCount}</span>
                                 {:else if childDiag && childDiag.consoleCount + childDiag.networkCount > 0}
@@ -993,6 +1003,7 @@
                                 <span class="cmd-name">{snapshotSteps[i].commandName}</span>
                                 {#if snapshotSteps[i].commandMessage}<span class="cmd-arg">{snapshotSteps[i].commandMessage}</span>{/if}
                               </span>
+                              <span class="cmd-dur" class:slow={slowSnapSteps.has(i)} title={slowSnapSteps.has(i) ? "One of the slowest steps in this test" : "Time taken by this step"}>{formatDuration(snapDurations[i] ?? 0)}</span>
                               {#if diag.errorCount > 0}
                                 <span class="cmd-diag-badge has-error" title={`${diag.errorCount} console error(s) / failed request(s) on this step`}>{diag.errorCount}</span>
                               {:else if diag.consoleCount + diag.networkCount > 0}
@@ -1970,7 +1981,6 @@
      step carries console errors or failed requests, so a problem step stands
      out in the otherwise-flat list. */
   .cmd-diag-badge {
-    margin-left: auto;
     flex-shrink: 0;
     min-width: 1.1rem;
     text-align: center;
@@ -1987,6 +1997,19 @@
     color: #fff;
     background: var(--color-fail);
   }
+
+  /* Per-step duration — right-aligned, the anchor for the right-side cluster
+     (duration, then the diagnostics badge). Amber when the step is one of the
+     slow outliers so "where did time go" reads at a glance. */
+  .cmd-dur {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .cmd-dur.slow { color: var(--color-skip); font-weight: 700; }
 
   .cmd-failed:hover {
     background: var(--error-bg);

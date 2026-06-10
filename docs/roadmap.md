@@ -147,6 +147,7 @@ skills below it.
   - [x] Playwright: attach per-step `console[]` / `network[]` to each snapshot step (extract the trace's inline console events + the separate `trace.network` file we previously dropped).
   - [x] Per-step UI — console/network strip in the snapshot viewer + at-a-glance error/failure badges on step rows.
   - [x] Cypress per-step capture — `instrumentWindow` wraps the app window's console/fetch/XHR and buffers each into the active step (`@flakeytesting/cypress-snapshots`), independent of the reporter's test-level `failure_context` wrapping.
+  - [x] Per-step timing — derive each step's duration from its cumulative `timestamp` (reconciled to ms across both producers) and surface it in the command list + viewer, flagging the slow outliers so you can see where a test spent its time.
 
 ## Phase 14 — Enterprise, compliance & contract hardening
 

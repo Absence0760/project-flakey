@@ -305,7 +305,14 @@ export function parseTrace(
         index: i,
         commandName: name,
         commandMessage: message,
-        timestamp: Math.round((actionTime - startTime) * 1000),
+        // Milliseconds since the run's first action. Playwright's action
+        // start/end times come from monotonicTime() (which is performance.now()
+        // — already ms), so this is a plain ms delta. (It previously multiplied
+        // by 1000, emitting microseconds — inconsistent with the Cypress
+        // producer's ms and unreadable as a duration. Nothing consumed the field
+        // then; the snapshot viewer now derives per-step durations from it, so
+        // the two producers must agree on ms.)
+        timestamp: Math.round(actionTime - startTime),
         html: `<!DOCTYPE html>
 <html><head><style>
   body { margin: 0; padding: 0; overflow: hidden; background: #000; }

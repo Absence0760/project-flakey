@@ -7,6 +7,8 @@ import {
   failureStepIndex,
   isNetworkFailure,
   stepDiagnostics,
+  stepDurationsMs,
+  slowStepIndices,
   type CommandGroup,
   type SnapshotStepLite,
 } from "./snapshot-match";
@@ -248,5 +250,44 @@ describe("stepDiagnostics", () => {
       network: [{ method: "GET", url: "/y", status: 503 }],
     });
     expect(d.errorCount).toBe(2);
+  });
+});
+
+describe("stepDurationsMs", () => {
+  it("derives per-step durations from cumulative timestamps; first step is its own", () => {
+    const steps = [{ timestamp: 100 }, { timestamp: 350 }, { timestamp: 400 }];
+    expect(stepDurationsMs(steps)).toEqual([100, 250, 50]);
+  });
+
+  it("clamps non-monotonic or missing timestamps to 0 (never negative)", () => {
+    expect(stepDurationsMs([{ timestamp: 500 }, { timestamp: 200 }])).toEqual([500, 0]);
+    expect(stepDurationsMs([{}, { timestamp: 300 }, {}])).toEqual([0, 300, 0]);
+  });
+
+  it("is empty for an empty bundle", () => {
+    expect(stepDurationsMs([])).toEqual([]);
+  });
+});
+
+describe("slowStepIndices", () => {
+  it("flags steps >= 50% of the slowest (and the slowest itself)", () => {
+    // durations: 100, 1000, 600, 50 → slowest 1000; threshold = 500.
+    const slow = slowStepIndices([100, 1000, 600, 50]);
+    expect([...slow].sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  it("returns nothing when no step clears the floor (a uniformly fast test)", () => {
+    expect(slowStepIndices([10, 20, 30]).size).toBe(0);
+  });
+
+  it("always includes the slowest step once the floor is cleared", () => {
+    const slow = slowStepIndices([300, 50, 40]);
+    expect(slow.has(0)).toBe(true); // 300 >= floor(250) and is the max
+  });
+
+  it("respects custom floor/fraction", () => {
+    // floor 100, fraction 0.8 → threshold = max(100, 0.8*1000)=800.
+    const slow = slowStepIndices([100, 1000, 850, 700], 100, 0.8);
+    expect([...slow].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 });

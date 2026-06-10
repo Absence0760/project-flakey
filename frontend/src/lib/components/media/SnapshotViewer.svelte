@@ -5,9 +5,12 @@
     failureStepIndex,
     stepDiagnostics,
     isNetworkFailure,
+    stepDurationsMs,
+    slowStepIndices,
     type ConsoleEntryLite,
     type NetworkEntryLite,
   } from "$lib/utils/snapshot-match";
+  import { formatDuration } from "$lib/utils/format";
 
   type Props = {
     snapshotPath: string;
@@ -73,6 +76,12 @@
   let currentDiag = $derived(
     currentStep ? stepDiagnostics(currentStep) : { consoleCount: 0, networkCount: 0, errorCount: 0 },
   );
+
+  // Per-step durations (ms) derived from each step's cumulative timestamp, so
+  // the nav surfaces how long the active step took and flags the slow ones.
+  let stepDurations = $derived(bundle ? stepDurationsMs(bundle.steps) : []);
+  let slowSteps = $derived(slowStepIndices(stepDurations));
+  let currentDurationMs = $derived(stepDurations[clampedStep] ?? 0);
 
   $effect(() => {
     if (snapshotPath) loadSnapshot(snapshotPath);
@@ -279,6 +288,11 @@
         {#if clampedStep === failureStep}
           <span class="failure-badge" title="This is the frame where the test failed.">FAILURE</span>
         {/if}
+        <span
+          class="step-dur"
+          class:slow={slowSteps.has(clampedStep)}
+          title={slowSteps.has(clampedStep) ? "One of the slowest steps in this test" : "Time taken by this step"}
+        >{formatDuration(currentDurationMs)}</span>{#if slowSteps.has(clampedStep)}<span class="step-dur-flag" title="One of the slowest steps in this test" aria-hidden="true">slow</span>{/if}
         <span class="step-name" title={currentStep.commandName + (currentStep.commandMessage ? ` — ${currentStep.commandMessage}` : "")}>
           <span class="step-cmd">{currentStep.commandName}</span>{#if currentStep.commandMessage}<span class="step-msg"> — {currentStep.commandMessage}</span>{/if}
         </span>
@@ -556,6 +570,24 @@
     font-weight: 600;
   }
   .step-count.fail { color: var(--color-fail); }
+  .step-dur {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-size: 0.75rem;
+  }
+  .step-dur.slow { color: var(--color-skip); font-weight: 600; }
+  .step-dur-flag {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--color-skip);
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
   .failure-badge {
     background: var(--color-fail);
     color: #fff;

@@ -412,8 +412,22 @@ function generateSnapshotBundle(testTitle: string, specFile: string, commandLog:
 // section to the right snapshot frame.
 function generateGherkinSnapshotBundle(testTitle: string, specFile: string, commandLog: object[]): Buffer {
   const GHERKIN_RE = /^(Given|When|Then|And|But)$/;
+  // Per-command cost (ms) so the demo bundle has a realistic, non-uniform
+  // timing profile — the "click" (submit) step is deliberately slow (a slow
+  // login request) so the snapshot viewer's slow-step highlight has something
+  // to flag. Gherkin markers cost nothing (they're boundaries, not commands).
+  const stepCostMs = (name: string): number => {
+    if (GHERKIN_RE.test(name)) return 0;
+    if (name === "click") return 3200; // the slow one
+    if (name === "type") return 350;
+    if (name === "visit") return 600;
+    if (name === "get") return 150;
+    return 250;
+  };
+  let elapsedMs = 0;
   const steps = commandLog.map((cmd: any, i: number) => {
     const isGherkin = GHERKIN_RE.test(cmd.name);
+    elapsedMs += stepCostMs(cmd.name);
     const bgColor = cmd.state === "failed" ? "#fff0f0" : "#fff";
     const label = isGherkin ? `${cmd.name} ${cmd.message}` : `cy.${cmd.name}(${cmd.message ? `'${cmd.message}'` : ""})`;
     // Per-step console/network (Phase 1 enrichment shape) so the snapshot
@@ -439,7 +453,7 @@ function generateGherkinSnapshotBundle(testTitle: string, specFile: string, comm
       index: i,
       commandName: isGherkin ? "gherkin" : cmd.name,
       commandMessage: isGherkin ? `${cmd.name} ${cmd.message}` : (cmd.message || ""),
-      timestamp: (i + 1) * 800,
+      timestamp: elapsedMs,
       ...(stepConsole ? { console: stepConsole } : {}),
       ...(stepNetwork ? { network: stepNetwork } : {}),
       html: `<!DOCTYPE html>

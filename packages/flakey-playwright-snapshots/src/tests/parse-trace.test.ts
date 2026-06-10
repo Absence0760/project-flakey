@@ -163,8 +163,8 @@ test("snapshotBundle is built when screencast frames + resources line up by sha1
   assert.equal(step0.commandName, "goto");
   assert.ok(step0.html.includes("data:image/jpeg;base64,"),
     "step HTML should embed the matched frame as a base64 data URL");
-  assert.equal(step0.timestamp, (160 - 100) * 1000,
-    "timestamp is (action time - run start) in microseconds; matches Cypress convention");
+  assert.equal(step0.timestamp, 160 - 100,
+    "timestamp is (action end - run start) in MILLISECONDS — same unit as the Cypress producer, so the viewer can derive per-step durations");
 });
 
 test("frame matching prefers the temporally-closest screencast frame", () => {

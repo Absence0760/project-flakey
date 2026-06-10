@@ -25,6 +25,12 @@ Phase 1 enrichment — optional `console[]` and `network[]`:
   builds used `*-network.trace` — both are read). A `status` of `-1`
   (request never completed) is omitted, not emitted.
 
+`SnapshotStep.timestamp` is **milliseconds** since the run's first action — the
+same unit the Cypress producer emits — so the dashboard can derive per-step
+durations (gap between consecutive timestamps) and flag slow steps. (It once
+multiplied by 1000, emitting microseconds; nothing consumed it then, but the
+viewer now does, so the two producers must agree on ms.)
+
 Each event is bucketed to the step that was **active** when it occurred — the
 latest step whose action had started by the event's monotonic `time`
 (console `time` / HAR `_monotonicTime` share the action clock). Events before

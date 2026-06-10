@@ -36,6 +36,39 @@ export interface StepDiagnostics {
 }
 
 /**
+ * Per-step duration in ms, derived from the cumulative `timestamp` each step
+ * carries (ms since the run/test start — both reporters now agree on ms).
+ * `duration[i]` is the gap from the previous step; the first step is its own
+ * timestamp. A missing or non-monotonic timestamp clamps to 0 rather than
+ * producing a negative duration.
+ */
+export function stepDurationsMs(steps: { timestamp?: number }[]): number[] {
+  return steps.map((s, i) => {
+    const t = typeof s.timestamp === "number" ? s.timestamp : 0;
+    const prev = i > 0 && typeof steps[i - 1].timestamp === "number" ? (steps[i - 1].timestamp as number) : 0;
+    return Math.max(0, t - prev);
+  });
+}
+
+/**
+ * Indices of the "where did the time go" outlier steps. A step is slow when its
+ * duration is BOTH >= `floorMs` (default 250ms — don't flag trivially-fast
+ * steps in a fast test) AND >= `fraction` of the slowest step (default 0.5).
+ * Returns a Set for O(1) membership while rendering rows. Empty when no step
+ * clears the floor.
+ */
+export function slowStepIndices(durations: number[], floorMs = 250, fraction = 0.5): Set<number> {
+  const max = durations.reduce((m, d) => Math.max(m, d), 0);
+  if (max < floorMs) return new Set();
+  const threshold = Math.max(floorMs, max * fraction);
+  const out = new Set<number>();
+  durations.forEach((d, i) => {
+    if (d >= threshold) out.add(i);
+  });
+  return out;
+}
+
+/**
  * A network entry counts as a failure when it never completed (no status —
  * aborted / network error) or returned an HTTP error (>= 400). 3xx/2xx are
  * normal. Matches the Cypress reporter's `network_failures` capture rule.
