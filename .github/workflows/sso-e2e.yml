@@ -237,10 +237,16 @@ jobs:
         if: failure()
         run: docker compose logs keycloak authentik-server authentik-worker scim-target || true
 
-      - name: Upload Playwright report
+      # Both SSO configs report via github+list (no HTML reporter), so
+      # playwright-report/ is never generated — the diagnostic artifacts
+      # (trace on-first-retry, screenshot/video on failure) land in
+      # test-results/. Upload that; ignore-if-empty so a clean pass (no retry,
+      # no failures => no artifacts) doesn't warn.
+      - name: Upload Playwright traces
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: sso-playwright-report
-          path: frontend/playwright-report/
+          name: sso-playwright-traces
+          path: frontend/test-results/
+          if-no-files-found: ignore
           retention-days: 14
