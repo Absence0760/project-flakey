@@ -113,6 +113,40 @@ test("clearing a hash inside the chain is detected", async () => {
   assert.equal(v.firstBrokenId, ids[1]);
 });
 
+test("a chain spanning multiple verify batches still verifies clean", async () => {
+  // Regression: the keyset cursor used to round-trip created_at through a
+  // millisecond-precision JS Date, so it re-read the boundary row at every
+  // batch edge and falsely reported tamper on any log larger than batchSize.
+  // Drive >1 batch with a tiny batchSize over rows with real (microsecond)
+  // timestamps.
+  const org = await freshOrg("multibatch");
+  for (let i = 0; i < 7; i++) {
+    await logAudit(org, null, `test.${i}`, "run", String(i), { i });
+  }
+  const v = await verifyAuditChain(org, { batchSize: 2 });
+  assert.equal(v.ok, true, v.reason ?? "multi-batch walk must not false-break");
+  assert.equal(v.totalRows, 7);
+  assert.equal(v.hashedRows, 7);
+  assert.equal(v.firstBrokenId, null);
+});
+
+test("concurrent same-org appends still produce a verifiable chain", async () => {
+  // Regression: created_at is transaction_timestamp (fixed at BEGIN, before the
+  // per-org advisory lock), so two concurrent appends could have created_at
+  // inverted vs the actual lock/append order. Ordering the chain by id (assigned
+  // under the lock) is what keeps it consistent. Fire appends concurrently.
+  const org = await freshOrg("concurrent");
+  await Promise.all(
+    Array.from({ length: 12 }, (_, i) =>
+      logAudit(org, null, `c.${i}`, "run", String(i), { i })
+    )
+  );
+  const v = await verifyAuditChain(org, { batchSize: 3 });
+  assert.equal(v.ok, true, v.reason ?? "concurrent appends must yield a clean chain");
+  assert.equal(v.totalRows, 12);
+  assert.equal(v.hashedRows, 12);
+});
+
 test("legacy rows (pre-feature NULL hashes) form a counted prefix, not a break", async () => {
   const org = await freshOrg("legacy");
   // Simulate a row written before the tamper-evidence feature landed: present

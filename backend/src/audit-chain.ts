@@ -15,16 +15,17 @@ import { tenantQuery } from "./db.js";
  * full tamper-evidence: a later DB rewrite can re-chain the local table, but it
  * can't change the hashes already attested off-box.
  *
- * Chain order is (created_at, id) — a total order (id breaks created_at ties).
- * The append hot path's predecessor lookup (ORDER BY created_at DESC, id DESC
- * LIMIT 1) is served directly by the existing idx_audit_log_org
- * (org_id, created_at DESC). The verify walk is an ASC keyset scan; the same
- * index seeks this org's partition (so it's not a full table scan) but doesn't
- * cover the id tiebreak — acceptable because verify is an on-demand admin/
- * compliance operation, not a hot path, so no extra index is added (which would
- * also mean a blocking CREATE INDEX on a populated prod audit_log). Appends are
- * serialized per org by a transaction-scoped advisory lock (see audit.ts) so
- * the chain has a single well-defined head.
+ * Chain order is `id` alone (BIGSERIAL). Appends are serialized per org by a
+ * transaction-scoped advisory lock (see audit.ts), and the id is assigned by
+ * the INSERT *while holding that lock*, so an org's ids strictly increase in
+ * append order — id IS the chain order. created_at is deliberately NOT part of
+ * the order: it defaults to transaction_timestamp (fixed at BEGIN, before the
+ * lock), so two concurrent appends can have created_at inverted relative to the
+ * lock/append order — ordering by it would false-break the chain. (created_at
+ * is still hashed into each row as content; it's just not the sort key.) Both
+ * the predecessor lookup (ORDER BY id DESC LIMIT 1) and the verify keyset walk
+ * (id > cursor ORDER BY id ASC) are served by idx_audit_log_org_id
+ * (org_id, id) — migration 065.
  */
 
 // Predecessor hash for the first hashed row in an org's chain.
@@ -113,20 +114,21 @@ export async function verifyAuditChain(
   let started = false; // have we reached the first hashed row?
   let expectedPrev = GENESIS_HASH;
 
-  // Keyset pagination on the (created_at, id) chain order.
-  let lastCreatedAt: Date | null = null;
+  // Keyset pagination on id alone — the chain order (see header). Comparing a
+  // single bigint cursor avoids the lossy round-trip of created_at through a
+  // millisecond-precision JS Date (which truncated microseconds and re-read the
+  // boundary row, falsely reporting tamper on logs larger than batchSize rows).
   let lastId: string | null = null;
 
   for (;;) {
     // Explicit org_id predicate (not just RLS): defense-in-depth for a
-    // compliance control, and it lets the existing idx_audit_log_org
-    // (org_id, created_at DESC) seek this org's partition before the ASC
-    // keyset walk instead of post-filtering a full scan.
+    // compliance control, and with idx_audit_log_org_id (org_id, id) it seeks
+    // this org's partition for the id-ordered walk instead of scanning.
     const params: unknown[] = [orgId];
     let keyset = "";
-    if (lastCreatedAt !== null && lastId !== null) {
-      params.push(lastCreatedAt, lastId);
-      keyset = `AND (a.created_at, a.id) > ($2, $3)`;
+    if (lastId !== null) {
+      params.push(lastId);
+      keyset = `AND a.id > $2`;
     }
     params.push(batchSize);
     const { rows } = await tenantQuery(
@@ -136,7 +138,7 @@ export async function verifyAuditChain(
        FROM audit_log a
        WHERE a.org_id = $1
        ${keyset}
-       ORDER BY a.created_at ASC, a.id ASC
+       ORDER BY a.id ASC
        LIMIT $${params.length}`,
       params
     );
@@ -144,7 +146,6 @@ export async function verifyAuditChain(
 
     for (const row of rows) {
       totalRows++;
-      lastCreatedAt = row.created_at;
       lastId = String(row.id);
 
       if (!row.entry_hash) {

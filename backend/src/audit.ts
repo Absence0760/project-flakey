@@ -26,10 +26,16 @@ export async function logAudit(
         orgId,
       ]);
 
+      // Predecessor = the org's last hashed row in CHAIN order, which is id
+      // order: the id (BIGSERIAL) is assigned by this INSERT while holding the
+      // advisory lock, so under the lock an org's ids strictly increase in
+      // append order. Do NOT order by created_at — it's transaction_timestamp,
+      // fixed at BEGIN before the lock, so two concurrent appends can invert
+      // created_at vs the actual append order and fork/false-break the chain.
       const prev = await client.query(
         `SELECT entry_hash FROM audit_log
          WHERE org_id = $1 AND entry_hash IS NOT NULL
-         ORDER BY created_at DESC, id DESC
+         ORDER BY id DESC
          LIMIT 1`,
         [orgId]
       );

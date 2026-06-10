@@ -1,0 +1,14 @@
+-- Index for the audit hash-chain ordered walk + append predecessor lookup.
+--
+-- The chain is ordered by id alone (the true per-org append order under the
+-- advisory lock — see audit-chain.ts). Both the hot-path predecessor lookup
+-- (logAudit: WHERE org_id=$1 AND entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1)
+-- and verifyAuditChain's keyset walk (WHERE org_id=$1 AND id > $cursor ORDER BY
+-- id ASC) want (org_id, id) — the pre-existing idx_audit_log_org is
+-- (org_id, created_at DESC), which does NOT serve an id-ordered scan.
+--
+-- CONCURRENTLY so building it on a populated production audit_log doesn't take a
+-- write-blocking lock. Must be the only statement in this file (CONCURRENTLY
+-- cannot run inside a transaction block; migrate.sh runs each file in autocommit
+-- and the migrations smoke test splits CONCURRENTLY files statement-by-statement).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_log_org_id ON audit_log (org_id, id);
