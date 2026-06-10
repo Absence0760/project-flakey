@@ -30,6 +30,19 @@ Skip all three on typos, comment-only edits, dep-version bumps, or any < ~10-lin
 
 `/audit-and-fix [area]` is the odd one out: it doesn't operate on an existing diff — it **picks an area** (whatever you name, or one it chooses by ranking under-covered × bug-prone × logic-dense modules), audits it for real correctness bugs, fixes the root cause, and ships unit/smoke/e2e coverage with the fix. Lands scoped commits (fix + tests separately); never pushes. Honest about non-findings — if the area is sound, the deliverable is the test-coverage gap it closed, not an invented fix. Reach for it as a proactive hardening pass over a corner of the app, not as a pre-commit gate (that's `/check`).
 
+## Hunt commands
+
+Like `/audit-and-fix`, these are proactive (no diff needed) and **land scoped commits, never push** — but each hunts a different *kind* of defect and goes wider than a single named area. They share the same non-negotiables: reproduce/measure before believing, fix the root cause (never mask), be honest about non-findings, ship a test that would fail on the old behaviour.
+
+| Command | Hunts for… | Deliverable | Not this — use instead |
+|---|---|---|---|
+| **`/bug-hunt [scope]`** | Correctness bugs across the codebase — inconsistent logic across sibling paths, idempotency/at-least-once, structural-recursion gaps, URL/state asymmetry, edge cases, gate signals that fail open. Multi-round; **proves each with a runnable probe** before believing it, then sweeps sibling paths sharing the shape. | Root-cause fix + regression test (fails on old code) per bug, scoped commits | Single named area → `/audit-and-fix`; read-only security/invariant sweep → `/audit/*` |
+| **`/ux-hunt [scope]`** | Interaction defects in the SvelteKit app — dead-ends, broken back/forward + URL round-trip, state-coercion no-ops, missing/wrong empty·loading·error·stale states, filter/count inconsistency, keyboard traps. Fixes the **objective** defects; reports the judgment calls. | Fix + e2e for objective bugs; write-up for subjective ones | Visual layout/archetype redesign → `/polish-ui`; role-POV read-only audit → `/persona`; a11y conformance depth → `/audit/accessibility` |
+| **`/perf-hunt [scope]`** | Performance problems that bite at realistic scale — N+1 queries, missing/unused indexes, O(n²) loops, per-event recompute storms, oversized payloads, render thrash. **Measures before and after**; reverts a change that doesn't move a number. | Root-cause fix (index migration / batched query / hoist / paginate / memoize) + before→after numbers + a structural guard | Read-only index/query catalog → `/audit/db-performance` |
+| **`/coverage-hunt [scope]`** | Behaviour that *works but isn't tested* — branches, error paths, documented invariants, edges. Proactively hardens an area; the deliverable **is** the coverage gap (no bug required, but fix one if found). | Tests at the right layer (unit/smoke/e2e) that can actually fail | Diff-scoped test review before commit → `test-gap-checker` (via `/check`) |
+
+Scope is optional for all four — omit it and the command ranks high-yield targets itself (logic-dense × under-covered × hot-path). Name a path, route, feature, or layer to focus it.
+
 ## Audit commands
 
 Run from a Claude Code session in this repo. Each is a short prompt that ends with "delegate to the `flakey-auditor` agent" (or another agent type for non-security audits) — Claude reads the command, spawns the right agent, returns a findings report grouped by severity (Critical / High / Medium / Low), and lists `## Clean` for areas that came up empty.
