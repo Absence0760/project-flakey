@@ -1,7 +1,7 @@
 import { test, mock, beforeEach, afterEach } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { createApi } from "../api.ts";
+import { createApi, stripTrailingSlashes } from "../api.ts";
 
 /**
  * Unit tests for the MCP server's API helper. Verifies that the helper:
@@ -56,6 +56,15 @@ test("trailing slash on URL is stripped so paths don't double up", async () => {
   await api("/runs");
   assert.equal(fetchMock.fn.mock.calls[0].arguments[0], `${URL}/runs`,
     "double-slash URLs would be wrong; stripping must happen in createApi");
+});
+
+// Regression: trailing-slash stripping must stay linear. A `/\/+$/` regex was
+// polynomial (O(n²)) on a slash-heavy url; the tight timeout fails fast if the
+// quadratic pattern is reintroduced.
+test("stripTrailingSlashes handles a pathologically slash-heavy URL in linear time", { timeout: 2000 }, () => {
+  const adversarial = "/".repeat(100_000) + "x"; // no trailing slash → unchanged
+  assert.equal(stripTrailingSlashes(adversarial), adversarial);
+  assert.equal(stripTrailingSlashes("http://h///"), "http://h");
 });
 
 test("caller-supplied headers merge without overwriting auth", async () => {

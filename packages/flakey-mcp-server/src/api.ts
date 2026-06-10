@@ -10,8 +10,18 @@
 
 export type Api = (path: string, opts?: RequestInit) => Promise<unknown>;
 
+/**
+ * Strip any number of trailing slashes via a linear scan. A `/\/+$/` regex is
+ * polynomial (O(n²)) on a slash-heavy string — a ReDoS shape — so we avoid it.
+ */
+export function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+
 export function createApi(url: string, apiKey: string): Api {
-  const baseUrl = url.replace(/\/+$/, "");
+  const baseUrl = stripTrailingSlashes(url);
   return async function api(path: string, opts?: RequestInit): Promise<unknown> {
     const res = await fetch(`${baseUrl}${path}`, {
       ...opts,

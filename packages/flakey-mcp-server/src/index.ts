@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { createApi } from "./api.js";
+import { createApi, stripTrailingSlashes } from "./api.js";
 import { registerTools } from "./tools.js";
 
 const API_URL = process.env.FLAKEY_API_URL ?? "http://localhost:3000";
@@ -34,7 +34,7 @@ async function main() {
     // Strip ALL trailing slashes (matches createApi above). `http://host//`
     // with a single-slash strip would yield `http://host//uploads`, a double-
     // slash artifact URL some clients reject.
-    uploadsUrl: `${API_URL.replace(/\/+$/, "")}/uploads`,
+    uploadsUrl: `${stripTrailingSlashes(API_URL)}/uploads`,
   });
 
   const transport = new StdioServerTransport();
