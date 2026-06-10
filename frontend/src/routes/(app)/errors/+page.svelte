@@ -3,9 +3,10 @@
   import { timeAgo } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
-  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult } from "$lib/api";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "$lib/api";
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
+  import AssigneePicker from "$lib/components/inputs/AssigneePicker.svelte";
   import { classificationLabels } from "$lib/utils/ai";
   import { toast, toastInfo, toastError } from "$lib/stores/toast";
   import { safeHref } from "$lib/utils/safe-url";
@@ -295,6 +296,26 @@
     } catch { /* ignore */ }
   }
 
+  // Org members — lazily loaded when an assignee picker first opens.
+  let members = $state<OrgMember[]>([]);
+  async function loadMembers() {
+    if (members.length > 0) return;
+    members = await fetchOrgMembers();
+  }
+
+  async function assignOwner(err: ErrorGroup, userId: number | null) {
+    try {
+      await assignError(err.fingerprint, userId);
+      err.assigned_to = userId;
+      // The picker loads members before this fires, so the email is on hand;
+      // fall back to the existing chip if a stale id isn't in the list.
+      err.assigned_to_email = userId === null
+        ? null
+        : (members.find((m) => m.id === userId)?.email ?? err.assigned_to_email);
+      errors = [...errors];
+    } catch { /* ignore — server state unchanged */ }
+  }
+
 
   function formatDate(iso: string): string {
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -511,6 +532,17 @@
                   >{s.label}</button>
                 {/each}
               </div>
+            </div>
+            <div class="detail-section">
+              <h4>Owner</h4>
+              <AssigneePicker
+                assignedTo={err.assigned_to}
+                assignedToEmail={err.assigned_to_email}
+                {members}
+                onFocus={loadMembers}
+                onChange={(userId) => assignOwner(err, userId)}
+                label="Assign owner"
+              />
             </div>
             <div class="detail-section">
               <h4>Details</h4>

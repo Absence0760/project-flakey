@@ -4,7 +4,7 @@
 // (it covers the core routes today). New/changed routes that are in the spec must
 // update openapi.yaml in the same commit (`pnpm openapi:check` flags drift);
 // prefer importing the generated types here as routes are migrated.
-import { authFetch, getToken } from "./stores/auth";
+import { authFetch, getToken, getAuth } from "./stores/auth";
 import { API_URL } from "./utils/config.js";
 import type { components } from "./api-generated";
 
@@ -244,7 +244,18 @@ export interface ErrorGroup {
   suite_name: string;
   group_id: number | null;
   status: string;
+  assigned_to: number | null;
+  assigned_to_email: string | null;
   note_count: number;
+}
+
+// A member of the current org — the assignable-user list behind every
+// assignee picker (errors, release failures, release manual-test sessions).
+export interface OrgMember {
+  id: number;
+  email: string;
+  name?: string | null;
+  role: string;
 }
 
 export interface AffectedTest {
@@ -323,6 +334,35 @@ export async function updateErrorStatus(fingerprint: string, status: string): Pr
     body: JSON.stringify({ status }),
   });
   if (!res.ok) throw new Error(`Failed to update status: ${res.status}`);
+}
+
+// Assign (or un-assign, with userId = null) an owner to an error group.
+export async function assignError(fingerprint: string, userId: number | null): Promise<void> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!res.ok) throw new Error(`Failed to assign error: ${res.status}`);
+}
+
+// Failures to triage for a release — derived from its linked runs, shaped like
+// ErrorGroup so the errors-page picker/components are reused as-is.
+export async function fetchReleaseErrors(releaseId: number | string | undefined): Promise<ErrorGroup[]> {
+  if (releaseId === undefined) return [];
+  const res = await authFetch(`${API_URL}/releases/${releaseId}/errors`);
+  if (!res.ok) throw new Error(`Failed to fetch release errors: ${res.status}`);
+  return res.json();
+}
+
+// The current org's members — the assignable-user list. Resolves the active
+// org from the auth singleton; returns [] when unauthenticated.
+export async function fetchOrgMembers(): Promise<OrgMember[]> {
+  const orgId = getAuth().user?.orgId;
+  if (!orgId) return [];
+  const res = await authFetch(`${API_URL}/orgs/${orgId}/members`);
+  if (!res.ok) throw new Error(`Failed to fetch org members: ${res.status}`);
+  return res.json();
 }
 
 export async function fetchErrorNotes(fingerprint: string): Promise<ErrorNote[]> {

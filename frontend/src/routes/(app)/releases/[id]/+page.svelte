@@ -2,8 +2,10 @@
 	import { onMount } from 'svelte';
 	import { timeAgo, absoluteDate, calendarDate } from "$lib/utils/format";
 	import { page } from '$app/stores';
-	import { authFetch, getAuth } from '$lib/stores/auth';
+	import { authFetch } from '$lib/stores/auth';
 	import { API_URL } from '$lib/utils/config';
+	import { fetchOrgMembers, fetchReleaseErrors, assignError, type OrgMember, type ErrorGroup } from '$lib/api';
+	import AssigneePicker from '$lib/components/inputs/AssigneePicker.svelte';
 	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '$lib/utils/safe-url';
 
 	interface ChecklistItem {
@@ -133,12 +135,6 @@
 		group_name: string | null;
 	}
 
-	interface OrgMember {
-		id: number;
-		email: string;
-		role: string;
-	}
-
 	interface RequirementCoverage {
 		ref_key: string;
 		ref_url: string | null;
@@ -226,6 +222,23 @@
 	// Sessions. sessionDetails is keyed by session id so past-session expansion
 	// can reuse a once-loaded result set instead of refetching on every open.
 	let sessions = $state<TestSession[]>([]);
+
+	// Failures to triage for this release — automated-test failures from the
+	// linked runs, grouped by error fingerprint, each assignable to a team
+	// member. The release is the lens; assignment lives on the org-global error
+	// group (shared with the /errors page), not a per-release copy.
+	let releaseErrors = $state<ErrorGroup[]>([]);
+	async function assignErrorOwner(fingerprint: string, userId: number | null) {
+		// Mirrors assignTester: best-effort, then refetch. A rejected write
+		// (e.g. a viewer hitting the backend role gate) leaves the list
+		// unchanged rather than throwing into the UI.
+		try {
+			await assignError(fingerprint, userId);
+		} catch {
+			/* refetch below reflects the unchanged server state */
+		}
+		releaseErrors = await fetchReleaseErrors(releaseId).catch(() => releaseErrors);
+	}
 	let sessionDetails = $state<Record<number, SessionDetail>>({});
 	let sessionsLoading = $state(false);
 	let newSessionMode = $state<'full' | 'failures_only'>('full');
@@ -239,10 +252,7 @@
 	let members = $state<OrgMember[]>([]);
 	async function loadMembers() {
 		if (members.length > 0) return;
-		const orgId = getAuth().user?.orgId;
-		if (!orgId) return;
-		const res = await authFetch(`${API_URL}/orgs/${orgId}/members`);
-		if (res.ok) members = await res.json();
+		members = await fetchOrgMembers();
 	}
 
 	// Requirements coverage for this release.
@@ -357,6 +367,9 @@
 			release = await rRes.json();
 			readiness = readyRes.ok ? await readyRes.json() : null;
 			sessions = sRes.ok ? await sRes.json() : [];
+
+			// Failures to triage — non-critical, derived from linked runs.
+			releaseErrors = await fetchReleaseErrors(releaseId).catch(() => []);
 
 			// Requirements coverage — loaded in parallel but non-critical.
 			loadRequirementsCoverage();
@@ -1415,34 +1428,14 @@
 											<td>{r.group_name ?? '—'}</td>
 											<td><span class="priority priority-{r.priority}">{r.priority}</span></td>
 											<td class="assignee-cell">
-												<div class="assignee-wrap">
-													{#if r.assigned_to_email}
-														<div class="assignee-chip" title={r.assigned_to_email}>
-															<span class="avatar">{r.assigned_to_email[0].toUpperCase()}</span>
-															<span class="assignee-name">{shortName(r.assigned_to_email)}</span>
-														</div>
-													{:else}
-														<span class="dim">Unassigned</span>
-													{/if}
-													<select
-														class="assignee-select"
-														value={r.assigned_to ?? ''}
-														onfocus={loadMembers}
-														onchange={(e) => {
-															const val = (e.target as HTMLSelectElement).value;
-															assignTester(r.manual_test_id, val ? Number(val) : null);
-														}}
-														aria-label="Assign tester"
-													>
-														<option value="">Unassigned</option>
-														{#if r.assigned_to_email && !members.find(m => m.id === r.assigned_to)}
-															<option value={r.assigned_to}>{r.assigned_to_email}</option>
-														{/if}
-														{#each members as m}
-															<option value={m.id}>{m.email}</option>
-														{/each}
-													</select>
-												</div>
+												<AssigneePicker
+													assignedTo={r.assigned_to}
+													assignedToEmail={r.assigned_to_email}
+													{members}
+													onFocus={loadMembers}
+													onChange={(userId) => assignTester(r.manual_test_id, userId)}
+													label="Assign tester"
+												/>
 											</td>
 											<td>
 												<span class={`status-pill status-${r.status.replace('_', '-')}`}>
@@ -1723,6 +1716,53 @@
 					{/if}
 				{/if}
 			</section>
+		{/if}
+
+		{#if releaseErrors.length > 0}
+		<section class="release-errors-panel">
+			<details open>
+				<summary>
+					<div class="summary-left">
+						<h2>Failures to triage</h2>
+						<span class="dim">{releaseErrors.length} error{releaseErrors.length === 1 ? '' : 's'} across linked runs</span>
+					</div>
+				</summary>
+				<div class="section-body">
+					<p class="dim triage-hint">
+						Automated failures from this release's linked runs, grouped by error.
+						Assign an owner to chase each one; file a Jira bug from the
+						<a href="/errors">errors page</a> once a failure is confirmed real.
+					</p>
+					<table class="triage-table">
+						<thead>
+							<tr><th>Failure</th><th>Suite</th><th>Seen</th><th>Status</th><th>Owner</th></tr>
+						</thead>
+						<tbody>
+							{#each releaseErrors as e (e.fingerprint)}
+								<tr>
+									<td class="triage-msg">
+										<a href={`/errors?suite=${encodeURIComponent(e.suite_name)}`} title={e.error_message}>{e.error_message}</a>
+									</td>
+									<td class="dim">{e.suite_name}</td>
+									<td class="dim">{e.occurrence_count}×</td>
+									<td><span class={`err-status err-status-${e.status}`}>{e.status}</span></td>
+									<td class="assignee-cell">
+										<AssigneePicker
+											assignedTo={e.assigned_to}
+											assignedToEmail={e.assigned_to_email}
+											{members}
+											onFocus={loadMembers}
+											onChange={(userId) => assignErrorOwner(e.fingerprint, userId)}
+											label="Assign owner"
+										/>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</details>
+		</section>
 		{/if}
 
 		<div class="links-grid">
@@ -2288,6 +2328,50 @@
 		height: 100%; background: var(--link, #2563eb);
 		transition: width 0.25s;
 	}
+
+	/* Failures-to-triage panel — the release's linked-run failures with an
+	   owner picker per error. */
+	.release-errors-panel { margin-bottom: 1rem; }
+	.triage-hint { margin: 0 0 0.75rem; font-size: 0.85rem; }
+	.triage-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.85rem;
+	}
+	.triage-table th {
+		text-align: left;
+		font-weight: 600;
+		color: var(--text-muted);
+		padding: 0.35rem 0.6rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.triage-table td {
+		padding: 0.4rem 0.6rem;
+		border-bottom: 1px solid var(--border);
+		vertical-align: middle;
+	}
+	.triage-msg {
+		max-width: 0;
+		width: 50%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.triage-msg a { color: var(--text); text-decoration: none; }
+	.triage-msg a:hover { text-decoration: underline; }
+	.err-status {
+		display: inline-block;
+		padding: 0.1rem 0.5rem;
+		border-radius: 999px;
+		font-size: 0.72rem;
+		text-transform: capitalize;
+		color: #fff;
+	}
+	.err-status-open { background: var(--color-fail); }
+	.err-status-investigating { background: var(--link); }
+	.err-status-known { background: #dfb317; }
+	.err-status-fixed { background: var(--color-pass); }
+	.err-status-ignored { background: var(--text-muted); }
 
 	/* Two-up grid for linked-runs + linked-tests on wide viewports.
 	   Each panel keeps its own collapse / picker / unlink mechanics —
@@ -3059,46 +3143,9 @@
 	.session-table td > strong { display: block; line-height: 1.3; }
 	.session-table td { overflow-wrap: anywhere; }
 
+	/* Assignee styling now lives in AssigneePicker.svelte (scoped to the
+	   component); the cell just reserves a stable width. */
 	.assignee-cell { position: relative; }
-	.assignee-wrap { position: relative; display: flex; align-items: center; min-height: 24px; }
-	.assignee-select {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		opacity: 0;
-		cursor: pointer;
-		border: none;
-		background: transparent;
-	}
-	.assignee-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		padding: 0.15rem 0.55rem 0.15rem 0.15rem;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		font-size: 0.78rem;
-		max-width: 100%;
-	}
-	.assignee-chip .avatar {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 20px;
-		height: 20px;
-		border-radius: 50%;
-		background: #2563eb;
-		color: #fff;
-		font-size: 0.7rem;
-		font-weight: 600;
-		flex-shrink: 0;
-	}
-	.assignee-chip .assignee-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 
 	.last-run-cell { white-space: nowrap; }
 	.last-run-by {
