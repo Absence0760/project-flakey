@@ -2038,4 +2038,63 @@ router.delete("/:id/sessions/:sessionId/results/:testId/accept", async (req, res
   }
 });
 
+// GET /releases/:id/errors — the failures to triage for this release.
+// There is no release→error link table: a release's errors are derived from
+// the failed tests in its linked runs, aggregated by the same fingerprint the
+// /errors page uses, then joined to error_groups for triage state (status +
+// assignee). Shape matches ErrorGroup so the frontend reuses the same picker.
+router.get("/:id/errors", async (req, res) => {
+  try {
+    const result = await tenantQuery(
+      req.user!.orgId,
+      `WITH error_agg AS (
+        SELECT
+          md5(t.error_message || '|' || r.suite_name) AS fingerprint,
+          t.error_message,
+          r.suite_name,
+          COUNT(*)::int AS occurrence_count,
+          COUNT(DISTINCT t.full_title)::int AS affected_tests,
+          COUNT(DISTINCT r.id)::int AS affected_runs,
+          MIN(r.created_at) AS first_seen,
+          MAX(r.created_at) AS last_seen,
+          MAX(r.id) AS latest_run_id,
+          ARRAY_AGG(DISTINCT s.file_path) AS file_paths,
+          ARRAY_AGG(DISTINCT t.full_title) AS test_titles,
+          MAX(t.id) AS latest_test_id
+        FROM release_runs rr
+        JOIN runs r ON r.id = rr.run_id
+        JOIN specs s ON s.run_id = r.id
+        JOIN tests t ON t.spec_id = s.id
+        WHERE rr.release_id = $1
+          AND t.status = 'failed'
+          AND t.error_message IS NOT NULL
+        GROUP BY t.error_message, r.suite_name
+      )
+      SELECT ea.*,
+        eg.id AS group_id,
+        COALESCE(eg.status, 'open') AS status,
+        eg.assigned_to,
+        asg.email AS assigned_to_email,
+        COALESCE(nc.cnt, 0) AS note_count
+      FROM error_agg ea
+      LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
+        AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+      -- users has no RLS; safe because assigned_to is only ever an org member
+      -- (enforced at write time in POST /errors/:fingerprint/assign).
+      LEFT JOIN users asg ON asg.id = eg.assigned_to
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM notes n
+        WHERE n.org_id = (SELECT current_setting('app.current_org_id', true)::int)
+          AND n.target_type = 'error' AND n.target_key = ea.fingerprint
+      ) nc ON TRUE
+      ORDER BY ea.last_seen DESC, ea.occurrence_count DESC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /releases/:id/errors error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

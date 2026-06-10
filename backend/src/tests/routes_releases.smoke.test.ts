@@ -474,6 +474,84 @@ test("POST evidence rejects .svg / .svgz uploads at the multer fileFilter (XSS-v
   assert.ok(res.status >= 400, `expected 4xx/5xx, got ${res.status}`);
 });
 
+// ── Release failure triage (GET /:id/errors) ────────────────────────────
+
+// Upload a run with one failing test carrying `message`; returns its run id.
+async function uploadFailingRun(suite: string, message: string): Promise<number> {
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const fd = new FormData();
+  fd.append("payload", JSON.stringify({
+    meta: {
+      suite_name: suite, branch: "main", commit_sha: stamp,
+      ci_run_id: `ci-${suite}-${stamp}`,
+      started_at: "2026-04-10T00:00:00Z", finished_at: "2026-04-10T00:00:30Z",
+      reporter: "mochawesome",
+    },
+    stats: { total: 1, passed: 0, failed: 1, skipped: 0, pending: 0, duration_ms: 100 },
+    specs: [{
+      file_path: `${suite}.cy.ts`, title: suite,
+      stats: { total: 1, passed: 0, failed: 1, skipped: 0, duration_ms: 100 },
+      tests: [{
+        title: "boom", full_title: `${suite} > boom`, status: "failed",
+        duration_ms: 10, screenshot_paths: [],
+        error: { message, stack: `${message}\n    at line 1` },
+      }],
+    }],
+  }));
+  const up = await fetch(`${BASE}/runs/upload`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+  });
+  assert.ok(up.ok, `failing-run upload failed: ${up.status}`);
+  return ((await up.json()) as { id: number }).id;
+}
+
+test("GET /releases/:id/errors surfaces failures from linked runs only, and reflects assignment", async () => {
+  // A release with one linked failing run and one UNLINKED failing run.
+  const stamp = Date.now();
+  const linkedSuite = `rel-err-linked-${stamp}`;
+  const otherSuite = `rel-err-other-${stamp}`;
+  const linkedRunId = await uploadFailingRun(linkedSuite, "LinkedReleaseErr");
+  await uploadFailingRun(otherSuite, "UnlinkedReleaseErr");
+
+  const rel = await post("/releases", { version: `9.9.${stamp % 1000}`, name: "Triage release" });
+  assert.equal(rel.status, 201);
+  const triageReleaseId = ((await rel.json()) as { id: number }).id;
+
+  const link = await post(`/releases/${triageReleaseId}/runs`, { run_ids: [linkedRunId] });
+  assert.ok(link.ok, `link run failed: ${link.status}`);
+
+  // Only the linked run's failure should appear.
+  const errsRes = await get(`/releases/${triageReleaseId}/errors`);
+  assert.equal(errsRes.status, 200);
+  const errs = (await errsRes.json()) as Array<{
+    fingerprint: string; error_message: string; suite_name: string;
+    assigned_to: number | null; assigned_to_email: string | null; status: string;
+  }>;
+  assert.ok(
+    errs.some((e) => e.error_message === "LinkedReleaseErr"),
+    "the linked run's failure must appear in the release error list",
+  );
+  assert.ok(
+    !errs.some((e) => e.error_message === "UnlinkedReleaseErr"),
+    "an unlinked run's failure must NOT appear",
+  );
+
+  // Assigning the org-global error group surfaces through the release lens.
+  const me = await (await get("/auth/me")).json() as { user: { id: number; email: string } };
+  const target = errs.find((e) => e.error_message === "LinkedReleaseErr")!;
+  const assignRes = await post(`/errors/${target.fingerprint}/assign`, { user_id: me.user.id });
+  assert.equal(assignRes.status, 200);
+
+  const after = (await (await get(`/releases/${triageReleaseId}/errors`)).json()) as Array<{
+    fingerprint: string; assigned_to: number | null; assigned_to_email: string | null;
+  }>;
+  const reloaded = after.find((e) => e.fingerprint === target.fingerprint)!;
+  assert.equal(reloaded.assigned_to, me.user.id, "assignment is visible in the release error list");
+  assert.equal(reloaded.assigned_to_email, me.user.email);
+
+  await del(`/releases/${triageReleaseId}`);
+});
+
 // ── Requirements (traceability) ─────────────────────────────────────────
 
 test("GET /releases/:id/requirements returns traceability data", async () => {

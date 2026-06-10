@@ -58,7 +58,8 @@ router.get("/", async (req, res) => {
       ranked AS (
         SELECT ea.*,
           eg.id AS group_id,
-          COALESCE(eg.status, 'open') AS status
+          COALESCE(eg.status, 'open') AS status,
+          eg.assigned_to
         FROM error_agg ea
         LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
           AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
@@ -68,8 +69,12 @@ router.get("/", async (req, res) => {
         LIMIT 100
       )
       SELECT ranked.*,
+        asg.email AS assigned_to_email,
         COALESCE(nc.cnt, 0) AS note_count
       FROM ranked
+      -- users has no RLS; safe to join because assigned_to is only ever an
+      -- org member (enforced at write time in POST /errors/:fingerprint/assign).
+      LEFT JOIN users asg ON asg.id = ranked.assigned_to
       LEFT JOIN LATERAL (
         -- Explicit org_id predicate alongside RLS. The notes_tenant
         -- policy already enforces this, but the explicit predicate
@@ -115,6 +120,57 @@ router.patch("/:fingerprint/status", async (req, res) => {
     res.json({ updated: true, group_id: result.rows[0].id, status });
   } catch (err) {
     console.error("PATCH /errors/:fingerprint/status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /errors/:fingerprint/assign — assign (or un-assign) an owner to an error
+// group. Body: { user_id: number | null }. This is lightweight triage ownership
+// ("who's chasing this failure"), not a workflow — escalation to tracked work
+// stays the Jira file-bug path. Viewers can't assign.
+router.post("/:fingerprint/assign", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    const fingerprint = req.params.fingerprint;
+    const userId = req.body?.user_id;
+    const normalised = userId === null || userId === undefined
+      ? null
+      : Number.isInteger(Number(userId)) ? Number(userId) : null;
+
+    // Only org members may be assigned. `users` has no RLS, and GET /errors
+    // joins users to return assigned_to_email — so without this check an admin
+    // could write any user id and read back a cross-org user's email (IDOR).
+    // Mirrors the release session-result assign guard.
+    if (normalised !== null) {
+      const member = await tenantQuery(orgId,
+        "SELECT 1 FROM org_members WHERE org_id = $1 AND user_id = $2",
+        [orgId, normalised]
+      );
+      if (member.rows.length === 0) {
+        res.status(400).json({ error: "User is not a member of this org" });
+        return;
+      }
+    }
+
+    // Upsert the error group — it may not have a persisted row yet (same as
+    // the status/notes endpoints, which also lazily create it).
+    const result = await tenantQuery(orgId,
+      `INSERT INTO error_groups (org_id, fingerprint, assigned_to, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (org_id, fingerprint) DO UPDATE SET assigned_to = $3, updated_at = NOW()
+       RETURNING id`,
+      [orgId, fingerprint, normalised]
+    );
+
+    await logAudit(orgId, req.user!.id, "error.assign", "error_group", fingerprint, { user_id: normalised });
+    res.json({ assigned: true, group_id: result.rows[0].id, user_id: normalised });
+  } catch (err) {
+    console.error("POST /errors/:fingerprint/assign error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

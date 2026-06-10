@@ -464,6 +464,71 @@ export interface paths {
         };
         trace?: never;
     };
+    "/errors/{fingerprint}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign (or un-assign) an owner to an error group (upsert)
+         * @description Lightweight triage ownership — "who's chasing this failure". Pass
+         *     `user_id: null` to un-assign. The user must be a member of the caller's
+         *     org. Viewer role is rejected (403).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fingerprint: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        user_id: number | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Assignment updated */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            assigned?: boolean;
+                            group_id?: number;
+                            user_id?: number | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                /** @description Viewer role — assigning an error is admin+ */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/errors/{fingerprint}/tests": {
         parameters: {
             query?: never;
@@ -1021,6 +1086,8 @@ export interface components {
             suite_name?: string;
             group_id?: number | null;
             status?: components["schemas"]["ErrorStatus"];
+            assigned_to?: number | null;
+            assigned_to_email?: string | null;
             note_count?: number;
         };
         AffectedTest: {

@@ -269,6 +269,43 @@ paths:
                   status: { $ref: "#/components/schemas/ErrorStatus" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /errors/{fingerprint}/assign:
+    parameters:
+      - { name: fingerprint, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [errors]
+      summary: Assign (or un-assign) an owner to an error group (upsert)
+      description: |
+        Lightweight triage ownership — "who's chasing this failure". Pass
+        `user_id: null` to un-assign. The user must be a member of the caller's
+        org. Viewer role is rejected (403).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: [integer, "null"] }
+      responses:
+        "200":
+          description: Assignment updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assigned: { type: boolean }
+                  group_id: { type: integer }
+                  user_id: { type: [integer, "null"] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Viewer role — assigning an error is admin+
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /errors/{fingerprint}/tests:
     parameters:
       - { name: fingerprint, in: path, required: true, schema: { type: string } }
@@ -678,6 +715,8 @@ components:
         suite_name: { type: string }
         group_id: { type: [integer, "null"] }
         status: { $ref: "#/components/schemas/ErrorStatus" }
+        assigned_to: { type: [integer, "null"] }
+        assigned_to_email: { type: [string, "null"] }
         note_count: { type: integer }
 
     AffectedTest:
