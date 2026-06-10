@@ -154,7 +154,13 @@ async function applyMigration(client: pg.Client, sql: string, file: string): Pro
     await client.query(sql);
     return;
   }
-  const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
+  // Strip `--` line comments BEFORE the naive ";" split: a semicolon inside a
+  // comment would otherwise sever the comment mid-line and the tail would parse
+  // as invalid SQL (this bit migration 065 once). Removing comments first makes
+  // the split robust to comment punctuation. (Still no $$-block support, which
+  // CONCURRENTLY files don't use.)
+  const stripped = sql.replace(/--[^\n]*/g, "");
+  const statements = stripped.split(";").map((s) => s.trim()).filter(Boolean);
   for (const stmt of statements) {
     try {
       await client.query(stmt);

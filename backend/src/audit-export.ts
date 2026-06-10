@@ -144,32 +144,46 @@ async function deliverHttp(config: AuditExportConfigRow, body: string): Promise<
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     // Never auto-follow a redirect: a public endpoint could 3xx to a private /
     // metadata address AFTER the gate, replaying the auth token there. With
-    // "manual" a 3xx becomes an opaqueredirect (status 0) → treated as failure.
+    // "manual", undici does NOT follow the redirect and returns the real 3xx
+    // status (res.ok === false), so the non-ok check below rejects it as a
+    // failed delivery. (Don't confuse with browser fetch, which yields an
+    // opaqueredirect/status 0 here.)
     redirect: "manual",
   });
   if (!res.ok) {
     // Throw a controlled message — do NOT read res.body (it can contain
-    // account-identifying or sensitive collector responses). status 0 is the
-    // opaque-redirect (refused 3xx) case.
+    // account-identifying or sensitive collector responses). `|| "000"` is a
+    // defensive fallback for a falsy status (not expected from undici).
     throw new Error(`HTTP ${res.status || "000"}`);
   }
+}
+
+// NodeHttpHandler options that actually bound a PutObject. CRITICAL:
+// requestTimeout alone is WARN-only in @smithy/node-http-handler — it does NOT
+// abort the request unless throwOnRequestTimeout is also true. Without it a
+// connected-but-unresponsive S3 endpoint hangs PutObject forever while
+// flushAuditExports holds the single-flight lock across ALL orgs. So:
+//   - throwOnRequestTimeout: true   → requestTimeout actually rejects
+//   - requestTimeout                → hard end-to-end deadline
+//   - socketTimeout                 → backstop for an idle/half-open socket
+//   - connectionTimeout             → bounds the pre-connect blackhole
+// sanitizeDeliveryError maps the resulting TimeoutError to "request timed out".
+// Exported so the throw-on-timeout config is regression-tested.
+export function s3RequestHandlerOptions() {
+  return {
+    requestTimeout: HTTP_TIMEOUT_MS,
+    socketTimeout: HTTP_TIMEOUT_MS,
+    connectionTimeout: 5000,
+    throwOnRequestTimeout: true,
+  };
 }
 
 let _s3: S3Client | null = null;
 function s3Client(): S3Client {
   if (!_s3) {
-    // Bound the request like deliverHttp's AbortSignal: s3ClientConfig() sets no
-    // timeout, so AWS SDK v3 defaults to none — a blackholed/slow S3 endpoint
-    // would hang a PutObject indefinitely while flushAuditExports holds the
-    // single-flight lock across ALL orgs, stalling every org's export. A bounded
-    // requestHandler makes deliverS3 fail fast (sanitizeDeliveryError maps the
-    // TimeoutError to "request timed out") instead.
     _s3 = new S3Client({
       ...s3ClientConfig(),
-      requestHandler: new NodeHttpHandler({
-        requestTimeout: HTTP_TIMEOUT_MS,
-        connectionTimeout: 5000,
-      }),
+      requestHandler: new NodeHttpHandler(s3RequestHandlerOptions()),
       maxAttempts: 2,
     });
   }

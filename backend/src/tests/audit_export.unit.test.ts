@@ -14,6 +14,7 @@ import {
   formatBatchNdjson,
   sanitizeDeliveryError,
   s3KeyFor,
+  s3RequestHandlerOptions,
 } from "../audit-export.js";
 
 const rows = [
@@ -82,6 +83,17 @@ test("sanitizeDeliveryError keeps only low-cardinality, non-sensitive tokens", (
   assert.equal(sanitizeDeliveryError(leaky), "delivery failed");
 
   assert.equal(sanitizeDeliveryError("a string"), "delivery failed");
+});
+
+test("s3 request handler bounds the request AND throws on timeout (not warn-only)", () => {
+  // Regression guard: requestTimeout alone is warn-only in @smithy/node-http-handler
+  // — without throwOnRequestTimeout a hung S3 PutObject never aborts and stalls
+  // the whole flush tick under the single-flight lock.
+  const o = s3RequestHandlerOptions();
+  assert.equal(o.throwOnRequestTimeout, true, "requestTimeout must actually throw, not just warn");
+  assert.ok(o.requestTimeout && o.requestTimeout > 0, "a request deadline is set");
+  assert.ok(o.socketTimeout && o.socketTimeout > 0, "a socket-idle backstop is set");
+  assert.ok(o.connectionTimeout && o.connectionTimeout > 0, "a connect deadline is set");
 });
 
 test("s3KeyFor lays out keys under <prefix>/audit/org-<id>/ and trims slashes", () => {

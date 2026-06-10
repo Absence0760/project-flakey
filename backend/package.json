@@ -18,6 +18,7 @@
     "@aws-sdk/client-s3": "^3.1063.0",
     "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@node-saml/node-saml": "^5.1.0",
+    "@smithy/node-http-handler": "^4.7.7",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^5.2.1",
