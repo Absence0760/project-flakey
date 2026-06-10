@@ -157,7 +157,8 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /suites` — list suites in the org (rerun-template, archived flag, last-seen-at)
 - `PATCH /suites/:name/rename` / `PATCH /suites/:name/archive` / `PATCH /suites/:name/rerun-template` / `DELETE /suites/:name` — suite mutations
 - `GET/POST/DELETE /views` — saved-filter dashboards (Phase 6)
-- `GET /notes` / `GET /notes/counts` / `POST /notes` — error-group notes (per-fingerprint)
+- `GET /notes` / `GET /notes/counts` / `POST /notes` — generic notes API keyed by `?target_type=&target_key=` (e.g. `run`, `error`)
+- `GET /errors/:fingerprint/notes` / `POST /errors/:fingerprint/notes` — convenience wrapper over the generic notes API, hardcoded to `target_type='error'` with the fingerprint as the key (used by the error-detail pane)
 
 *Webhooks + connectivity probes:*
 - `GET/POST/PATCH/DELETE /webhooks` — webhook CRUD (URL schemes restricted to http(s); SSRF gate blocks loopback / private ranges unless `WEBHOOK_ALLOW_PRIVATE_TARGETS=true`)

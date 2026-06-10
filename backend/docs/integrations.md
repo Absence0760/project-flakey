@@ -347,7 +347,9 @@ today may be read-only, so this is an additional, opt-in grant:
 
 The route is **contributor+** (it both calls the model and writes the repo);
 viewers get a `403`. It needs an AI provider configured (`503` otherwise) — and
-that provider can be a fully local, **air-gapped** Ollama (see below).
+that provider can be a fully local, **air-gapped** Ollama (see below). It also
+needs a git provider configured to open the PR against (`409 "No git provider
+configured"` otherwise).
 
 ## Air-gapped AI
 
@@ -369,7 +371,7 @@ every org. Leave it unset and the generation routes return `503` while cached
 results still read, and clustering still works (its similarity grouping is
 deterministic and model-free).
 
-### 3. Uploading coverage from CI
+## Uploading coverage from CI
 
 Use the CLI subcommand from a post-test step in your pipeline:
 
