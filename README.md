@@ -368,6 +368,7 @@ after-script:
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | localhost / 1025 / — / — / `Flakey <noreply@example.com>` | SMTP settings for scheduled-report email delivery and auth verification/reset. Defaults target the bundled Mailpit (view sent mail at http://localhost:8025). |
 | `FLAKEY_SSO_ENABLED` | `false` | Enables the enterprise SSO login flow (`/auth/sso/*`) + admin config API (`/sso/config`) — OIDC/SAML/SCIM, all OFF by default. GovRAMP-scoped auth control; see [backend/docs/sso.md](backend/docs/sso.md). |
 | `PUBLIC_API_URL` | `http://localhost:3000` | Public backend base URL used to build the IdP redirect URI (`<PUBLIC_API_URL>/auth/sso/callback`). Required when `FLAKEY_SSO_ENABLED=true`. |
+| `FLAKEY_AUDIT_EXPORT_ENABLED` | `false` | Enables audit-log SIEM export — durable, gap-free streaming of `audit_log` to a per-org HTTP (customer SIEM) or S3 destination, configured via the admin `/audit/export` API. OFF by default (flusher no-ops + routes 404). Tamper-evidence (`GET /audit/verify`) is always on, independent of this flag. GovRAMP-scoped logging control; see [backend/docs/audit-logging.md](backend/docs/audit-logging.md). |
 
 ### Frontend
 

@@ -151,6 +151,8 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /compare` — diff two runs (added/removed/changed status, duration delta)
 - `GET /compare/suites` — list suites available for comparison
 - `GET /audit` — read the audit log (org-scoped)
+- `GET /audit/verify` — verify the audit-log **hash chain** (tamper-evidence; admin+). Every `audit_log` row binds the previous row's SHA-256, so an edit/delete/reorder is detectable. See [audit-logging.md](../backend/docs/audit-logging.md).
+- `GET|POST|PATCH|DELETE /audit/export` (+ `/export/:id/test`) — manage **audit SIEM export** destinations (HTTP / S3); durable, gap-free streaming of audit rows. Admin+, and 404 unless `FLAKEY_AUDIT_EXPORT_ENABLED` is set (OFF by default). GovRAMP-scoped logging control.
 - `GET /badge/:orgSlug/:suiteName.svg` — **public** shields.io-style SVG badge (no auth — see `backend/src/index.ts` mount comment)
 
 *Suite, view, and notes management:*

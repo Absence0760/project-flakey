@@ -267,7 +267,8 @@ suite intentionally run on code defaults (not the env file) so seeding gets the
 | `SMTP_PASSWORD` | _(none)_ | SMTP password |
 | `SMTP_SECURE` | `false` | Set `true` for TLS |
 | `EMAIL_FROM` | `Flakey <noreply@example.com>` | From-address used for all outgoing email |
-| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | Allow webhooks to target private / loopback hosts. Dev already permits it, so the local `--profile integrations` sink works out of the box; set `true` to allow it in production |
+| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | tracks `NODE_ENV` (allowed in dev, blocked in prod) | Allow webhooks to target private / loopback hosts. Dev already permits it, so the local `--profile integrations` sink works out of the box; set `true` to allow it in production. Also gates the audit-export HTTP destination's SSRF check |
+| `FLAKEY_AUDIT_EXPORT_ENABLED` | `false` | Enable audit-log SIEM export (durable, gap-free streaming of `audit_log` to a per-org HTTP / S3 destination via the `/audit/export` admin API). OFF by default — the flusher no-ops and the routes 404. Tamper-evidence (`GET /audit/verify`) is always on. See [backend/docs/audit-logging.md](../backend/docs/audit-logging.md) |
 | `FLAKEY_ENCRYPTION_KEY` | _(none)_ | 32-byte base64 or hex key for AES-256-GCM encryption of Jira / PagerDuty secrets. Unset = plaintext passthrough (refused in `NODE_ENV=production`). See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) |
 | `FLAKEY_ENCRYPTION_KEY_OLD` | _(none)_ | Optional previous encryption key for rotation — read-path only, never used for new writes. See [backend/docs/integrations.md](../backend/docs/integrations.md#secrets-encryption) for the dual-key rotation procedure |
 

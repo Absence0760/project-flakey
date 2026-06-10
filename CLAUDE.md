@@ -25,6 +25,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 | A Postgres migration | [backend/docs/migrations.md](backend/docs/migrations.md) + the `/safe-migration` skill |
 | Integrations (Jira, PagerDuty, git providers, webhooks) | [backend/docs/integrations.md](backend/docs/integrations.md) |
 | Enterprise SSO (OIDC + SAML login, SCIM provisioning — all built, flag-gated) | [backend/docs/sso.md](backend/docs/sso.md) + [docs/proposals/phase-14-sso.md](docs/proposals/phase-14-sso.md) |
+| Audit-log tamper-evidence (hash chain + `/audit/verify`) + SIEM export (HTTP/S3, flag-gated) | [backend/docs/audit-logging.md](backend/docs/audit-logging.md) + [docs/proposals/phase-16-audit-logging-controls.md](docs/proposals/phase-16-audit-logging-controls.md) |
 | A reporter normalizer (Mochawesome/JUnit/Playwright/…) | [backend/docs/normalizer.md](backend/docs/normalizer.md) |
 | The pytest (Python) reporter | [packages/flakey-pytest-reporter/CLAUDE.md](packages/flakey-pytest-reporter/CLAUDE.md) (uv/hatchling — **not** in the pnpm workspace) |
 | Frontend pages / components / auth singleton | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
