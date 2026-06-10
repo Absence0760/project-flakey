@@ -1,0 +1,134 @@
+# Proposal: Snapshot step enrichment — per-step console + network
+
+**Status:** Partially implemented.
+- **Phase 0 — render `failure_context`:** ✅ done (commit surfacing the Cypress
+  reporter's already-captured console/network/uncaught/retry context in the
+  ErrorModal Details tab).
+- **Phase 1 — Playwright per-step extraction:** ✅ done (`@flakeytesting/playwright-snapshots`
+  now attaches `console[]` / `network[]` to each `SnapshotStep`). **Not yet
+  shipped** — a package version bump + publish is the trigger (operator's call).
+- **Phase 2 — per-step UI:** planned.
+- **Phase 3 — Cypress per-step capture:** planned, gated on Phases 0–2.
+
+**Area:** `packages/flakey-playwright-snapshots`, `packages/flakey-cypress-snapshots`,
+`frontend/src/lib/components/media/SnapshotViewer.svelte`,
+`frontend/src/lib/components/overlays/ErrorModal.svelte`. No backend / DB change
+— the snapshot bundle is an opaque gzipped JSON blob in storage, and
+`failure_context` is an existing JSONB column (migration 054).
+
+**Effort:** Phases 0–1 small/medium and done. Phase 2 small (frontend). Phase 3
+medium and invasive (runs in every customer Cypress test).
+
+---
+
+## Problem
+
+The snapshot-steps list (ErrorModal) shows a flat list of step names
+(`updateFeatureFlag`, `request`, …) and a DOM/screencast frame per step. There's
+no console output, no network activity, no "what went wrong here" — the steps
+look plain. Users debugging a red want the console + network context attached to
+the step where it happened, the way a trace viewer shows it.
+
+## What already existed (the discovery)
+
+The Cypress reporter (`@flakeytesting/cypress-reporter/src/support.ts`) **already
+captures** browser console, network failures, uncaught errors, and the retry
+trail into `tests.failure_context` (JSONB, migration 054). It's typed end-to-end
+(`backend/src/types.ts` → `frontend/src/lib/api.ts` → `openapi.yaml`) and
+returned by `GET /tests/:id` — but it was **rendered nowhere**. Half the ask was
+already being captured and silently dropped.
+
+Two distinct gaps, very different cost:
+
+| | Source | Granularity | Cost |
+|---|---|---|---|
+| A. `failure_context` unrendered | Cypress reporter (built) | test-level | frontend-only, zero-risk |
+| B. Snapshot steps plain | snapshot bundle | per-step | reporter + frontend |
+
+## Phase 0 — render `failure_context` (done)
+
+Frontend-only. The ErrorModal **Details** tab now opens on
+`hasMetadata || hasFailureContext`, and renders `browser_console`,
+`network_failures`, `uncaught_errors`, and `retry_errors` as sections when
+present. Error/warn console lines are colour-coded (`--color-fail` /
+`--color-skip`). Seeded a deterministic `failure_context` on the `e2e-cucumber`
+demo run; covered by `frontend/tests-e2e/errors/failure-context.spec.ts`.
+
+This already lifts the **Cypress** case (which is what the original screenshot
+was — `cy.*` commands + Gherkin grouping) from "plain step names" to
+"console + network + uncaught + retry context", at test granularity.
+
+## Phase 1 — Playwright per-step extraction (done)
+
+The Playwright trace `.zip` already carries everything; we parsed neither the
+inline console events nor the separate `trace.network` file (the latter was
+explicitly *excluded* by the library-trace filter). Now both are extracted and
+each event is bucketed to the step that was **active** when it occurred (latest
+step whose action had started by the event's monotonic time; pre-first-step
+events fall to step 0 — console `time` and HAR `_monotonicTime` share the action
+clock).
+
+Contract (backward-compatible — both optional, absent when empty):
+
+```ts
+interface SnapshotStep {
+  // …existing…
+  console?: { level: string; text: string }[];   // "warning" → "warn"
+  network?: { method: string; url: string; status?: number }[]; // -1 status omitted
+}
+```
+
+Per-step caps (`MAX_CONSOLE_PER_STEP = 100`, `MAX_NETWORK_PER_STEP = 50`) bound
+bundle growth, mirroring `@flakeytesting/cypress-snapshots`. The collector reads
+both the 1.59 `trace.network` name and the legacy `*-network.trace`, per the
+package's "trace format is an external contract" convention. Covered by unit
+tests in `src/tests/parse-trace.test.ts`.
+
+**Trigger to ship:** bump `@flakeytesting/playwright-snapshots` (and rebuild
+`@flakeytesting/playwright-reporter`), then publish per the repo's release flow.
+
+## Phase 2 — per-step UI (planned)
+
+Consume the Phase 1 contract in the frontend (currently it ignores the new
+fields, which is why old/new bundles both render unchanged):
+
+- **Step-row badges** in the snapshot-steps list (ErrorModal): a count badge on
+  rows that carry console **errors** or network failures, so a problem step
+  stands out in the otherwise-flat list — the direct fix for "they look plain".
+- **Console / Network strip** in `SnapshotViewer.svelte`, an expandable panel
+  under the frame scoped to the active step, reusing the Phase 0 styling
+  (`.console-line.console-err/-warn`, `.diag-net`).
+- Extend the frontend `SnapshotStep` interfaces (in `SnapshotViewer.svelte` and
+  `ErrorModal.svelte`) with the optional `console?` / `network?` fields.
+
+Risk: low — pure consumer; old bundles (no fields) render exactly as today.
+Cover with an e2e against a seeded enriched bundle.
+
+## Phase 3 — Cypress per-step capture (planned, gated)
+
+Cypress's `failure_context` is **test-level**. True per-step console/network for
+Cypress means tagging entries with the active command index. The capture hooks
+**already exist** — `@flakeytesting/cypress-reporter/src/support.ts` patches
+`console` + `fetch`/`XHR` on the app window — but into test-scoped buffers. The
+work is to tag each buffered entry with `state.commandIndex` (from
+`@flakeytesting/cypress-snapshots`) and share/move the capture so each
+`SnapshotStep` gets its own slice.
+
+This runs **inside every customer Cypress test**, so it carries real perf /
+payload cost — hence gated on Phases 0–2 proving the per-step value first. If
+pursued, mirror the same caps and keep the fields optional.
+
+## Why this order
+
+Phase 0 ships the highest-value, lowest-risk slice (data already captured, just
+unrendered) and directly helps the Cypress case from the original report.
+Phase 1 is "free" data already in the Playwright trace, behind a moderate
+parse-side change. Phase 2 is the per-step UX. Phase 3 is the only invasive
+piece and is deliberately deferred behind a real decision.
+
+## Open question
+
+Phase 0 revealed that `failure_context` is Cypress-only. The Playwright reporter
+could also populate test-level `failure_context` (it has the trace), so Gap A
+isn't permanently lopsided. Small add while in the trace parser — decide when
+Phase 2/3 are scheduled.
