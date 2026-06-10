@@ -464,18 +464,20 @@ test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
     // The first step (visit) has no console/network → no strip rendered.
     await expect(page.locator(".step-diag")).toHaveCount(0);
 
-    // Select the "submit" click step → its network surfaces.
+    // Select the "submit" click step → its console + network tabs surface.
     await list.locator("li.cmd-child").nth(5).click();
 
     const strip = page.locator(".step-diag");
     await expect(strip).toBeVisible();
-    await expect(strip.locator(".diag-pill").filter({ hasText: /Network/ })).toBeVisible();
-    await expect(strip.locator(".diag-pill-error")).toBeVisible(); // the GET /api/dashboard 401
+    const netTab = strip.locator(".diag-tab").filter({ hasText: "Network" });
+    await expect(netTab).toBeVisible();
+    // The Network tab carries a failure badge (the GET /api/dashboard 401).
+    await expect(netTab.locator(".diag-badge.err")).toBeVisible();
 
-    // Expand and verify the request rows; the 401 is flagged as a failure.
-    await strip.locator(".diag-header").click();
-    await expect(strip.locator(".diag-network li").filter({ hasText: "/api/login" })).toBeVisible();
-    const failRow = strip.locator(".diag-network li.net-fail");
+    // Open the Network tab and verify the request rows; the 401 is flagged.
+    await netTab.click();
+    await expect(strip.locator(".diag-network .diag-row").filter({ hasText: "/api/login" })).toBeVisible();
+    const failRow = strip.locator(".diag-network .diag-row").filter({ has: page.locator(".net-status-fail") });
     await expect(failRow).toContainText("/api/dashboard");
     await expect(failRow).toContainText("401");
   });
@@ -490,8 +492,9 @@ test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
 
     const strip = page.locator(".step-diag");
     await expect(strip).toBeVisible();
-    await strip.locator(".diag-header").click();
-    await expect(strip.locator(".diag-console li.console-err")).toBeVisible();
+    // Open the Console tab; the error line renders with the error level chip.
+    await strip.locator(".diag-tab").filter({ hasText: "Console" }).click();
+    await expect(strip.locator(".diag-console .diag-row.console-error")).toBeVisible();
     await expect(strip.locator(".diag-console")).toContainText("expected /dashboard");
   });
 });
