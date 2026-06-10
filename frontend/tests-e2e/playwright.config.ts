@@ -32,8 +32,10 @@ export default defineConfig({
   // suite is excluded too: it has its own configs (playwright.sso*.config.ts)
   // and hard-requires the opt-in IdP stack (Keycloak :8081, Authentik :9002,
   // SCIM target :8082) plus FLAKEY_SSO_ENABLED — none of which the main e2e
-  // run (local `pnpm test:e2e` or the CI Tests workflow) provisions. Run it
-  // via `pnpm test:e2e:sso` against `pnpm idp:up` / `pnpm idp:scim:up`.
+  // run (local `pnpm test:e2e` or the CI Tests workflow) provisions. Locally,
+  // run it via `pnpm test:e2e:sso` against `pnpm idp:up` / `pnpm idp:scim:up`;
+  // in CI it has its own workflow (.github/workflows/sso-e2e.yml) that stands
+  // up the stack and runs all three sso/ specs.
   testIgnore: ["**/node_modules/**", "**/.auth/**", "**/fixtures/**", "**/sso/**"],
 
   // Stable on CI even with the dev server taking a beat to warm up.

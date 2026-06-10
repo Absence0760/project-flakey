@@ -164,13 +164,26 @@ Token lookup is a SECURITY DEFINER prefix function (mirrors `lookup_api_key`).
   round-trip with no secret leak, real PKCE authorize redirect against a mock IdP).
 - IdP-contract e2e (Keycloak): `frontend/tests-e2e/sso/keycloak-oidc.spec.ts`
   via `pnpm idp:up` + `pnpm --filter frontend test:e2e:sso`.
-- **App-facing OIDC e2e** (full app through a real browser): `keycloak-oidc-app.spec.ts`
-  via `pnpm idp:up` + seeded backend, then `pnpm --filter frontend test:e2e:sso:app`.
-  Drives login → Sign in with SSO → Keycloak form → callback → /sso/complete →
-  dashboard, plus a bad-credential negative path. Its config boots the app with
-  `FLAKEY_SSO_ENABLED`. (Runs against a clean local stack; the backend callback
-  must be on :3000 to match the seeded realm's redirect allow-list.)
+- **App-facing OIDC e2e** (full app through a real browser): `keycloak-oidc-app.spec.ts`.
+  Bring up Keycloak + a seeded DB, start the backend with SSO live, then run the
+  spec — its config boots only the frontend (vite :7778):
+  `pnpm idp:up && (cd backend && ./migrate.sh && npm run seed) && FLAKEY_SSO_ENABLED=true pnpm dev:backend &`
+  then `pnpm --filter frontend test:e2e:sso:app`. Drives login → Sign in with SSO
+  → Keycloak form → callback → /sso/complete → dashboard, plus a bad-credential
+  negative path. (The backend callback must be on :3000 to match the seeded
+  realm's redirect allow-list.)
 - SCIM smoke: `src/tests/scim.smoke.test.ts` (token auth, full Users lifecycle
   incl. deactivation→membership-removal, per-org RLS isolation). The
   Authentik→target loop (`frontend/tests-e2e/sso/authentik-scim.spec.ts`) is the
   IdP-side proof; the real endpoint satisfies the same client behavior.
+
+### CI
+
+The `sso/` Playwright suite runs in its own workflow,
+[`.github/workflows/sso-e2e.yml`](../../.github/workflows/sso-e2e.yml) — separate
+from the main Tests workflow because it stands up the full opt-in IdP stack
+(Keycloak + Authentik + mock SCIM target) from the same compose definitions, and
+Authentik's first boot is heavy. It runs on every push to `main` and on
+SSO-path-touching PRs, covering all three specs (OIDC contract + SCIM via
+`playwright.sso.config.ts`; full-app OIDC login via `playwright.sso-app.config.ts`),
+so login + provisioning keep continuous regression coverage.

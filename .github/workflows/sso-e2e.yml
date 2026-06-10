@@ -1,0 +1,246 @@
+name: SSO e2e
+
+# Continuous regression coverage for enterprise SSO (Phase 14 — built, flag-gated
+# behind FLAKEY_SSO_ENABLED): OIDC login + SCIM provisioning. This is a SEPARATE
+# workflow from Tests because it hard-requires the opt-in IdP stack — Keycloak
+# (:8081), the full Authentik stack (its own Postgres + Redis + server + worker,
+# :9002), and the mock SCIM target (:8082) — which the main e2e job deliberately
+# does not provision (playwright.config.ts ignores **/sso/**). Authentik's first
+# boot is heavy (~2-3 min of migrations + blueprint application), so we don't pay
+# that on every PR: this runs on every push to main (the continuous-regression
+# signal) and on PRs that touch SSO code, plus manual dispatch.
+#
+# It covers all three SSO specs (frontend/tests-e2e/sso/):
+#   - keycloak-oidc.spec.ts      — OIDC Authorization Code + PKCE contract vs Keycloak
+#   - authentik-scim.spec.ts     — SCIM 2.0 provision/deprovision loop vs Authentik
+#       (both via playwright.sso.config.ts — IdP stack only, no Flakey app)
+#   - keycloak-oidc-app.spec.ts  — full app OIDC login → JIT provisioning → dashboard
+#       (via playwright.sso-app.config.ts — needs the seeded backend + frontend)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    # Only burn the heavy IdP-stack runner minutes when SSO-relevant code
+    # changes. main pushes always run (above), so post-merge regression
+    # coverage is unconditional even if a PR was path-filtered out.
+    paths:
+      - "backend/src/sso/**"
+      - "backend/src/routes/sso.ts"
+      - "backend/src/routes/scim.ts"
+      - "frontend/tests-e2e/sso/**"
+      - "frontend/src/routes/login/**"
+      - "frontend/src/routes/sso/**"
+      - "frontend/src/routes/(app)/settings/sso/**"
+      - "frontend/src/lib/stores/auth.ts"
+      - "infra/keycloak/**"
+      - "infra/scim-target/**"
+      - "docker-compose.yml"
+      - ".github/workflows/sso-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: sso-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sso-e2e:
+    name: SSO e2e (OIDC login + SCIM provisioning)
+    runs-on: ubuntu-latest
+    # Authentik's first boot (DB migrations + blueprint application) dominates
+    # wall time. A generous job timeout keeps a slow boot from being read as a
+    # hang while still bounding a genuinely stuck run.
+    timeout-minutes: 25
+    services:
+      # App Postgres — the same intentionally-fixed, CI-only ephemeral container
+      # the Tests workflow's e2e job uses (flakey/flakey superuser, flakey_app
+      # runtime user created by the seed, PGDATA on tmpfs, torn down at job end).
+      # NOT production credentials and never cross-used with prod. This is the
+      # FLAKEY app's DB only — Authentik runs its own Postgres inside the compose
+      # stack below (no host-port mapping, so no :5432 collision).
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flakey
+          POSTGRES_PASSWORD: flakey
+          POSTGRES_DB: flakey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flakey"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+          --tmpfs /var/lib/postgresql/data
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # Bring up the IdP stack from the SAME compose definitions devs use
+      # locally (`pnpm idp:up` / `pnpm idp:scim:up`) — single source of truth.
+      # Named services + their depends_on only, so compose's default `postgres`
+      # / `mailpit` don't start (the app DB is the service container above).
+      # `--wait` blocks on the health-checked services (authentik-postgres /
+      # -redis); Keycloak / Authentik-server / scim-target have no healthcheck,
+      # so they're gated by the explicit readiness polls further down. Started
+      # first so Authentik boots in parallel with the dependency installs.
+      - name: Start IdP stack (Keycloak + Authentik + SCIM target)
+        run: |
+          docker compose --profile idp --profile idp-scim up -d --wait \
+            keycloak authentik-server authentik-worker scim-target
+
+      - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Cache npm (backend)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      # Backend deps + DB state. The seed creates the flakey_app runtime user the
+      # backend connects as and the admin@example.com account the app spec uses
+      # to configure the org's SSO.
+      - name: Install backend deps (npm)
+        working-directory: backend
+        run: npm ci
+      - name: Apply migrations
+        working-directory: backend
+        run: ./migrate.sh
+      - name: Seed sample data
+        working-directory: backend
+        run: npm run seed
+
+      - name: Install frontend deps (pnpm)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Wait on the real readiness signals, not a fixed sleep:
+      #   - Keycloak: the `flakey` realm's OIDC discovery doc resolves (realm
+      #     imported + endpoints live).
+      #   - Authentik: the API answers an authenticated call with the seeded
+      #     bootstrap token (server up AND blueprint/bootstrap applied — first
+      #     boot runs migrations, so the budget here is generous).
+      #   - SCIM target: its /health endpoint returns 200.
+      - name: Wait for Keycloak realm
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8081/realms/flakey/.well-known/openid-configuration >/dev/null 2>&1; then
+              echo "Keycloak realm 'flakey' ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Keycloak realm did not become ready"
+          docker compose logs keycloak || true
+          exit 1
+      - name: Wait for Authentik
+        run: |
+          for i in $(seq 1 120); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer flakey-authentik-dev-token" \
+              "http://localhost:9002/api/v3/core/users/?page_size=1" || true)
+            if [ "$code" = "200" ]; then
+              echo "Authentik API ready (bootstrap token valid) after ${i}s"; exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Authentik did not become ready"
+          docker compose logs authentik-server authentik-worker || true
+          exit 1
+      - name: Wait for SCIM target
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8082/health >/dev/null 2>&1; then
+              echo "SCIM target ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::SCIM target did not become ready"
+          docker compose logs scim-target || true
+          exit 1
+
+      # IdP-contract + SCIM specs — drive Keycloak / Authentik directly, no
+      # Flakey app needed (playwright.sso.config.ts has no webServer).
+      - name: Run SSO IdP-contract + SCIM specs
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: pnpm exec playwright test --config=tests-e2e/sso/playwright.sso.config.ts
+
+      # Start the backend with SSO live. The app spec's config (sso-app) boots
+      # only the frontend (vite :7778) and talks to this backend on :3000.
+      - name: Start backend (FLAKEY_SSO_ENABLED)
+        working-directory: backend
+        env:
+          PORT: "3000"
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_USER: flakey_app
+          DB_PASSWORD: flakey_app
+          DB_NAME: flakey
+          NODE_ENV: test
+          ALLOW_REGISTRATION: "true"
+          FLAKEY_SSO_ENABLED: "true"
+          CORS_ORIGINS: http://localhost:7778
+          FRONTEND_URL: http://localhost:7778
+          PUBLIC_API_URL: http://localhost:3000
+        # Fresh JWT signing key per run (forked PRs can't read repo secrets; a
+        # static fallback would let a forked-PR author predict the key).
+        run: |
+          JWT_SECRET="$(openssl rand -hex 32)"
+          export JWT_SECRET
+          npx tsx src/index.ts > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
+              echo "backend healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "backend did not become healthy"
+          cat /tmp/backend.log
+          exit 1
+
+      # App-facing OIDC login spec — its webServer boots the frontend; backend
+      # above is reused on :3000.
+      - name: Run app-facing OIDC login spec
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: pnpm exec playwright test --config=tests-e2e/sso/playwright.sso-app.config.ts
+
+      - name: Backend log on failure
+        if: failure()
+        run: cat /tmp/backend.log || true
+      - name: IdP stack logs on failure
+        if: failure()
+        run: docker compose logs keycloak authentik-server authentik-worker scim-target || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sso-playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14

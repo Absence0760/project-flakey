@@ -165,16 +165,28 @@ Wired into [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml) �
 
 `retries: 1` on CI (see `playwright.config.ts`) still absorbs incidental dev-server/HMR noise. With the `data-ready` / `data-sse-connected` readiness signals now in place (see above), the SSE-timing class of flake it was covering is gone; dropping to `0` is a reasonable next step once a stretch of green shard runs confirms no residual flake.
 
-## SSO / SCIM proofs (Phase 14 prototype)
+## SSO / SCIM proofs (Phase 14)
 
-`tests-e2e/sso/` proves enterprise auth is e2e-testable against local IdPs with
-no online signup. It has its **own** config (`tests-e2e/sso/playwright.sso.config.ts`)
-— no `globalSetup`, no `webServer` — because it drives the IdPs directly and
-needs neither the Flakey app nor a seeded Postgres. Bring both IdPs up, then run:
+`tests-e2e/sso/` proves enterprise auth (Phase 14 — **built**, flag-gated behind
+`FLAKEY_SSO_ENABLED`, OFF by default) is e2e-testable against local IdPs with no
+online signup. Two configs, split by dependency footprint:
+
+- **`playwright.sso.config.ts`** (`pnpm test:e2e:sso`) — IdP-contract + SCIM
+  specs. No `globalSetup`, no `webServer`: drives the IdPs directly and needs
+  neither the Flakey app nor a seeded Postgres.
+- **`playwright.sso-app.config.ts`** (`pnpm test:e2e:sso:app`) — the full-app
+  OIDC login spec. Boots only the **frontend** (vite :7778, same shape as the
+  main config); the **backend** must already be running on :3000 with
+  `FLAKEY_SSO_ENABLED=true` and a seeded DB.
 
 ```bash
 pnpm idp:up && pnpm idp:scim:up    # repo root — Keycloak :8081, Authentik :9002 + SCIM target :8082
-cd frontend && pnpm test:e2e:sso
+cd frontend && pnpm test:e2e:sso   # IdP-contract + SCIM (no Flakey app needed)
+
+# app-facing login spec — seed the DB, then start the backend with SSO live:
+pnpm db:up && (cd backend && ./migrate.sh && npm run seed)
+FLAKEY_SSO_ENABLED=true pnpm dev:backend &
+cd frontend && pnpm test:e2e:sso:app
 ```
 
 - **`keycloak-oidc.spec.ts`** (needs `pnpm idp:up`) — a full Authorization-Code +
@@ -186,8 +198,16 @@ cd frontend && pnpm test:e2e:sso
   create an IdP user → assert provisioned (user + role group); deactivate →
   assert deprovisioned (`active:false`). APIs only — uses Playwright's `request`
   fixture, no browser page.
+- **`keycloak-oidc-app.spec.ts`** (needs `pnpm idp:up` + a seeded backend with
+  `FLAKEY_SSO_ENABLED`) — the full app flow through a real browser: login → Sign
+  in with SSO → Keycloak form → callback (token exchange + ID-token verify + JIT
+  provisioning) → `/sso/complete` handoff → dashboard, plus a bad-credential
+  negative path that must **not** mint a Flakey session.
 
-SSO itself is **not built yet** (see
-[docs/proposals/phase-14-sso.md](../../docs/proposals/phase-14-sso.md)); when it
-lands, the app-facing SSO specs move under the main config (they need the app up)
-and this IdP-only config stays as the contract proof.
+**CI:** these run in their own workflow,
+[`.github/workflows/sso-e2e.yml`](../../.github/workflows/sso-e2e.yml) — it stands
+up the full IdP stack from the same compose definitions on every push to `main`
+and on SSO-path-touching PRs (kept out of the main Tests workflow because
+Authentik's first boot is heavy). See
+[docs/proposals/phase-14-sso.md](../../docs/proposals/phase-14-sso.md) for the
+design.

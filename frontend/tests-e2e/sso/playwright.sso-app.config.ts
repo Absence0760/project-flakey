@@ -12,10 +12,14 @@ import { defineConfig, devices } from "@playwright/test";
  * Prereqs (the spec talks to a live, seeded backend + Keycloak):
  *   pnpm idp:up                       # local Keycloak, realm `flakey`
  *   pnpm db:up && cd backend && ./migrate.sh && npm run seed
+ *   FLAKEY_SSO_ENABLED=true pnpm dev:backend   # backend on :3000 with SSO live
  * Then:  cd frontend && pnpm test:e2e:sso:app
  *
- * The webServer block boots the whole app (root `pnpm dev` = backend + frontend)
- * with FLAKEY_SSO_ENABLED so the SSO routes are live.
+ * The webServer block boots only the FRONTEND (vite on :7778) — the same shape
+ * as the main playwright.config.ts. The backend is started separately (above
+ * locally, by the sso-e2e CI job in CI) with FLAKEY_SSO_ENABLED so the SSO
+ * routes are live; that keeps a pre-started backend from being double-launched
+ * (port 3000 conflict) when the config boots its own server.
  */
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? "http://localhost:8081";
 
@@ -36,17 +40,17 @@ export default defineConfig({
     timezoneId: "UTC",
   },
   webServer: {
+    // Frontend only (cwd = frontend/, `pnpm run dev` = vite on :7778). The
+    // backend is pre-started with FLAKEY_SSO_ENABLED — see the header note.
     command: "pnpm run dev",
-    cwd: "../..",
+    cwd: "..",
     url: "http://localhost:7778",
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 90_000,
     stdout: "ignore",
     stderr: "pipe",
     env: {
-      FLAKEY_SSO_ENABLED: "true",
       PUBLIC_API_URL: "http://localhost:3000",
-      FRONTEND_URL: "http://localhost:7778",
       VITE_API_URL: "http://localhost:3000",
       KEYCLOAK_URL,
     },

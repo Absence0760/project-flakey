@@ -23,6 +23,12 @@ const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? "http://localhost:8081";
 
 export default defineConfig({
   testDir: ".",
+  // IdP-contract specs only: this config has no webServer and baseURL points at
+  // Keycloak, so it cannot host the app-facing spec (keycloak-oidc-app.spec.ts
+  // does page.goto("/login") against the Flakey frontend on :7778). That spec
+  // runs under playwright.sso-app.config.ts instead — exclude it here so a bare
+  // `pnpm test:e2e:sso` doesn't pick it up and navigate into Keycloak.
+  testIgnore: ["**/keycloak-oidc-app.spec.ts"],
   timeout: 30_000,
   expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
