@@ -225,6 +225,60 @@ test("live events: a within-run retry (fail then pass) collapses to one passed r
   assert.equal(d!.passed, 2);
 });
 
+test("live events: per-status spec stats and the run rollup are exact across all statuses", async () => {
+  // Guards the conditional-aggregation recompute (recomputeSpecAndRunStats /
+  // rollupRunFromSpecs): one scan with COUNT(*) FILTER per status must produce
+  // the same per-status spec counts as the old six-subquery form, and the run
+  // rollup must SUM those spec columns exactly. A mix of all four statuses in
+  // one spec is what would expose a mis-wired FILTER (e.g. a status swapped).
+  const runId = await startLiveRun(`mix-stats-${Date.now()}`);
+  const spec = "mix.cy.ts";
+  await postEvents(runId, [{ type: "spec.started", spec }]);
+  // 2 passed, 1 failed, 1 skipped, and 1 left pending (started, never finished)
+  await postEvents(runId, [{ type: "test.passed", spec, test: "p1", duration_ms: 10 }]);
+  await postEvents(runId, [{ type: "test.passed", spec, test: "p2", duration_ms: 20 }]);
+  await postEvents(runId, [{ type: "test.failed", spec, test: "f1", duration_ms: 30, error: "boom" }]);
+  await postEvents(runId, [{ type: "test.skipped", spec, test: "s1", duration_ms: 0 }]);
+  await postEvents(runId, [{ type: "test.started", spec, test: "pend1" }]);
+
+  // Settle via a sentinel in a SEPARATE spec so the mix spec's counts stay exact.
+  await postEvents(runId, [{ type: "test.passed", spec: "zzz.cy.ts", test: SENTINEL, duration_ms: 1 }]);
+  const d = await waitFor(
+    async () => {
+      const r = await fetch(`${BASE}/runs/${runId}`, { headers: authHeaders() });
+      return r.ok
+        ? ((await r.json()) as {
+            total: number; passed: number; failed: number; skipped: number; pending: number;
+            specs: Array<{
+              file_path?: string; total: number; passed: number; failed: number;
+              skipped: number; pending: number;
+              tests: Array<{ title: string; status: string }>;
+            }>;
+          })
+        : null;
+    },
+    (v) => !!v && v.specs.flatMap((s) => s.tests).some((t) => t.title === SENTINEL),
+    3000,
+  );
+  assert.ok(d, "run detail should be readable");
+
+  const mix = d!.specs.find((s) => s.tests.some((t) => t.title === "p1"));
+  assert.ok(mix, "the mix spec should be present");
+  // Per-status spec counts (the FILTER aggregation).
+  assert.equal(mix!.total, 5, "mix spec total");
+  assert.equal(mix!.passed, 2, "mix spec passed");
+  assert.equal(mix!.failed, 1, "mix spec failed");
+  assert.equal(mix!.skipped, 1, "mix spec skipped");
+  assert.equal(mix!.pending, 1, "mix spec pending");
+
+  // Run rollup = mix spec + the sentinel spec (1 passed). SUM over specs.
+  assert.equal(d!.total, 6, "run total = 5 (mix) + 1 (sentinel)");
+  assert.equal(d!.passed, 3, "run passed = 2 (mix) + 1 (sentinel)");
+  assert.equal(d!.failed, 1, "run failed");
+  assert.equal(d!.skipped, 1, "run skipped");
+  assert.equal(d!.pending, 1, "run pending");
+});
+
 test("live events: test.passed arriving before test.started still resolves cleanly", async () => {
   // Reporters retrying flaky tests can emit events out of order.  The
   // backend should not crash; either it creates the row in 'passed'
