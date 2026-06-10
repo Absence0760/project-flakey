@@ -40,10 +40,12 @@ export default defineConfig({
     timezoneId: "UTC",
   },
   webServer: {
-    // Frontend only (cwd = frontend/, `pnpm run dev` = vite on :7778). The
-    // backend is pre-started with FLAKEY_SSO_ENABLED — see the header note.
+    // Frontend only (`pnpm run dev` = vite on :7778). The backend is pre-started
+    // with FLAKEY_SSO_ENABLED — see the header note. cwd is resolved relative to
+    // THIS config's dir (frontend/tests-e2e/sso/), so "../.." = frontend/ — two
+    // levels up (the main config is one level shallower, hence ".." there).
     command: "pnpm run dev",
-    cwd: "..",
+    cwd: "../..",
     url: "http://localhost:7778",
     reuseExistingServer: !process.env.CI,
     timeout: 90_000,
