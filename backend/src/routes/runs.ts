@@ -428,12 +428,19 @@ router.get("/:id", async (req, res) => {
       return;
     }
 
-    // Adjacent runs for prev/next navigation
+    // Adjacent runs for prev/next navigation — scoped to the SAME SUITE.
+    // The nav arrows are labelled "Previous/Next run" and the run-detail
+    // page diffs the current run test-by-test against prev_id for its
+    // "new failures since previous run" band. A global-id neighbour
+    // (the prior behaviour) routinely landed on a different suite, whose
+    // tests share no keys, so every failure was mis-flagged as new.
+    // Same-suite matches the /compare/suites convention.
+    const suiteName = runResult.rows[0].suite_name;
     const adjResult = await tenantQuery(orgId,
       `SELECT
-        (SELECT id FROM runs WHERE id < $1 ORDER BY id DESC LIMIT 1) AS prev_id,
-        (SELECT id FROM runs WHERE id > $1 ORDER BY id ASC LIMIT 1) AS next_id`,
-      [runId]
+        (SELECT id FROM runs WHERE id < $1 AND suite_name = $2 ORDER BY id DESC LIMIT 1) AS prev_id,
+        (SELECT id FROM runs WHERE id > $1 AND suite_name = $2 ORDER BY id ASC LIMIT 1) AS next_id`,
+      [runId, suiteName]
     );
     const { prev_id, next_id } = adjResult.rows[0] ?? {};
 

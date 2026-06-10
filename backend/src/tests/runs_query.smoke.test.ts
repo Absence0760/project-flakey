@@ -458,3 +458,46 @@ test("GET /runs/status: 400 when neither ci_run_id nor suite is supplied", async
   const res = await getStatus(``, t);
   assert.equal(res.status, 400);
 });
+
+// ── 7. GET /runs/:id prev/next adjacency is scoped to the same suite ──
+//
+// The run-detail nav arrows ("Previous/Next run") and the "new failures
+// since previous run" band both consume prev_id. prev_id MUST be the
+// previous run *of the same suite*, not the previous run by global id —
+// a cross-suite neighbour shares no test keys, so the regression band
+// would mis-flag every failure as new. Interleave two suites so the
+// global-id neighbour and the same-suite neighbour differ.
+
+test("GET /runs/:id: prev_id/next_id are the same-suite neighbours, not the global-id ones", async () => {
+  const { token: t } = await registerOrg();
+
+  // Upload order (ids strictly increasing): alpha #1, beta #1, alpha #2.
+  // So alpha #2's *global* predecessor is beta #1, but its *same-suite*
+  // predecessor is alpha #1 — the case the bug got wrong.
+  const alpha1 = await uploadRun({ suite: "adj-alpha", ciRunId: `adj-a1-${Date.now()}`, passed: 1, token: t });
+  const beta1 = await uploadRun({ suite: "adj-beta", ciRunId: `adj-b1-${Date.now()}`, passed: 1, token: t });
+  const alpha2 = await uploadRun({ suite: "adj-alpha", ciRunId: `adj-a2-${Date.now()}`, passed: 1, token: t });
+  assert.ok(alpha1 < beta1 && beta1 < alpha2, "ids must be strictly increasing in upload order");
+
+  const detail = async (id: number) =>
+    (await (await fetch(`${BASE}/runs/${id}`, { headers: { Authorization: `Bearer ${t}` } })).json()) as {
+      prev_id: number | null; next_id: number | null; suite_name: string;
+    };
+
+  // alpha #2: prev is alpha #1 (NOT beta #1, the global-id neighbour); no next.
+  const a2 = await detail(alpha2);
+  assert.equal(a2.prev_id, alpha1, "alpha#2.prev_id must be alpha#1, skipping the cross-suite beta#1");
+  assert.notEqual(a2.prev_id, beta1, "alpha#2.prev_id must NOT be the global-id neighbour beta#1");
+  assert.equal(a2.next_id, null, "alpha#2 is the latest alpha run — no same-suite next");
+
+  // alpha #1: next is alpha #2; no prev.
+  const a1 = await detail(alpha1);
+  assert.equal(a1.next_id, alpha2, "alpha#1.next_id must be alpha#2");
+  assert.equal(a1.prev_id, null, "alpha#1 is the first alpha run — no same-suite prev");
+
+  // beta #1: only run in its suite — both neighbours null (the global
+  // neighbours alpha#1/alpha#2 must NOT leak in).
+  const b1 = await detail(beta1);
+  assert.equal(b1.prev_id, null, "beta#1 has no same-suite predecessor (alpha#1 must not leak in)");
+  assert.equal(b1.next_id, null, "beta#1 has no same-suite successor (alpha#2 must not leak in)");
+});

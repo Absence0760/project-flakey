@@ -104,14 +104,31 @@ test.describe("/runs/<id> — run-level affordances", () => {
     await expect(page.locator("tr.run-row").first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test("prev/next adjacent-run nav arrows are present (when applicable)", async ({ page }) => {
-    const runId = await gotoFirstRun(page);
-    void runId;
-    // The prev/next anchors render in the top-right when run has
-    // adjacent rows in the org. The first run has only a `next`,
-    // and the latest run has only `prev`. Either way ≥1 nav arrow.
-    const arrows = page.locator(".run-header a, header a", { hasText: /^[<>]/ });
-    void arrows;
+  test("prev/next adjacent-run nav stays within the same suite", async ({ page }) => {
+    // Regression: prev_id/next_id were computed by global run id across
+    // ALL suites, so "Previous run" could jump to an unrelated suite —
+    // which also poisoned the "new failures since previous run" band.
+    // They must be scoped to the current run's suite.
+    await gotoFirstRun(page);
+    const suite = (await page.locator(".run-suite-title").textContent())?.trim() ?? "";
+    expect(suite.length).toBeGreaterThan(0);
+
+    const prevLink = page.locator('a.run-nav-btn[title^="Previous run"]');
+    const nextLink = page.locator('a.run-nav-btn[title^="Next run"]');
+
+    // Follow whichever neighbour exists; the landed run must share the suite.
+    if (await prevLink.count()) {
+      await prevLink.first().click();
+    } else if (await nextLink.count()) {
+      await nextLink.first().click();
+    } else {
+      test.skip(true, "this run is the only one in its suite — no adjacency to verify");
+      return;
+    }
+
+    // The detail page re-renders for the neighbour; its suite title must
+    // match the suite we started on.
+    await expect(page.locator(".run-suite-title")).toHaveText(suite, { timeout: 10_000 });
   });
 
   test("Filter tests… input clears via keyboard", async ({ page }) => {
