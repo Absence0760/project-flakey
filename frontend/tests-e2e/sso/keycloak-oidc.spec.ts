@@ -60,22 +60,25 @@ test.describe("OIDC Authorization Code + PKCE against local Keycloak", () => {
     authUrl.searchParams.set("code_challenge", challenge);
     authUrl.searchParams.set("code_challenge_method", "S256");
 
-    // Nothing serves :7778/auth/callback in this proof — stub it so the
-    // post-login redirect resolves and we can read the code off the URL.
-    await page.route(`${REDIRECT_URI}**`, (route) =>
-      route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>callback</body></html>" }),
-    );
-
     // 1–2. Land on Keycloak's hosted login form and authenticate.
     await page.goto(authUrl.toString());
     await expect(page.locator("#kc-form-login")).toBeVisible();
     await page.fill("#username", "sso.admin@example.com");
     await page.fill("#password", "ssopassword");
-    await page.click("#kc-login");
 
     // 3. Keycloak redirects back to the callback with ?code= & matching state.
-    await page.waitForURL(/\/auth\/callback\?.*code=/);
-    const cbUrl = new URL(page.url());
+    // Nothing serves :7778/auth/callback in this IdP-contract proof. We can't
+    // stub it with page.route(): Playwright doesn't intercept the *target* of a
+    // server-side 302 for a top-level navigation — the browser follows the
+    // redirect at the network layer, so the route never fires and the
+    // navigation dies with ERR_CONNECTION_REFUSED. (Locally a running dev
+    // server on :7778 silently answers it and masks the bug; in CI nothing is
+    // there, so the old `waitForURL` hung for the full timeout.) Instead, read
+    // the code straight off the callback *request* the browser issues — that
+    // event fires whether or not anything ever answers it.
+    const callbackReq = page.waitForRequest((r) => r.url().startsWith(REDIRECT_URI));
+    await page.click("#kc-login");
+    const cbUrl = new URL((await callbackReq).url());
     const code = cbUrl.searchParams.get("code");
     expect(code, "authorization code present on the callback").toBeTruthy();
     expect(cbUrl.searchParams.get("state"), "state round-trips intact").toBe(state);
