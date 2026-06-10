@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { BlockList, isIP } from "node:net";
+import dns from "node:dns";
+import { Agent, fetch as undiciFetch } from "undici";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { formatPayload, type WebhookRunFailedPayload } from "../webhook-formatters.js";
@@ -144,6 +146,52 @@ export function validateWebhookUrl(url: unknown): { ok: true } | { ok: false; er
     return { ok: false, error: `URL host '${parsed.hostname}' resolves to a private / loopback / metadata address; webhooks must target a public host. Set WEBHOOK_ALLOW_PRIVATE_TARGETS=true if this is intentional.` };
   }
   return { ok: true };
+}
+
+// Connect-time SSRF pin for outbound delivery to a tenant-configured URL
+// (webhook dispatch + audit-log export). validateWebhookUrl only checks the
+// hostname STRING, so a public hostname can still resolve to a private /
+// metadata IP (e.g. 169.254.169.254) — a credentialed SSRF for the audit-export
+// path, which attaches an auth token. This custom lookup validates every
+// RESOLVED address against the same private-target policy, and undici connects
+// to that exact IP, so a DNS rebind between check and connect can't slip a
+// private address past. Pair callers with redirect:"manual" so a 3xx can't
+// bounce to a private target after the check either.
+const ssrfLookup = (
+  hostname: string,
+  options: dns.LookupOptions,
+  callback: (...args: unknown[]) => void
+): void => {
+  dns.lookup(hostname, options, (err, address, family) => {
+    if (err) {
+      callback(err, address, family);
+      return;
+    }
+    if (shouldBlockPrivateTargets()) {
+      const list = Array.isArray(address)
+        ? (address as unknown as dns.LookupAddress[]).map((a) => a.address)
+        : [address as string];
+      const blocked = list.find((ip) => isPrivateOrReservedHost(ip));
+      if (blocked) {
+        callback(new Error("Refusing to connect to a private/reserved address"), address, family);
+        return;
+      }
+    }
+    callback(null, address, family);
+  });
+};
+const webhookSsrfAgent = new Agent({ connect: { lookup: ssrfLookup as never } });
+
+// fetch bound to the SSRF-pinning dispatcher. Use for ALL outbound delivery to a
+// tenant-configured URL. Callers should validate the URL string first
+// (validateWebhookUrl) for a fast/clear rejection; this is the authoritative
+// resolved-IP gate. Honors the WEBHOOK_ALLOW_PRIVATE_TARGETS / NODE_ENV policy
+// dynamically (read per connect), so self-hosted internal targets still work.
+export function webhookSafeFetch(
+  url: string,
+  init?: Parameters<typeof undiciFetch>[1]
+): ReturnType<typeof undiciFetch> {
+  return undiciFetch(url, { ...init, dispatcher: webhookSsrfAgent } as Parameters<typeof undiciFetch>[1]);
 }
 
 // GET /webhooks/events — selectable event types + friendly labels.

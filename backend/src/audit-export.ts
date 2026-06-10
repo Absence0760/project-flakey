@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import pool, { tenantQuery } from "./db.js";
 import { decryptSecret } from "./crypto.js";
-import { validateWebhookUrl } from "./routes/webhooks.js";
+import { validateWebhookUrl, webhookSafeFetch } from "./routes/webhooks.js";
 import { s3ClientConfig } from "./storage.js";
 
 /**
@@ -123,9 +123,10 @@ export function s3KeyFor(prefix: string | null, orgId: number, firstId: string, 
 }
 
 async function deliverHttp(config: AuditExportConfigRow, body: string): Promise<void> {
-  // Re-validate at delivery time, not just at config write: DNS for a public
-  // hostname could later resolve to a private/metadata address (rebinding), and
-  // a config could have been written when the SSRF gate was relaxed.
+  // Fast string-level rejection (scheme + literal private host). The
+  // AUTHORITATIVE SSRF gate is webhookSafeFetch's connect-time pin, which
+  // validates the RESOLVED IP — a public hostname can still resolve to a
+  // private/metadata address, which this string check alone would miss.
   const check = validateWebhookUrl(config.endpoint_url);
   if (!check.ok) throw new Error(`HTTP 000`); // sanitized; never echo the URL/reason
 
@@ -135,16 +136,21 @@ async function deliverHttp(config: AuditExportConfigRow, body: string): Promise<
     if (token) headers[config.auth_header_name] = token;
   }
 
-  const res = await fetch(config.endpoint_url as string, {
+  const res = await webhookSafeFetch(config.endpoint_url as string, {
     method: "POST",
     headers,
     body,
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+    // Never auto-follow a redirect: a public endpoint could 3xx to a private /
+    // metadata address AFTER the gate, replaying the auth token there. With
+    // "manual" a 3xx becomes an opaqueredirect (status 0) → treated as failure.
+    redirect: "manual",
   });
   if (!res.ok) {
     // Throw a controlled message — do NOT read res.body (it can contain
-    // account-identifying or sensitive collector responses).
-    throw new Error(`HTTP ${res.status}`);
+    // account-identifying or sensitive collector responses). status 0 is the
+    // opaque-redirect (refused 3xx) case.
+    throw new Error(`HTTP ${res.status || "000"}`);
   }
 }
 

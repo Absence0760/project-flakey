@@ -30,6 +30,13 @@ export function sendWebhook(url: string, platform: string, payload: WebhookRunPa
 
   // fetch() throws synchronously on a malformed URL — wrap the call site
   // (not just .catch) so one bad row doesn't abort dispatch to the rest.
+  //
+  // NOTE: this notification path does NOT yet use the connect-time SSRF pin
+  // (webhookSafeFetch) that the audit-export delivery path uses — it validates
+  // only the hostname string at config-write time, so a public hostname that
+  // resolves to a private/metadata IP is a (blind, credential-less) SSRF here.
+  // Pre-existing; tracked as a follow-up (see docs/roadmap.md). Retrofitting it
+  // needs a test-strategy change because these unit tests swap globalThis.fetch.
   try {
     fetch(url, {
       method: "POST",
