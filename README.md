@@ -242,7 +242,7 @@ Create an API key from the Settings page for permanent access (no expiry).
 - **AI failure analysis** — per-error and per-test root-cause classification, summary, and suggested fix (cached per fingerprint)
 - **AI root-cause clustering** — groups the org's distinct failures into clusters by similarity, with an AI-generated theme label per multi-error cluster
 - **Slowest tests** — ranked by duration with P50/P95/P99 percentiles, trend analysis (getting slower/faster), mini sparkline, and expandable duration history chart
-- **Error tracking** — failures grouped by error message with status (open/investigating/known/fixed/ignored), first/last seen, affected run count, and team notes thread
+- **Error tracking** — failures grouped by error message with status (open/investigating/known/fixed/ignored), an assignable owner (the pre-Jira "who's chasing this?" triage moment), first/last seen, affected run count, and team notes thread; failures also roll up per release so they can be handed out during a release
 - **Test history** — pass/fail timeline for a single test across runs
 - **Compare runs** — side-by-side diff showing regressions, fixes, and unchanged tests
 

@@ -56,7 +56,7 @@ Cypress Cloud is expensive and requires deep integration. Sorry Cypress and Curr
 - **Copy for tickets**: copy run summary formatted for Jira (wiki markup) or Markdown, including all test results with status icons
 - **URL-based filter**: status filter persists in URL (`/runs/63?status=failed`) for shareable links
 - **Error modal**: screenshots with lightbox, video player, Cypress command log, source code, expandable stack trace, keyboard navigation between failures
-- **Error grouping**: failures aggregated by error message, filterable by suite/run, status tracking (open/investigating/known/fixed/ignored)
+- **Error grouping**: failures aggregated by error message, filterable by suite/run, status tracking (open/investigating/known/fixed/ignored), and per-error ownership — assign an org member to triage a failure (the pre-Jira "who's chasing this?" moment); failures also roll up per release for handing out during a release
 - **Flaky test detection**: identifies tests that alternate between pass and fail across runs, with timeline visualization
 - **Slowest tests**: ranked by duration with P50/P95/P99 stats, trend analysis
 - **Test history**: pass/fail timeline for individual tests across runs

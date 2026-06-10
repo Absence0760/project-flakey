@@ -1,6 +1,6 @@
 # Proposal: Failure triage workflow (the lifecycle Jira can't drive)
 
-**Status:** Proposed — not yet implemented
+**Status:** Partially implemented — the **assignee** slice of 15.1 shipped (`error_groups.assigned_to`, migration `063`; `POST /errors/:fingerprint/assign`; `assigned_to`/`assigned_to_email` on `GET /errors`; `GET /releases/:id/errors` so a release is the triage lens; shared `AssigneePicker` on the errors detail pane + a release "Failures to triage" list). **Not yet built:** `target_date` / `priority` (rest of 15.1), and 15.2–15.4.
 **Area:** backend `error_groups` + `/errors` route, `quarantined_tests`, `failure_jira_issues`, the upload/ingest pipeline, the nightly retention pass; frontend `/errors` page (becomes the triage surface)
 **Effort:** Medium, phased (15.1 small/additive → 15.4 introduces a new inbound trust boundary)
 
@@ -36,7 +36,7 @@ them together:
 | Error-group status (`open / investigating / known / fixed / ignored`) | `error_groups.status`, set via `PATCH /errors/:fingerprint/status` (`backend/src/routes/errors.ts:93`) | purely manual; nothing transitions it automatically |
 | Quarantine | `quarantined_tests` (`migration 017`), `backend/src/routes/quarantine.ts` | **no expiry** — quarantines rot silently; not linked to a triage item |
 | Jira linkage | `failure_jira_issues` keyed `(org_id, fingerprint)` (`migration 022`), `backend/src/integrations/jira.ts` | **one-way** — closing the ticket, or the test going green, does nothing |
-| Per-test assignee | `release_test_session_results.assigned_to` (`migration 029`), `POST …/results/:testId/assign` (`releases.ts:1750`) | **manual sessions only** — automated failures have no owner |
+| Per-test assignee | `release_test_session_results.assigned_to` (`migration 029`), `POST …/results/:testId/assign` (`releases.ts:1750`); **error-group owner** `error_groups.assigned_to` (`migration 063`), `POST /errors/:fingerprint/assign` | now both — automated failures can be assigned an owner (target_date / priority still pending) |
 | Flaky detection | `GET /flaky` (`backend/src/routes/flaky.ts`), `flaky.detected` webhook | informational only — never feeds quarantine or triage |
 
 So the day-to-day question — *"this test is red; who owns it, is it the same
@@ -81,9 +81,21 @@ Stated up front so scope doesn't creep into a Jira clone (mirrors the roadmap's
 
 Make an error group something a person owns and a date you're accountable to.
 
-**Migration (next number: `059_*`)** — additive columns on `error_groups`:
+> **Built so far (assignee slice):** migration `063_error_group_assignee.sql`
+> added `error_groups.assigned_to INT REFERENCES users(id) ON DELETE SET NULL`
+> (partial index, RLS inherited). `POST /errors/:fingerprint/assign` mirrors the
+> `release.session_result_assign` IDOR guard (org-member validation, viewer 403,
+> upsert + audit `error.assign`). `GET /errors` returns `assigned_to` +
+> `assigned_to_email`; new `GET /errors/{fingerprint}/assign` is in `openapi.yaml`.
+> `GET /releases/:id/errors` derives a release's failures from its linked runs so
+> assignment can happen in the release context. Frontend: a shared
+> `inputs/AssigneePicker.svelte` (extracted from the release session picker) on
+> the errors detail pane and a "Failures to triage" section on the release page.
+> **Still to build below:** `target_date`, `priority`, and the list filters.
 
-- `assigned_to INTEGER REFERENCES users(id)` (nullable) — owner of this failure.
+**Migration** — additive columns on `error_groups`:
+
+- ~~`assigned_to INTEGER REFERENCES users(id)` (nullable)~~ — **done** (migration `063`).
 - `target_date DATE` (nullable) — when it should be resolved (the SLA hook).
 - `priority TEXT CHECK (priority IN ('low','medium','high','critical'))`
   (nullable) — manual for now; *derived* default in 15.2.
@@ -247,9 +259,11 @@ behavior → backend smoke; recurrence via the Phase-13 replay CLI. No phase is
 
 ## Acceptance criteria
 
-- [ ] **15.1** An error group can be assigned to an org member, given a due date
-      and priority; "assigned to me" / "overdue" filters work; controls hidden for
-      `viewer`; each mutation audited.
+- [x] **15.1** An error group can be assigned to an org member (org-member
+      validated, viewer-gated, audited `error.assign`), surfaced on the `/errors`
+      detail pane and per-release via `GET /releases/:id/errors`.
+- [ ] **15.1** (remaining) due date + priority on an error group; "assigned to
+      me" / "overdue" list filters.
 - [ ] **15.2** A fixed fingerprint reappearing on ingest auto-transitions to
       `regressed`, bumps `recurrence_count`, and fires `error.regressed`.
 - [ ] **15.2** With `triage_autoclose_days` set, a stale open group auto-closes on
