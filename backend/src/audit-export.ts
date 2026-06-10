@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import pool, { tenantQuery } from "./db.js";
 import { decryptSecret } from "./crypto.js";
 import { validateWebhookUrl, webhookSafeFetch } from "./routes/webhooks.js";
@@ -156,7 +157,22 @@ async function deliverHttp(config: AuditExportConfigRow, body: string): Promise<
 
 let _s3: S3Client | null = null;
 function s3Client(): S3Client {
-  if (!_s3) _s3 = new S3Client(s3ClientConfig());
+  if (!_s3) {
+    // Bound the request like deliverHttp's AbortSignal: s3ClientConfig() sets no
+    // timeout, so AWS SDK v3 defaults to none — a blackholed/slow S3 endpoint
+    // would hang a PutObject indefinitely while flushAuditExports holds the
+    // single-flight lock across ALL orgs, stalling every org's export. A bounded
+    // requestHandler makes deliverS3 fail fast (sanitizeDeliveryError maps the
+    // TimeoutError to "request timed out") instead.
+    _s3 = new S3Client({
+      ...s3ClientConfig(),
+      requestHandler: new NodeHttpHandler({
+        requestTimeout: HTTP_TIMEOUT_MS,
+        connectionTimeout: 5000,
+      }),
+      maxAttempts: 2,
+    });
+  }
   return _s3;
 }
 
@@ -261,10 +277,13 @@ export async function flushConfig(orgId: number, config: AuditExportConfigRow): 
  *
  * Known tradeoff (matches scheduled-reports.ts): the lock is held for the whole
  * tick, so a consistently slow/timing-out destination can delay other orgs'
- * delivery within a tick (bounded by HTTP_TIMEOUT_MS × MAX_BATCHES_PER_TICK per
- * org). Acceptable at current scale; the durable fix if it bites is a per-org
- * lock (pg_try_advisory_xact_lock(CLASS, orgId)) or moving delivery off the lock
- * onto a worker queue. Surfaced for the CISO availability review.
+ * delivery within a tick. Both delivery paths are time-bounded so this is
+ * bounded, not unbounded: HTTP via AbortSignal.timeout(HTTP_TIMEOUT_MS), S3 via
+ * the bounded requestHandler below (requestTimeout + maxAttempts) — worst case
+ * per org ≈ timeout × MAX_BATCHES_PER_TICK. Acceptable at current scale; the
+ * durable fix if it bites is a per-org lock (pg_try_advisory_xact_lock(CLASS,
+ * orgId)) or moving delivery off the lock onto a worker queue. Surfaced for the
+ * CISO availability review.
  */
 export async function flushAuditExports(): Promise<void> {
   if (!isAuditExportEnabled()) return;
