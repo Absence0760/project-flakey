@@ -97,6 +97,10 @@ Concurrent `cypress run` invocations on the same machine are supported out of th
 If you wrap the Mocha reporter with [`cypress-multi-reporters`](https://www.npmjs.com/package/cypress-multi-reporters) (e.g. to run `mochawesome` alongside Flakey), `config.reporterOptions` is reshaped by the wrapper, so pass Flakey's options explicitly as the third arg:
 
 ```typescript
+import { defineConfig } from "cypress";
+import { flakeyReporter } from "@flakeytesting/cypress-reporter/plugin";
+import { flakeySnapshots } from "@flakeytesting/cypress-snapshots/plugin";
+
 const flakeyOptions = {
   url: process.env.FLAKEY_API_URL ?? "http://localhost:3000",
   apiKey: process.env.FLAKEY_API_KEY!,

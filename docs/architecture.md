@@ -128,6 +128,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /runs/status` — **post-run** consolidated JSON ship signal: `?ci_run_id=X` or `?suite=name` → `{ status, run_id, ... }` where `status` is `"passed" | "failed" | "incomplete" | "aborted"`. A CI gate polls this instead of composing `failed` + `aborted` + `finished_at` itself or parsing the SVG badge — both derive from the same classifier (`backend/src/run-status.ts`), so they always agree. A missing run is a 404 (fails closed)
 - `GET /errors` — failures grouped by error message, filterable by suite/run
 - `PATCH /errors/:fingerprint/status` — set status on an error group (open/investigating/known/fixed)
+- `POST /errors/:fingerprint/assign` — assign (or clear) an owner for an error group; persists `error_groups.assigned_to` (migration 063) for failure-triage ownership
 - `GET /errors/:fingerprint/tests` — list affected tests for an error group
 - `GET /stats` — dashboard aggregate stats with date range filtering
 - `GET /stats/trends` — time-series data (pass rate, failures, duration, top failures)
@@ -217,6 +218,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `POST /releases/:id/sessions/:sessionId/results/:testId/accept` — defer a failure as a known issue. Body: `{ known_issue_ref?: string }` — accepts a plain key (`JIRA-123`) or an http(s) URL; non-http(s) URLs are rejected at the boundary
 - `POST /releases/:id/sessions/:sessionId/results/:testId/file-bug` — create the bug in the configured tracker (Jira) and persist `filed_bug_key` / `filed_bug_url` on the result
 - `POST/DELETE /releases/:id/sessions/:sessionId/results/:testId/evidence` — multipart attachment upload (20 MB cap per file, max 20 files; SVG/SVGZ rejected to stop a stored XSS via the attachment link). `url` is re-derived from `key` at GET time (presigns expire after 1h)
+- `GET /releases/:id/errors` — per-release failure-triage list: the error groups failing in the release's runs, joined to `error_groups` for triage state (status + assignee)
 - `GET /releases/:id/requirements` — coverage rollup by requirement; groups linked manual tests per requirement with pass/fail counts from the latest session
 - `GET/POST/DELETE /manual-tests/:id/requirements` — link a manual test to story refs (Jira/GitHub/Linear). `ref_url` must be http(s); other schemes are rejected on write
 - `GET/POST/PATCH/DELETE /manual-test-groups` — organize manual tests into named groups for batched session runs
@@ -230,6 +232,15 @@ Scheduler (internal, advisory-lock coordinated):
 - `POST /pagerduty/test` — fire a test event
 - `GET/POST/PATCH/DELETE /reports` — scheduled reports CRUD
 - `POST /reports/:id/run` — trigger a one-off dispatch (for testing)
+
+*Enterprise SSO & SCIM (Phase 14 — built, flag-gated behind `FLAKEY_SSO_ENABLED`, OFF by default):*
+- `/auth/sso/*` — OIDC + SAML login flow (mints the existing Flakey JWT; additive — see § 4). Public; gated internally by the flag
+- `/sso/config` + `POST /sso/scim/token` — admin SSO config + per-org SCIM bearer-token mint
+- `/scim/v2/*` — SCIM 2.0 provisioning (per-org bearer auth, not JWT); maps create/deactivate/delete to org membership
+- Full contract in [docs/sso.md](sso.md)
+
+*Cross-org support (read-only):*
+- `POST /support/orgs/:orgId/token` — an `is_support` operator mints a 30-min read-only "view as org" JWT (see § 4)
 
 ### 3. Normalizer (`backend/src/normalizers/`)
 
@@ -313,13 +324,16 @@ specs (id, run_id, file_path, title, total, passed, failed, skipped, duration_ms
 
 tests (id, spec_id, title, full_title, status, duration_ms,
        error_message, error_stack, screenshot_paths, video_path,
-       snapshot_path, test_code, command_log, metadata)
+       snapshot_path, test_code, command_log, metadata, failure_context)
 -- command_log (JSONB): Mochawesome step records (Cypress chained
 -- commands, assertions, retries). Rendered in the dashboard's
 -- "Commands" timeline below the screenshot.
 -- metadata (JSONB): reporter-specific extras — Playwright retries +
 -- tags + annotations; JUnit properties; ANSI-coloured error snippets.
 -- Free-form; the dashboard renders known shapes and ignores the rest.
+-- failure_context (JSONB, migration 054): Cypress failure context
+-- (console log / network log / resolved stack) captured at the moment
+-- of failure. Rendered in the run detail pane for triage.
 
 -- Quality metrics (Phase 10, org-scoped via RLS)
 coverage_reports (id, org_id, run_id, lines_pct, branches_pct, functions_pct,
