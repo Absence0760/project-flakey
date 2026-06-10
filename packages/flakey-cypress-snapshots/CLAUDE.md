@@ -23,6 +23,38 @@ Cap accounting: `state.cappedCount` / `state.evictedCount` (in `shared.ts`) are 
 
 The user-facing doc lives at `docs/plugin.md` (next to this file).
 
+## Per-step console + network (Phase 3)
+
+Each `SnapshotStep` carries optional `console[]` (`{ level, text }`) and
+`network[]` (`{ method, url, status? }`) — the console output and HTTP requests
+captured **during the command that step represents**, rendered per-step in the
+dashboard's snapshot viewer. Both are absent when nothing was observed, so the
+bundle stays backward-compatible.
+
+How it's captured (all in `shared.ts` + `support.ts`):
+
+- `support.ts` registers `Cypress.on("window:before:load", instrumentWindow)`.
+  `instrumentWindow(win)` wraps the app window's `console.{log,info,warn,error}`,
+  `fetch`, and `XMLHttpRequest`, routing each call to `recordConsole` /
+  `recordNetwork`. It **observes, never swallows** (always calls through).
+- Records land in `state.pendingConsole` / `state.pendingNetwork` — capped per
+  inter-command window (`MAX_CONSOLE_PER_STEP = 100`, `MAX_NETWORK_PER_STEP = 50`,
+  mirroring `@flakeytesting/playwright-snapshots`). `console.warning` is folded
+  to `"warn"`; a request that never completed records with no `status`.
+- `pushStep` drains the pending buffers into the step it creates (`takePending`),
+  so entries attach to the command they occurred during. **Gherkin marker steps
+  do NOT drain** — they're group boundaries, not commands, so the console/network
+  flows to the real command step that follows. The `afterEach` failure frame
+  also drains pending (the error / failing request is usually the most telling).
+- `resetState` clears the pending buffers per test.
+
+This is **independent of** `@flakeytesting/cypress-reporter`'s test-level
+`failure_context` capture (which also wraps console/fetch/XHR). Both can run in
+the same suite: each wrapper records into its own buffer and calls through, so
+neither double-counts. `instrumentWindow` is extracted (not inlined in the
+support handler) so the interception is unit-testable against a fake window —
+see `src/tests/shared.test.ts`.
+
 ## Live streaming
 
 When `FLAKEY_API_URL`, `FLAKEY_API_KEY`, and `FLAKEY_LIVE_RUN_ID` are all set in `process.env`, the `flakey:saveSnapshot` task streams the compressed bundle to `POST /live/:runId/snapshot` immediately after writing to disk. On a 2xx response the local file is `unlinkSync`ed. On failure the file is retained so the end-of-run batch uploader (reporter / CLI) can still ship it. These env vars are populated automatically by `@flakeytesting/live-reporter`'s `register()`.

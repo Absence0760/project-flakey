@@ -165,3 +165,138 @@ test("resetState clears the Gherkin dedup id so a new test re-marks its first st
   assert.equal(state.lastGherkinStepId, undefined);
   assert.equal(markGherkinStep("s1", "Context", "login"), true, "the same id in a NEW test must re-mark");
 });
+
+// --- Phase 3: per-step console + network capture ---
+
+import {
+  recordConsole,
+  recordNetwork,
+  takePending,
+  instrumentWindow,
+} from "../shared.ts";
+
+test("recordConsole normalizes level and buffers into pendingConsole when enabled", () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  recordConsole("error", "boom");
+  recordConsole("warning", "deprecated"); // "warning" → "warn"
+  recordConsole("log", "hi");
+  assert.deepEqual(state.pendingConsole, [
+    { level: "error", text: "boom" },
+    { level: "warn", text: "deprecated" },
+    { level: "log", text: "hi" },
+  ]);
+});
+
+test("recordConsole / recordNetwork no-op when snapshots are disabled", () => {
+  // enabled defaults to false (beforeEach clears overrides)
+  recordConsole("error", "boom");
+  recordNetwork("GET", "/x", 500);
+  assert.equal(state.pendingConsole.length, 0);
+  assert.equal(state.pendingNetwork.length, 0);
+});
+
+test("recordNetwork omits status when undefined and ignores empty urls", () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  recordNetwork("POST", "/api/a", 201);
+  recordNetwork("GET", "/api/pending", undefined); // never completed
+  recordNetwork("GET", ""); // no url → dropped
+  assert.deepEqual(state.pendingNetwork, [
+    { method: "POST", url: "/api/a", status: 201 },
+    { method: "GET", url: "/api/pending" },
+  ]);
+});
+
+test("pending buffers are capped (100 console / 50 network) per step window", () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  for (let i = 0; i < 150; i++) recordConsole("log", `line ${i}`);
+  for (let i = 0; i < 80; i++) recordNetwork("GET", `/r/${i}`, 200);
+  assert.equal(state.pendingConsole.length, 100);
+  assert.equal(state.pendingNetwork.length, 50);
+  assert.equal(state.pendingConsole[0].text, "line 0", "the cap keeps the first N chronologically");
+});
+
+test("takePending drains the buffers and contributes no key when empty", () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  assert.deepEqual(takePending(), {}, "nothing buffered → empty object (no console/network keys)");
+  recordConsole("error", "x");
+  recordNetwork("GET", "/y", 404);
+  const taken = takePending();
+  assert.deepEqual(taken.console, [{ level: "error", text: "x" }]);
+  assert.deepEqual(taken.network, [{ method: "GET", url: "/y", status: 404 }]);
+  // Buffers are now empty — a second take yields nothing.
+  assert.deepEqual(takePending(), {});
+});
+
+test("resetState clears the pending console/network buffers", () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  recordConsole("log", "a");
+  recordNetwork("GET", "/b", 200);
+  resetState();
+  assert.equal(state.pendingConsole.length, 0);
+  assert.equal(state.pendingNetwork.length, 0);
+});
+
+test("appendStep carries console/network fields onto the stored step", () => {
+  appendStep({
+    index: 0,
+    commandName: "click",
+    commandMessage: "submit",
+    timestamp: 0,
+    html: "<html></html>",
+    scrollX: 0,
+    scrollY: 0,
+    console: [{ level: "error", text: "boom" }],
+    network: [{ method: "POST", url: "/api/login", status: 401 }],
+  });
+  assert.deepEqual(state.steps[0].console, [{ level: "error", text: "boom" }]);
+  assert.deepEqual(state.steps[0].network, [{ method: "POST", url: "/api/login", status: 401 }]);
+});
+
+test("instrumentWindow wraps console + fetch, records to pending, and calls through", async () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  let origErrorCalled = false;
+  const win: any = {
+    console: {
+      log() {}, info() {}, warn() {},
+      error() { origErrorCalled = true; },
+    },
+    fetch: (_url: string) => Promise.resolve({ status: 503 }),
+  };
+
+  instrumentWindow(win);
+
+  win.console.error("boom", { a: 1 });
+  assert.equal(origErrorCalled, true, "original console.error must still run (we observe, never swallow)");
+  assert.deepEqual(state.pendingConsole, [{ level: "error", text: 'boom {"a":1}' }]);
+
+  await win.fetch("/api/x");
+  assert.deepEqual(state.pendingNetwork, [{ method: "GET", url: "/api/x", status: 503 }]);
+});
+
+test("instrumentWindow records a rejected fetch as a never-completed request (no status)", async () => {
+  cyEnvOverrides.FLAKEY_SNAPSHOTS_ENABLED = true;
+  const win: any = {
+    console: { log() {}, info() {}, warn() {}, error() {} },
+    fetch: (_url: string) => Promise.reject(new Error("network down")),
+  };
+  instrumentWindow(win);
+  await assert.rejects(() => win.fetch("/api/down"), /network down/);
+  assert.deepEqual(state.pendingNetwork, [{ method: "GET", url: "/api/down" }]);
+});
+
+test("instrumentWindow is a no-op when snapshots are disabled (window not wrapped)", async () => {
+  // enabled defaults false
+  let recorded = false;
+  const win: any = {
+    console: { log() {}, info() {}, warn() {}, error() { recorded = true; } },
+    fetch: (_url: string) => Promise.resolve({ status: 200 }),
+  };
+  instrumentWindow(win);
+  win.console.error("x");
+  await win.fetch("/y");
+  // console.error still its own original (our wrapper never installed), and
+  // nothing buffered.
+  assert.equal(state.pendingConsole.length, 0);
+  assert.equal(state.pendingNetwork.length, 0);
+  assert.equal(recorded, true, "the window's own console.error is untouched when disabled");
+});

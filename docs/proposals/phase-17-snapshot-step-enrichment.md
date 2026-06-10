@@ -10,7 +10,9 @@
 - **Phase 2 — per-step UI:** ✅ done (step-row error badges in the ErrorModal
   command list + a collapsible console/network strip in the SnapshotViewer,
   scoped to the active step).
-- **Phase 3 — Cypress per-step capture:** planned, gated on Phases 0–2.
+- **Phase 3 — Cypress per-step capture:** ✅ done
+  (`@flakeytesting/cypress-snapshots` now buffers console + network per step).
+  **Not yet shipped** — needs a package version bump + publish.
 
 **Area:** `packages/flakey-playwright-snapshots`, `packages/flakey-cypress-snapshots`,
 `frontend/src/lib/components/media/SnapshotViewer.svelte`,
@@ -114,27 +116,48 @@ is visible in local dev and exercised by e2e
 step index before `snapshotSteps` finishes loading, so the helper must tolerate
 an undefined step rather than throwing and aborting the whole modal render.
 
-## Phase 3 — Cypress per-step capture (planned, gated)
+## Phase 3 — Cypress per-step capture (done)
 
-Cypress's `failure_context` is **test-level**. True per-step console/network for
-Cypress means tagging entries with the active command index. The capture hooks
-**already exist** — `@flakeytesting/cypress-reporter/src/support.ts` patches
-`console` + `fetch`/`XHR` on the app window — but into test-scoped buffers. The
-work is to tag each buffered entry with `state.commandIndex` (from
-`@flakeytesting/cypress-snapshots`) and share/move the capture so each
-`SnapshotStep` gets its own slice.
+Cypress's `failure_context` is **test-level**. Per-step console/network now lives
+in `@flakeytesting/cypress-snapshots` (which owns the step state), independent of
+the reporter:
 
-This runs **inside every customer Cypress test**, so it carries real perf /
-payload cost — hence gated on Phases 0–2 proving the per-step value first. If
-pursued, mirror the same caps and keep the fields optional.
+- `support.ts` registers `Cypress.on("window:before:load", instrumentWindow)`.
+  `instrumentWindow(win)` (in `shared.ts`) wraps the app window's
+  `console.{log,info,warn,error}`, `fetch`, and `XMLHttpRequest`, routing each
+  call to `recordConsole` / `recordNetwork`. It observes, never swallows.
+- Records buffer into `state.pendingConsole` / `state.pendingNetwork`, capped per
+  inter-command window (100 console / 50 network, matching the Playwright
+  package). `pushStep` drains them (`takePending`) into the real command step —
+  **not** gherkin marker steps — so each entry attaches to the command it
+  occurred during. The `afterEach` failure frame also drains pending.
+
+**Why it's self-contained (not shared with the reporter's hooks):** both the
+reporter (`failure_context`) and the snapshots package wrap console/fetch/XHR.
+Rather than couple them, each keeps its own wrapper and buffer — the wrappers
+chain (each calls through), so neither double-counts. This keeps snapshots
+usable without the reporter and avoids a cross-package capture dependency.
+
+`instrumentWindow` is extracted (not inlined in the support handler) precisely so
+the browser interception is **unit-testable against a fake window in Node** —
+`src/tests/shared.test.ts` covers console/fetch wrapping, the never-completed
+(rejected fetch) case, caps, drain semantics, and the disabled no-op. The full
+Cypress→bundle→backend→frontend round trip for per-step data isn't run in CI (it
+needs a live Cypress browser); the bundle→UI half is e2e-covered by Phase 2 and
+the producer mechanics by these unit tests.
+
+The cost — it runs inside every customer Cypress test — is bounded by the
+per-step caps and gated by `FLAKEY_SNAPSHOTS_ENABLED` (`instrumentWindow` no-ops
+when snapshots are off, so suites that don't opt in pay nothing).
 
 ## Why this order
 
 Phase 0 ships the highest-value, lowest-risk slice (data already captured, just
 unrendered) and directly helps the Cypress case from the original report.
 Phase 1 is "free" data already in the Playwright trace, behind a moderate
-parse-side change. Phase 2 is the per-step UX. Phase 3 is the only invasive
-piece and is deliberately deferred behind a real decision.
+parse-side change. Phase 2 is the per-step UX. Phase 3 — the only invasive piece
+(it runs in every Cypress test) — was kept last and bounded by per-step caps +
+the enable flag.
 
 ## Open question
 

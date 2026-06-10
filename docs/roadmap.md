@@ -142,11 +142,11 @@ skills below it.
 - [x] **Cypress repro + triage skills** — the Cypress counterpart to the Playwright-only `flake-doctor`: `/cypress-repro <run|spec>` (resolve the failing spec from a run id and run it deterministically against `examples/cypress`, retries off + video on) and `/cypress-diagnose <runId>` (pull error + artifacts + command-log + similar failures, then classify the failure — selector drift / timing / app error / network / data collision — with a heuristic, provider-free first pass).
 - [x] **Reporter payload replay CLI** — feed a captured Cypress/mochawesome JSON straight through `parseMochawesome` + the upload path and dump the normalized result, for a sub-second loop on ingestion bugs without standing up the stack.
 - [x] **Source-map stack resolution** — resolve Cypress stack frames (bundled code) back to the real spec line so a failure points at *where in the test* it threw.
-- [~] **Snapshot step enrichment** — surface the captured diagnostics next to the steps. *(Phases 0–2 done; 3 planned — see [proposals/phase-17-snapshot-step-enrichment.md](proposals/phase-17-snapshot-step-enrichment.md).)*
+- [x] **Snapshot step enrichment** — surface the captured diagnostics next to the steps. *(All phases built — see [proposals/phase-17-snapshot-step-enrichment.md](proposals/phase-17-snapshot-step-enrichment.md). Ships on the next `@flakeytesting/playwright-snapshots` + `@flakeytesting/cypress-snapshots` publish.)*
   - [x] Render the Cypress `failure_context` (console / network / uncaught / retry) in the error-modal Details tab — it was captured + stored + typed but shown nowhere.
-  - [x] Playwright: attach per-step `console[]` / `network[]` to each snapshot step (extract the trace's inline console events + the separate `trace.network` file we previously dropped). Ships on the next `@flakeytesting/playwright-snapshots` publish.
+  - [x] Playwright: attach per-step `console[]` / `network[]` to each snapshot step (extract the trace's inline console events + the separate `trace.network` file we previously dropped).
   - [x] Per-step UI — console/network strip in the snapshot viewer + at-a-glance error/failure badges on step rows.
-  - [ ] Cypress per-step capture — tag the already-captured console/network buffers by command index (gated: runs in every customer test).
+  - [x] Cypress per-step capture — `instrumentWindow` wraps the app window's console/fetch/XHR and buffers each into the active step (`@flakeytesting/cypress-snapshots`), independent of the reporter's test-level `failure_context` wrapping.
 
 ## Phase 14 — Enterprise, compliance & contract hardening
 

@@ -23,6 +23,8 @@ import {
   resetState,
   appendStep,
   markGherkinStep,
+  instrumentWindow,
+  takePending,
 } from "./shared.js";
 
 const SKIP_COMMANDS = new Set([
@@ -33,6 +35,15 @@ const SKIP_COMMANDS = new Set([
 
 Cypress.on("test:before:run", () => {
   resetState();
+});
+
+// Hook the application window each time it loads so per-step console + network
+// are captured (Phase 3). Buffered into the current step's pending arrays and
+// flushed by pushStep into the command they occurred during. Independent of the
+// reporter's failure-context wrapping — both can run; each records its own.
+Cypress.on("window:before:load", (win: any) => {
+  if (!isEnabled()) return;
+  instrumentWindow(win);
 });
 
 Cypress.on("command:end", (command: any) => {
@@ -68,6 +79,10 @@ afterEach(function () {
           html,
           scrollX: win?.scrollX ?? 0,
           scrollY: win?.scrollY ?? 0,
+          // Drain any console/network captured since the last command into the
+          // failure frame — these are often the most diagnostic (the error that
+          // failed the test, the request that 500'd).
+          ...takePending(),
         });
       } catch {}
     }
