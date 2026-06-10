@@ -822,9 +822,31 @@ async function seed() {
          VALUES ($1,$2,$3,1,0,1,0,$4) RETURNING id`,
         [demoRunId, demoSpecFile, "login", demoDuration]
       );
+      // Cypress failure-context (Phase 13): the browser-side diagnostics the
+      // reporter captures for a red — console, network failures, uncaught
+      // errors, retry trail. Seeded here so the Details tab's failure-context
+      // sections are visible in local dev and exercised by e2e.
+      const demoFailureContext = {
+        browser_console: [
+          "log: [auth] submitting login form",
+          "warn: /v1/session is deprecated; migrate to /v2/session",
+          "error: POST /api/login 401 (Unauthorized)",
+        ],
+        network_failures: [
+          "POST /api/login → 401",
+          "GET /api/session → 401",
+        ],
+        uncaught_errors: [
+          "TypeError: Cannot read properties of null (reading 'token')\n    at parseSession (webpack://app/src/auth.js:42:18)",
+        ],
+        retry_errors: [
+          { attempt: 0, message: "AssertionError: expected URL to include /dashboard but got /login" },
+          { attempt: 1, message: "AssertionError: expected URL to include /dashboard but got /login" },
+        ],
+      };
       await client.query(
-        `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path)
-         VALUES ($1,$2,$3,'failed',$4,$5,null,'{}',null,null,$6,null,$7)`,
+        `INSERT INTO tests (spec_id, title, full_title, status, duration_ms, error_message, error_stack, screenshot_paths, video_path, test_code, command_log, metadata, snapshot_path, failure_context)
+         VALUES ($1,$2,$3,'failed',$4,$5,null,'{}',null,null,$6,null,$7,$8)`,
         [
           specIns.rows[0].id,
           GHERKIN_DEMO_TITLE,
@@ -833,6 +855,7 @@ async function seed() {
           "AssertionError: expected URL to include /dashboard but got /login",
           JSON.stringify(gherkinDemoCommandLog),
           `runs/${demoRunId}/snapshots/${demoSnapshotFile}`,
+          JSON.stringify(demoFailureContext),
         ]
       );
     }

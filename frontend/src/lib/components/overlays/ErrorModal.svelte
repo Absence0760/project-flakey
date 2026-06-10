@@ -380,6 +380,19 @@
     !!meta.skip_message
   ));
 
+  // Cypress failure-context (Phase 13): browser console, network failures,
+  // uncaught errors, and the per-attempt retry trail. Captured by
+  // @flakeytesting/cypress-reporter and stored on tests.failure_context, but
+  // until now rendered nowhere — surfaced here in the Details tab alongside the
+  // Playwright metadata genre (retries/stdout/stderr) it mirrors.
+  let fc = $derived(test?.failure_context);
+  let hasFailureContext = $derived(!!fc && (
+    (fc.browser_console?.length ?? 0) > 0 ||
+    (fc.network_failures?.length ?? 0) > 0 ||
+    (fc.uncaught_errors?.length ?? 0) > 0 ||
+    (fc.retry_errors?.length ?? 0) > 0
+  ));
+
   // Resizable split pane
   let splitRef = $state<HTMLDivElement | null>(null);
   let leftPct = $state(50);
@@ -692,7 +705,7 @@
                   Source
                 </button>
               {/if}
-              {#if hasMetadata}
+              {#if hasMetadata || hasFailureContext}
                 <button class="pane-tab" class:active={rightTab === "details"} onclick={() => rightTab = "details"}>
                   Details
                 </button>
@@ -986,8 +999,9 @@
                   <pre class="code-block"><code>{test.test_code}</code></pre>
                 </div>
 
-              {:else if rightTab === "details" && meta}
+              {:else if rightTab === "details"}
                 <div class="details-panel">
+                  {#if meta}
                   {#if meta.retries && meta.retries.length > 0}
                     <div class="details-section">
                       <div class="details-heading">Retry History</div>
@@ -1075,6 +1089,51 @@
                           <div class="prop-row">
                             <span class="prop-key">{key}</span>
                             <span class="prop-val">{value}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  {/if}
+
+                  <!--
+                    Cypress failure-context (Phase 13). Captured browser-side by
+                    @flakeytesting/cypress-reporter; the runtime diagnostics a
+                    red actually needs. Each block renders only when present.
+                  -->
+                  {#if fc?.uncaught_errors && fc.uncaught_errors.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Uncaught Errors</div>
+                      <pre class="console-output stderr">{fc.uncaught_errors.join("\n\n")}</pre>
+                    </div>
+                  {/if}
+
+                  {#if fc?.browser_console && fc.browser_console.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Browser Console</div>
+                      <pre class="console-output">{#each fc.browser_console as line}<span class="console-line" class:console-err={line.startsWith("error:")} class:console-warn={line.startsWith("warn:")}>{line}</span>{"\n"}{/each}</pre>
+                    </div>
+                  {/if}
+
+                  {#if fc?.network_failures && fc.network_failures.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Network Failures</div>
+                      <ul class="diag-list">
+                        {#each fc.network_failures as line}
+                          <li class="diag-net">{line}</li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {/if}
+
+                  {#if fc?.retry_errors && fc.retry_errors.length > 0}
+                    <div class="details-section">
+                      <div class="details-heading">Retry Errors</div>
+                      <div class="retry-timeline">
+                        {#each fc.retry_errors as attempt}
+                          <div class="retry-row retry-fail">
+                            <span class="retry-attempt">Attempt {attempt.attempt + 1}</span>
+                            <span class="retry-error">{attempt.message}</span>
                           </div>
                         {/each}
                       </div>
@@ -2223,6 +2282,31 @@
   .console-output.stderr {
     border-color: var(--error-border);
     color: var(--error-text);
+  }
+
+  /* Browser-console line levels: error/warn lines stand out from log/info. */
+  .console-line { display: block; }
+  .console-line.console-err { color: var(--color-fail); }
+  .console-line.console-warn { color: var(--color-skip); }
+
+  /* Network failures — one row per failed request. */
+  .diag-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .diag-net {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.75rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--error-border);
+    border-radius: 4px;
+    color: var(--error-text);
+    word-break: break-word;
   }
 
   /* History panel */

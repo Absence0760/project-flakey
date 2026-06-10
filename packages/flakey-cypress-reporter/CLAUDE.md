@@ -66,6 +66,13 @@ file re-sends the full (accumulating) context on every attempt; the plugin's
 task overwrites so the final write wins. A test that captured nothing sends no
 task and uploads with `failure_context` absent.
 
+**Rendered in the dashboard** under the ErrorModal's **Details** tab
+(`frontend/src/lib/components/overlays/ErrorModal.svelte`): `browser_console`,
+`network_failures`, `uncaught_errors`, and `retry_errors` each get a section
+when present. The Details tab now opens on `hasMetadata || hasFailureContext`,
+so a Cypress red with no Playwright metadata still surfaces it (e2e:
+`frontend/tests-e2e/errors/failure-context.spec.ts`).
+
 ### Source-map stack resolution
 
 Two more `failure_context` fields — **`resolved_stack`** and **`code_frame`** —
