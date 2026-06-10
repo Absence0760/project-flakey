@@ -7,7 +7,9 @@
 - **Phase 1 — Playwright per-step extraction:** ✅ done (`@flakeytesting/playwright-snapshots`
   now attaches `console[]` / `network[]` to each `SnapshotStep`). **Not yet
   shipped** — a package version bump + publish is the trigger (operator's call).
-- **Phase 2 — per-step UI:** planned.
+- **Phase 2 — per-step UI:** ✅ done (step-row error badges in the ErrorModal
+  command list + a collapsible console/network strip in the SnapshotViewer,
+  scoped to the active step).
 - **Phase 3 — Cypress per-step capture:** planned, gated on Phases 0–2.
 
 **Area:** `packages/flakey-playwright-snapshots`, `packages/flakey-cypress-snapshots`,
@@ -87,22 +89,30 @@ tests in `src/tests/parse-trace.test.ts`.
 **Trigger to ship:** bump `@flakeytesting/playwright-snapshots` (and rebuild
 `@flakeytesting/playwright-reporter`), then publish per the repo's release flow.
 
-## Phase 2 — per-step UI (planned)
+## Phase 2 — per-step UI (done)
 
-Consume the Phase 1 contract in the frontend (currently it ignores the new
-fields, which is why old/new bundles both render unchanged):
+Consumes the Phase 1 contract in the frontend:
 
-- **Step-row badges** in the snapshot-steps list (ErrorModal): a count badge on
-  rows that carry console **errors** or network failures, so a problem step
-  stands out in the otherwise-flat list — the direct fix for "they look plain".
-- **Console / Network strip** in `SnapshotViewer.svelte`, an expandable panel
-  under the frame scoped to the active step, reusing the Phase 0 styling
-  (`.console-line.console-err/-warn`, `.diag-net`).
-- Extend the frontend `SnapshotStep` interfaces (in `SnapshotViewer.svelte` and
-  `ErrorModal.svelte`) with the optional `console?` / `network?` fields.
+- **Step-row badges** in the ErrorModal command list (both the gherkin
+  command-log branch and the snapshot-steps branch): a count badge that turns
+  red when the step carries console **errors** or failed requests, so a problem
+  step stands out in the otherwise-flat list — the direct fix for "they look
+  plain".
+- **Console / Network strip** in `SnapshotViewer.svelte` — a collapsible panel
+  under the frame, scoped to the active step, with console lines colour-coded by
+  level and failed requests flagged.
+- The shared count/failure logic lives in `snapshot-match.ts`
+  (`stepDiagnostics` / `isNetworkFailure`, unit-tested) so both consumers agree.
+  The frontend `SnapshotStep` interfaces gained the optional
+  `console?` / `network?` fields.
 
-Risk: low — pure consumer; old bundles (no fields) render exactly as today.
-Cover with an e2e against a seeded enriched bundle.
+The seed attaches per-step console/network to the gherkin demo bundle so the UI
+is visible in local dev and exercised by e2e
+(`frontend/tests-e2e/errors/snapshot-viewer.spec.ts`).
+
+**Bug fixed in build:** `stepDiagnostics` is null-safe — a row can resolve a
+step index before `snapshotSteps` finishes loading, so the helper must tolerate
+an undefined step rather than throwing and aborting the whole modal render.
 
 ## Phase 3 — Cypress per-step capture (planned, gated)
 

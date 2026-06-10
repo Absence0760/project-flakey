@@ -16,6 +16,56 @@ export interface SnapshotStepLite {
   commandMessage: string;
 }
 
+export interface ConsoleEntryLite {
+  /** Normalized level: log | info | warn | error | debug. */
+  level: string;
+  text: string;
+}
+
+export interface NetworkEntryLite {
+  method: string;
+  url: string;
+  status?: number;
+}
+
+export interface StepDiagnostics {
+  consoleCount: number;
+  networkCount: number;
+  /** console errors + failed network requests — the at-a-glance "problem" signal. */
+  errorCount: number;
+}
+
+/**
+ * A network entry counts as a failure when it never completed (no status —
+ * aborted / network error) or returned an HTTP error (>= 400). 3xx/2xx are
+ * normal. Matches the Cypress reporter's `network_failures` capture rule.
+ */
+export function isNetworkFailure(status: number | undefined): boolean {
+  return status === undefined || status >= 400;
+}
+
+/**
+ * Per-step console + network counts used to badge step rows and summarize the
+ * viewer's diagnostics strip. Pure so it can be shared by ErrorModal (list
+ * badges) and SnapshotViewer (strip header) and unit-tested in isolation.
+ */
+export function stepDiagnostics(step: {
+  console?: ConsoleEntryLite[];
+  network?: NetworkEntryLite[];
+} | null | undefined): StepDiagnostics {
+  // Null-safe: a caller may resolve a step index before the bundle finishes
+  // loading (snapshotSteps is empty for a tick), so `step` can be undefined.
+  const consoleEntries = step?.console ?? [];
+  const networkEntries = step?.network ?? [];
+  const consoleErrors = consoleEntries.filter((c) => c.level === "error").length;
+  const networkFailures = networkEntries.filter((n) => isNetworkFailure(n.status)).length;
+  return {
+    consoleCount: consoleEntries.length,
+    networkCount: networkEntries.length,
+    errorCount: consoleErrors + networkFailures,
+  };
+}
+
 /**
  * Index of the snapshot bundle's failure frame, or null if the test passed.
  *

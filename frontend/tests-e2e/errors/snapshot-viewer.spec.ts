@@ -433,3 +433,65 @@ test.describe("ErrorModal snapshot viewer (gherkin demo run)", () => {
     await expect(reset).toHaveText(/^\d+%$/);
   });
 });
+
+test.describe("ErrorModal per-step diagnostics (Phase 2)", () => {
+  // The seed attaches per-step console/network to the gherkin demo bundle:
+  //   - the "submit" click step → POST /api/login 200 + GET /api/dashboard 401
+  //   - the failing "should" step → a console error + GET /api/session 401
+  // Flattened cmd-child order: visit(0) get(1) type(2) get(3) type(4)
+  //   click(5) should(6).
+
+  test("step rows with console errors / failed requests show a red badge", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+    // Exactly two steps carry errors (the click's 401 and the failing should);
+    // the other child rows have no console/network and so no badge.
+    await expect(list.locator("li.cmd-child .cmd-diag-badge.has-error")).toHaveCount(2);
+
+    const clickRow = list.locator("li.cmd-child").nth(5);
+    await expect(clickRow).toContainText("submit");
+    await expect(clickRow.locator(".cmd-diag-badge.has-error")).toBeVisible();
+  });
+
+  test("selecting a step reveals its console + network in the viewer strip", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+
+    // The first step (visit) has no console/network → no strip rendered.
+    await expect(page.locator(".step-diag")).toHaveCount(0);
+
+    // Select the "submit" click step → its network surfaces.
+    await list.locator("li.cmd-child").nth(5).click();
+
+    const strip = page.locator(".step-diag");
+    await expect(strip).toBeVisible();
+    await expect(strip.locator(".diag-pill").filter({ hasText: /Network/ })).toBeVisible();
+    await expect(strip.locator(".diag-pill-error")).toBeVisible(); // the GET /api/dashboard 401
+
+    // Expand and verify the request rows; the 401 is flagged as a failure.
+    await strip.locator(".diag-header").click();
+    await expect(strip.locator(".diag-network li").filter({ hasText: "/api/login" })).toBeVisible();
+    const failRow = strip.locator(".diag-network li.net-fail");
+    await expect(failRow).toContainText("/api/dashboard");
+    await expect(failRow).toContainText("401");
+  });
+
+  test("the failing step's strip shows the captured console error", async ({ page }) => {
+    await openGherkinRun(page);
+    await openErrorModal(page);
+
+    const list = page.locator(".command-list");
+    // The failing "should" step (last child) carries a console error.
+    await list.locator("li.cmd-child").nth(6).click();
+
+    const strip = page.locator(".step-diag");
+    await expect(strip).toBeVisible();
+    await strip.locator(".diag-header").click();
+    await expect(strip.locator(".diag-console li.console-err")).toBeVisible();
+    await expect(strip.locator(".diag-console")).toContainText("expected /dashboard");
+  });
+});

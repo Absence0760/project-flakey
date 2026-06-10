@@ -5,6 +5,8 @@ import {
   snapshotIdxForCommandGroup,
   snapshotIdxForCommandChild,
   failureStepIndex,
+  isNetworkFailure,
+  stepDiagnostics,
   type CommandGroup,
   type SnapshotStepLite,
 } from "./snapshot-match";
@@ -182,5 +184,69 @@ describe("failureStepIndex", () => {
 
   it("returns null for an empty bundle", () => {
     expect(failureStepIndex([])).toBe(null);
+  });
+});
+
+describe("isNetworkFailure", () => {
+  it("treats a missing status (never completed) as a failure", () => {
+    expect(isNetworkFailure(undefined)).toBe(true);
+  });
+  it("treats >= 400 as a failure", () => {
+    expect(isNetworkFailure(400)).toBe(true);
+    expect(isNetworkFailure(404)).toBe(true);
+    expect(isNetworkFailure(500)).toBe(true);
+  });
+  it("treats 2xx/3xx as not a failure", () => {
+    expect(isNetworkFailure(200)).toBe(false);
+    expect(isNetworkFailure(204)).toBe(false);
+    expect(isNetworkFailure(302)).toBe(false);
+  });
+});
+
+describe("stepDiagnostics", () => {
+  it("returns zeros when a step has neither console nor network", () => {
+    expect(stepDiagnostics({})).toEqual({ consoleCount: 0, networkCount: 0, errorCount: 0 });
+  });
+
+  it("is null-safe — an undefined/null step (bundle not loaded yet) returns zeros, not a throw", () => {
+    // Regression: a caller resolved a step index before snapshotSteps loaded,
+    // so the step was undefined; dereferencing it crashed the whole modal.
+    expect(stepDiagnostics(undefined)).toEqual({ consoleCount: 0, networkCount: 0, errorCount: 0 });
+    expect(stepDiagnostics(null)).toEqual({ consoleCount: 0, networkCount: 0, errorCount: 0 });
+  });
+
+  it("counts console errors (only level === 'error') toward errorCount", () => {
+    const d = stepDiagnostics({
+      console: [
+        { level: "log", text: "a" },
+        { level: "warn", text: "b" },
+        { level: "error", text: "c" },
+        { level: "error", text: "d" },
+      ],
+    });
+    expect(d.consoleCount).toBe(4);
+    expect(d.networkCount).toBe(0);
+    expect(d.errorCount).toBe(2); // warn does NOT count
+  });
+
+  it("counts failed network requests (>= 400 or no status) toward errorCount", () => {
+    const d = stepDiagnostics({
+      network: [
+        { method: "GET", url: "/ok", status: 200 },
+        { method: "GET", url: "/missing", status: 404 },
+        { method: "POST", url: "/boom", status: 500 },
+        { method: "GET", url: "/aborted" }, // no status → failure
+      ],
+    });
+    expect(d.networkCount).toBe(4);
+    expect(d.errorCount).toBe(3); // 200 is fine; the other three are failures
+  });
+
+  it("sums console errors and network failures into errorCount", () => {
+    const d = stepDiagnostics({
+      console: [{ level: "error", text: "x" }],
+      network: [{ method: "GET", url: "/y", status: 503 }],
+    });
+    expect(d.errorCount).toBe(2);
   });
 });

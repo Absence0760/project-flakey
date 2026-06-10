@@ -1,7 +1,13 @@
 <script lang="ts">
   import { authFetch } from "$lib/stores/auth";
   import { UPLOADS_URL } from "$lib/api";
-  import { failureStepIndex } from "$lib/utils/snapshot-match";
+  import {
+    failureStepIndex,
+    stepDiagnostics,
+    isNetworkFailure,
+    type ConsoleEntryLite,
+    type NetworkEntryLite,
+  } from "$lib/utils/snapshot-match";
 
   type Props = {
     snapshotPath: string;
@@ -18,6 +24,8 @@
     html: string;
     scrollX: number;
     scrollY: number;
+    console?: ConsoleEntryLite[];
+    network?: NetworkEntryLite[];
   }
 
   interface SnapshotBundle {
@@ -58,6 +66,13 @@
     if (!bundle) return null;
     return bundle.steps[clampedStep] ?? null;
   });
+
+  // Per-step console/network strip. Open state persists across steps (toggle
+  // once, see it for every step you scrub to). Counts drive the header.
+  let diagOpen = $state(false);
+  let currentDiag = $derived(
+    currentStep ? stepDiagnostics(currentStep) : { consoleCount: 0, networkCount: 0, errorCount: 0 },
+  );
 
   $effect(() => {
     if (snapshotPath) loadSnapshot(snapshotPath);
@@ -275,6 +290,63 @@
       </div>
       <button class="step-btn" onclick={goNext} disabled={clampedStep >= stepCount - 1} aria-label="Next step" title="Next step (→)">›</button>
     </div>
+
+    {#if currentDiag.consoleCount + currentDiag.networkCount > 0}
+      <!--
+        Per-step diagnostics strip: the console + network captured for the
+        ACTIVE step (Phase 1 enrichment populates these on Playwright bundles).
+        Collapsed by default so the frame stays prominent; the header shows
+        counts and turns red when the step carries errors / failed requests.
+      -->
+      <div class="step-diag" class:open={diagOpen}>
+        <button
+          class="diag-header"
+          class:has-error={currentDiag.errorCount > 0}
+          onclick={() => (diagOpen = !diagOpen)}
+          aria-expanded={diagOpen}
+          title={diagOpen ? "Hide step console & network" : "Show step console & network"}
+        >
+          <span class="diag-chevron">{diagOpen ? "▾" : "▸"}</span>
+          {#if currentDiag.consoleCount > 0}
+            <span class="diag-pill">Console <b>{currentDiag.consoleCount}</b></span>
+          {/if}
+          {#if currentDiag.networkCount > 0}
+            <span class="diag-pill">Network <b>{currentDiag.networkCount}</b></span>
+          {/if}
+          {#if currentDiag.errorCount > 0}
+            <span class="diag-pill diag-pill-error">{currentDiag.errorCount} error{currentDiag.errorCount === 1 ? "" : "s"}</span>
+          {/if}
+        </button>
+
+        {#if diagOpen}
+          <div class="diag-body">
+            {#if currentStep.console && currentStep.console.length > 0}
+              <div class="diag-section-title">Console</div>
+              <ul class="diag-console">
+                {#each currentStep.console as line}
+                  <li class:console-err={line.level === "error"} class:console-warn={line.level === "warn"}>
+                    <span class="diag-level">{line.level}</span>
+                    <span class="diag-text">{line.text}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if currentStep.network && currentStep.network.length > 0}
+              <div class="diag-section-title">Network</div>
+              <ul class="diag-network">
+                {#each currentStep.network as req}
+                  <li class:net-fail={isNetworkFailure(req.status)}>
+                    <span class="net-method">{req.method}</span>
+                    <span class="net-url" title={req.url}>{req.url}</span>
+                    <span class="net-status">{req.status ?? "—"}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
   {:else}
     <div class="snapshot-status">
       <span class="status-icon" aria-hidden="true">∅</span>
@@ -511,4 +583,95 @@
     color: var(--text-secondary);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+
+  /* Per-step diagnostics strip */
+  .step-diag {
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+    font-size: 0.75rem;
+  }
+  .diag-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text);
+    text-align: left;
+  }
+  .diag-header:hover { background: var(--bg-hover); }
+  .diag-chevron { color: var(--text-muted); font-size: 0.7rem; }
+  .diag-pill {
+    padding: 0.05rem 0.4rem;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  .diag-pill b { color: var(--text); font-weight: 700; }
+  .diag-pill-error {
+    background: var(--color-fail);
+    border-color: var(--color-fail);
+    color: #fff;
+    font-weight: 600;
+  }
+  .diag-body {
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 0.25rem 0.75rem 0.6rem;
+  }
+  .diag-section-title {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 0.5rem 0 0.25rem;
+  }
+  .diag-console,
+  .diag-network {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .diag-console li {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    word-break: break-word;
+  }
+  .diag-console li.console-err { color: var(--color-fail); }
+  .diag-console li.console-warn { color: var(--color-skip); }
+  .diag-level {
+    flex-shrink: 0;
+    width: 3.2rem;
+    text-transform: uppercase;
+    font-size: 0.6rem;
+    opacity: 0.8;
+    padding-top: 0.1rem;
+  }
+  .diag-network li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    color: var(--text-secondary);
+  }
+  .net-method { flex-shrink: 0; width: 3rem; font-weight: 600; color: var(--text); }
+  .net-url {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .net-status { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .diag-network li.net-fail .net-status,
+  .diag-network li.net-fail .net-method { color: var(--color-fail); }
 </style>

@@ -7,7 +7,10 @@
   import {
     snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
     snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
+    stepDiagnostics,
     type CommandGroup as PureCommandGroup,
+    type ConsoleEntryLite,
+    type NetworkEntryLite,
   } from "$lib/utils/snapshot-match";
   import Lightbox from "../media/Lightbox.svelte";
   import SnapshotViewer from "../media/SnapshotViewer.svelte";
@@ -54,7 +57,13 @@
     }
   }
 
-  interface SnapshotStep { index: number; commandName: string; commandMessage: string; }
+  interface SnapshotStep {
+    index: number;
+    commandName: string;
+    commandMessage: string;
+    console?: ConsoleEntryLite[];
+    network?: NetworkEntryLite[];
+  }
   let snapshotSteps = $state<SnapshotStep[]>([]);
   let collapsedGroups = $state<Set<number>>(new Set());
 
@@ -847,6 +856,7 @@
                             {@const cmd = cmdLog[i]}
                             {@const childSnapIdx = snapshotIdxForCommandChild(g, childPos)}
                             {@const childHasSnap = hasSnapshot && childSnapIdx !== null}
+                            {@const childDiag = childHasSnap ? stepDiagnostics(snapshotSteps[childSnapIdx!]) : null}
                             {#if cmd}
                               <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
                           <li role="button" tabindex="0" onkeydown={onActivate}
@@ -874,6 +884,11 @@
                                   <span class="cmd-name">{cmd.name}</span>
                                   {#if cmd.message}<span class="cmd-arg">{cmd.message}</span>{/if}
                                 </span>
+                                {#if childDiag && childDiag.errorCount > 0}
+                                  <span class="cmd-diag-badge has-error" title={`${childDiag.errorCount} console error(s) / failed request(s) on this step`}>{childDiag.errorCount}</span>
+                                {:else if childDiag && childDiag.consoleCount + childDiag.networkCount > 0}
+                                  <span class="cmd-diag-badge" title={`${childDiag.consoleCount} console · ${childDiag.networkCount} network`}>{childDiag.consoleCount + childDiag.networkCount}</span>
+                                {/if}
                               </li>
                             {/if}
                           {/each}
@@ -964,6 +979,7 @@
                         {/if}
                         {#if isOpen}
                           {#each group.childIdxs as i}
+                            {@const diag = stepDiagnostics(snapshotSteps[i])}
                             <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role: each row in command-list is a button in a list, modelled as <li role="button"> per WAI-ARIA role override; native <button> would either drop list semantics or require a refactor of all .cmd CSS selectors. The onActivate keydown + tabindex=0 provide real keyboard activation. -->
                           <li role="button" tabindex="0" onkeydown={onActivate}
                               class="cmd cmd-clickable cmd-child"
@@ -977,6 +993,11 @@
                                 <span class="cmd-name">{snapshotSteps[i].commandName}</span>
                                 {#if snapshotSteps[i].commandMessage}<span class="cmd-arg">{snapshotSteps[i].commandMessage}</span>{/if}
                               </span>
+                              {#if diag.errorCount > 0}
+                                <span class="cmd-diag-badge has-error" title={`${diag.errorCount} console error(s) / failed request(s) on this step`}>{diag.errorCount}</span>
+                              {:else if diag.consoleCount + diag.networkCount > 0}
+                                <span class="cmd-diag-badge" title={`${diag.consoleCount} console · ${diag.networkCount} network`}>{diag.consoleCount + diag.networkCount}</span>
+                              {/if}
                             </li>
                           {/each}
                         {/if}
@@ -1943,6 +1964,28 @@
   }
   .cmd-child {
     padding-left: 1.5rem;
+  }
+
+  /* Per-step console/network badge. Neutral count by default; red when the
+     step carries console errors or failed requests, so a problem step stands
+     out in the otherwise-flat list. */
+  .cmd-diag-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    min-width: 1.1rem;
+    text-align: center;
+    padding: 0 0.35rem;
+    font-size: 0.62rem;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--bg-hover, rgba(128,128,128,0.12));
+    border-radius: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cmd-diag-badge.has-error {
+    color: #fff;
+    background: var(--color-fail);
   }
 
   .cmd-failed:hover {

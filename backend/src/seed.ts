@@ -416,11 +416,32 @@ function generateGherkinSnapshotBundle(testTitle: string, specFile: string, comm
     const isGherkin = GHERKIN_RE.test(cmd.name);
     const bgColor = cmd.state === "failed" ? "#fff0f0" : "#fff";
     const label = isGherkin ? `${cmd.name} ${cmd.message}` : `cy.${cmd.name}(${cmd.message ? `'${cmd.message}'` : ""})`;
+    // Per-step console/network (Phase 1 enrichment shape) so the snapshot
+    // viewer's diagnostics strip + the step-list badges have data to render in
+    // local dev and e2e. Attach on content-relevant steps: a request fires a
+    // network call; the failing step carries a console error + a 401.
+    const isFailure = cmd.state === "failed";
+    const isClick = cmd.name === "click";
+    const stepConsole = isFailure
+      ? [{ level: "error", text: "Uncaught (in promise): expected /dashboard, got /login" }]
+      : isClick
+        ? [{ level: "log", text: "submitting login form" }]
+        : undefined;
+    const stepNetwork = isFailure
+      ? [{ method: "GET", url: "/api/session", status: 401 }]
+      : isClick
+        ? [
+            { method: "POST", url: "/api/login", status: 200 },
+            { method: "GET", url: "/api/dashboard", status: 401 },
+          ]
+        : undefined;
     return {
       index: i,
       commandName: isGherkin ? "gherkin" : cmd.name,
       commandMessage: isGherkin ? `${cmd.name} ${cmd.message}` : (cmd.message || ""),
       timestamp: (i + 1) * 800,
+      ...(stepConsole ? { console: stepConsole } : {}),
+      ...(stepNetwork ? { network: stepNetwork } : {}),
       html: `<!DOCTYPE html>
 <html><head><style>
   body { font-family: -apple-system, sans-serif; margin: 0; padding: 2rem; background: ${bgColor}; }
