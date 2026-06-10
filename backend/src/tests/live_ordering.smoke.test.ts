@@ -153,6 +153,78 @@ test("live events: same test.started posted twice is idempotent (one tests row)"
   assert.equal(pending.length, 1, `cross-POST duplicate test.started should leave exactly 1 pending row, got ${pending.length}`);
 });
 
+async function fetchRunDetail(runId: number) {
+  const r = await fetch(`${BASE}/runs/${runId}`, { headers: authHeaders() });
+  return r.ok
+    ? ((await r.json()) as {
+        total: number; passed: number; failed: number;
+        specs: Array<{ tests: Array<{ title: string; status: string }> }>;
+      })
+    : null;
+}
+
+// Events for a run process strictly in arrival order (enqueueOnRun), and the
+// HTTP POST returns before that processing finishes. To read a *settled*
+// state without sleeping, append a SENTINEL test as the last event and wait
+// until its row lands — by then every earlier event in the chain (the
+// duplicate/retry under test) is guaranteed processed too.
+const SENTINEL = "zzz-sentinel-test";
+async function waitForSentinel(runId: number, spec: string) {
+  await postEvents(runId, [{ type: "test.passed", spec, test: SENTINEL, duration_ms: 1 }]);
+  return waitFor(
+    fetchRunDetail.bind(null, runId),
+    (d) => !!d && d.specs.flatMap((s) => s.tests).some((t) => t.title === SENTINEL && t.status === "passed"),
+    3000,
+  );
+}
+
+test("live events: a duplicate test.passed is idempotent — one row, stats not double-counted", async () => {
+  // At-least-once delivery (a retried events POST, an SSE reconnect replay)
+  // can land the SAME terminal event twice. The second must update the
+  // existing row in place, not insert a second one that inflates the run's
+  // total/passed. (The file header claims this invariant; only the
+  // test.started case was actually covered before.)
+  const runId = await startLiveRun(`dup-terminal-${Date.now()}`);
+  const spec = "dup.cy.ts", title = "duplicate terminal test";
+  await postEvents(runId, [{ type: "spec.started", spec }]);
+  await postEvents(runId, [{ type: "test.started", spec, test: title }]);
+  await postEvents(runId, [{ type: "test.passed", spec, test: title, duration_ms: 10 }]);
+  await postEvents(runId, [{ type: "test.passed", spec, test: title, duration_ms: 10 }]);
+
+  const d = await waitForSentinel(runId, spec);
+  assert.ok(d, "run detail should be readable");
+  const rows = d!.specs.flatMap((s) => s.tests).filter((t) => t.title === title);
+  assert.equal(rows.length, 1, `duplicate test.passed must leave exactly 1 row, got ${rows.length}`);
+  assert.equal(rows[0].status, "passed");
+  // total = the target test + the sentinel = 2 (NOT 3, which is what a
+  // duplicate-inserted row would make it).
+  assert.equal(d!.total, 2, "the run total must not double-count the duplicate event");
+  assert.equal(d!.passed, 2, "the run passed count must not double-count the duplicate event");
+});
+
+test("live events: a within-run retry (fail then pass) collapses to one passed row", async () => {
+  // Cypress/Playwright retries emit test.failed then test.passed for the
+  // SAME test within one run. The live view must collapse these to a single
+  // row carrying the latest outcome — not leave both a failed and a passed
+  // row, which would make the run report a phantom failure (failed=1) for a
+  // test that ultimately passed.
+  const runId = await startLiveRun(`retry-${Date.now()}`);
+  const spec = "retry.cy.ts", title = "flaky-on-retry test";
+  await postEvents(runId, [{ type: "spec.started", spec }]);
+  await postEvents(runId, [{ type: "test.started", spec, test: title }]);
+  await postEvents(runId, [{ type: "test.failed", spec, test: title, duration_ms: 10, error: "boom" }]);
+  await postEvents(runId, [{ type: "test.passed", spec, test: title, duration_ms: 12 }]);
+
+  const d = await waitForSentinel(runId, spec);
+  assert.ok(d, "run detail should be readable");
+  const rows = d!.specs.flatMap((s) => s.tests).filter((t) => t.title === title);
+  assert.equal(rows.length, 1, `retry fail→pass must leave exactly 1 row, got ${rows.length}`);
+  assert.equal(rows[0].status, "passed", "the surviving row reflects the latest (passing) attempt");
+  assert.equal(d!.failed, 0, "a test that ultimately passed must not leave the run with failed > 0");
+  // target test + sentinel, both passed.
+  assert.equal(d!.passed, 2);
+});
+
 test("live events: test.passed arriving before test.started still resolves cleanly", async () => {
   // Reporters retrying flaky tests can emit events out of order.  The
   // backend should not crash; either it creates the row in 'passed'

@@ -606,10 +606,23 @@ async function insertLiveTestResult(orgId: number, runId: number, event: LiveTes
     const specId = await findOrCreateSpec(orgId, runId, specPath);
     if (specId === null) return;
 
-    // Upsert test row — update the pending row inserted on test.started if present.
+    // Upsert the test row by its identity (spec_id, full_title) — the same
+    // key the pending unique index, screenshot association, and flaky
+    // grouping all use. Match on ANY existing status, not just 'pending',
+    // so that:
+    //   - a re-delivered terminal event (at-least-once events POST) updates
+    //     the existing row in place instead of inserting a duplicate
+    //     (idempotency — events for a run are processed strictly in order
+    //     by enqueueOnRun, so the existing row is always committed first);
+    //   - a within-run retry that flips fail→pass collapses to ONE row
+    //     carrying the latest outcome, matching "the test ultimately
+    //     passed" rather than leaving both a failed and a passed row that
+    //     double-count into the run's totals.
+    // screenshot_paths is intentionally left untouched so mid-run streamed
+    // screenshots (associated by title via the /screenshot route) survive.
     const updated = await tenantQuery(orgId,
       `UPDATE tests SET status = $3, duration_ms = $4, error_message = $5
-       WHERE spec_id = $1 AND full_title = $2 AND status = 'pending'`,
+       WHERE spec_id = $1 AND full_title = $2`,
       [specId, event.test, status, event.duration_ms ?? 0, event.error ?? null]
     );
     if (!updated.rowCount) {
