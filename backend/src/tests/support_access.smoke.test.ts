@@ -141,6 +141,14 @@ test("a support user mints a read-only token, audited in the target org", async 
   assert.equal(rows[0].user_email, actorEmail, "audit attributes the access to the support actor");
   assert.equal(rows[0].detail?.reason, "ticket-4242 wrong count");
 
+  // The support row must be appended into the hash chain (not a raw NULL-hash
+  // INSERT): org B already has hashed rows from its run upload, so an unchained
+  // support row would make /audit/verify report the org as tampered.
+  const verify = await authGet(orgBToken, "/audit/verify");
+  assert.equal(verify.status, 200);
+  const v = (await verify.json()) as { ok: boolean; reason: string | null };
+  assert.equal(v.ok, true, `target org chain must verify after a support session: ${v.reason}`);
+
   // And the support session itself can read the (allow-listed) audit log.
   assert.equal((await authGet(minted.token, "/audit")).status, 200);
 

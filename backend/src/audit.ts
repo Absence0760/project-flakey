@@ -5,7 +5,18 @@ import {
   computeEntryHash,
 } from "./audit-chain.js";
 
-export async function logAudit(
+/**
+ * Append one row into the per-org audit hash chain. THROWS on failure — use
+ * this only where a failed audit write must abort the operation being audited
+ * (e.g. support-session start, where unaudited access is unacceptable). Most
+ * callers want logAudit (best-effort, swallows).
+ *
+ * Every audit_log insert MUST go through here (or logAudit): a raw INSERT that
+ * skips this both leaves a NULL-hash row mid-chain (verifyAuditChain reports it
+ * as tampered) and skips the advisory lock that keeps the export cursor
+ * gap-free. The two known writers are this module and logAudit.
+ */
+export async function appendAuditEntry(
   orgId: number,
   userId: number | null,
   action: string,
@@ -13,14 +24,13 @@ export async function logAudit(
   targetId?: string,
   detail?: object
 ): Promise<void> {
-  try {
-    // Append into the per-org hash chain (tamper-evidence — see audit-chain.ts).
-    // A transaction-scoped advisory lock serializes appends for this org so the
-    // chain has a single well-defined head: two concurrent audits can't both
-    // read the same predecessor and fork the chain. The lock is released on
-    // COMMIT/ROLLBACK. RLS applies inside tenantTransaction (app.current_org_id
-    // is set), so the INSERT/SELECT are tenant-scoped.
-    await tenantTransaction(orgId, async (client) => {
+  // Append into the per-org hash chain (tamper-evidence — see audit-chain.ts).
+  // A transaction-scoped advisory lock serializes appends for this org so the
+  // chain has a single well-defined head: two concurrent audits can't both
+  // read the same predecessor and fork the chain. The lock is released on
+  // COMMIT/ROLLBACK. RLS applies inside tenantTransaction (app.current_org_id
+  // is set), so the INSERT/SELECT are tenant-scoped.
+  await tenantTransaction(orgId, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
         AUDIT_CHAIN_LOCK_CLASS,
         orgId,
@@ -75,6 +85,23 @@ export async function logAudit(
         row.id,
       ]);
     });
+}
+
+/**
+ * Best-effort audit append: chains the row (via appendAuditEntry) but never
+ * throws to the caller. This is the default for audited mutations — a failed
+ * audit write must not abort the operation being audited.
+ */
+export async function logAudit(
+  orgId: number,
+  userId: number | null,
+  action: string,
+  targetType?: string,
+  targetId?: string,
+  detail?: object
+): Promise<void> {
+  try {
+    await appendAuditEntry(orgId, userId, action, targetType, targetId, detail);
   } catch (err) {
     // Audit logging is a best-effort side-effect: a write failure must never
     // abort the operation being audited, so we swallow rather than rethrow.

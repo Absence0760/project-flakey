@@ -1,6 +1,7 @@
 import { Router } from "express";
-import pool, { tenantQuery } from "../db.js";
+import pool from "../db.js";
 import { signSupportToken } from "../auth.js";
+import { appendAuditEntry } from "../audit.js";
 
 const router = Router();
 
@@ -56,13 +57,14 @@ router.post("/orgs/:orgId/token", async (req, res) => {
     }
 
     // Record the access in the TARGET org's trail BEFORE issuing the token.
-    // Done via an awaited tenantQuery (not the best-effort logAudit helper) so
-    // a failed write aborts issuance — accountability is non-negotiable here.
-    await tenantQuery(targetOrgId,
-      `INSERT INTO audit_log (org_id, user_id, action, target_type, target_id, detail)
-       VALUES ($1, $2, 'support.session.start', 'org', $3, $4)`,
-      [targetOrgId, actor.id, String(targetOrgId), JSON.stringify({ reason, actor_email: actor.email })]
-    );
+    // appendAuditEntry (the throwing, hash-chained variant — NOT best-effort
+    // logAudit) so a failed write aborts issuance: accountability is
+    // non-negotiable here, and routing through the chain keeps this row hashed
+    // + lock-serialized (a raw INSERT would leave a NULL-hash row mid-chain,
+    // which verifyAuditChain flags as tampering, and skip the lock the export
+    // cursor relies on). A throw is caught below → 500, no token issued.
+    await appendAuditEntry(targetOrgId, actor.id, "support.session.start", "org",
+      String(targetOrgId), { reason, actor_email: actor.email });
 
     const token = signSupportToken(actor, targetOrgId, reason);
     res.status(201).json({ token, orgId: targetOrgId, mode: "read-only", expiresInSeconds: 1800 });
