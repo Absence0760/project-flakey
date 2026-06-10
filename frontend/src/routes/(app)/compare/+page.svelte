@@ -36,18 +36,44 @@
     if (a && b) {
       await loadComparison(Number(a), Number(b));
     } else {
-      // Load runs for selection
       selecting = true;
-      loading = true;
-      try {
-        runs = await fetchRuns();
-      } catch (e) {
-        error = e instanceof Error ? e.message : "Failed to load runs";
-      } finally {
-        loading = false;
-      }
+      await loadRuns();
     }
   });
+
+  // Fetch the run list backing the selection dropdowns. Idempotent and
+  // safe to call from both onMount (no-params entry) and the "Change"
+  // button — the latter is reached after a URL entry (?a&b) that never
+  // populated `runs`, so without this the selection card came up with
+  // an empty suite dropdown and dead-ended the user.
+  async function loadRuns() {
+    if (runs.length > 0) return;
+    loading = true;
+    error = null;
+    try {
+      runs = await fetchRuns();
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to load runs";
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Return to the selection card from a comparison view. Clears the
+  // stale ?a&b&category from the URL so the visible state (selecting)
+  // and the URL agree — a reload now lands back on the selection card
+  // rather than bouncing into the old comparison.
+  async function changeRuns() {
+    selecting = true;
+    result = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("a");
+    url.searchParams.delete("b");
+    url.searchParams.delete("category");
+    categoryFilter = "all";
+    replaceState(url, {});
+    await loadRuns();
+  }
 
   async function loadComparison(a: number, b: number) {
     loading = true;
@@ -187,7 +213,7 @@
         <span class="run-meta">{result.run_b.suite_name} · {result.run_b.branch || "—"}</span>
         <span class="run-stats">{result.run_b.passed}/{result.run_b.total} passed · {timeAgo(result.run_b.created_at)}</span>
       </div>
-      <button class="change-btn" onclick={() => { selecting = true; result = null; }}>Change</button>
+      <button class="change-btn" onclick={changeRuns}>Change</button>
     </div>
 
     <!-- Summary pills -->

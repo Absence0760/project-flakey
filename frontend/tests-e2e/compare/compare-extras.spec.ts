@@ -70,6 +70,43 @@ test.describe("/compare — selection-mode flow", () => {
   });
 });
 
+test.describe("/compare — Change returns to a usable selection card", () => {
+
+  test("Change after a ?a&b URL entry repopulates the suite dropdown and clears a/b from the URL", async ({
+    page,
+  }) => {
+    // Regression: entering comparison mode straight from a URL never
+    // fetched the run list, so clicking "Change" dropped the user on a
+    // selection card whose suite dropdown held only the placeholder —
+    // a dead end. Change must lazily load runs and clear the stale
+    // ?a&b so a reload doesn't bounce back into the old comparison.
+    const { a, b, suite } = await pickRunIdsForSuite(page);
+    await page.goto(`/compare?a=${a}&b=${b}`);
+    await expect(page.locator(".compare-header")).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole("button", { name: /^Change$/ }).click();
+    await expect(page.locator(".select-card")).toBeVisible();
+
+    // The suite dropdown must end up populated with real suites (runs
+    // were lazily fetched), not just the "Select a suite..." placeholder.
+    const suiteSelect = page.locator(".select-card select").first();
+    await expect(suiteSelect.locator("option")).not.toHaveCount(1, { timeout: 5_000 });
+    const optionCount = await suiteSelect.locator("option").count();
+    expect(optionCount).toBeGreaterThan(1);
+
+    // Stale comparison params are gone from the URL.
+    const url = new URL(page.url());
+    expect(url.searchParams.get("a")).toBeNull();
+    expect(url.searchParams.get("b")).toBeNull();
+    expect(url.searchParams.get("category")).toBeNull();
+
+    // And the card is genuinely usable: picking a suite mounts the
+    // run A/B selectors.
+    await suiteSelect.selectOption(suite);
+    await expect(page.locator(".select-card select")).toHaveCount(3, { timeout: 2_000 });
+  });
+});
+
 test.describe("/compare — comparison-mode URL state", () => {
 
   test("?category=unchanged lands with the Unchanged pill active", async ({ page }) => {
