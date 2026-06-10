@@ -361,7 +361,11 @@ router.post("/", uploadFields, async (req, res) => {
       }
     });
 
-    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
+    // Awaited (not fire-and-forget): logAudit now appends into the per-org hash
+    // chain under a transaction-scoped advisory lock, so an unawaited call would
+    // pile up pool connections + serialized lock waits under concurrent same-org
+    // uploads. It swallows internally — the await only costs the round-trip.
+    await logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
 
     dispatchRunFailed(req.user!.orgId, runId!, run);
     postPRComment(req.user!.orgId, runId!, run);

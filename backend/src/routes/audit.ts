@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
+import { verifyAuditChain } from "../audit-chain.js";
 
 const router = Router();
 
@@ -60,6 +61,27 @@ router.get("/", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("GET /audit error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /audit/verify — walk this org's audit hash-chain and report integrity.
+// Tamper-evidence check (SOC 2 / GovRAMP): proves the audit log hasn't been
+// edited, reordered, or had rows deleted since each row was written. Admin+
+// only (same gate as GET /audit) — it's a compliance/forensic surface.
+router.get("/verify", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+    const result = await verifyAuditChain(req.user!.orgId);
+    // A broken chain is a real, expected report — not a server error. Return
+    // 200 with ok:false so clients render the finding; reserve 500 for an
+    // actual failure to run the check.
+    res.json(result);
+  } catch (err) {
+    console.error("GET /audit/verify error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

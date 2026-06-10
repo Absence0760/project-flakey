@@ -1,4 +1,9 @@
-import { tenantQuery } from "./db.js";
+import { tenantTransaction } from "./db.js";
+import {
+  AUDIT_CHAIN_LOCK_CLASS,
+  GENESIS_HASH,
+  computeEntryHash,
+} from "./audit-chain.js";
 
 export async function logAudit(
   orgId: number,
@@ -9,11 +14,61 @@ export async function logAudit(
   detail?: object
 ): Promise<void> {
   try {
-    await tenantQuery(orgId,
-      `INSERT INTO audit_log (org_id, user_id, action, target_type, target_id, detail)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [orgId, userId, action, targetType ?? null, targetId ?? null, detail ? JSON.stringify(detail) : null]
-    );
+    // Append into the per-org hash chain (tamper-evidence — see audit-chain.ts).
+    // A transaction-scoped advisory lock serializes appends for this org so the
+    // chain has a single well-defined head: two concurrent audits can't both
+    // read the same predecessor and fork the chain. The lock is released on
+    // COMMIT/ROLLBACK. RLS applies inside tenantTransaction (app.current_org_id
+    // is set), so the INSERT/SELECT are tenant-scoped.
+    await tenantTransaction(orgId, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+        AUDIT_CHAIN_LOCK_CLASS,
+        orgId,
+      ]);
+
+      const prev = await client.query(
+        `SELECT entry_hash FROM audit_log
+         WHERE org_id = $1 AND entry_hash IS NOT NULL
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [orgId]
+      );
+      const prevHash: string = prev.rows[0]?.entry_hash ?? GENESIS_HASH;
+
+      // Insert first, then hash the DB-authoritative row (its id, the stored
+      // jsonb detail, and the DB-assigned created_at) so verify recomputes the
+      // exact same bytes. The row is invisible to other sessions until COMMIT,
+      // and the advisory lock guarantees the next append sees this entry_hash.
+      const ins = await client.query(
+        `INSERT INTO audit_log (org_id, user_id, action, target_type, target_id, detail, prev_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, created_at, detail`,
+        [
+          orgId,
+          userId,
+          action,
+          targetType ?? null,
+          targetId ?? null,
+          detail ? JSON.stringify(detail) : null,
+          prevHash,
+        ]
+      );
+      const row = ins.rows[0];
+      const entryHash = computeEntryHash(prevHash, {
+        id: row.id,
+        orgId,
+        userId: userId ?? null,
+        action,
+        targetType: targetType ?? null,
+        targetId: targetId ?? null,
+        detail: row.detail,
+        createdAt: new Date(row.created_at).toISOString(),
+      });
+      await client.query("UPDATE audit_log SET entry_hash = $1 WHERE id = $2", [
+        entryHash,
+        row.id,
+      ]);
+    });
   } catch (err) {
     // Audit logging is a best-effort side-effect: a write failure must never
     // abort the operation being audited, so we swallow rather than rethrow.

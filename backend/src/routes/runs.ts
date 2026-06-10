@@ -144,7 +144,13 @@ router.post("/", async (req, res) => {
       }
     });
 
-    logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged, release: run.meta.release ?? null });
+    // Awaited: logAudit now appends into the per-org hash chain under a
+    // transaction-scoped advisory lock, so leaving it fire-and-forget would
+    // pile up pool connections + serialized lock waits under concurrent
+    // same-org uploads. It swallows internally, so the await only costs the
+    // round-trip — and committing the audit row before returning success is
+    // the right ordering for a compliance control.
+    await logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged, release: run.meta.release ?? null });
 
     // Auto-quarantine BEFORE postPRComment so the soften-check logic in
     // git-providers sees freshly auto-quarantined tests. Awaited (not
