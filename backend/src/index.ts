@@ -40,6 +40,7 @@ import pool from "./db.js";
 import { requireAuth } from "./auth.js";
 import { runRetentionCleanup } from "./retention.js";
 import { runScheduledReports } from "./scheduled-reports.js";
+import { flushAuditExports, isAuditExportEnabled } from "./audit-export.js";
 import { getStorage } from "./storage.js";
 import { validateConfiguredKeys } from "./crypto.js";
 import { bootstrapAdmin } from "./bootstrap-admin.js";
@@ -441,4 +442,13 @@ app.listen(PORT, () => {
   // it's correct across restarts and across ECS tasks.
   setTimeout(() => { void reconcileStaleLiveRuns(); }, 15000);
   setInterval(() => { void reconcileStaleLiveRuns(); }, 10 * 60 * 1000);
+
+  // Audit-log SIEM export — flush every minute. Only scheduled when the
+  // instance kill-switch (FLAKEY_AUDIT_EXPORT_ENABLED) is on, so the default
+  // posture is zero extra work and zero outbound traffic. The flusher is
+  // single-flight (advisory lock) and idempotent, safe across ECS tasks.
+  if (isAuditExportEnabled()) {
+    setTimeout(() => { void flushAuditExports(); }, 25000);
+    setInterval(() => { void flushAuditExports(); }, 60 * 1000);
+  }
 });
