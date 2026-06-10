@@ -279,9 +279,15 @@ router.patch("/export/:id", async (req, res) => {
     const cur = existing.rows[0];
 
     // Re-validate against the (immutable) destination using the merged values.
-    const endpointUrl = req.body?.endpoint_url ?? cur.endpoint_url;
-    const authHeaderName = req.body?.auth_header_name ?? cur.auth_header_name;
-    const s3Bucket = req.body?.s3_bucket ?? cur.s3_bucket;
+    // Merge by PRESENCE, not nullish-coalescing: an explicit `null` in the body
+    // means "set to null", so it must reach validation (which rejects a null
+    // required field) — `?? cur` would treat it as "keep current", validate the
+    // OLD value, then the SET block below would still write the null, persisting
+    // a destination='http'/endpoint_url=NULL config that fails every delivery.
+    const body = req.body ?? {};
+    const endpointUrl = "endpoint_url" in body ? body.endpoint_url : cur.endpoint_url;
+    const authHeaderName = "auth_header_name" in body ? body.auth_header_name : cur.auth_header_name;
+    const s3Bucket = "s3_bucket" in body ? body.s3_bucket : cur.s3_bucket;
     const invalid = validateExportBody(cur.destination, endpointUrl, authHeaderName, s3Bucket);
     if (invalid) {
       res.status(400).json({ error: invalid });

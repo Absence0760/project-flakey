@@ -144,6 +144,14 @@ test("recovery: the held-back row is delivered once the receiver is healthy", as
   await flushConfig(orgId, await getConfig());
 
   assert.ok(received.length >= 1, "a batch was delivered on recovery");
+  // Exactly the held-back row (test.c, id 3) ships — not a re-send of the
+  // already-exported rows. lines.length === 1 is the load-bearing assertion: a
+  // cursor regression that re-read from 0 would deliver 3 rows and still land
+  // the cursor on max, passing a count-only check.
+  const lastBody = received[received.length - 1].body;
+  const lines = lastBody.split("\n");
+  assert.equal(lines.length, 1, "only the held-back row should be (re)delivered");
+  assert.equal(JSON.parse(lines[0]).action, "test.c");
   const c = await getConfig();
   assert.equal(String(c.last_exported_id), expectedCursor, "cursor caught up");
   assert.equal(c.consecutive_failures, 0);

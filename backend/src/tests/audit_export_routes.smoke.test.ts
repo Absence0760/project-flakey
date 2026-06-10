@@ -148,6 +148,58 @@ test("DELETE /audit/export/:id removes a destination", async () => {
   assert.ok(!after.some((c: { id: number }) => c.id === created.id), "deleted config is gone");
 });
 
+async function createHttp(extra: Record<string, unknown> = {}): Promise<{ id: number; auth_token_set: boolean; last_exported_id: string }> {
+  const res = await fetch(`${BASE}/audit/export`, {
+    method: "POST",
+    headers: auth(),
+    body: JSON.stringify({ destination: "http", endpoint_url: "https://siem.example.com/c", ...extra }),
+  });
+  assert.equal(res.status, 201);
+  return res.json();
+}
+
+test("PATCH /audit/export/:id rejects nulling a required field (no broken-but-validated config)", async () => {
+  const cfg = await createHttp();
+  const res = await fetch(`${BASE}/audit/export/${cfg.id}`, {
+    method: "PATCH",
+    headers: auth(),
+    body: JSON.stringify({ endpoint_url: null }),
+  });
+  assert.equal(res.status, 400, "explicit null on a required field must 400, not persist");
+  // The config is unchanged (still has its URL → delivery wouldn't be bricked).
+  const list = await (await fetch(`${BASE}/audit/export`, { headers: auth() })).json();
+  const still = list.find((c: { id: number; endpoint_url: string | null }) => c.id === cfg.id);
+  assert.ok(still && still.endpoint_url, "endpoint_url must be intact after the rejected PATCH");
+});
+
+test("PATCH /audit/export/:id token: omit leaves, null clears, string rotates", async () => {
+  const cfg = await createHttp({ auth_header_name: "Authorization", auth_token: "Bearer secret-1" });
+  assert.equal(cfg.auth_token_set, true);
+
+  const patch = async (b: Record<string, unknown>) =>
+    (await fetch(`${BASE}/audit/export/${cfg.id}`, { method: "PATCH", headers: auth(), body: JSON.stringify(b) })).json();
+
+  let r = await patch({ enabled: true }); // auth_token omitted → leave
+  assert.equal(r.auth_token_set, true, "omitting auth_token leaves it set");
+  r = await patch({ auth_token: null }); // explicit null → clear
+  assert.equal(r.auth_token_set, false, "null auth_token clears it");
+  r = await patch({ auth_token: "Bearer secret-2" }); // string → rotate
+  assert.equal(r.auth_token_set, true, "a new token string sets it again");
+  // The raw token is never returned at any point.
+  assert.ok(!JSON.stringify(r).includes("secret-2"));
+});
+
+test("POST default cursor seeds from current max (not 0); from_beginning seeds 0", async () => {
+  // The org already has audit rows (each export-config create above is audited),
+  // so a default-cursor destination must start past 0 — otherwise enabling a
+  // SIEM destination would replay the entire existing audit log.
+  const dflt = await createHttp();
+  assert.notEqual(String(dflt.last_exported_id), "0", "default cursor seeds from the current max audit id");
+
+  const scratch = await createHttp({ from_beginning: true });
+  assert.equal(String(scratch.last_exported_id), "0", "from_beginning streams the full history");
+});
+
 test("GET /audit/verify returns a structured integrity result", async () => {
   const res = await fetch(`${BASE}/audit/verify`, { headers: auth() });
   assert.equal(res.status, 200);
