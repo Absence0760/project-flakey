@@ -30,6 +30,11 @@ interface JUnitTestSuite {
   "@_file"?: string;
   "@_hostname"?: string;
   testcase?: JUnitTestCase | JUnitTestCase[];
+  // JUnit allows a <testsuite> to nest child <testsuite>s (Ant, Gradle,
+  // and some pytest/maven configs emit this). Each child is its own
+  // logical suite — flattenSuites() walks them so their testcases aren't
+  // silently dropped.
+  testsuite?: JUnitTestSuite | JUnitTestSuite[];
   "system-out"?: string;
   "system-err"?: string;
   properties?: { property?: JUnitProperty | JUnitProperty[] };
@@ -155,6 +160,23 @@ function parseTestCase(tc: JUnitTestCase, suiteName: string, suiteInfo?: { hostn
   };
 }
 
+// Flatten arbitrarily-nested <testsuite> trees into a depth-first list.
+// Each suite contributes a spec built from its OWN direct testcases
+// (parseSuite reads only `testcase`, never the nested `testsuite`), so a
+// parent with both direct cases and nested children is counted once, with
+// no double-counting. Without this, only top-level suites' testcases were
+// parsed and any nested suite's results — including failures — vanished,
+// which could render a run green while hiding a real failure.
+function flattenSuites(suites: JUnitTestSuite[]): JUnitTestSuite[] {
+  const out: JUnitTestSuite[] = [];
+  for (const s of suites) {
+    out.push(s);
+    const nested = toArray(s.testsuite);
+    if (nested.length > 0) out.push(...flattenSuites(nested));
+  }
+  return out;
+}
+
 function parseSuite(suite: JUnitTestSuite): NormalizedSpec {
   const testCases = toArray(suite.testcase);
   const suiteName = suite["@_name"] ?? "Unknown suite";
@@ -224,6 +246,8 @@ export function parseJUnit(
   } else if (parsed.testsuite) {
     suites = toArray(parsed.testsuite);
   }
+  // Walk nested <testsuite> children so their testcases aren't dropped.
+  suites = flattenSuites(suites);
 
   const specs = suites.map(parseSuite);
 

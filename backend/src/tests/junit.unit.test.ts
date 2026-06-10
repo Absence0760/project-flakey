@@ -259,3 +259,48 @@ test("junit: a valid testsuites time= still drives the run duration", () => {
   const span = new Date(out.meta.finished_at).getTime() - new Date(out.meta.started_at).getTime();
   assert.equal(span, 2500, "finished_at - started_at must reflect the 2.5s testsuites time");
 });
+
+// ── nested <testsuite> trees are flattened, not dropped ───────────────────
+
+test("junit: testcases inside a nested <testsuite> are parsed, not silently dropped", () => {
+  // Ant / Gradle / some pytest+maven configs nest <testsuite> elements.
+  // Before the flattenSuites() fix, only the top suite's direct testcases
+  // were read — so a nested suite's results (here including a FAILURE)
+  // vanished and the run rendered green: a dangerous false pass.
+  const xml = `<?xml version="1.0"?>
+<testsuites>
+  <testsuite name="outer">
+    <testsuite name="inner">
+      <testcase name="nested A" classname="Inner" time="0.1"/>
+      <testcase name="nested B" classname="Inner" time="0.2"><failure message="boom"/></testcase>
+    </testsuite>
+    <testcase name="outer test" classname="Outer" time="0.3"/>
+  </testsuite>
+</testsuites>`;
+  const out = parseJUnit(xml, META);
+  assert.equal(out.stats.total, 3, "all three testcases (1 direct + 2 nested) must be counted");
+  assert.equal(out.stats.passed, 2);
+  assert.equal(out.stats.failed, 1, "the nested <failure> must surface — not be hidden as a green run");
+
+  const titles = out.specs.flatMap((s) => s.tests).map((t) => t.title).sort();
+  assert.deepEqual(titles, ["nested A", "nested B", "outer test"]);
+  // Each suite (parent + nested child) becomes its own spec.
+  assert.ok(out.specs.some((s) => s.title === "inner"), "the nested suite surfaces as its own spec");
+  assert.ok(out.specs.some((s) => s.title === "outer"), "the parent suite's direct cases form a spec");
+});
+
+test("junit: deeply nested (3-level) testsuites are fully flattened", () => {
+  const xml = `<?xml version="1.0"?>
+<testsuites>
+  <testsuite name="L1">
+    <testsuite name="L2">
+      <testsuite name="L3">
+        <testcase name="deep" classname="L3" time="0.1"/>
+      </testsuite>
+    </testsuite>
+  </testsuite>
+</testsuites>`;
+  const out = parseJUnit(xml, META);
+  assert.equal(out.stats.total, 1, "a testcase three levels deep must still be found");
+  assert.equal(out.specs.flatMap((s) => s.tests)[0].title, "deep");
+});
