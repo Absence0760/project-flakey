@@ -165,6 +165,20 @@ Wired into [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml) �
 
 `retries: 1` on CI (see `playwright.config.ts`) still absorbs incidental dev-server/HMR noise. With the `data-ready` / `data-sse-connected` readiness signals now in place (see above), the SSE-timing class of flake it was covering is gone; dropping to `0` is a reasonable next step once a stretch of green shard runs confirms no residual flake.
 
+## Registration gate (verification-required posture)
+
+The main suite runs the **default** posture (`REQUIRE_EMAIL_VERIFICATION` unset → registration mints a session immediately). `tests-e2e/verify-required/` covers the **production** posture where the flag is **on** — register withholds the session, the page shows "Check your email", and login is blocked until the emailed link is clicked.
+
+- **`playwright.verify.config.ts`** (`pnpm test:e2e:verify`) — runs `registration-gate.spec.ts` against a backend started with `REQUIRE_EMAIL_VERIFICATION=true`. Its `webServer` boots only the frontend (vite `:7778`); the backend is started separately. Excluded from the main run via `testIgnore` (it needs the opposite flag), exactly like the `sso/` split.
+
+```bash
+pnpm db:up && cd backend && ./migrate.sh && npm run seed   # seeded users are email_verified
+REQUIRE_EMAIL_VERIFICATION=true ALLOW_REGISTRATION=true pnpm dev:backend &
+cd frontend && pnpm test:e2e:verify
+```
+
+The HTTP contract underneath (register→no token, login 403 `EMAIL_NOT_VERIFIED`, verify, login 200, plus the resend cooldown) is covered one layer down by `backend/src/tests/register_verification_gate.smoke.test.ts`, which runs in the backend job and spawns its own flag-on backend. This suite adds the browser/UI layer. In CI it has its own **`e2e-verify-required`** job in [`tests.yml`](../../.github/workflows/tests.yml).
+
 ## SSO / SCIM proofs (Phase 14)
 
 `tests-e2e/sso/` proves enterprise auth (Phase 14 — **built**, flag-gated behind

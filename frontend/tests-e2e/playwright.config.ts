@@ -36,7 +36,12 @@ export default defineConfig({
   // run it via `pnpm test:e2e:sso` against `pnpm idp:up` / `pnpm idp:scim:up`;
   // in CI it has its own workflow (.github/workflows/sso-e2e.yml) that stands
   // up the stack and runs all three sso/ specs.
-  testIgnore: ["**/node_modules/**", "**/.auth/**", "**/fixtures/**", "**/sso/**"],
+  // verify-required/ is excluded for the same reason: it has its own config
+  // (playwright.verify.config.ts) and needs a backend with
+  // REQUIRE_EMAIL_VERIFICATION=true — the opposite of this run's flag-off
+  // default. Locally: `pnpm test:e2e:verify` against a flag-on backend; in CI
+  // it has its own verify-required job in .github/workflows/tests.yml.
+  testIgnore: ["**/node_modules/**", "**/.auth/**", "**/fixtures/**", "**/sso/**", "**/verify-required/**"],
 
   // Stable on CI even with the dev server taking a beat to warm up.
   timeout: 30_000,

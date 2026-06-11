@@ -384,3 +384,135 @@ jobs:
           name: playwright-report-shard-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 14
+
+  # Browser e2e of the PRODUCTION posture (REQUIRE_EMAIL_VERIFICATION=true).
+  # The main `e2e` job above runs the flag-OFF default (register mints a
+  # session) and ignores verify-required/. This job starts a backend with the
+  # gate ON and runs only registration-gate.spec.ts via its own config —
+  # covering the browser layer (the "Check your email" panel, blocked-login UI,
+  # no token on register) that the backend smoke test can't reach. The HTTP
+  # contract itself is already covered in the backend job by
+  # register_verification_gate.smoke.test.ts. Mirrors the SSO app-e2e split.
+  e2e-verify-required:
+    name: Frontend e2e — registration gate (verification required)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flakey
+          POSTGRES_PASSWORD: flakey
+          POSTGRES_DB: flakey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flakey"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+          --tmpfs /var/lib/postgresql/data
+      # SMTP sink: the spec pulls the verification token out of Mailpit to
+      # complete the verify→login leg. SMTP 1025, web/API 8025.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - "1025:1025"
+          - "8025:8025"
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: 1
+          MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Cache npm (backend)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - name: Install backend deps (npm)
+        working-directory: backend
+        run: npm ci
+      - name: Apply migrations
+        working-directory: backend
+        run: ./migrate.sh
+      # Seed creates the email_verified seeded admin the spec's globalSetup
+      # signs in to mint invites (an unverified seed would 403 under the gate).
+      - name: Seed sample data
+        working-directory: backend
+        run: npm run seed
+      - name: Install frontend deps (pnpm)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile --ignore-workspace
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Start the backend with the verification gate ON. This is the whole
+      # point of the job — the same app, the prod posture. The verify config's
+      # webServer boots vite :7778; this backend serves :3000.
+      - name: Start backend (REQUIRE_EMAIL_VERIFICATION)
+        working-directory: backend
+        env:
+          PORT: "3000"
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_USER: flakey_app
+          DB_PASSWORD: flakey_app
+          DB_NAME: flakey
+          ALLOW_REGISTRATION: "true"
+          REQUIRE_EMAIL_VERIFICATION: "true"
+          NODE_ENV: test
+          CORS_ORIGINS: http://localhost:7778
+          FRONTEND_URL: http://localhost:7778
+          # Mailpit SMTP sink — 127.0.0.1 (the runner resolves localhost to ::1,
+          # Docker publishes IPv4 only).
+          SMTP_HOST: 127.0.0.1
+        run: |
+          export JWT_SECRET="$(openssl rand -hex 32)"
+          npx tsx src/index.ts > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
+              echo "backend healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend did not become healthy"
+          cat /tmp/backend.log
+          exit 1
+
+      - name: Run Playwright (registration gate)
+        working-directory: frontend
+        env:
+          CI: "true"
+          MAILPIT_URL: http://127.0.0.1:8025
+        run: pnpm exec playwright test --config=tests-e2e/verify-required/playwright.verify.config.ts
+
+      - name: Backend log on failure
+        if: failure()
+        run: cat /tmp/backend.log || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-verify-required
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
