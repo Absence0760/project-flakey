@@ -522,16 +522,20 @@ async function seed() {
     const adminHash = bcrypt.hashSync("admin", 10);
     const demoHash = bcrypt.hashSync("demo123", 10);
     const viewerHash = bcrypt.hashSync("viewer123", 10);
+    // email_verified=true: seeded demo accounts must be able to log in even
+    // when an operator enables REQUIRE_EMAIL_VERIFICATION — they have no inbox
+    // to receive a verification link, so an unverified seed would lock out the
+    // demo admin (and 403 every e2e storage-state login under the flag).
     const admin = await client.query(
-      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Admin', 'admin') RETURNING id",
+      "INSERT INTO users (email, password_hash, name, role, email_verified) VALUES ($1, $2, 'Admin', 'admin', true) RETURNING id",
       ["admin@example.com", adminHash]
     );
     const demo = await client.query(
-      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Demo User', 'viewer') RETURNING id",
+      "INSERT INTO users (email, password_hash, name, role, email_verified) VALUES ($1, $2, 'Demo User', 'viewer', true) RETURNING id",
       ["demo@example.com", demoHash]
     );
     const viewer = await client.query(
-      "INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, 'Viewer', 'viewer') RETURNING id",
+      "INSERT INTO users (email, password_hash, name, role, email_verified) VALUES ($1, $2, 'Viewer', 'viewer', true) RETURNING id",
       ["viewer@example.com", viewerHash]
     );
     const adminId = admin.rows[0].id;
@@ -1862,8 +1866,8 @@ async function seed() {
       const wPassword = `worker${i}123`;
       const wPasswordHash = bcrypt.hashSync(wPassword, 10);
       const wUserRes = await client.query(
-        `INSERT INTO users (email, password_hash, name, role)
-         VALUES ($1, $2, $3, 'admin') RETURNING id`,
+        `INSERT INTO users (email, password_hash, name, role, email_verified)
+         VALUES ($1, $2, $3, 'admin', true) RETURNING id`,
         [`admin+w${i}@example.com`, wPasswordHash, `Worker ${i} Admin`],
       );
       const wUserId = wUserRes.rows[0].id;
