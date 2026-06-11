@@ -91,6 +91,18 @@ variable "csp_connect_src" {
   }
 }
 
+variable "csp_img_src" {
+  description = "Additional img-src origins for the CloudFront CSP — where test SCREENSHOTS (<img>) are served from. Defaults to csp_connect_src when empty (screenshots come from the API origin in the default deploy). Override only when artifacts live on a separate origin — e.g. STORAGE=s3 presigned URLs on the bucket/CDN host. Leaving it empty AND serving artifacts off-API silently blocks every screenshot."
+  type        = list(string)
+  default     = []
+}
+
+variable "csp_media_src" {
+  description = "Additional media-src origins for the CloudFront CSP — where failure VIDEOS (<video>) are served from. Defaults to csp_img_src (then csp_connect_src) when empty. Override only if videos live on a different origin than screenshots."
+  type        = list(string)
+  default     = []
+}
+
 variable "cloudfront_acm_certificate_arn" {
   description = "ACM certificate ARN in us-east-1 for a custom CloudFront domain. When set, enforces minimum_protocol_version=TLSv1.2_2021 + SNI. Default null = CloudFront's default `*.cloudfront.net` cert (can't pin a min TLS version). REQUIRED before going to prod on a real domain. Note: ACM cert for CloudFront MUST live in us-east-1, regardless of the rest of the stack."
   type        = string

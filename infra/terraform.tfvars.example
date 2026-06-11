@@ -28,6 +28,15 @@ acm_certificate_arn = "arn:aws:acm:<region>:<account-id>:certificate/<cert-id>"
 # validation block — apply will refuse otherwise.
 csp_connect_src = ["https://api.<your-domain>"]
 
+# Where artifacts (screenshots / videos) are served from, for the CSP's
+# img-src / media-src. Both DEFAULT to csp_connect_src, so in the standard
+# deploy (artifacts streamed from the API's /uploads route) you can leave
+# these unset and screenshots/videos just work. Set them ONLY if you serve
+# artifacts off a separate origin — e.g. STORAGE=s3 presigned URLs on the
+# bucket/CDN host:
+# csp_img_src   = ["https://artifacts.<your-domain>"]
+# csp_media_src = ["https://artifacts.<your-domain>"]
+
 # Optional cost-incurring toggles (defaults shown):
 # rds_multi_az = true                  # set false on staging/dev to halve cost
 # enable_performance_insights = false  # ~$7/mo

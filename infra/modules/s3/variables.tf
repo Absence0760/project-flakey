@@ -20,6 +20,16 @@ variable "csp_connect_src" {
   type        = list(string)
   default     = []
 }
+variable "csp_img_src" {
+  description = "Additional img-src values for the CloudFront response-headers CSP. The frontend always gets `'self' data: blob:`. Test SCREENSHOTS are <img> elements served from the API origin (and, under STORAGE=s3, from the artifact bucket/CDN origin via presigned URLs), so this MUST include those origin(s) or every screenshot is blocked with a CSP img-src violation. Typically the same value as csp_connect_src plus any artifact-bucket origin."
+  type        = list(string)
+  default     = []
+}
+variable "csp_media_src" {
+  description = "Additional media-src values for the CloudFront response-headers CSP. The frontend always gets `'self' blob:`. Failure VIDEOS are <video> elements served from the same origin(s) as screenshots; without this they fall back to default-src 'self' and won't play. Typically the same value as csp_img_src."
+  type        = list(string)
+  default     = []
+}
 
 variable "cloudfront_acm_certificate_arn" {
   description = "ACM certificate ARN (in us-east-1) for a custom domain on CloudFront. When set, the viewer is configured with minimum_protocol_version=TLSv1.2_2021 + SNI. When null (default), CloudFront uses the default `*.cloudfront.net` cert which cannot enforce a min TLS version. Set this before exposing the dashboard on a real domain."

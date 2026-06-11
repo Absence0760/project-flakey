@@ -301,9 +301,15 @@ resource "aws_wafv2_web_acl" "frontend" {
 # in the root tfvars.
 locals {
   csp_connect_src = trimspace(join(" ", concat(["'self'"], var.csp_connect_src)))
+  # Screenshots (<img>) and videos (<video>) are served from the API /
+  # artifact-bucket origin, not the page origin, so img-src/media-src must
+  # allow-list those origin(s) — same gap as connect-src. See var.csp_img_src.
+  csp_img_src   = trimspace(join(" ", concat(["'self'", "data:", "blob:"], var.csp_img_src)))
+  csp_media_src = trimspace(join(" ", concat(["'self'", "blob:"], var.csp_media_src)))
   csp = join("; ", [
     "default-src 'self'",
-    "img-src 'self' data: blob:",
+    "img-src ${local.csp_img_src}",
+    "media-src ${local.csp_media_src}",
     "style-src 'self' 'unsafe-inline'",
     "script-src 'self'",
     "connect-src ${local.csp_connect_src}",

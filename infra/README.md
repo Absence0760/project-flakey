@@ -48,6 +48,7 @@ Terraform configuration for deploying Flakey to AWS. Designed to be as touchless
 | `cloudfront_acm_certificate_arn` | Your CloudFront cert. Must be in `us-east-1`. |
 | `cloudfront_aliases` | Your DNS names (e.g. `["app.acme.com"]`). |
 | `csp_connect_src` | Your API origin(s) so the SPA can fetch the API across origins. **Required** — `terraform apply` refuses if absent or still holding the `<placeholder>` string from `terraform.tfvars.example`. |
+| `csp_img_src` / `csp_media_src` | Origin(s) serving artifact screenshots (`<img>`) / videos (`<video>`). **Default to `csp_connect_src`**, so leave unset when artifacts stream from the API origin. Set only when artifacts live on a separate origin (e.g. `STORAGE=s3` presigned URLs on the bucket/CDN host) — otherwise the CSP silently blocks every screenshot. |
 | `allow_registration` | `true` for SaaS-style self-serve; `false` (default) for invite-only. |
 | `budget_alert_email` | Where the monthly-budget alarm sends mail. |
 | `github_repo` (bootstrap stack only) | Your `<org>/<repo>` for the OIDC trust subject. The deploy IAM role's trust policy is scoped to this — no other repo can assume it. |
