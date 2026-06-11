@@ -300,12 +300,19 @@ resource "aws_wafv2_web_acl" "frontend" {
 # host; tighten to the API origin via `csp_connect_src = ["https://..."]`
 # in the root tfvars.
 locals {
-  csp_connect_src = trimspace(join(" ", concat(["'self'"], var.csp_connect_src)))
   # Screenshots (<img>) and videos (<video>) are served from the API /
   # artifact-bucket origin, not the page origin, so img-src/media-src must
-  # allow-list those origin(s) — same gap as connect-src. See var.csp_img_src.
-  csp_img_src   = trimspace(join(" ", concat(["'self'", "data:", "blob:"], var.csp_img_src)))
-  csp_media_src = trimspace(join(" ", concat(["'self'", "blob:"], var.csp_media_src)))
+  # allow-list those origin(s) — the same gap connect-src had. Default both
+  # to the connect-src origin (artifacts stream from the API in the standard
+  # deploy), falling back media→img→connect, so a deploy that only declares
+  # csp_connect_src gets working screenshots/videos. Override per-directive
+  # only when artifacts live on a separate origin (e.g. STORAGE=s3 bucket).
+  img_src_origins   = length(var.csp_img_src) > 0 ? var.csp_img_src : var.csp_connect_src
+  media_src_origins = length(var.csp_media_src) > 0 ? var.csp_media_src : local.img_src_origins
+
+  csp_connect_src = trimspace(join(" ", concat(["'self'"], var.csp_connect_src)))
+  csp_img_src     = trimspace(join(" ", concat(["'self'", "data:", "blob:"], local.img_src_origins)))
+  csp_media_src   = trimspace(join(" ", concat(["'self'", "blob:"], local.media_src_origins)))
   csp = join("; ", [
     "default-src 'self'",
     "img-src ${local.csp_img_src}",

@@ -25,11 +25,11 @@ module "s3" {
   environment     = var.environment
   enable_waf      = var.enable_waf
   csp_connect_src = var.csp_connect_src
-  # img-src/media-src default to the connect-src origin so the common
-  # deploy (artifacts served from the API origin) gets working screenshots
-  # and videos for free; override only when artifacts live elsewhere.
-  csp_img_src                    = length(var.csp_img_src) > 0 ? var.csp_img_src : var.csp_connect_src
-  csp_media_src                  = length(var.csp_media_src) > 0 ? var.csp_media_src : (length(var.csp_img_src) > 0 ? var.csp_img_src : var.csp_connect_src)
+  # img-src/media-src default to the connect-src origin inside the module
+  # (artifacts served from the API origin in the standard deploy); set these
+  # only when artifacts live elsewhere.
+  csp_img_src                    = var.csp_img_src
+  csp_media_src                  = var.csp_media_src
   cloudfront_acm_certificate_arn = var.cloudfront_acm_certificate_arn
   cloudfront_aliases             = var.cloudfront_aliases
   artifact_retention_days        = var.artifact_retention_days

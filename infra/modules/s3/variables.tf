@@ -21,12 +21,12 @@ variable "csp_connect_src" {
   default     = []
 }
 variable "csp_img_src" {
-  description = "Additional img-src values for the CloudFront response-headers CSP. The frontend always gets `'self' data: blob:`. Test SCREENSHOTS are <img> elements served from the API origin (and, under STORAGE=s3, from the artifact bucket/CDN origin via presigned URLs), so this MUST include those origin(s) or every screenshot is blocked with a CSP img-src violation. Typically the same value as csp_connect_src plus any artifact-bucket origin."
+  description = "img-src origins for the CloudFront CSP. The frontend always gets `'self' data: blob:`. Test SCREENSHOTS are <img> elements served from the API origin (and, under STORAGE=s3, the artifact bucket/CDN origin via presigned URLs). EMPTY (default) means the module falls back to csp_connect_src, so a deploy that only declares the API origin gets working screenshots. Set this only when artifacts live on an origin distinct from the API."
   type        = list(string)
   default     = []
 }
 variable "csp_media_src" {
-  description = "Additional media-src values for the CloudFront response-headers CSP. The frontend always gets `'self' blob:`. Failure VIDEOS are <video> elements served from the same origin(s) as screenshots; without this they fall back to default-src 'self' and won't play. Typically the same value as csp_img_src."
+  description = "media-src origins for the CloudFront CSP. The frontend always gets `'self' blob:`. Failure VIDEOS are <video> elements served from the same origin(s) as screenshots. EMPTY (default) means the module falls back to csp_img_src (then csp_connect_src). Set this only when videos live on a different origin than screenshots."
   type        = list(string)
   default     = []
 }
