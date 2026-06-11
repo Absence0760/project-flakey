@@ -4,28 +4,41 @@ import { mdsvex } from 'mdsvex';
 
 export default defineConfig();
 
-// Build the connect-src list at config-load time. The frontend
-// (served from one origin) fetches the API at VITE_API_URL — a
-// different origin in both dev (`http://localhost:3000`) and prod
-// (`https://api.flakey.io`). CSP `'self'` only covers the page's
-// own origin, so the API origin must be explicitly allow-listed
-// or every fetch fails with a CSP "blocked by Content Security
-// Policy" error and the dashboard renders blank.
-//
-// Extra entries listed in PUBLIC_CSP_CONNECT_SRC (space-separated)
-// extend the list — used by ops who proxy the API behind a CDN or
-// add a separate analytics endpoint.
-function connectSrc() {
-	const sources = new Set(["'self'"]);
+// The API origin (VITE_API_URL) — a different origin from the page in
+// both dev (`http://localhost:3000` vs the :7778 dev server) and prod
+// (`https://api.flakey.io`). CSP `'self'` only covers the page's own
+// origin, so EVERY directive that loads from the API must allow-list it:
+//   - connect-src — fetch()/authFetch() calls (data; omit → dashboard
+//     renders blank).
+//   - img-src     — test screenshots are <img> elements served straight
+//     from /uploads on the API origin (omit → every screenshot is blocked
+//     with a CSP "img-src" violation; the page still loads because
+//     connect-src IS allow-listed — that asymmetry is what hid this).
+//   - media-src   — failure videos are <video> elements, same /uploads
+//     origin (omit → falls back to default-src 'self' and won't play).
+function apiOrigin() {
 	const apiUrl = process.env.VITE_API_URL || "http://localhost:3000";
 	try {
 		const u = new URL(apiUrl);
-		sources.add(`${u.protocol}//${u.host}`);
+		return `${u.protocol}//${u.host}`;
 	} catch {
-		// VITE_API_URL is malformed — leave only 'self'. The fetch will
-		// fail but at runtime, not at config-load time.
+		// VITE_API_URL is malformed — leave it out. The request fails at
+		// runtime, not at config-load time.
+		return null;
 	}
-	const extras = (process.env.PUBLIC_CSP_CONNECT_SRC || "")
+}
+
+// Build a CSP source list at config-load time: a fixed `base` + the API
+// origin + any space-separated extras from `envVar`. The env hook lets ops
+// who serve artifacts from a separate CDN / S3 bucket (e.g. STORAGE=s3
+// presigned URLs live on the bucket origin, not the API) extend the list
+// without patching this file: PUBLIC_CSP_CONNECT_SRC / PUBLIC_CSP_IMG_SRC /
+// PUBLIC_CSP_MEDIA_SRC.
+function cspSources(base, envVar) {
+	const sources = new Set(base);
+	const api = apiOrigin();
+	if (api) sources.add(api);
+	const extras = (process.env[envVar] || "")
 		.split(/\s+/)
 		.filter(Boolean);
 	for (const e of extras) sources.add(e);
@@ -65,10 +78,11 @@ function defineConfig() {
 				mode: 'hash',
 				directives: {
 					'default-src': ['self'],
-					'img-src': ['self', 'data:', 'blob:'],
+					'img-src': cspSources(["'self'", 'data:', 'blob:'], 'PUBLIC_CSP_IMG_SRC'),
+					'media-src': cspSources(["'self'", 'blob:'], 'PUBLIC_CSP_MEDIA_SRC'),
 					'style-src': ['self', 'unsafe-inline'],
 					'script-src': ['self'],
-					'connect-src': connectSrc(),
+					'connect-src': cspSources(["'self'"], 'PUBLIC_CSP_CONNECT_SRC'),
 					'frame-ancestors': ['none'],
 					'base-uri': ['self'],
 					'form-action': ['self'],
