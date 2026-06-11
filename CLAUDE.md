@@ -38,7 +38,7 @@ Start from the entry point for your task — don't rediscover what's already wri
 
 Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 
-- `pnpm dev:all` — **one-command local start**: brings up the core Docker infra (Postgres + Mailpit) and blocks until healthy (`docker compose up -d --wait`), then starts backend + frontend. Use this from a fresh clone. Opt-in services (MinIO, webhook sink, Ollama, Keycloak/Authentik) are deliberately *not* included — start them separately (`pnpm storage:up`, `pnpm ai:up`, etc.). Seed once with `pnpm db:seed` (it's additive — don't run it on every start)
+- `pnpm dev:all` — **one-command local start**: brings up the core Docker infra (Postgres + Mailpit) and blocks until healthy (`docker compose up -d --wait`), then starts backend + frontend. From a fresh clone, run `pnpm setup` first to install deps (`dev:all` does not install). Use this for the day-to-day start. Opt-in services (MinIO, webhook sink, Ollama, Keycloak/Authentik) are deliberately *not* included — start them separately (`pnpm storage:up`, `pnpm ai:up`, etc.). Seed once with `pnpm db:seed` (it's additive — don't run it on every start)
 - `pnpm dev` — start backend (3000) and frontend (7778) concurrently (assumes infra is already up)
 - `pnpm dev:backend` / `pnpm dev:frontend` — one at a time
 - `pnpm db:up` / `pnpm db:down` / `pnpm db:reset` — core local services (Postgres + Mailpit SMTP sink at http://localhost:8025). Migrations auto-apply on a fresh volume (compose mounts `backend/migrations` into `/docker-entrypoint-initdb.d`), so a reset leaves a migrated-but-empty DB — seed separately
@@ -49,7 +49,9 @@ Run everything from the repo root via pnpm — no need to `cd` into a workspace.
 - `pnpm idp:up` / `pnpm idp:down` / `pnpm idp:reset` — opt-in local Keycloak (:8081) for prototyping + e2e-testing enterprise SSO **login** (OIDC/SAML, Phase 14 — built, flag-gated behind `FLAKEY_SSO_ENABLED`); seeds the `flakey` realm from `infra/keycloak/flakey-realm.json`. `idp:reset` recreates the container so realm edits re-import. See [backend/docs/sso.md](backend/docs/sso.md)
 - `pnpm idp:scim:up` / `idp:scim:down` / `idp:scim:reset` — opt-in **Authentik** (:9002) + a mock SCIM target (:8082) for prototyping + e2e-testing SCIM **provisioning** (the half Keycloak can't do). Authentik pushes users/groups to `infra/scim-target/server.mjs`, which records them at `http://localhost:8082/_captured`. Heavier than `idp` (its own Postgres + Redis + worker), hence a separate profile. `idp:scim:reset` wipes volumes for a clean state
 - `pnpm services:up` / `pnpm services:down` — bring up / tear down the core infra plus the opt-in **storage** (MinIO) and **integrations** (webhook sink) profiles at once. Deliberately *not* included: the heavier `ai` (Ollama), `idp` (Keycloak), and `idp-scim` (Authentik) profiles — start those with `pnpm ai:up` / `pnpm idp:up` / `pnpm idp:scim:up` as needed
-- `pnpm install:backend` — runs `npm install` inside `backend/` (the only workspace outside the pnpm tree)
+- `pnpm setup` — installs all three trees: `pnpm install` (the `packages/*` workspace) + `pnpm install:backend` + `pnpm install:frontend`. Run this once from a fresh clone — a bare `pnpm install` covers **only** `packages/*`, since neither `backend/` nor `frontend/` is in the pnpm workspace
+- `pnpm install:backend` — runs `npm install` inside `backend/` (its own npm lockfile, outside the pnpm tree)
+- `pnpm install:frontend` — runs `pnpm install` inside `frontend/` (a standalone pnpm project, also outside the `packages/*` workspace)
 - `pnpm build` — builds packages → backend → frontend (build:packages first so reporter dist/ is fresh)
 - `pnpm build:backend` / `pnpm build:frontend` / `pnpm build:packages` — one at a time
 - `pnpm check` — backend `tsc --noEmit` + `pnpm check:frontend` (svelte-kit sync + svelte-check)

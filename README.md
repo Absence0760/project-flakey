@@ -23,9 +23,13 @@ Starts PostgreSQL and Mailpit (a local SMTP sink — view sent mail at http://lo
 ### 2. Install dependencies
 
 ```bash
-pnpm install              # frontend + packages (pnpm workspace)
-pnpm install:backend      # backend (uses its own npm lockfile)
+pnpm setup                # packages (pnpm) + backend (npm) + frontend (pnpm)
 ```
+
+`pnpm setup` runs all three installs. They're separate because only `packages/*`
+is a pnpm workspace — `frontend/` is a standalone pnpm project and `backend/`
+uses its own npm lockfile, so a bare `pnpm install` covers neither. To run them
+individually: `pnpm install` (packages), `pnpm install:frontend`, `pnpm install:backend`.
 
 ### 3. Seed sample data
 

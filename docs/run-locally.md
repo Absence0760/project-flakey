@@ -8,8 +8,9 @@
 
 ## TL;DR
 
-After `pnpm install` (and `cd backend && npm install`), one command brings up
-the core infra (Postgres + Mailpit, waited until healthy) and starts the app:
+After `pnpm setup` (installs all three trees — `packages/*` via pnpm, plus the
+standalone `backend/` (npm) and `frontend/` (pnpm) projects), one command brings
+up the core infra (Postgres + Mailpit, waited until healthy) and starts the app:
 
 ```bash
 pnpm dev:all          # docker compose up -d --wait  →  backend :3000 + frontend :7778
