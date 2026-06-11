@@ -318,11 +318,25 @@ router.post("/register", async (req, res) => {
       ? (await pool.query("SELECT slug FROM organizations WHERE id = $1", [orgId])).rows[0]?.slug ?? null
       : null;
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role, orgId, orgRole, ssoRequired };
+
+    // When email verification is required, withhold the session entirely:
+    // no JWT, no refresh token, no auth cookie. The account exists but is
+    // unusable until the emailed link flips email_verified, after which
+    // /auth/login mints the session (gated at the EMAIL_NOT_VERIFIED check
+    // above). Minting a token here would hand an unverified registrant a
+    // working session for the token's full lifetime — verification would
+    // then only re-gate the *next* login, not first access, defeating the
+    // point of the gate.
+    if (REQUIRE_EMAIL_VERIFICATION) {
+      res.status(201).json({ user: authUser, ssoRequired, orgSlug, emailVerificationRequired: true });
+      return;
+    }
+
     const token = signToken(authUser);
     const refreshToken = signRefreshToken(user.id);
 
     setTokenCookie(res, token, refreshToken);
-    res.status(201).json({ token, refreshToken, user: authUser, ssoRequired, orgSlug, emailVerificationRequired: REQUIRE_EMAIL_VERIFICATION });
+    res.status(201).json({ token, refreshToken, user: authUser, ssoRequired, orgSlug, emailVerificationRequired: false });
   } catch (err) {
     console.error("POST /auth/register error:", safeLog(err));
     res.status(500).json({ error: "Internal server error" });

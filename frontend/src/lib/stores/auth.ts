@@ -171,7 +171,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   return { user: data.user, ssoRequired: data.ssoRequired, orgSlug: data.orgSlug };
 }
 
-export async function register(email: string, password: string, name: string, inviteToken?: string): Promise<User> {
+export async function register(email: string, password: string, name: string, inviteToken?: string): Promise<{ user: User; emailVerificationRequired: boolean }> {
   const res = await fetch(`${API_URL}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -184,9 +184,14 @@ export async function register(email: string, password: string, name: string, in
     throw new Error((body as { error?: string }).error ?? "Registration failed");
   }
 
-  const data = await res.json() as { token: string; refreshToken: string; user: User };
-  setAuth(data.user, data.token, data.refreshToken);
-  return data.user;
+  const data = await res.json() as { token?: string; refreshToken?: string; user: User; emailVerificationRequired?: boolean };
+  // When verification is required the backend withholds the session (no
+  // token) — the user must verify before they can log in. Only sign them in
+  // here when a live session actually came back.
+  if (data.token) {
+    setAuth(data.user, data.token, data.refreshToken);
+  }
+  return { user: data.user, emailVerificationRequired: data.emailVerificationRequired ?? false };
 }
 
 export async function acceptInvite(token: string): Promise<{ user: User; org_name: string }> {

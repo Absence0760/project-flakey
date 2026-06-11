@@ -79,9 +79,14 @@
         goto("/dashboard");
       } else {
         const result = await register(email, password, name, inviteToken ?? undefined);
-        // Check if email verification is required (user won't be auto-logged in on next attempt)
-        verificationSent = true;
-        goto("/dashboard");
+        if (result.emailVerificationRequired) {
+          // No session was minted — show the "check your email" panel and
+          // keep the user here until they verify. Going to /dashboard would
+          // just bounce off the auth guard since there's no token.
+          verificationSent = true;
+        } else {
+          goto("/dashboard");
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
