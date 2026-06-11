@@ -318,6 +318,13 @@ jobs:
           DB_PASSWORD: flakey_app
           DB_NAME: flakey
           ALLOW_REGISTRATION: "true"
+          # The verification e2e specs (email-verification-flow.spec.ts)
+          # register then immediately resend to assert a fresh token is
+          # delivered — that's about delivery mechanics, not throttling.
+          # Disable the per-email resend cooldown here so the immediate resend
+          # isn't suppressed; the cooldown itself is covered by the backend
+          # smoke test (register_verification_gate.smoke.test.ts).
+          EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: "0"
           NODE_ENV: test
           CORS_ORIGINS: http://localhost:7778
           # Mailpit SMTP sink (service container above). Pin the host to
