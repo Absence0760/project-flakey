@@ -138,6 +138,12 @@ before(async () => {
       DB_NAME: process.env.DB_NAME ?? "flakey",
       JWT_SECRET: "email-smoke-test-secret",
       ALLOW_REGISTRATION: "true",
+      // This suite asserts delivery + token round-trip mechanics, where the
+      // resend test fires immediately after register. Disable the per-email
+      // resend cooldown here so that's about delivery, not throttling — the
+      // cooldown has its own dedicated coverage in
+      // register_verification_gate.smoke.test.ts.
+      EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: "0",
       NODE_ENV: "test",
       // Point the mailer at Mailpit (defaults already match, set explicitly
       // for clarity) and pin From/FRONTEND_URL so the assertions are stable.

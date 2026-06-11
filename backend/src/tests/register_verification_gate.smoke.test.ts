@@ -14,6 +14,10 @@
  *   click the emailed link (verify-email) → 200
  *   login (post-verify) → 200 with a real token
  *
+ * It also covers the per-email resend cooldown (migration 066): a resend fired
+ * inside the window returns the same 200 but delivers no second email, so a
+ * known address can't be flooded with verification mail.
+ *
  * Prereqs (same as email.smoke.test.ts): `pnpm db:up` (Postgres + Mailpit) and
  * a seeded DB. Override MAILPIT_URL if the web API isn't on the default :8025.
  */
@@ -75,15 +79,25 @@ async function waitForHealth(maxMs = 10000): Promise<void> {
   throw new Error("Backend did not become healthy in time");
 }
 
-async function waitForMail(to: string, subjectIncludes: string, maxMs = 8000): Promise<MailpitMessage> {
+async function messagesTo(to: string, subjectIncludes?: string): Promise<MailpitSummary[]> {
   const needle = to.toLowerCase();
+  const { messages } = await mailpit<{ messages: MailpitSummary[] }>("/api/v1/messages?limit=200");
+  return messages.filter(
+    (m) =>
+      m.To.some((t) => t.Address.toLowerCase() === needle) &&
+      (subjectIncludes === undefined || m.Subject.includes(subjectIncludes)),
+  );
+}
+
+async function clearMailbox(): Promise<void> {
+  await fetch(`${MAILPIT}/api/v1/messages`, { method: "DELETE" });
+}
+
+async function waitForMail(to: string, subjectIncludes: string, maxMs = 8000): Promise<MailpitMessage> {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
-    const { messages } = await mailpit<{ messages: MailpitSummary[] }>("/api/v1/messages?limit=200");
-    const hit = messages.find(
-      (m) => m.Subject.includes(subjectIncludes) && m.To.some((t) => t.Address.toLowerCase() === needle),
-    );
-    if (hit) return mailpit<MailpitMessage>(`/api/v1/message/${hit.ID}`);
+    const hits = await messagesTo(to, subjectIncludes);
+    if (hits.length > 0) return mailpit<MailpitMessage>(`/api/v1/message/${hits[0].ID}`);
     await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error(`No "${subjectIncludes}" email to ${to} arrived within ${maxMs}ms`);
@@ -188,4 +202,38 @@ test("with verification required, register withholds the session and login is ga
   assert.equal(postLogin.status, 200, "login after verification must succeed");
   const postBody = (await postLogin.json()) as { token?: string };
   assert.ok(postBody.token, "a real access token is minted only after verification");
+});
+
+test("resend-verification is throttled per-email within the cooldown window (no inbox flooding)", async () => {
+  // The spawned server runs with the default 60s cooldown, so a resend fired
+  // immediately after registration must NOT deliver a second email.
+  const victim = `cooldown+${Date.now()}@flakey.test`;
+
+  // Register sends the first verification mail and stamps last_sent_at.
+  assert.equal((await register(victim, "cooldownpass123")).status, 201);
+  await waitForMail(victim, "Verify your email"); // drain the registration mail
+  await clearMailbox();
+
+  // Immediate resend: still 200 (enumeration-safe, identical to the
+  // unknown-email path) but suppressed by the cooldown.
+  const resend = await fetch(`${BASE}/auth/resend-verification`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: victim }),
+  });
+  assert.equal(resend.status, 200, "resend always returns 200 regardless of throttling");
+
+  // Sentinel barrier: a fresh registration for a DIFFERENT address must
+  // deliver its mail. Once that lands, the SMTP pipeline has flushed both
+  // requests, so the absence of any new mail to the victim is meaningful —
+  // not just an under-short wait.
+  const sentinel = `sentinel+${Date.now()}@flakey.test`;
+  assert.equal((await register(sentinel, "sentinelpass123")).status, 201);
+  await waitForMail(sentinel, "Verify your email");
+
+  assert.equal(
+    (await messagesTo(victim, "Verify your email")).length,
+    0,
+    "throttled resend must not deliver a second verification email within the cooldown",
+  );
 });

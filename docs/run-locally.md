@@ -250,7 +250,8 @@ suite intentionally run on code defaults (not the env file) so seeding gets the
 | `CORS_ORIGINS` | `http://localhost:7778,http://localhost:3000` | Comma-separated allow-list. Dev default covers the Vite dev server (7778) and the API itself (3000) for same-machine probes |
 | `JWT_SECRET` | _(random per cold-start)_ | JWT signing secret. Unset in dev/test: a fresh ephemeral secret is generated each process start (see `backend/src/auth.ts`), so dev sessions don't survive a restart. **Required in production** — the boot guard refuses to start without it |
 | `ALLOW_REGISTRATION` | `false` | Set `true` to allow self-serve registration; default is invite-only |
-| `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require email verification (register withholds the session; login 403s until the emailed link is clicked) |
+| `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | Per-email cooldown on verification mail; a resend inside the window 200s but sends nothing. Set `0` to disable |
 | `FRONTEND_URL` | `http://localhost:7778` | Used for email links and PR comments |
 | `STORAGE` | `local` | `local` or `s3` for artifact storage |
 | `S3_BUCKET` | _(none)_ | S3 bucket name (when `STORAGE=s3`) |

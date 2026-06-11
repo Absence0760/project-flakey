@@ -286,10 +286,14 @@ test("Reset-password token: expired token returns 400 even though it's still in 
 
 async function issueVerifyEmailToken(email: string): Promise<string> {
   // /auth/resend-verification only writes a new token if the user
-  // exists AND email_verified is false. Force the user back into
-  // unverified state so we can re-issue a token, then read it.
+  // exists AND email_verified is false. Force the user back into a
+  // pristine unverified state so we can re-issue a token, then read it.
+  // Clearing email_verification_last_sent_at is required: registration
+  // stamps it, and a non-null recent value would trip the per-email resend
+  // cooldown and suppress the new token (the cooldown itself is covered in
+  // register_verification_gate.smoke.test.ts).
   await dbAdmin.query(
-    "UPDATE users SET email_verified = false, email_verification_token = NULL, email_verification_expires_at = NULL WHERE email = $1",
+    "UPDATE users SET email_verified = false, email_verification_token = NULL, email_verification_expires_at = NULL, email_verification_last_sent_at = NULL WHERE email = $1",
     [email],
   );
   const res = await fetch(`${BASE}/auth/resend-verification`, {

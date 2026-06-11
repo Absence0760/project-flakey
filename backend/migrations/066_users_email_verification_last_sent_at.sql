@@ -1,0 +1,14 @@
+-- Per-email cooldown for verification mail.
+--
+-- POST /auth/resend-verification (and the initial POST /auth/register) send a
+-- verification email keyed on the target address. The per-IP authLimiter does
+-- not defend a specific victim's inbox: an attacker rotating source IPs can
+-- still flood one address with verification mail. This column records when the
+-- last verification email was issued for a user so the resend handler can skip
+-- sending again within a short window — a targeted, instance-independent
+-- throttle (consistent across Fargate tasks, unlike the in-memory IP limiter).
+--
+-- Nullable, no default: adding it is a metadata-only change on a populated
+-- table (no rewrite, no blocking lock). NULL means "never sent" — the first
+-- resend always goes through.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_last_sent_at TIMESTAMPTZ;

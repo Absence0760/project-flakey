@@ -352,6 +352,7 @@ after-script:
 | `FRONTEND_URL` | `http://localhost:7778` | Frontend URL (used in webhook notification links) |
 | `ALLOW_REGISTRATION` | `false` | Set `true` to allow open self-service registration (each new user gets their own tenant/org as owner). When `false` (default), `POST /auth/register` returns 403 unless the request carries a valid `invite_token`. |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | When `true`, `POST /auth/register` creates the account but withholds the session (no token/cookie) and `POST /auth/login` returns 403 `EMAIL_NOT_VERIFIED` — the user must click the emailed link (via the `SMTP_*` chain) before they can sign in. When `false` (default), registration signs the user straight in. |
+| `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | Per-email cooldown on verification mail. A second `POST /auth/resend-verification` for the same address inside this window returns 200 but sends no email, so a known address can't be flooded with verification mail (the per-IP rate limit doesn't defend a specific victim's inbox). Set `0` to disable. |
 | `STORAGE` | `local` | `local` writes uploads to `uploads/runs/{id}/...` on disk; `s3` puts them in `S3_BUCKET` and serves via signed URLs / CloudFront. |
 | `S3_BUCKET` / `S3_REGION` | — / `us-east-1` | S3 bucket name and region (only when `STORAGE=s3`). |
 | `S3_ENDPOINT` | — | Custom endpoint for an S3-compatible store (MinIO, Ceph, Backblaze). Set to `http://localhost:9000` to use the bundled MinIO (`docker compose --profile storage up -d`). Unset = real AWS S3. |

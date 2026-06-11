@@ -14,6 +14,20 @@ import { safeLog } from "../log.js";
 const ALLOW_OPEN_REGISTRATION = process.env.ALLOW_REGISTRATION === "true";
 const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === "true";
 
+// Per-email cooldown on verification mail. The per-IP authLimiter can't stop an
+// attacker rotating source IPs from flooding one victim's inbox, so resend
+// keyed on the target address is throttled here too. Tracked in
+// users.email_verification_last_sent_at (migration 066) so it holds across the
+// multi-task Fargate deployment, unlike the in-memory IP limiter.
+const VERIFICATION_RESEND_COOLDOWN_SECONDS = (() => {
+  const raw = Number(process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS);
+  // Fail closed on a malformed value: a typo'd env must not silently disable
+  // the throttle (NaN would make every `elapsed < NaN` check false). 0 is a
+  // deliberate, explicit "off"; anything non-finite or negative falls back to
+  // the 60s default.
+  return Number.isFinite(raw) && raw >= 0 ? raw : 60;
+})();
+
 const router = Router();
 
 /**
@@ -300,8 +314,8 @@ router.post("/register", async (req, res) => {
     const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, name, email_verified, email_verification_token, email_verification_expires_at)
-       VALUES ($1, $2, $3, false, $4, $5) RETURNING id, email, name, role`,
+      `INSERT INTO users (email, password_hash, name, email_verified, email_verification_token, email_verification_expires_at, email_verification_last_sent_at)
+       VALUES ($1, $2, $3, false, $4, $5, NOW()) RETURNING id, email, name, role`,
       [email, hash, name ?? "", verificationToken, verificationExpiry]
     );
 
@@ -607,7 +621,7 @@ router.post("/resend-verification", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, email_verified FROM users WHERE LOWER(email) = $1",
+      "SELECT id, email_verified, email_verification_last_sent_at FROM users WHERE LOWER(email) = $1",
       [email]
     );
 
@@ -617,11 +631,23 @@ router.post("/resend-verification", async (req, res) => {
       return;
     }
 
+    // Per-email cooldown: if we sent verification mail to this address within
+    // the window, skip silently. The response is the same 200 either way, so
+    // this throttles a victim's inbox without leaking whether the address
+    // exists or how recently it last requested (enumeration-safe). We don't
+    // rotate the token inside the window — the previously emailed one is still
+    // valid for its full 24h.
+    const lastSent = result.rows[0].email_verification_last_sent_at as Date | null;
+    if (lastSent && Date.now() - lastSent.getTime() < VERIFICATION_RESEND_COOLDOWN_SECONDS * 1000) {
+      res.json({ ok: true });
+      return;
+    }
+
     const token = crypto.randomBytes(32).toString("hex");
     const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await pool.query(
-      "UPDATE users SET email_verification_token = $1, email_verification_expires_at = $2 WHERE id = $3",
+      "UPDATE users SET email_verification_token = $1, email_verification_expires_at = $2, email_verification_last_sent_at = NOW() WHERE id = $3",
       [token, expiry, result.rows[0].id]
     );
 
