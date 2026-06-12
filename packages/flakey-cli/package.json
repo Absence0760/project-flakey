@@ -1,6 +1,6 @@
 {
   "name": "@flakeytesting/cli",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "CLI tool for uploading test results to Flakey",
   "type": "module",
   "bin": {
