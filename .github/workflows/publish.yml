@@ -19,6 +19,7 @@ on:
           - webdriverio-reporter
           - live-reporter
           - mcp-server
+          - pytest-reporter
           - all
 
 permissions:
@@ -37,6 +38,7 @@ jobs:
       webdriverio_reporter: ${{ steps.check.outputs.webdriverio_reporter }}
       live_reporter: ${{ steps.check.outputs.live_reporter }}
       mcp_server: ${{ steps.check.outputs.mcp_server }}
+      pytest_reporter: ${{ steps.check.outputs.pytest_reporter }}
     steps:
       - id: check
         env:
@@ -74,6 +76,11 @@ jobs:
           fi
           if [[ "$TAG" == mcp-server@* ]] || [[ "$MANUAL" == "mcp-server" ]] || [[ "$ALL" == "true" ]]; then
             echo "mcp_server=true" >> "$GITHUB_OUTPUT"
+          fi
+          # pytest-reporter is on its own version line (PyPI, not npm) and is
+          # deliberately NOT part of `all` — release it with a pytest-reporter@<version> tag.
+          if [[ "$TAG" == pytest-reporter@* ]] || [[ "$MANUAL" == "pytest-reporter" ]]; then
+            echo "pytest_reporter=true" >> "$GITHUB_OUTPUT"
           fi
 
   publish-core:
@@ -251,3 +258,25 @@ jobs:
         working-directory: packages/flakey-mcp-server
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Python package — publishes to PyPI via Trusted Publishing (OIDC), so there
+  # is no long-lived token secret to manage. One-time PyPI setup is required:
+  # add a "pending publisher" for project `flakey-pytest-reporter` pointing at
+  # repo Absence0760/project-flakey, workflow `publish.yml`, environment `pypi`.
+  # See https://docs.pypi.org/trusted-publishers/adding-a-publisher/
+  publish-pytest-reporter:
+    needs: [detect-package]
+    if: needs.detect-package.outputs.pytest_reporter == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - run: uv build
+        working-directory: packages/flakey-pytest-reporter
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: packages/flakey-pytest-reporter/dist

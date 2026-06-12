@@ -215,7 +215,9 @@ If you spot a candidate fix that fits one of those patterns: stop, surface the u
 
 ## Publish flow
 
-`publish.yml` publishes packages to npm when a GitHub release is published with a matching tag (`<package>@<version>`, e.g. `core@1.2.3`; use `all@<version>` for all packages). To publish: bump the version in the package's `package.json`, merge to `main`, then create a GitHub release with the matching tag.
+`publish.yml` publishes packages when a GitHub release is published with a matching tag (`<package>@<version>`, e.g. `core@1.2.3`; use `all@<version>` for all the **npm** packages). To publish: bump the version in the package's `package.json`, merge to `main`, then create a GitHub release with the matching tag.
+
+The nine `@flakeytesting/*` packages publish to **npm** (auth via the `NPM_TOKEN` secret). The Python `flakey-pytest-reporter` publishes to **PyPI** from the same workflow but is on its **own version line** (`pyproject.toml`, currently `0.1.0`) and is **deliberately excluded from `all@`** — release it with a `pytest-reporter@<version>` tag (or the `pytest-reporter` `workflow_dispatch` choice). It builds with `uv build` and uploads via PyPI **Trusted Publishing (OIDC)** — no token secret. One-time PyPI setup is required before the first publish: add a pending publisher for project `flakey-pytest-reporter` → repo `Absence0760/project-flakey`, workflow `publish.yml`, environment `pypi` (see the comment above the `publish-pytest-reporter` job).
 
 ## If this file is wrong, fix it
 

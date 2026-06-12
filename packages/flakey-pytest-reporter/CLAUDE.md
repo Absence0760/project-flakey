@@ -56,6 +56,18 @@ Cypress/Playwright reporters, it needs **no backend normalizer** (the
 the standard branch/commit/ci-run-id chains and `FLAKEY_RELEASE` / `FLAKEY_ENV`
 — see `README.md` for the table. No key → the plugin no-ops (pytest still runs).
 
+## Publish
+
+Published to **PyPI** (not npm) by the shared `.github/workflows/publish.yml`,
+which builds with `uv build` and uploads via **Trusted Publishing (OIDC)** — no
+token secret. It's on its **own version line** (`pyproject.toml`, currently
+`0.1.0`) and is **not** part of the `all@` npm release: tag it
+`pytest-reporter@<version>` (or use the `pytest-reporter` `workflow_dispatch`
+choice). Bump `version` in `pyproject.toml`, merge to `main`, then publish a
+GitHub release with that tag. **One-time PyPI setup** before the first publish:
+add a pending publisher for project `flakey-pytest-reporter` → repo
+`Absence0760/project-flakey`, workflow `publish.yml`, environment `pypi`.
+
 ## Scope
 
 Results upload only in v0.1. Live events (`/live`) + artifact upload are
