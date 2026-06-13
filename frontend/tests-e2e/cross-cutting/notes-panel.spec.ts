@@ -107,12 +107,21 @@ test.describe("NotesPanel — XSS safety of the {@html} sink", () => {
     await expect(noteBody.locator("script")).toHaveCount(0);
     await expect(noteBody.locator("img")).toHaveCount(0);
 
-    // If any anchor survived (DOMPurify keeps <a>), its href must not be
-    // a javascript: URL — the dangerous scheme is stripped/neutralised.
+    // If any anchor survived (DOMPurify keeps <a>), its href must not use a
+    // script-executing scheme — javascript:, but also data: and vbscript:,
+    // which are equally dangerous and which a javascript:-only check would
+    // miss (CodeQL js/incomplete-url-scheme-check). Normalise leading/embedded
+    // whitespace first, since `java\tscript:` parses as a live scheme.
     const anchors = noteBody.locator("a");
     for (let i = 0; i < (await anchors.count()); i++) {
       const href = (await anchors.nth(i).getAttribute("href")) ?? "";
-      expect(href.toLowerCase().startsWith("javascript:")).toBe(false);
+      const scheme = href.replace(/[\s\u0000-\u001f]+/g, "").toLowerCase();
+      expect(
+        scheme.startsWith("javascript:") ||
+          scheme.startsWith("data:") ||
+          scheme.startsWith("vbscript:"),
+        "anchor href must not use a script-executing URL scheme",
+      ).toBe(false);
     }
 
     // The escaped markup is shown as visible text, proving it was
