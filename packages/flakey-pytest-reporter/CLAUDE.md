@@ -66,7 +66,9 @@ token secret. It's on its **own version line** (`pyproject.toml`, currently
 choice). Bump `version` in `pyproject.toml`, merge to `main`, then publish a
 GitHub release with that tag. **One-time PyPI setup** before the first publish:
 add a pending publisher for project `flakey-pytest-reporter` → repo
-`Absence0760/project-flakey`, workflow `publish.yml`, environment `pypi`.
+`Absence0760/project-flakey`, workflow `publish.yml`, environment `production`
+(the same GitHub Environment the npm publish jobs use — its required-reviewer
+rule gates the PyPI publish too).
 
 ## Scope
 

@@ -87,6 +87,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.core == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -105,6 +106,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.cli == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -125,6 +127,7 @@ jobs:
       needs.detect-package.outputs.cypress_reporter == 'true' &&
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -145,6 +148,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.cypress_snapshots == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -165,6 +169,7 @@ jobs:
       needs.detect-package.outputs.playwright_reporter == 'true' &&
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -187,6 +192,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.playwright_snapshots == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -207,6 +213,7 @@ jobs:
       needs.detect-package.outputs.webdriverio_reporter == 'true' &&
       (needs.publish-core.result == 'success' || needs.publish-core.result == 'skipped')
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -227,6 +234,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.live_reporter == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -245,6 +253,7 @@ jobs:
     needs: [detect-package]
     if: needs.detect-package.outputs.mcp_server == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
@@ -262,13 +271,14 @@ jobs:
   # Python package — publishes to PyPI via Trusted Publishing (OIDC), so there
   # is no long-lived token secret to manage. One-time PyPI setup is required:
   # add a "pending publisher" for project `flakey-pytest-reporter` pointing at
-  # repo Absence0760/project-flakey, workflow `publish.yml`, environment `pypi`.
-  # See https://docs.pypi.org/trusted-publishers/adding-a-publisher/
+  # repo Absence0760/project-flakey, workflow `publish.yml`, environment
+  # `production` (the same environment the npm jobs use). See
+  # https://docs.pypi.org/trusted-publishers/adding-a-publisher/
   publish-pytest-reporter:
     needs: [detect-package]
     if: needs.detect-package.outputs.pytest_reporter == 'true'
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: production
     permissions:
       contents: read
       id-token: write # required for PyPI Trusted Publishing (OIDC)
