@@ -24,21 +24,27 @@ test.describe("/flaky — search", () => {
   });
 
   test("search narrows the table, syncs ?q=, and shows the 'showing N of M' summary", async ({ page }) => {
-    const total = await page.locator("tr.flaky-row").count();
+    // `total` is the app's reported flaky count (the summary's "of M" =
+    // tests.length), NOT the number of *rendered* rows. The table paginates at
+    // PAGE_SIZE=50, so once the seed yields >50 flaky tests the DOM row count
+    // caps below the true total — counting tr.flaky-row would understate it.
+    const summary = page.locator(".filter-summary");
+    await expect(summary).toBeVisible();
+    const total = Number(((await summary.textContent()) ?? "").match(/of\s+(\d+)/)?.[1]);
+    expect(total).toBeGreaterThan(0);
 
     const firstTitle = (await page.locator("tr.flaky-row .test-title").first().textContent())?.trim() ?? "";
     const token = firstTitle.split(/\s+/).find((w) => w.length >= 4) ?? firstTitle.slice(0, 4);
 
     await page.locator(".search-box input, input[placeholder='Search tests...']").fill(token);
 
-    const summary = page.locator(".filter-summary");
-    await expect(summary).toBeVisible();
+    // The denominator stays the full total; the numerator narrows to the matches.
     await expect(summary).toContainText(`of ${total}`);
     expect(page.url()).toContain(`q=${encodeURIComponent(token)}`);
 
-    const shown = await page.locator("tr.flaky-row").count();
-    expect(shown).toBeGreaterThan(0);
-    expect(shown).toBeLessThanOrEqual(total);
+    const matched = Number(((await summary.textContent()) ?? "").match(/showing\s+(\d+)/)?.[1]);
+    expect(matched).toBeGreaterThan(0);
+    expect(matched).toBeLessThanOrEqual(total);
   });
 
   test("a non-matching search shows the filtered-empty state", async ({ page }) => {
