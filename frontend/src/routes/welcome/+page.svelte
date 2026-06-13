@@ -41,8 +41,20 @@
 	function go(path: string) {
 		return (event: MouseEvent) => {
 			event.preventDefault();
+			menuOpen = false;
 			goto(path);
 		};
+	}
+
+	// Mobile section-nav disclosure. At ≤720px the inline nav links are
+	// hidden; this drives a hamburger menu so small-screen visitors keep
+	// access to Features / Compare / How-it-works / Self-host.
+	let menuOpen = $state(false);
+
+	function onWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && menuOpen) {
+			menuOpen = false;
+		}
 	}
 
 	// "Show the register CTA?" — true unless we've explicitly heard
@@ -183,7 +195,32 @@
 		name="description"
 		content="Self-hosted test reporting dashboard. Ingests results from Cypress, Playwright, WebdriverIO, Selenium, Jest, and JUnit. Flaky detection, live streaming, manual-test sign-off, and release readiness in one tool. MIT-licensed."
 	/>
+
+	<!-- Open Graph (Facebook, LinkedIn, Slack, Discord, …) -->
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Flakey" />
+	<meta property="og:title" content="Flakey — self-hosted, CI-agnostic test reporting" />
+	<meta
+		property="og:description"
+		content="Ingest results from any reporter. See flaky tests, regressions, and release readiness in one self-hosted dashboard. No SaaS lock-in, no per-test-result pricing. MIT-licensed."
+	/>
+	<meta property="og:image" content="/og-card.png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Flakey — self-hosted, CI-agnostic test reporting dashboard" />
+
+	<!-- Twitter / X large-summary card -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Flakey — self-hosted, CI-agnostic test reporting" />
+	<meta
+		name="twitter:description"
+		content="Ingest results from any reporter. Flaky detection, live streaming, manual-test sign-off, and release readiness in one self-hosted, MIT-licensed dashboard."
+	/>
+	<meta name="twitter:image" content="/og-card.png" />
+	<meta name="twitter:image:alt" content="Flakey — self-hosted, CI-agnostic test reporting dashboard" />
 </svelte:head>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 {#if ready}
 	<div class="page">
@@ -211,7 +248,43 @@
 				<a href="https://github.com/Absence0760/project-flakey#self-host" rel="noopener" target="_blank">Self-host ↗</a>
 				<a href="/login" class="topnav-cta" onclick={go('/login')}>Sign in →</a>
 			</nav>
+
+			<button
+				type="button"
+				class="nav-toggle"
+				aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+				aria-expanded={menuOpen}
+				aria-controls="mobile-nav"
+				onclick={() => (menuOpen = !menuOpen)}
+			>
+				{#if menuOpen}
+					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+						<path d="M6 6l12 12M18 6L6 18" />
+					</svg>
+				{:else}
+					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+						<path d="M4 7h16M4 12h16M4 17h16" />
+					</svg>
+				{/if}
+			</button>
 		</header>
+
+		{#if menuOpen}
+			<nav id="mobile-nav" class="mobile-nav">
+				<a href="#features" onclick={() => (menuOpen = false)}>Features</a>
+				<a href="#compare" onclick={() => (menuOpen = false)}>Compare</a>
+				<a href="#how-it-works" onclick={() => (menuOpen = false)}>How it works</a>
+				<a
+					href="https://github.com/Absence0760/project-flakey#self-host"
+					rel="noopener"
+					target="_blank"
+					onclick={() => (menuOpen = false)}
+				>
+					Self-host ↗
+				</a>
+				<a href="/login" class="mobile-nav-cta" onclick={go('/login')}>Sign in →</a>
+			</nav>
+		{/if}
 
 		<section class="hero">
 			<div class="hero-inner">
@@ -222,9 +295,11 @@
 					No SaaS lock-in, no per-test-result pricing — your test data stays in your network.
 				</p>
 				<div class="hero-cta">
-					<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{#if showRegister}
-						<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+						<a href="/login?mode=register" class="btn primary" onclick={go('/login?mode=register')}>Create an account</a>
+						<a href="/login" class="btn ghost" onclick={go('/login')}>Sign in</a>
+					{:else}
+						<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{/if}
 					<a
 						href="https://github.com/Absence0760/project-flakey#self-host"
@@ -253,38 +328,97 @@
 					<span>Works with <strong>Cypress</strong>, <strong>Playwright</strong>, <strong>WebdriverIO</strong>, <strong>Selenium</strong>, <strong>Jest</strong>, <strong>JUnit</strong>, <strong>Postman</strong>.</span>
 				</div>
 			</div>
+
+			<!-- CSS-only product-preview placeholder. A real dashboard
+			     screenshot should replace this framed mock before launch. -->
+			<div class="hero-preview" aria-hidden="true">
+				<div class="preview-frame">
+					<div class="preview-chrome">
+						<span class="preview-dot"></span>
+						<span class="preview-dot"></span>
+						<span class="preview-dot"></span>
+						<span class="preview-url">flakey · runs</span>
+					</div>
+					<div class="preview-body">
+						<div class="preview-stats">
+							<div class="preview-stat pass"><span class="preview-stat-num">1,284</span><span class="preview-stat-label">passed</span></div>
+							<div class="preview-stat fail"><span class="preview-stat-num">7</span><span class="preview-stat-label">failed</span></div>
+							<div class="preview-stat skip"><span class="preview-stat-num">12</span><span class="preview-stat-label">flaky</span></div>
+						</div>
+						<div class="preview-rows">
+							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 96%"></span></div>
+							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 82%"></span></div>
+							<div class="preview-row"><span class="preview-state fail"></span><span class="preview-bar" style="width: 67%"></span></div>
+							<div class="preview-row"><span class="preview-state skip"></span><span class="preview-bar" style="width: 74%"></span></div>
+							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 90%"></span></div>
+							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 58%"></span></div>
+						</div>
+					</div>
+				</div>
+				<span class="preview-caption">Illustrative preview</span>
+			</div>
 		</section>
 
 		<section id="features" class="features">
 			<h2 class="section-heading">What you get</h2>
 			<div class="feature-grid">
 				<article class="feature-card">
-					<div class="feature-icon">▶</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="4" width="18" height="14" rx="2" />
+							<path d="M3 9h18M7 13l2 2-2 2M12 17h4" />
+						</svg>
+					</div>
 					<h3>Multi-framework reporters</h3>
 					<p>One backend, seven first-class reporter packages. Drop a single config block into your existing CI — no migrating off your test runner.</p>
 				</article>
 				<article class="feature-card">
-					<div class="feature-icon">⚡</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5z" />
+						</svg>
+					</div>
 					<h3>Flaky-test detection</h3>
 					<p>Automatic classification of tests that alternate pass/fail across runs. One-click quarantine pulls them out of your green-build calculation until they're fixed.</p>
 				</article>
 				<article class="feature-card">
-					<div class="feature-icon">◷</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="9" />
+							<path d="M12 7v5l3.5 2" />
+						</svg>
+					</div>
 					<h3>Live run streaming</h3>
 					<p>SSE-based per-test events let you watch a long suite progress as it runs on CI. No waiting for the suite to finish to see the first failure.</p>
 				</article>
 				<article class="feature-card">
-					<div class="feature-icon">⬢</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M9 11l3 3 5-6" />
+							<path d="M21 12a9 9 0 1 1-5-8.05" />
+						</svg>
+					</div>
 					<h3>Release sign-off + manual tests</h3>
 					<p>Release checklists, manual test sessions, evidence attachments, and the automated suite share one project. Manual and automated track the same release together.</p>
 				</article>
 				<article class="feature-card">
-					<div class="feature-icon">✗</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" />
+							<path d="M18 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" />
+						</svg>
+					</div>
 					<h3>Error grouping + AI explain</h3>
 					<p>Failures grouped by error fingerprint. Optional LLM (OpenAI / Anthropic / local Ollama) explains likely root cause and surfaces related failures across runs.</p>
 				</article>
 				<article class="feature-card">
-					<div class="feature-icon">⚙</div>
+					<div class="feature-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="4" width="18" height="7" rx="1.5" />
+							<rect x="3" y="13" width="18" height="7" rx="1.5" />
+							<path d="M7 7.5h.01M7 16.5h.01" />
+						</svg>
+					</div>
 					<h3>Self-hosted on your terms</h3>
 					<p>Docker compose for local dev, Terraform stacks for AWS ECS Fargate. RLS-enforced multi-tenancy at the database layer. No data leaves your account.</p>
 				</article>
@@ -318,8 +452,21 @@
 								{#each ['flakey', 'cypressCloud', 'browserstack', 'currents', 'testrail'] as key}
 									{@const cell = feature.cells[key as keyof typeof feature.cells]}
 									<td class="cell {cell.kind}" class:flakey-cell={key === 'flakey'}>
-										<span class="cell-mark" aria-label={cell.kind}>
-											{cell.kind === 'yes' ? '✓' : cell.kind === 'partial' ? '◐' : '—'}
+										<span class="cell-mark" role="img" aria-label={cell.kind}>
+											{#if cell.kind === 'yes'}
+												<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+													<path d="M3 8.5l3.5 3.5L13 4.5" />
+												</svg>
+											{:else if cell.kind === 'partial'}
+												<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+													<circle cx="8" cy="8" r="6" />
+													<path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
+												</svg>
+											{:else}
+												<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+													<path d="M4 8h8" />
+												</svg>
+											{/if}
 										</span>
 										{#if cell.note}<span class="cell-note">{cell.note}</span>{/if}
 									</td>
@@ -371,9 +518,11 @@
 					<p>Sign in if you've already been invited. New users need an invite from an existing admin on this instance.</p>
 				{/if}
 				<div class="cta-buttons">
-					<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{#if showRegister}
-						<a href="/login?mode=register" class="btn ghost" onclick={go('/login?mode=register')}>Create an account</a>
+						<a href="/login?mode=register" class="btn primary" onclick={go('/login?mode=register')}>Create an account</a>
+						<a href="/login" class="btn ghost" onclick={go('/login')}>Sign in</a>
+					{:else}
+						<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{/if}
 					<a href="https://github.com/Absence0760/project-flakey" rel="noopener" target="_blank" class="btn ghost">
 						GitHub <span class="external-arrow">↗</span>
@@ -462,15 +611,83 @@
 		filter: brightness(1.08);
 	}
 
+	/* ── Mobile nav ────────────────────────────────────────────── */
+	.nav-toggle {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		padding: 0;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+		color: var(--text);
+		cursor: pointer;
+		transition: background 0.1s, border-color 0.1s;
+	}
+
+	.nav-toggle:hover {
+		background: var(--bg-hover);
+		border-color: var(--link);
+	}
+
+	.nav-toggle:focus-visible {
+		outline: 2px solid var(--link);
+		outline-offset: 2px;
+	}
+
+	.mobile-nav {
+		display: none;
+		flex-direction: column;
+		gap: 0.25rem;
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 0.5rem 1.5rem 1rem;
+		border-bottom: 1px solid var(--border-light);
+	}
+
+	.mobile-nav a {
+		padding: 0.7rem 0.75rem;
+		border-radius: 8px;
+		color: var(--text-secondary);
+		text-decoration: none;
+		font-size: 0.98rem;
+		transition: background 0.1s, color 0.1s;
+	}
+
+	.mobile-nav a:hover {
+		background: var(--bg-secondary);
+		color: var(--text);
+	}
+
+	.mobile-nav-cta {
+		margin-top: 0.35rem;
+		background: var(--link);
+		color: #fff !important;
+		font-weight: 600;
+		text-align: center;
+	}
+
+	.mobile-nav-cta:hover {
+		background: var(--link);
+		filter: brightness(1.08);
+		color: #fff !important;
+	}
+
 	/* ── Hero ──────────────────────────────────────────────────── */
 	.hero {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 5rem 1.5rem 4rem;
+		padding: 5rem 1.5rem 4.5rem;
+		display: grid;
+		grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+		align-items: center;
+		gap: 3rem;
 	}
 
 	.hero-inner {
-		max-width: 760px;
+		max-width: 640px;
 	}
 
 	.eyebrow {
@@ -584,6 +801,135 @@
 		font-weight: 600;
 	}
 
+	/* ── Hero product preview (CSS-only placeholder) ───────────── */
+	.hero-preview {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.preview-frame {
+		width: 100%;
+		border: 1px solid var(--border);
+		border-radius: 14px;
+		background: var(--bg-secondary);
+		overflow: hidden;
+		box-shadow: 0 18px 48px -28px color-mix(in srgb, var(--link) 55%, transparent),
+			0 1px 0 var(--border-light);
+	}
+
+	.preview-chrome {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.6rem 0.85rem;
+		border-bottom: 1px solid var(--border-light);
+		background: var(--bg);
+	}
+
+	.preview-dot {
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: var(--border);
+	}
+
+	.preview-url {
+		margin-left: 0.6rem;
+		font-size: 0.74rem;
+		color: var(--text-muted);
+		font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	}
+
+	.preview-body {
+		padding: 1rem;
+	}
+
+	.preview-stats {
+		display: flex;
+		gap: 0.6rem;
+		margin-bottom: 1rem;
+	}
+
+	.preview-stat {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.6rem 0.7rem;
+		border-radius: 9px;
+		border: 1px solid var(--border-light);
+		background: var(--bg);
+	}
+
+	.preview-stat-num {
+		font-size: 1.15rem;
+		font-weight: 700;
+		line-height: 1;
+	}
+
+	.preview-stat-label {
+		font-size: 0.66rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+
+	.preview-stat.pass .preview-stat-num {
+		color: var(--color-pass);
+	}
+
+	.preview-stat.fail .preview-stat-num {
+		color: var(--color-fail);
+	}
+
+	.preview-stat.skip .preview-stat-num {
+		color: var(--color-skip);
+	}
+
+	.preview-rows {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.preview-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.preview-state {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.preview-state.pass {
+		background: var(--color-pass);
+	}
+
+	.preview-state.fail {
+		background: var(--color-fail);
+	}
+
+	.preview-state.skip {
+		background: var(--color-skip);
+	}
+
+	.preview-bar {
+		height: 8px;
+		border-radius: 999px;
+		background: linear-gradient(90deg, color-mix(in srgb, var(--link) 45%, transparent), color-mix(in srgb, var(--link) 12%, transparent));
+	}
+
+	.preview-caption {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+	}
+
 	/* ── Section primitives ────────────────────────────────────── */
 	.section-heading {
 		font-size: 1.85rem;
@@ -632,13 +978,17 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 2.2rem;
-		height: 2.2rem;
-		border-radius: 8px;
+		width: 2.4rem;
+		height: 2.4rem;
+		border-radius: 9px;
 		background: color-mix(in srgb, var(--link) 12%, transparent);
 		color: var(--link);
-		font-size: 1.05rem;
-		margin-bottom: 0.85rem;
+		margin-bottom: 0.95rem;
+	}
+
+	.feature-icon svg {
+		width: 1.35rem;
+		height: 1.35rem;
 	}
 
 	.feature-card h3 {
@@ -740,11 +1090,15 @@
 	}
 
 	.cell-mark {
-		display: inline-block;
-		font-size: 1.05rem;
-		font-weight: 700;
-		line-height: 1;
-		margin-bottom: 0.3rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 0.35rem;
+	}
+
+	.cell-mark svg {
+		width: 1.05rem;
+		height: 1.05rem;
 	}
 
 	.cell.yes .cell-mark {
@@ -900,13 +1254,43 @@
 	}
 
 	/* ── Responsive ────────────────────────────────────────────── */
+	/* Below the hero-grid breakpoint, drop the product preview to a
+	   single column so the copy gets full width. */
+	@media (max-width: 900px) {
+		.hero {
+			grid-template-columns: 1fr;
+			gap: 2.25rem;
+			padding: 4rem 1.5rem 3.5rem;
+		}
+
+		.hero-inner {
+			max-width: 720px;
+		}
+
+		.hero-preview {
+			max-width: 480px;
+		}
+	}
+
 	@media (max-width: 720px) {
-		.topnav a:not(.topnav-cta) {
+		.topnav {
 			display: none;
 		}
 
+		.nav-toggle {
+			display: inline-flex;
+		}
+
+		.mobile-nav {
+			display: flex;
+		}
+
 		.hero {
-			padding: 3rem 1.5rem 3rem;
+			padding: 2.5rem 1.5rem 3rem;
+		}
+
+		.hero-preview {
+			display: none;
 		}
 
 		.footer-inner {
