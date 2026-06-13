@@ -42,6 +42,7 @@ jobs:
     needs: [check-tag]
     if: needs.check-tag.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -126,6 +127,7 @@ jobs:
     needs: [check-tag, deploy-backend]
     if: needs.check-tag.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 

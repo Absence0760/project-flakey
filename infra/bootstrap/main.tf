@@ -41,11 +41,10 @@ variable "environment" {
 # branch). Anything else — fork PRs, branch pushes, scheduled runs
 # from feature branches — is denied at the trust level.
 variable "github_deploy_subjects" {
-  description = "List of token.actions.githubusercontent.com:sub patterns the deploy role accepts. Tightens OIDC trust from `repo:*:*` (any ref) to a deploy-only allow-list."
+  description = "List of token.actions.githubusercontent.com:sub patterns the deploy role accepts. Tightens OIDC trust from `repo:*:*` (any ref) to a deploy-only allow-list. deploy.yml's jobs run in the `production` GitHub Environment, so GitHub mints the OIDC token with sub `repo:<repo>:environment:production` (not a `ref:` sub) — the allow-list matches that and nothing else."
   type        = list(string)
   default = [
-    "ref:refs/heads/main",
-    "ref:refs/tags/*",
+    "environment:production",
   ]
 }
 
@@ -197,11 +196,14 @@ resource "aws_iam_role" "github_actions" {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
-        # Tighten OIDC trust to deploy-allowed refs only (default:
-        # main + tags/*). Earlier `repo:${github_repo}:*` allowed any
-        # branch / fork-PR / pull_request_target workflow to assume
-        # the role. Override `github_deploy_subjects` if a second env
-        # ever needs its own ref pattern.
+        # Tighten OIDC trust to the deploy environment only (default:
+        # environment:production). Earlier `repo:${github_repo}:*` allowed
+        # any branch / fork-PR / pull_request_target workflow to assume the
+        # role; a `ref:`-based list still allowed any pushed tag. Because
+        # deploy.yml's jobs declare `environment: production`, GitHub sets the
+        # token sub to `repo:<repo>:environment:production`, so that's the only
+        # subject we trust. Override `github_deploy_subjects` if a second
+        # environment ever needs deploy access.
         StringLike = {
           "token.actions.githubusercontent.com:sub" = [
             for s in var.github_deploy_subjects : "repo:${var.github_repo}:${s}"

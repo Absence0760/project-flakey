@@ -103,6 +103,32 @@ Add these to your GitHub repository (Settings > Secrets > Actions):
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront ID | `terraform output cloudfront_distribution_id` |
 | `NPM_TOKEN` | npm access token | https://www.npmjs.com/settings/tokens (only if publishing packages) |
 
+#### Required: the `production` GitHub Environment
+
+Both `deploy.yml` (backend + frontend) and `publish.yml` (npm + PyPI) run their
+deploy/publish jobs in a GitHub **Environment** named `production` (Settings >
+Environments). Create it and use it to:
+
+- **Scope the deploy/publish secrets** — `AWS_ROLE_ARN`, `API_URL`,
+  `FRONTEND_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`, and `NPM_TOKEN` can live as
+  **environment** secrets so only the gated jobs can read them (environment
+  jobs still fall back to repo-level secrets, so moving them is optional but
+  tighter).
+- **Require approval** — add a *Required reviewers* protection rule so every
+  deploy and every package publish waits in *pending* until an operator clicks
+  *Approve* in the Actions UI. A release fires the workflow; nothing reaches AWS,
+  npm, or PyPI until a human approves.
+
+> **OIDC trust is pinned to this environment.** Because the deploy jobs declare
+> `environment: production`, GitHub mints the AWS OIDC token with subject
+> `repo:<org>/<repo>:environment:production` instead of a `ref:` subject. The
+> bootstrap role's trust policy (`github_deploy_subjects`) is set to match.
+> **If you gated an already-deployed stack, you must re-apply the bootstrap
+> stack** (`cd infra/bootstrap && terraform apply`) so the trust policy accepts
+> the new subject — otherwise the next deploy fails `sts:AssumeRoleWithWebIdentity`.
+> The PyPI trusted-publisher config must likewise reference environment
+> `production` (see `publish.yml`).
+
 #### Optional: repository variables for a non-default `app_name`
 
 `deploy.yml` targets resources whose names derive from `app_name`. The defaults
