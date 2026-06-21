@@ -717,6 +717,20 @@ components:
         status: { $ref: "#/components/schemas/ErrorStatus" }
         assigned_to: { type: [integer, "null"] }
         assigned_to_email: { type: [string, "null"] }
+        target_date: { type: [string, "null"], description: "YYYY-MM-DD due date (Phase 15.1), or null." }
+        priority:
+          type: [string, "null"]
+          enum: [low, medium, high, critical, null]
+          description: "Triage priority (Phase 15.1/15.2). Always populated on the response — a human value or a read-time derived default; see priority_source."
+        priority_source:
+          type: string
+          enum: [manual, derived]
+          description: "Whether `priority` is a human decision ('manual') or a read-time derived default ('derived', never stored)."
+        recurrence_count: { type: integer, description: "How many times a `fixed` group came back (Phase 15.2 ingest recurrence hook)." }
+        last_recurred_at: { type: [string, "null"], format: date-time }
+        quarantine_suggested:
+          type: boolean
+          description: "Read-side SUGGESTION (never an action): a member test is flaky above the threshold and not already quarantined, so the triage view offers a 'Quarantine?' hint a human confirms (Phase 15.3). The server never auto-mutes."
         note_count: { type: integer }
 
     AffectedTest:

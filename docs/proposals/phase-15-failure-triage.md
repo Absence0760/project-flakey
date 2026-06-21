@@ -283,9 +283,15 @@ behavior → backend smoke; recurrence via the Phase-13 replay CLI. No phase is
       overwrites a human value); the response carries `priority_source`
       (`'manual'|'derived'`) and the `/errors` page renders a derived value
       distinctly. Unit: `error_automation.unit.test.ts`.
-- [ ] **15.3** Quarantines support `expires_at`, expire on the nightly sweep, link
+- [x] **15.3** Quarantines support `expires_at`, expire on the nightly sweep, link
       to a fingerprint, and surface "expiring/no-expiry" in the triage view; flaky
       signal *suggests* (never auto-applies) quarantine.
+      (Migration `069`; `expires_at`/`error_fingerprint` validated on `POST
+      /quarantine` and surfaced on GET; `expireQuarantines` in `src/retention.ts`
+      writes a `quarantine.expired` audit row per lifted test; pure
+      `isQuarantineExpired`/`shouldSuggestQuarantine` in `src/quarantine-lifecycle.ts`;
+      read-side `quarantine_suggested` on `GET /errors` renders a "Quarantine?" chip;
+      `quarantineDisplay` renders "expiring in N days"/"no expiry" on the flaky page.)
 - [ ] **15.4** Manual/auto fix transitions and regressions reflect onto the linked
       Jira issue; an HMAC-verified inbound webhook reflects Jira-close back; CISO
       sign-off recorded before 15.4 lands.
