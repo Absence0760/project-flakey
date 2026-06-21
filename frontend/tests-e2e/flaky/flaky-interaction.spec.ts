@@ -101,6 +101,62 @@ test.describe("/flaky — ?expanded deep-link", () => {
     await expect(page.locator("tr.flaky-detail-row")).toHaveCount(1, { timeout: 5_000 });
   });
 
+  test("re-sorting keeps the open panel on the SAME test (no positional-index drift)", async ({ page }) => {
+    // Regression: the open detail panel used to be tracked by its positional
+    // index into the filtered+sorted list. Re-sorting reorders that list while
+    // the index stayed put, so the panel silently jumped to whatever test
+    // landed at the old index. It's now keyed by the stable full_title|suite,
+    // so the open panel must follow its test across a re-sort.
+    await page.goto("/flaky");
+    await expect(page.locator("tr.flaky-row").first()).toBeVisible({ timeout: 10_000 });
+
+    // Open a row that is NOT first under the default sort, so a re-sort is
+    // very likely to move it to a different index. Row index 2 (3rd row).
+    const targetRow = page.locator("tr.flaky-row").nth(2);
+    const openedTitle = (await targetRow.locator(".test-title").textContent())?.trim() ?? "";
+    expect(openedTitle).not.toBe("");
+
+    await targetRow.click();
+    await expect(page.locator("tr.flaky-detail-row")).toHaveCount(1);
+    const keyBefore = new URL(page.url()).searchParams.get("expanded");
+    expect(keyBefore).toBeTruthy();
+
+    // Re-sort by a different column — the list reorders.
+    await page.locator(".sort-bar .filter-tab", { hasText: "Last seen" }).click();
+    await expect(page).toHaveURL(/sort=last_seen/);
+
+    // Exactly one panel is open, and it still belongs to the SAME test —
+    // not whatever row now sits at the old index 2. The ?expanded key is
+    // unchanged too.
+    await expect(page.locator("tr.flaky-detail-row")).toHaveCount(1);
+    const expandedRow = page.locator("tr.flaky-row.expanded");
+    await expect(expandedRow).toHaveCount(1);
+    await expect(expandedRow.locator(".test-title")).toHaveText(openedTitle);
+    expect(new URL(page.url()).searchParams.get("expanded")).toBe(keyBefore);
+  });
+
+  test("filtering out the open test collapses its panel cleanly", async ({ page }) => {
+    // With index-based tracking, narrowing the list so the open test is gone
+    // left the index pointing at an unrelated surviving row (or out of range).
+    // Keyed tracking means the panel just disappears when its test is filtered
+    // out — no panel attaches to a different test.
+    await page.goto("/flaky");
+    await expect(page.locator("tr.flaky-row").first()).toBeVisible({ timeout: 10_000 });
+
+    const firstRow = page.locator("tr.flaky-row").first();
+    const openedTitle = (await firstRow.locator(".test-title").textContent())?.trim() ?? "";
+    await firstRow.click();
+    await expect(page.locator("tr.flaky-detail-row")).toHaveCount(1);
+
+    // Search for something that cannot match the opened test, narrowing the
+    // list. The opened panel must not survive attached to a surviving row.
+    await page.locator("input[placeholder='Search tests...']").fill("zzz-no-such-flaky-test-qqq");
+    await expect(page.locator("tr.flaky-row")).toHaveCount(0);
+    await expect(page.locator("tr.flaky-detail-row")).toHaveCount(0);
+    // Sanity: the title we opened is genuinely not the search token.
+    expect(openedTitle.toLowerCase()).not.toContain("zzz-no-such-flaky-test-qqq");
+  });
+
   test("closing a row clears ?expanded= from the URL", async ({ page }) => {
     await page.goto("/flaky");
     const firstRow = page.locator("tr.flaky-row").first();

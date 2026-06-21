@@ -49,10 +49,17 @@
   }
   let mounted = $state(false);
   $effect(() => { selectedSuite; sortBy; runWindow; searchQuery; if (mounted) syncUrl(); });
-  let expandedIndex = $state<number | null>(null);
+  // The open detail panel is tracked by its STABLE row key (`full_title|suite`),
+  // not a positional index into the filtered+sorted list. A positional index
+  // goes stale the moment the user re-sorts, filters, or searches — `sorted`
+  // reorders/shrinks while the index stays put, so the panel would attach to a
+  // different test (or an out-of-range row). Keying by qKey() makes the open
+  // panel follow its test across reorders and collapse cleanly when the test is
+  // filtered out.
+  let expandedKey = $state<string | null>(null);
   // ?expanded=<full_title>|<suite_name> deep-links an open detail panel. The
-  // matching row index depends on the async-loaded, filtered+sorted list, so
-  // we stash the key from the URL and resolve it to an index once data lands.
+  // key is stable, so we stash it from the URL and apply it once data lands
+  // (only to page the matching row into view).
   let pendingExpandKey = $state<string | null>(null);
 
   // Filter (search) runs before sorting. Search matches title and
@@ -113,7 +120,7 @@
     const idx = sorted.findIndex((t) => qKey(t) === pendingExpandKey);
     if (idx !== -1) {
       if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
-      expandedIndex = idx;
+      expandedKey = pendingExpandKey;
     }
     pendingExpandKey = null;
   });
@@ -154,14 +161,14 @@
   // top, and the restored visibleCount could be reset by the filter-reset
   // effect above. We stash the snapshot and apply it once data is in — from
   // whichever of restore()/onMount runs last, so it's order-independent.
-  type FlakySnapshot = { visibleCount: number; expandedIndex: number | null; scrollY: number };
+  type FlakySnapshot = { visibleCount: number; expandedKey: string | null; scrollY: number };
   let pendingRestore: FlakySnapshot | null = null;
   function applyRestore() {
     if (!pendingRestore) return;
     const s = pendingRestore;
     pendingRestore = null;
     visibleCount = s.visibleCount;
-    expandedIndex = s.expandedIndex;
+    expandedKey = s.expandedKey;
     // Wait for the rows to render (tick = Svelte flush, rAF = browser layout)
     // before restoring scroll, or the page is too short and scrollTo clamps.
     tick().then(() => requestAnimationFrame(() =>
@@ -172,7 +179,7 @@
   export const snapshot = {
     capture: (): FlakySnapshot => ({
       visibleCount,
-      expandedIndex,
+      expandedKey,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
     restore: (s: FlakySnapshot) => {
@@ -250,9 +257,10 @@
     replaceState(url, {});
   }
 
-  function expandRow(test: FlakyTest, i: number) {
-    expandedIndex = expandedIndex === i ? null : i;
-    setExpandedParam(expandedIndex === null ? null : qKey(test));
+  function expandRow(test: FlakyTest) {
+    const key = qKey(test);
+    expandedKey = expandedKey === key ? null : key;
+    setExpandedParam(expandedKey);
   }
 
   function scrollToTest(fullTitle: string, suiteName: string) {
@@ -261,7 +269,7 @@
     if (idx === -1) return;
     // Make sure the row is paginated in.
     if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
-    expandedIndex = idx;
+    expandedKey = key;
     setExpandedParam(key);
     setTimeout(() => {
       const row = document.querySelectorAll("tr.flaky-row")[idx] as HTMLElement | undefined;
@@ -416,16 +424,16 @@
           </tr>
         </thead>
         <tbody>
-          {#each visibleSorted as test, i}
+          {#each visibleSorted as test (qKey(test))}
             <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role:
                  same row-as-button pattern used on /manual-tests + runs list. -->
             <tr
               role="button"
               tabindex="0"
               class="flaky-row"
-              class:expanded={expandedIndex === i}
+              class:expanded={expandedKey === qKey(test)}
               class:quarantined-row={quarantined.has(qKey(test))}
-              onclick={() => expandRow(test, i)}
+              onclick={() => expandRow(test)}
               onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
             >
               <td class="col-test">
@@ -459,7 +467,7 @@
               </td>
               <td class="col-last" title={absoluteDate(test.last_seen)}>{timeAgo(test.last_seen)}</td>
             </tr>
-            {#if expandedIndex === i}
+            {#if expandedKey === qKey(test)}
               <tr class="flaky-detail-row">
                 <td colspan="7" class="flaky-detail">
                   <div class="detail-actions">

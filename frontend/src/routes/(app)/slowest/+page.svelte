@@ -30,7 +30,13 @@
   }
   let mounted = $state(false);
   $effect(() => { selectedSuite; sortBy; searchQuery; if (mounted) syncUrl(); });
-  let expandedIndex = $state<number | null>(null);
+  // The open detail card is tracked by its STABLE row key (`title|suite`),
+  // not a positional index into the filtered+sorted list. A positional index
+  // goes stale on every re-sort / suite-filter / search — `sorted` reorders or
+  // shrinks while the index stays put, so the open card would attach to a
+  // different test (or out of range). Keying by rowKey() makes the open card
+  // follow its test and collapse cleanly when the test is filtered out.
+  let expandedKey = $state<string | null>(null);
 
   // Search filters by title, file path, and suite — the readable strings
   // on a row. Applied before sort so search results stay correctly ranked.
@@ -124,14 +130,14 @@
   // (the fetch is in flight), so scrollTo would clamp to the top and the
   // restored visibleCount could be reset by the filter-reset effect. Stash the
   // snapshot and apply it from whichever of restore()/onMount runs last.
-  type SlowestSnapshot = { visibleCount: number; expandedIndex: number | null; scrollY: number };
+  type SlowestSnapshot = { visibleCount: number; expandedKey: string | null; scrollY: number };
   let pendingRestore: SlowestSnapshot | null = null;
   function applyRestore() {
     if (!pendingRestore) return;
     const s = pendingRestore;
     pendingRestore = null;
     visibleCount = s.visibleCount;
-    expandedIndex = s.expandedIndex;
+    expandedKey = s.expandedKey;
     tick().then(() => requestAnimationFrame(() =>
       window.scrollTo({ top: s.scrollY, behavior: "instant" as ScrollBehavior })
     ));
@@ -140,7 +146,7 @@
   export const snapshot = {
     capture: (): SlowestSnapshot => ({
       visibleCount,
-      expandedIndex,
+      expandedKey,
       scrollY: typeof window !== "undefined" ? window.scrollY : 0,
     }),
     restore: (s: SlowestSnapshot) => {
@@ -182,7 +188,7 @@
     const idx = sorted.findIndex((s) => rowKey(s) === key);
     if (idx === -1) return;
     if (idx >= visibleCount) visibleCount = Math.min(idx + 10, sorted.length);
-    expandedIndex = idx;
+    expandedKey = key;
     setTimeout(() => {
       const row = document.querySelectorAll(".test-list .test-card")[idx] as HTMLElement | undefined;
       row?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -315,9 +321,9 @@
            Sparkline sits at the right to surface recent-run trend at a
            glance; the precise avg + range numbers sit above the bar. -->
       <div class="test-list">
-        {#each visibleSorted as test, i}
-          <div class="test-card" class:expanded={expandedIndex === i}>
-            <button class="test-header" onclick={() => expandedIndex = expandedIndex === i ? null : i}>
+        {#each visibleSorted as test, i (rowKey(test))}
+          <div class="test-card" class:expanded={expandedKey === rowKey(test)}>
+            <button class="test-header" onclick={() => expandedKey = expandedKey === rowKey(test) ? null : rowKey(test)}>
               <span class="rank">#{i + 1}</span>
               <div class="test-info">
                 <div class="title-row">
@@ -349,7 +355,7 @@
               </div>
             </button>
 
-            {#if expandedIndex === i}
+            {#if expandedKey === rowKey(test)}
               <div class="test-detail">
                 <div class="detail-grid">
                   <div class="detail-item">
