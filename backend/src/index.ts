@@ -23,6 +23,7 @@ import predictRouter from "./routes/predict.js";
 import connectivityRouter from "./routes/connectivity.js";
 import liveRouter, { reconcileStaleLiveRuns } from "./routes/live.js";
 import jiraRouter from "./routes/jira.js";
+import jiraWebhookRouter from "./routes/jira-webhook.js";
 import pagerdutyRouter from "./routes/pagerduty.js";
 import reportsRouter from "./routes/reports.js";
 import coverageRouter from "./routes/coverage.js";
@@ -128,6 +129,25 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+// Phase 15.4 inbound Jira webhook — UNAUTHENTICATED external boundary (Jira
+// can't hold a user session). Mounted BEFORE the global express.json() so the
+// HMAC can be verified over the EXACT raw bytes Jira signed (express.json would
+// otherwise consume + re-shape the body, breaking the signature). It resolves
+// `/jira/webhook` here and never falls through to the auth-gated `/jira`
+// router. The router does its own defence: FLAKEY_JIRA_WEBHOOK_ENABLED kill
+// switch (404 when off), per-org HMAC verification (fail closed), and
+// server-side org resolution via the failure_jira_issues link. A dedicated
+// per-IP throttle bounds the unauthenticated surface (Jira retries on non-2xx;
+// a real workflow fires at human pace, so a tight default is safe).
+const jiraWebhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.JIRA_WEBHOOK_RATE_LIMIT_MAX ?? 120),
+  message: { error: "Jira webhook rate limit exceeded." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/jira/webhook", jiraWebhookLimiter, express.raw({ type: "*/*", limit: "1mb" }), jiraWebhookRouter);
 
 app.use(express.json({ limit: "50mb" }));
 
