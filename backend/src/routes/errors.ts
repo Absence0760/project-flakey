@@ -69,7 +69,10 @@ router.get("/", async (req, res) => {
           COALESCE(eg.status, 'open') AS status,
           eg.assigned_to,
           eg.target_date,
-          eg.priority
+          eg.priority,
+          -- Phase 15.2: recurrence bookkeeping (NULL group → 0 / null).
+          COALESCE(eg.recurrence_count, 0) AS recurrence_count,
+          eg.last_recurred_at
         FROM error_agg ea
         LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
           AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)

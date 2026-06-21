@@ -25,6 +25,8 @@ function group(over: Partial<ErrorGroup>): ErrorGroup {
     target_date: null,
     priority: null,
     priority_source: "derived",
+    recurrence_count: 0,
+    last_recurred_at: null,
     note_count: 0,
     ...over,
   };

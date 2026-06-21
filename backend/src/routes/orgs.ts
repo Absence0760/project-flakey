@@ -327,7 +327,7 @@ router.get("/:id/settings", async (req, res) => {
       return;
     }
     const result = await pool.query(
-      `SELECT retention_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token,
+      `SELECT retention_days, triage_autoclose_days, git_provider, git_repo, git_base_url, git_token IS NOT NULL AS has_git_token,
               auto_quarantine_enabled, auto_quarantine_min_flips, auto_quarantine_min_runs, flaky_alert_threshold
        FROM organizations WHERE id = $1`,
       [req.params.id]
@@ -382,6 +382,26 @@ router.patch("/:id/settings", async (req, res) => {
       sets.push(`retention_days = $${i++}`);
       params.push(value);
       changed.retention_days = value;
+    }
+    if (req.body.triage_autoclose_days !== undefined) {
+      // Phase 15.2 (b): the auto-close-on-green window. null / "" turns the
+      // sweep OFF (the conservative default); otherwise a positive integer day
+      // count. Same validation shape as retention_days — reject 0/negatives/NaN
+      // rather than silently disabling, since the sweep treats <= 0 as OFF.
+      const raw = req.body.triage_autoclose_days;
+      let value: number | null;
+      if (raw === null || raw === "") {
+        value = null;
+      } else {
+        value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) {
+          res.status(400).json({ error: "triage_autoclose_days must be a positive integer" });
+          return;
+        }
+      }
+      sets.push(`triage_autoclose_days = $${i++}`);
+      params.push(value);
+      changed.triage_autoclose_days = value;
     }
     if (req.body.git_provider !== undefined) {
       const provider = req.body.git_provider || null;

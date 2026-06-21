@@ -259,6 +259,12 @@ export interface ErrorGroup {
   // a viewer clears a manual priority the server starts deriving again.
   priority: "low" | "medium" | "high" | "critical" | null;
   priority_source: "manual" | "derived";
+  // Phase 15.2 (a): how many times a `fixed` group came back (the ingest
+  // recurrence hook bumps this on each fixed → regressed transition), and when
+  // it last recurred. recurrence_count is always present (0 for groups that
+  // never regressed); last_recurred_at is null until the first recurrence.
+  recurrence_count: number;
+  last_recurred_at: string | null;
   note_count: number;
 }
 
