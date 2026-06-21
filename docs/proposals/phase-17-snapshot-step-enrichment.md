@@ -5,14 +5,17 @@
   reporter's already-captured console/network/uncaught/retry context in the
   ErrorModal Details tab).
 - **Phase 1 — Playwright per-step extraction:** ✅ done (`@flakeytesting/playwright-snapshots`
-  now attaches `console[]` / `network[]` to each `SnapshotStep`). **Not yet
-  shipped** — a package version bump + publish is the trigger (operator's call).
+  now attaches `console[]` / `network[]` to each `SnapshotStep`). **Shipped** in
+  `@flakeytesting/playwright-snapshots@0.9.0` (the `all@0.9.0` release,
+  2026-06-12) — the feature commits are ancestors of that tag and it is
+  published to npm.
 - **Phase 2 — per-step UI:** ✅ done (step-row error badges in the ErrorModal
   command list + a collapsible console/network strip in the SnapshotViewer,
   scoped to the active step).
 - **Phase 3 — Cypress per-step capture:** ✅ done
   (`@flakeytesting/cypress-snapshots` now buffers console + network per step).
-  **Not yet shipped** — needs a package version bump + publish.
+  **Shipped** in `@flakeytesting/cypress-snapshots@0.9.0` (the `all@0.9.0`
+  release, 2026-06-12) — published to npm.
 
 **Area:** `packages/flakey-playwright-snapshots`, `packages/flakey-cypress-snapshots`,
 `frontend/src/lib/components/media/SnapshotViewer.svelte`,
@@ -88,8 +91,9 @@ both the 1.59 `trace.network` name and the legacy `*-network.trace`, per the
 package's "trace format is an external contract" convention. Covered by unit
 tests in `src/tests/parse-trace.test.ts`.
 
-**Trigger to ship:** bump `@flakeytesting/playwright-snapshots` (and rebuild
-`@flakeytesting/playwright-reporter`), then publish per the repo's release flow.
+**Shipped:** `@flakeytesting/playwright-snapshots@0.9.0` (and the rebuilt
+`@flakeytesting/playwright-reporter@0.9.0`) carried this in the `all@0.9.0`
+release, published to npm.
 
 ## Phase 2 — per-step UI (done)
 
@@ -174,8 +178,8 @@ consecutive timestamps — no new capture.
 - The seed gives the demo bundle a non-uniform profile (the submit step is ~3.2s)
   so the slow-step highlight is visible in dev and exercised by e2e.
 
-Playwright's timing-unit fix ships with that package's next publish; the Cypress
-side already emitted ms.
+Playwright's timing-unit fix shipped in `@flakeytesting/playwright-snapshots@0.9.0`
+(the `all@0.9.0` release); the Cypress side already emitted ms.
 
 ## Why this order
 
