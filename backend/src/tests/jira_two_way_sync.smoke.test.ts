@@ -28,6 +28,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import pg from "pg";
 import { encryptSecret, _resetKeyCache } from "../crypto.js";
+import { syncErrorGroupTransition } from "../integrations/jira.js";
 
 const ENC_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; // gitleaks:allow — deterministic test fixture
 process.env.FLAKEY_ENCRYPTION_KEY = ENC_KEY;
@@ -56,6 +57,9 @@ let mockUrl: string;
 // Observed outbound Jira calls.
 let transitionCalls: Array<{ issue: string; transitionId: string }> = [];
 let commentCalls: Array<{ issue: string; body: string }> = [];
+// When true, the mock answers every Jira call with HTTP 500 — exercises the
+// best-effort/resilience contract (a Jira outage must not break the DB path).
+let failJira = false;
 
 const FINGERPRINT = "jira-2way-fp";
 const ISSUE_KEY = "SYNC-1";
@@ -96,6 +100,14 @@ before(async () => {
   // transitionable to a "Done" transition (id "31").
   mock = http.createServer((req, res) => {
     const url = req.url ?? "";
+    // Resilience switch: when armed, every Jira API call 500s. The high-level
+    // sync swallows + logs, so the DB transition must still commit unaffected.
+    if (failJira) {
+      // Drain the body so the socket closes cleanly, then 500.
+      req.on("data", () => {});
+      req.on("end", () => { res.writeHead(500); res.end("jira down"); });
+      return;
+    }
     if (req.method === "GET" && /\/transitions$/.test(url)) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ transitions: [{ id: "31", name: "Done" }, { id: "11", name: "To Do" }] }));
@@ -258,6 +270,21 @@ async function auditExists(action: string, targetId: string): Promise<boolean> {
   finally { client.release(); }
 }
 
+async function auditCount(action: string, targetId: string): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
+    const r = await client.query(
+      `SELECT COUNT(*)::int AS n FROM audit_log WHERE org_id = $1 AND action = $2 AND target_id = $3`,
+      [orgId, action, targetId]
+    );
+    await client.query("COMMIT");
+    return r.rows[0].n as number;
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); throw e; }
+  finally { client.release(); }
+}
+
 function sign(raw: string): string {
   return "sha256=" + createHmac("sha256", WEBHOOK_SECRET).update(Buffer.from(raw)).digest("hex");
 }
@@ -376,4 +403,141 @@ test("inbound: the route 404s when FLAKEY_JIRA_WEBHOOK_ENABLED is off", async ()
     body: raw,
   });
   assert.equal(res.status, 404, "kill switch: disabled instance returns 404 even for a valid signature");
+});
+
+// ── OUTBOUND resilience: a Jira outage must not break the DB transition ───────
+
+test("manual → fixed still commits the DB transition when every Jira call 500s (best-effort)", async () => {
+  // Put the group into a known non-fixed state first.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
+    await client.query(
+      `UPDATE error_groups SET status = 'open' WHERE org_id = $1 AND fingerprint = $2`,
+      [orgId, FINGERPRINT]
+    );
+    await client.query("COMMIT");
+  } finally { client.release(); }
+
+  // Snapshot the transition-audit count so we can prove no NEW one is written
+  // while Jira is down (the audit fires only on a real reflection).
+  const auditsBefore = await auditCount("jira.issue.transition", FINGERPRINT);
+
+  failJira = true;
+  try {
+    const res = await fetch(`${BASE_ON}/errors/${FINGERPRINT}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status: "fixed" }),
+    });
+    // The status change MUST succeed even though Jira is down — the Jira
+    // reflection is best-effort and runs after the response.
+    assert.equal(res.status, 200, "the status change succeeds despite Jira being down");
+  } finally {
+    // Give the fire-and-forget sync a beat to fail+swallow before re-arming Jira.
+    await new Promise((r) => setTimeout(r, 500));
+    failJira = false;
+  }
+
+  // The DB transition is durable.
+  assert.equal(await readStatus(), "fixed", "the error group is fixed in the DB regardless of Jira");
+
+  // No NEW jira.issue.transition audit is written when Jira never moved (the
+  // sync returned null) — the audit fires ONLY on a real reflection.
+  const auditsAfter = await auditCount("jira.issue.transition", FINGERPRINT);
+  assert.equal(auditsAfter, auditsBefore, "no jira.issue.transition audit when Jira was unreachable");
+});
+
+// ── OUTBOUND: → regressed drives the REOPEN transition (the Jira-can't-do-it path) ──
+//
+// The reopen-on-regression is fired from ingest (syncRegressionsToJira), which
+// is fire-and-forget after an upload commit and awkward to drive end-to-end.
+// syncErrorGroupTransition is the shared exported primitive both the manual
+// →fixed and the ingest →regressed paths call, so we exercise the regressed
+// branch directly: it must drive the REOPEN transition id ("To Do" → "11"),
+// distinct from the resolve id ("Done" → "31") the →fixed path uses, and return
+// the linked issue key (so the caller audits).
+test("outbound: → regressed drives the configured reopen transition (id 11), not the resolve one", async () => {
+  transitionCalls = [];
+  commentCalls = [];
+
+  const issueKey = await syncErrorGroupTransition(
+    orgId,
+    FINGERPRINT,
+    "regressed",
+    "this test regressed — reopening.",
+  );
+
+  assert.equal(issueKey, ISSUE_KEY, "returns the linked issue key on a successful reflection");
+  assert.equal(transitionCalls.length, 1, "exactly one transition POSTed");
+  assert.equal(transitionCalls[0].issue, ISSUE_KEY);
+  assert.equal(transitionCalls[0].transitionId, "11", "drove the 'To Do' (reopen) transition id, not 'Done'");
+  assert.equal(commentCalls.length, 1, "left a comment");
+  assert.match(commentCalls[0].body, /^Flakey:/);
+});
+
+test("outbound: syncErrorGroupTransition swallows a Jira outage and returns null (no throw)", async () => {
+  failJira = true;
+  try {
+    const issueKey = await syncErrorGroupTransition(
+      orgId, FINGERPRINT, "fixed", "test marked fixed.",
+    );
+    assert.equal(issueKey, null, "a Jira outage yields null (best-effort), never a throw");
+  } finally {
+    failJira = false;
+  }
+});
+
+// ── INBOUND: audit row + unlinked-issue 204 (org resolved from the LINK) ──────
+
+test("inbound: a verified issue-closed writes a jira.webhook.issue_closed audit row", async () => {
+  // Reset away from fixed so the close is a real flip.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_org_id', $1::text, true)", [String(orgId)]);
+    await client.query(
+      `UPDATE error_groups SET status = 'regressed' WHERE org_id = $1 AND fingerprint = $2`,
+      [orgId, FINGERPRINT]
+    );
+    await client.query("COMMIT");
+  } finally { client.release(); }
+
+  const raw = JSON.stringify({
+    issue: { key: ISSUE_KEY, fields: { status: { statusCategory: { key: "done" } } } },
+  });
+  const res = await fetch(`${BASE_ON}/jira/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Hub-Signature": sign(raw) },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(await readStatus(), "fixed");
+  // The inbound flip is audited under the resolved org (system actor).
+  assert.ok(
+    await auditExists("jira.webhook.issue_closed", FINGERPRINT),
+    "jira.webhook.issue_closed audit row written for the inbound flip"
+  );
+});
+
+test("inbound: a signed event for an UNLINKED issue is a benign 204 (no link, no leak, no cross-tenant)", async () => {
+  // An issue key that no failure_jira_issues row maps to. The org is resolved
+  // SERVER-SIDE from the link, never from the payload — with no link the request
+  // can't name (or cross into) any org. lookup returns nothing ⇒ 204.
+  const raw = JSON.stringify({
+    issue: { key: "UNKNOWN-9999", fields: { status: { statusCategory: { key: "done" } } } },
+  });
+  // Even with a syntactically-valid signature under OUR secret, the absence of a
+  // link means no org/secret is resolved at all — it short-circuits to 204
+  // before any verification, leaking nothing about org existence.
+  const res = await fetch(`${BASE_ON}/jira/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Hub-Signature": sign(raw) },
+    body: raw,
+  });
+  assert.equal(res.status, 204, "an unlinked issue is a benign 204");
+
+  // Our linked group's status is untouched by the unlinked event.
+  assert.equal(await readStatus(), "fixed", "an unlinked event must not touch another org's group");
 });
