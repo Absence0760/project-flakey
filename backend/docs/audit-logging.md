@@ -83,6 +83,12 @@ Off by default: the flusher no-ops and the `/audit/export` routes return 404
 until this is set. When on, a flush runs every 60s (single-flight across
 instances via an advisory lock).
 
+`GET /audit/export/status` is the one exception to the 404 kill-switch — it
+stays reachable for any authenticated org member and returns
+`{ "enabled": <bool> }`. The Settings page calls it to decide whether to render
+the **Audit export (SIEM)** subnav link at all, so a disabled instance shows no
+dead link instead of a link to a 404/disabled page.
+
 ### Configure a destination (org admin/owner)
 
 Two ways, same routes underneath:

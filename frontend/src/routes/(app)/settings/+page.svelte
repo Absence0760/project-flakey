@@ -54,6 +54,14 @@
     const res = await authFetch(`${apiUrl}/analyze/status`);
     if (res.ok) aiStatus = await res.json();
   }
+  // Audit export (SIEM) is an instance kill-switch (FLAKEY_AUDIT_EXPORT_ENABLED).
+  // The status probe stays reachable even when off, so we can hide the subnav
+  // link entirely rather than link to a disabled page. Null until known → hidden.
+  let auditExportStatus = $state<{ enabled: boolean } | null>(null);
+  async function loadAuditExportStatus() {
+    const res = await authFetch(`${apiUrl}/audit/export/status`);
+    if (res.ok) auditExportStatus = await res.json();
+  }
 
   // --- API Keys ---
   interface ApiKey { id: number; key_prefix: string; label: string; last_used_at: string | null; created_at: string; }
@@ -552,7 +560,7 @@
     // (resolved or rejected — a failed load still means the page is done
     // loading). Kept synchronous so the scroll-listener cleanup below can
     // still be returned from onMount.
-    const loaders = [loadMembers(), loadSuites(), loadKeys(), loadRetention(), loadAIStatus()];
+    const loaders = [loadMembers(), loadSuites(), loadKeys(), loadRetention(), loadAIStatus(), loadAuditExportStatus()];
     if (isAdmin) { loaders.push(loadWebhooks(), loadWebhookEvents(), loadGitProvider(), loadAudit(), loadFlakyAutomation()); }
     void Promise.allSettled(loaders).then(() => { ready = true; });
 
@@ -603,10 +611,12 @@
           Single sign-on
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L4 12"/></svg>
         </a>
-        <a class="subnav-link external" href="/settings/audit-export">
-          Audit export (SIEM)
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L4 12"/></svg>
-        </a>
+        {#if auditExportStatus?.enabled}
+          <a class="subnav-link external" href="/settings/audit-export">
+            Audit export (SIEM)
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L4 12"/></svg>
+          </a>
+        {/if}
       </nav>
     </aside>
 

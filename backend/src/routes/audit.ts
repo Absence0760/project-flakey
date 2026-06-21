@@ -176,6 +176,16 @@ router.get("/verify", async (req, res) => {
 
 // ---- Audit export / SIEM streaming config (admin+, behind the kill-switch) --
 
+// GET /audit/export/status — cheap enablement probe for the UI. Deliberately
+// NOT behind denyExportAccess: it must return {enabled:false} (200) when the
+// kill-switch is off rather than 404, so the Settings subnav can decide whether
+// to render the audit-export link at all without provoking the disabled-state
+// round-trip. Any authenticated org member may read it (no secret exposure).
+// Registered before "/export" so the literal path can't be shadowed.
+router.get("/export/status", (_req, res) => {
+  res.json({ enabled: isAuditExportEnabled() });
+});
+
 // GET /audit/export — list this org's export destinations (token redacted).
 router.get("/export", async (req, res) => {
   if (denyExportAccess(req, res)) return;

@@ -212,6 +212,13 @@ test("GET /audit/verify returns a structured integrity result", async () => {
   assert.equal(v.ok, true, v.reason ?? "fresh org chain should verify");
 });
 
+test("GET /audit/export/status reports enabled:true when the flag is on", async () => {
+  const res = await fetch(`${BASE}/audit/export/status`, { headers: auth() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { enabled: boolean };
+  assert.equal(body.enabled, true);
+});
+
 test("kill-switch: with the flag off, the /audit/export surface 404s", async () => {
   const offPort = 3984;
   const off = spawnApp(offPort, {}); // no FLAKEY_AUDIT_EXPORT_ENABLED
@@ -232,6 +239,13 @@ test("kill-switch: with the flag off, the /audit/export surface 404s", async () 
       headers: { Authorization: `Bearer ${offToken}` },
     });
     assert.equal(res.status, 404, "export surface must not exist when the flag is off");
+    // The status probe stays reachable (200) and reports enabled:false — that's
+    // how the Settings subnav hides the link without hitting the 404 surface.
+    const status = await fetch(`http://localhost:${offPort}/audit/export/status`, {
+      headers: { Authorization: `Bearer ${offToken}` },
+    });
+    assert.equal(status.status, 200, "status probe must not be flag-gated");
+    assert.deepEqual(await status.json(), { enabled: false });
     // But the audit log + verify still work (they're not flag-gated).
     const verify = await fetch(`http://localhost:${offPort}/audit/verify`, {
       headers: { Authorization: `Bearer ${offToken}` },

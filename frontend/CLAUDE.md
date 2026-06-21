@@ -46,9 +46,12 @@ form), and write-only for secrets (the API returns only a boolean "is a secret
 set", never the value). `settings/audit-export` (Phase 16) drives the SIEM
 audit-export config (`/audit/export*`); its pure form logic — URL/header/bucket
 validation and delivery-health derivation — is in `src/lib/utils/audit-export.ts`
-with vitest coverage in the sibling `.test.ts`. When adding a settings subpage,
-copy `settings/sso/+page.svelte` and add a matching external subnav link in
-`settings/+page.svelte`.
+with vitest coverage in the sibling `.test.ts`. Its subnav link is rendered
+**only when enabled** — `settings/+page.svelte` probes `GET /audit/export/status`
+(the one export route that stays reachable when the kill-switch is off) on mount
+and gates the link on `auditExportStatus?.enabled`, so a disabled instance shows
+no dead link. When adding a settings subpage, copy `settings/sso/+page.svelte`
+and add a matching external subnav link in `settings/+page.svelte`.
 
 ## The /errors triage surface
 
