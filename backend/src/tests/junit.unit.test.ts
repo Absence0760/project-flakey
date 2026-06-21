@@ -304,3 +304,38 @@ test("junit: deeply nested (3-level) testsuites are fully flattened", () => {
   assert.equal(out.stats.total, 1, "a testcase three levels deep must still be found");
   assert.equal(out.specs.flatMap((s) => s.tests)[0].title, "deep");
 });
+
+// ── negative time= is clamped to 0 (matches sibling normalizers) ──────────
+// parseFloat("-1.5") is a finite -1.5, not NaN, so the prior isNaN-only guard
+// let a negative @_time through. A negative per-test duration poisons the
+// summed spec/run duration_ms, and a negative <testsuites>@_time drives
+// finished_at BEFORE started_at — an inverted, nonsensical run window. The
+// other three normalizers (mochawesome / playwright / webdriverio) already
+// reject negatives in safeDuration(); JUnit must agree.
+
+test("junit: a negative testcase time= is clamped to 0, not summed as negative", () => {
+  const xml = `<?xml version="1.0"?>
+<testsuite name="S" tests="2">
+  <testcase name="ok" classname="C" time="0.5"/>
+  <testcase name="bad" classname="C" time="-1.5"/>
+</testsuite>`;
+  const out = parseJUnit(xml, META);
+
+  const badTest = out.specs[0].tests.find((t) => t.title === "bad")!;
+  assert.equal(badTest.duration_ms, 0, "a negative test time= must clamp to 0, never a negative ms");
+  // Spec + run duration are the sum of the two tests: only the 500ms one counts.
+  assert.equal(out.specs[0].stats.duration_ms, 500, "the spec total excludes the negative");
+  assert.equal(out.stats.duration_ms, 500, "the run total excludes the negative");
+});
+
+test("junit: a negative testsuites time= cannot push finished_at before started_at", () => {
+  const xml = `<?xml version="1.0"?>
+<testsuites time="-10">
+  <testsuite name="S" tests="1">
+    <testcase name="t" classname="C" time="0.1"/>
+  </testsuite>
+</testsuites>`;
+  const out = parseJUnit(xml, META);
+  const span = new Date(out.meta.finished_at).getTime() - new Date(out.meta.started_at).getTime();
+  assert.ok(span >= 0, `finished_at must not precede started_at (span was ${span}ms)`);
+});
