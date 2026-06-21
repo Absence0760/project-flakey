@@ -3,9 +3,10 @@
 **Status:** Implemented (backend + API + tests). Tamper-evidence is always on;
 export is built behind the `FLAKEY_AUDIT_EXPORT_ENABLED` instance flag — OFF by
 default, **not yet enabled in any regulated environment** pending CISO /
-Security Analyst sign-off (SOC 2 / GovRAMP logging control). **Not yet built:**
-an admin UI for configuring export (today it's API-configured — see the tracked
-roadmap sub-item). Operator + dev guide: [backend/docs/audit-logging.md](../../backend/docs/audit-logging.md).
+Security Analyst sign-off (SOC 2 / GovRAMP logging control). An admin UI for
+configuring export now exists (**Settings → Audit export (SIEM)**,
+`/settings/audit-export`) alongside the original API/IaC path. Operator + dev
+guide: [backend/docs/audit-logging.md](../../backend/docs/audit-logging.md).
 **Area:** backend `audit_log` (+ hash columns), new `audit_export_config` table,
 `src/audit.ts` / `src/audit-chain.ts` / `src/audit-export.ts`, the `/audit`
 route, the scheduler in `index.ts`.
@@ -92,8 +93,9 @@ Design decisions:
 
 ## Out of scope (tracked follow-ups)
 
-- **Admin UI** for configuring export (settings page) — today it's API/IaC
-  configured. Tracked on the roadmap.
+- ~~**Admin UI** for configuring export (settings page)~~ — **done**:
+  `/settings/audit-export` (owner/admin, flag-aware, write-only token). The
+  API/IaC path remains for automation.
 - **CloudWatch Logs** destination — the adapter interface is there; CloudWatch
   needs a new AWS SDK client + a local equivalent before it fits the local-first
   rule.
