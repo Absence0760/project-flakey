@@ -252,8 +252,8 @@ function formatSlack(p: WebhookRunPayload): object {
   if ((p.event === "error.regressed" || p.event === "error.autoclosed") && p.error_group) {
     const eg = p.error_group;
     const heading = p.event === "error.regressed"
-      ? `*🔁 A previously-fixed failure reappeared*`
-      : `*✅ A failure went green and was auto-closed*`;
+      ? `*\ud83d\udd01 A previously-fixed failure reappeared*`
+      : `*\u2705 A failure went green and was auto-closed*`;
     const lines = [
       `${truncate(eg.error_message ?? "(no message)", 200)}`,
       `\`${truncate(eg.suite_name, 60)}\` — now *${eg.status}*`
@@ -392,8 +392,8 @@ function formatTeams(p: WebhookRunPayload): object {
     body.push({
       type: "TextBlock",
       text: p.event === "error.regressed"
-        ? "**🔁 A previously-fixed failure reappeared**"
-        : "**✅ A failure went green and was auto-closed**",
+        ? "**\ud83d\udd01 A previously-fixed failure reappeared**"
+        : "**\u2705 A failure went green and was auto-closed**",
       weight: "Bolder",
       spacing: "Medium",
     });

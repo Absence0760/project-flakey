@@ -6,7 +6,7 @@ import { deriveErrorPriority } from "../error-automation.js";
 
 const router = Router();
 
-const VALID_STATUSES = ["open", "investigating", "known", "fixed", "ignored"];
+const VALID_STATUSES = ["open", "investigating", "known", "fixed", "ignored", "regressed"];
 const VALID_PRIORITIES = ["low", "medium", "high", "critical"];
 
 // Accept either a bare YYYY-MM-DD date or null/empty (un-set). Rejecting
