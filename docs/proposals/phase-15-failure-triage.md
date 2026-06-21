@@ -131,15 +131,17 @@ row); the list/filter logic is a pure helper → vitest.
 This is the part no SaaS tracker can replicate, because it requires the run
 stream. Two automatic transitions on top of the existing status enum.
 
-**(a) Recurrence detection → auto-reopen.** Extend the enum with one value:
-`regressed` (`migration 060_*`, replace the CHECK to add it). On **ingest**, in
-the upload pipeline where failures are recorded, after computing a failure's
-fingerprint: if an `error_groups` row for that fingerprint is currently `fixed`,
-transition it to `regressed`, bump a new `recurrence_count INTEGER NOT NULL
-DEFAULT 0`, and stamp `last_recurred_at TIMESTAMPTZ`. Emit a webhook
-(`error.regressed`) reusing the existing dispatcher (`backend/src/webhooks.ts`).
-*A failure we declared fixed coming back is the single highest-signal triage
-event, and today it's invisible.*
+**(a) Recurrence detection → auto-reopen.** *(shipped — migration `068`.)* Extend
+the enum with one value: `regressed` (migration `068_error_group_automation.sql`
+replaces the CHECK to add it). On **ingest**, in the upload pipeline where
+failures are recorded, after computing a failure's fingerprint: if an
+`error_groups` row for that fingerprint is currently `fixed`, transition it to
+`regressed`, bump a new `recurrence_count INTEGER NOT NULL DEFAULT 0`, and stamp
+`last_recurred_at TIMESTAMPTZ`. Emit a webhook (`error.regressed`) reusing the
+existing dispatcher (`backend/src/webhooks.ts`). The hook is the single
+`recordErrorRecurrence` path, called from inside both upload transactions
+(`routes/runs.ts` + `routes/uploads.ts`). *A failure we declared fixed coming
+back is the single highest-signal triage event, and today it's invisible.*
 
 **(b) Auto-close-on-green.** A failure is "green" when its fingerprint has not
 reappeared for a configurable window. Add a nightly sweep **in the existing
@@ -266,12 +268,21 @@ behavior → backend smoke; recurrence via the Phase-13 replay CLI. No phase is
       (`target_date` / `priority`, migration `067`; `PATCH /errors/:fingerprint`,
       viewer-gated + audited `error.triage_update`); "assigned to me" / "overdue"
       list filters on the `/errors` page (pure `applyTriageFilter` helper).
-- [ ] **15.2** A fixed fingerprint reappearing on ingest auto-transitions to
-      `regressed`, bumps `recurrence_count`, and fires `error.regressed`.
-- [ ] **15.2** With `triage_autoclose_days` set, a stale open group auto-closes on
-      the nightly sweep with an audit row; default-off when unset.
-- [ ] **15.2** Unset priority derives from occurrence/flaky data at read time;
-      never overwrites a human value.
+- [x] **15.2** A fixed fingerprint reappearing on ingest auto-transitions to
+      `regressed`, bumps `recurrence_count`, and fires `error.regressed`
+      (migration `068`; `recordErrorRecurrence` in `src/error-recurrence.ts`,
+      called from both upload transactions; only the `fixed→regressed` edge
+      counts). Smoke: `error_recurrence.smoke.test.ts`.
+- [x] **15.2** With `triage_autoclose_days` set, a stale open/investigating/
+      `regressed` group auto-closes on the nightly retention pass with an
+      `error.autoclosed` audit row + webhook; default-off when unset
+      (`autocloseStaleErrorGroups` in `src/retention.ts`; pure window predicate
+      `isAutocloseEligible`). Smoke: `error_autoclose.smoke.test.ts`.
+- [x] **15.2** Unset priority derives from occurrence/affected-runs/flaky data at
+      read time in `GET /errors` (`deriveErrorPriority`, never stored, never
+      overwrites a human value); the response carries `priority_source`
+      (`'manual'|'derived'`) and the `/errors` page renders a derived value
+      distinctly. Unit: `error_automation.unit.test.ts`.
 - [ ] **15.3** Quarantines support `expires_at`, expire on the nightly sweep, link
       to a fingerprint, and surface "expiring/no-expiry" in the triage view; flaky
       signal *suggests* (never auto-applies) quarantine.
