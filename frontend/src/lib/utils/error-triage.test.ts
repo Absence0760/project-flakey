@@ -24,6 +24,7 @@ function group(over: Partial<ErrorGroup>): ErrorGroup {
     assigned_to_email: null,
     target_date: null,
     priority: null,
+    priority_source: "derived",
     note_count: 0,
     ...over,
   };

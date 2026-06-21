@@ -140,6 +140,7 @@
   const statuses = [
     { value: "open", label: "Open", color: "var(--color-fail)" },
     { value: "investigating", label: "Investigating", color: "var(--link)" },
+    { value: "regressed", label: "Regressed", color: "#e8830c" },
     { value: "known", label: "Known Issue", color: "#dfb317" },
     { value: "fixed", label: "Fixed", color: "var(--color-pass)" },
     { value: "ignored", label: "Ignored", color: "var(--text-muted)" },
@@ -348,12 +349,31 @@
   // reverts to server state on failure (the PATCH rejects invalid values / viewers).
   async function changePriority(err: ErrorGroup, priority: ErrorGroup["priority"]) {
     const prev = err.priority;
+    const prevSource = err.priority_source;
+    // Setting a value is a manual decision. Clearing hands the chip back to the
+    // server's read-time derivation — we can't compute that client-side, so
+    // optimistically blank it and let the refresh below fill in the derived
+    // value (and source 'derived').
     err.priority = priority;
+    err.priority_source = priority ? "manual" : "derived";
     errors = [...errors];
     try {
       await updateErrorTriage(err.fingerprint, { priority });
+      if (!priority) {
+        // Re-fetch so the now-derived priority + source replace the optimistic blank.
+        try {
+          const fresh = await fetchErrors();
+          const updated = fresh.find((e) => e.fingerprint === err.fingerprint);
+          if (updated) {
+            err.priority = updated.priority;
+            err.priority_source = updated.priority_source;
+            errors = [...errors];
+          }
+        } catch { /* keep the optimistic state on a refresh hiccup */ }
+      }
     } catch {
       err.priority = prev;
+      err.priority_source = prevSource;
       errors = [...errors];
     }
   }
@@ -565,7 +585,12 @@
                   class="status-chip status-{err.status}"
                   style="--chip-color: {statusInfo(err.status).color}"
                 >{statusInfo(err.status).label}</span>
-                {#if err.priority}<span class="priority-chip mini" style="--priority-color: {PRIORITY_META[err.priority].color}">{PRIORITY_META[err.priority].label}</span>{/if}
+                {#if err.priority}<span
+                    class="priority-chip mini"
+                    class:derived={err.priority_source === "derived"}
+                    style="--priority-color: {PRIORITY_META[err.priority].color}"
+                    title={err.priority_source === "derived" ? "Derived from occurrences, breadth and flaky rate — set a priority to override" : "Priority set manually"}
+                  >{err.priority_source === "derived" ? "~" : ""}{PRIORITY_META[err.priority].label}</span>{/if}
                 {#if err.target_date && err.target_date < todayISO()}<span class="overdue-tag" title="Due {formatDate(err.target_date)}">Overdue</span>{/if}
                 <span class="error-suite">{err.suite_name}</span>
                 <span class="error-tests">{err.affected_tests}t</span>
@@ -631,17 +656,31 @@
               {#if canEdit}
                 <div class="priority-controls">
                   {#each PRIORITY_OPTIONS as p}
+                    {@const isManualActive = err.priority_source === "manual" && err.priority === p.value}
                     <button
                       class="priority-btn"
-                      class:active={err.priority === p.value}
+                      class:active={isManualActive}
                       style="--priority-color: {p.color}"
-                      onclick={() => changePriority(err, err.priority === p.value ? null : p.value)}
-                      title={err.priority === p.value ? "Click to clear" : `Set ${p.label}`}
+                      onclick={() => changePriority(err, isManualActive ? null : p.value)}
+                      title={isManualActive ? "Click to clear (revert to derived)" : `Set ${p.label}`}
                     >{p.label}</button>
                   {/each}
                 </div>
+                {#if err.priority_source === "derived" && err.priority}
+                  <p class="derived-note">
+                    Showing a <strong>derived</strong> priority
+                    (<span class="priority-chip mini derived" style="--priority-color: {PRIORITY_META[err.priority].color}">~{PRIORITY_META[err.priority].label}</span>)
+                    from occurrences, breadth and flaky rate. Pick one above to set it manually.
+                  </p>
+                {/if}
               {:else if err.priority}
-                <span class="priority-chip" style="--priority-color: {PRIORITY_META[err.priority].color}">{PRIORITY_META[err.priority].label}</span>
+                <span
+                  class="priority-chip"
+                  class:derived={err.priority_source === "derived"}
+                  style="--priority-color: {PRIORITY_META[err.priority].color}"
+                  title={err.priority_source === "derived" ? "Derived from occurrences, breadth and flaky rate" : "Priority set manually"}
+                >{err.priority_source === "derived" ? "~" : ""}{PRIORITY_META[err.priority].label}</span>
+                {#if err.priority_source === "derived"}<span class="dim derived-inline">derived</span>{/if}
               {:else}
                 <span class="dim">None</span>
               {/if}
@@ -974,6 +1013,18 @@
   .priority-chip.mini {
     padding: 0.05rem 0.4rem; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;
   }
+  /* A derived priority reads as a soft hint, not a committed decision: dashed
+     border + muted fill, distinct from a solid human-set chip. */
+  .priority-chip.derived {
+    border-style: dashed;
+    background: color-mix(in srgb, var(--priority-color) 8%, transparent);
+    font-style: italic;
+  }
+  .derived-note {
+    margin: 0.4rem 0 0; font-size: 0.7rem; color: var(--text-muted); line-height: 1.4;
+  }
+  .derived-note .priority-chip { font-style: normal; }
+  .derived-inline { margin-left: 0.35rem; font-size: 0.65rem; font-style: italic; }
 
   .overdue-tag {
     padding: 0.05rem 0.4rem; border-radius: 8px;
