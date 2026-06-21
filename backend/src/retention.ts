@@ -1,6 +1,8 @@
 import pool, { tenantQuery, maintenanceQuery } from "./db.js";
 import { getStorage, type Storage } from "./storage.js";
 import { logAudit } from "./audit.js";
+import { isAutocloseEligible, AUTOCLOSE_ELIGIBLE_STATUSES } from "./error-automation.js";
+import { dispatchErrorGroupEvent } from "./webhooks.js";
 
 // Delete expired org invites; returns how many rows went. Plain pool.query:
 // org_invites carries no RLS, so no tenant context is needed.
@@ -37,8 +39,15 @@ export async function runRetentionCleanup(
   const pruneInvites = deps.pruneInvites ?? pruneExpiredInvites;
   const pruneRevokedTokens = deps.pruneRevokedTokens ?? pruneRevokedRefreshTokens;
   try {
+    // Pull both per-org nightly settings together: retention_days drives the
+    // run/artifact prune; triage_autoclose_days drives the auto-close-on-green
+    // sweep (Phase 15.2 (b)). An org qualifies if EITHER is set — a org that
+    // opted into autoclose but not retention must still get swept.
     const orgs = await pool.query(
-      "SELECT id, retention_days FROM organizations WHERE retention_days IS NOT NULL"
+      `SELECT id, retention_days, triage_autoclose_days
+         FROM organizations
+        WHERE retention_days IS NOT NULL
+           OR triage_autoclose_days IS NOT NULL`
     );
 
     for (const org of orgs.rows) {
@@ -50,6 +59,14 @@ export async function runRetentionCleanup(
         await cleanupOrg(org, storage);
       } catch (err) {
         console.error(`Retention cleanup error for org ${org.id}:`, err);
+      }
+      // Auto-close sweep gets its OWN per-org error boundary: a failure here
+      // (a malformed setting, a transient DB error) must not skip the run/
+      // artifact prune above for the NEXT org, nor the global prunes below.
+      try {
+        await autocloseStaleErrorGroups(org);
+      } catch (err) {
+        console.error(`Auto-close sweep error for org ${org.id}:`, err);
       }
     }
 
@@ -83,7 +100,7 @@ export async function runRetentionCleanup(
 // orphan and press on; the S3 lifecycle rule is the documented backstop that
 // sweeps it. Throwing here only aborts THIS org (the caller catches per-org).
 async function cleanupOrg(
-  org: { id: number; retention_days: number | string },
+  org: { id: number; retention_days: number | string | null },
   storage: Storage
 ): Promise<void> {
   const days = Number(org.retention_days);
@@ -123,4 +140,100 @@ async function cleanupOrg(
       { deleted_count: runs.rows.length, retention_days: org.retention_days }
     );
   }
+}
+
+// Phase 15.2 (b) — auto-close-on-green. For an org that opted into
+// triage_autoclose_days, transition every open/investigating/regressed error
+// group whose fingerprint has not reappeared for the configured window to
+// `fixed`, write an audit row, and emit error.autoclosed. Default OFF: a NULL
+// (or non-positive) setting skips the org entirely — silently flipping triage
+// state is opt-in only.
+//
+// "last_seen" for a group is derived from the run data (error_groups has no
+// last_seen column): MAX(r.created_at) over the failing tests that match its
+// fingerprint. We compute it per candidate group and feed the pure
+// isAutocloseEligible predicate so the window math is unit-tested in isolation.
+async function autocloseStaleErrorGroups(
+  org: { id: number; triage_autoclose_days: number | string | null }
+): Promise<void> {
+  const days = Number(org.triage_autoclose_days);
+  // Default OFF: NULL / 0 / negative / NaN → skip the org entirely.
+  if (!org.triage_autoclose_days || !Number.isFinite(days) || days <= 0) return;
+
+  // Candidate groups: eligible status only, with their derived last_seen from
+  // the run stream. RLS-scoped via tenantQuery. A group whose fingerprint has
+  // no matching failing test yields last_seen NULL — the predicate never closes
+  // those (we close only on positive evidence of green, not absence of data).
+  const candidates = await tenantQuery(
+    org.id,
+    `SELECT eg.fingerprint,
+            eg.status,
+            agg.last_seen,
+            agg.suite_name,
+            agg.error_message
+       FROM error_groups eg
+       LEFT JOIN LATERAL (
+         SELECT MAX(r.created_at) AS last_seen,
+                MAX(r.suite_name)  AS suite_name,
+                MAX(t.error_message) AS error_message
+         FROM tests t
+         JOIN specs s ON s.id = t.spec_id
+         JOIN runs r ON r.id = s.run_id
+         WHERE t.status = 'failed'
+           AND t.error_message IS NOT NULL
+           AND md5(t.error_message || '|' || r.suite_name) = eg.fingerprint
+       ) agg ON TRUE
+      WHERE eg.org_id = $1
+        AND eg.status = ANY($2::text[])`,
+    [org.id, AUTOCLOSE_ELIGIBLE_STATUSES as readonly string[]]
+  );
+
+  const now = new Date();
+  const toClose = candidates.rows.filter((row) =>
+    isAutocloseEligible({
+      status: row.status,
+      lastSeen: row.last_seen,
+      autocloseDays: days,
+      now,
+    })
+  );
+  if (toClose.length === 0) return;
+
+  for (const row of toClose) {
+    // Transition to fixed under the same org context. Re-check the eligible
+    // status in the WHERE so a concurrent manual edit (e.g. a human moved it to
+    // `known`) isn't clobbered between our read and write.
+    const upd = await tenantQuery(
+      org.id,
+      `UPDATE error_groups
+          SET status = 'fixed', updated_at = NOW()
+        WHERE org_id = $1
+          AND fingerprint = $2
+          AND status = ANY($3::text[])
+        RETURNING fingerprint`,
+      [org.id, row.fingerprint, AUTOCLOSE_ELIGIBLE_STATUSES as readonly string[]]
+    );
+    if (upd.rows.length === 0) continue; // lost the race; skip audit + webhook.
+
+    // Audit every transition (system-initiated → userId null = "System").
+    await logAudit(
+      org.id,
+      null,
+      "error.autoclosed",
+      "error_group",
+      row.fingerprint,
+      { previous_status: row.status, autoclose_days: days, last_seen: row.last_seen }
+    );
+
+    // Notify. Best-effort (swallows internally) — a webhook failure must not
+    // abort the rest of the sweep.
+    await dispatchErrorGroupEvent(org.id, "error.autoclosed", {
+      fingerprint: row.fingerprint,
+      suite_name: row.suite_name ?? "",
+      status: "fixed",
+      error_message: row.error_message ?? null,
+    });
+  }
+
+  console.log(`Auto-close: closed ${toClose.length} stale error group(s) for org ${org.id} (window ${days}d)`);
 }
