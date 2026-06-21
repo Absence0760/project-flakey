@@ -152,4 +152,41 @@ test.describe("/slowest — extras", () => {
     await expect(page.locator(".search-box input")).toHaveValue(token);
     await expect(page.locator(".filter-summary")).toBeVisible();
   });
+
+  test("re-sorting keeps the open card on the SAME test (no positional-index drift)", async ({ page }) => {
+    // Regression: the open detail card was tracked by its positional index
+    // into the filtered+sorted list. Re-sorting reorders that list while the
+    // index stayed put, so the card silently jumped to whatever test landed
+    // at the old index. It's now keyed by the stable title|suite, so the open
+    // card must follow its test across a re-sort.
+    const targetCard = page.locator(".test-card").nth(2); // not first → likely to move
+    const openedTitle = (await targetCard.locator(".test-title").textContent())?.trim() ?? "";
+    expect(openedTitle).not.toBe("");
+
+    await targetCard.locator(".test-header").click();
+    await expect(page.locator(".test-card.expanded")).toHaveCount(1);
+
+    // Re-sort by a different metric — the list reorders.
+    await page.locator(".sort-bar .filter-tab", { hasText: "Max" }).click();
+    await expect(page).toHaveURL(/sort=max_duration_ms/);
+
+    // Exactly one card is open, and it still belongs to the SAME test — not
+    // whatever row now sits at the old index 2.
+    const expandedCard = page.locator(".test-card.expanded");
+    await expect(expandedCard).toHaveCount(1);
+    await expect(expandedCard.locator(".test-title")).toHaveText(openedTitle);
+  });
+
+  test("filtering out the open test collapses its card cleanly", async ({ page }) => {
+    // Index-based tracking left the index pointing at an unrelated surviving
+    // card (or out of range) once the open test was filtered away. Keyed
+    // tracking means the card just disappears — nothing attaches elsewhere.
+    const firstCard = page.locator(".test-card").first();
+    await firstCard.locator(".test-header").click();
+    await expect(page.locator(".test-card.expanded")).toHaveCount(1);
+
+    await page.locator(".search-box input").fill("zzz-no-such-test-zzz-qqq");
+    await expect(page.locator(".test-card")).toHaveCount(0);
+    await expect(page.locator(".test-card.expanded")).toHaveCount(0);
+  });
 });
