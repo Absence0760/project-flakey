@@ -16,9 +16,16 @@
 --     that no route emits, so a membership CHECK is neither closed nor safe.
 
 -- H1: error_groups.status (routes/errors.ts VALID_STATUSES)
+-- NOTE: 'regressed' was added by migration 068 (Phase 15.2 auto-reopen). It is
+-- included HERE too so the whole migration suite stays re-runnable top-to-bottom:
+-- migrate.sh re-applies every file each run, and once 068 has widened the
+-- constraint and a `regressed` row exists, re-running this DROP+ADD with the old
+-- narrow set would fail validation against that row. Keeping the set in lockstep
+-- with 068 makes this re-add a no-op widen on a populated DB. 068 remains the
+-- canonical definition; edit both together if the enum changes again.
 ALTER TABLE error_groups DROP CONSTRAINT IF EXISTS error_groups_status_check;
 ALTER TABLE error_groups ADD CONSTRAINT error_groups_status_check
-  CHECK (status IN ('open','investigating','known','fixed','ignored'));
+  CHECK (status IN ('open','investigating','known','fixed','ignored','regressed'));
 
 -- M2: live_events.event_type (LiveTestEvent.type union in live-events.ts)
 ALTER TABLE live_events DROP CONSTRAINT IF EXISTS live_events_event_type_check;
