@@ -3,6 +3,7 @@ import { getStorage, type Storage } from "./storage.js";
 import { logAudit } from "./audit.js";
 import { isAutocloseEligible, AUTOCLOSE_ELIGIBLE_STATUSES } from "./error-automation.js";
 import { dispatchErrorGroupEvent } from "./webhooks.js";
+import { isQuarantineExpired } from "./quarantine-lifecycle.js";
 
 // Delete expired org invites; returns how many rows went. Plain pool.query:
 // org_invites carries no RLS, so no tenant context is needed.
@@ -76,6 +77,18 @@ export async function runRetentionCleanup(
     // throw in the invite prune fell through to the outer catch and silently
     // skipped the token prune for the whole night. This extends the same
     // per-org isolation discipline above to the global prunes.
+    // Phase 15.3 — expired-quarantine sweep. Runs independently of the per-org
+    // retention/autoclose loop above: a quarantine can carry an expiry on ANY
+    // org (not just one that opted into retention_days/triage_autoclose_days), so
+    // it gets its own org selection. quarantined_tests is RLS'd, so we resolve
+    // the affected orgs first (a no-RLS read of distinct org_ids with a past
+    // expiry) then sweep each under its own tenant context. Own error boundary.
+    try {
+      await expireQuarantines();
+    } catch (err) {
+      console.error("Retention: expired-quarantine sweep failed:", err);
+    }
+
     try {
       const n = await pruneInvites();
       if (n > 0) console.log(`Retention: deleted ${n} expired invite(s)`);
@@ -236,4 +249,78 @@ async function autocloseStaleErrorGroups(
   }
 
   console.log(`Auto-close: closed ${toClose.length} stale error group(s) for org ${org.id} (window ${days}d)`);
+}
+
+// Phase 15.3 — expired-quarantine sweep. A quarantine with an `expires_at` in
+// the past is auto-lifted (removed, matching how unquarantine already works —
+// DELETE /quarantine deletes the row; there is no soft "deactivate" column) and
+// a `quarantine.expired` audit row is written per removed test (system actor,
+// user_id null = "System").
+//
+// quarantined_tests is RLS'd, so we can't DELETE across orgs in one statement.
+// We resolve the distinct affected org_ids with a no-RLS read (the table has a
+// FORCE-RLS policy, but a maintenance-context read of just org_id + the past
+// expiry is the same trusted-system pattern the autoclose/prune steps use),
+// then sweep each org under its own tenant context. Each org gets its own error
+// boundary so one org's failure doesn't abort the rest.
+//
+// The is-expired decision flows through the PURE isQuarantineExpired predicate:
+// SQL pre-filters on `expires_at < NOW()` for cheapness (partial-indexed), but
+// the predicate is the authority that gates the actual DELETE — so the sweep and
+// the frontend "expiring in N days" display can never disagree about expiry.
+async function expireQuarantines(): Promise<void> {
+  // quarantined_tests has FORCE ROW LEVEL SECURITY (migration 038) with an
+  // org-isolation-only policy — there is NO maintenance carve-out, so we can't
+  // read it cross-org. Instead we iterate every org (organizations has no RLS —
+  // the same trusted no-RLS read the autoclose sweep does) and run the expiry
+  // check per-org under that org's tenant context, where RLS scopes the rows.
+  const orgRows = await pool.query("SELECT id FROM organizations");
+
+  const now = new Date();
+  for (const { id: orgId } of orgRows.rows as Array<{ id: number }>) {
+    try {
+      // Candidates for THIS org, scoped by RLS. We re-check each through the
+      // pure predicate before deleting — SQL already filtered, but the predicate
+      // is the single source of truth for "expired".
+      const candidates = await tenantQuery(
+        orgId,
+        `SELECT id, full_title, suite_name, expires_at, error_fingerprint
+           FROM quarantined_tests
+          WHERE expires_at IS NOT NULL AND expires_at < NOW()`
+      );
+
+      const expired = candidates.rows.filter((r) => isQuarantineExpired(r.expires_at, now));
+      if (expired.length === 0) continue;
+
+      for (const row of expired) {
+        const del = await tenantQuery(
+          orgId,
+          // Re-assert the expiry in the WHERE so a concurrent re-quarantine that
+          // cleared/extended expires_at between our read and write isn't lifted.
+          `DELETE FROM quarantined_tests
+            WHERE id = $1 AND expires_at IS NOT NULL AND expires_at < NOW()
+            RETURNING full_title`,
+          [row.id]
+        );
+        if (del.rows.length === 0) continue; // lost the race; skip the audit row.
+
+        await logAudit(
+          orgId,
+          null,
+          "quarantine.expired",
+          "test",
+          row.full_title,
+          {
+            suite_name: row.suite_name,
+            expires_at: row.expires_at,
+            error_fingerprint: row.error_fingerprint ?? null,
+          }
+        );
+      }
+
+      console.log(`Quarantine: lifted ${expired.length} expired quarantine(s) for org ${orgId}`);
+    } catch (err) {
+      console.error(`Quarantine-expiry sweep error for org ${orgId}:`, err);
+    }
+  }
 }
