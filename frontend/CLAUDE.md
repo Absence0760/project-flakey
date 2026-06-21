@@ -61,6 +61,8 @@ and add a matching external subnav link in `settings/+page.svelte`.
 
 Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapter-static`. There is no Vercel configuration.
 
+Build-time env vars (Vite `VITE_*`, baked into the static bundle): `VITE_API_URL` (backend origin) and the optional `VITE_SITE_URL` (public site origin, e.g. `https://flakey.io`). When `VITE_SITE_URL` is set, the `/welcome` landing page emits absolute `canonical` + Open Graph / Twitter card URLs; unset (local dev + self-hosted) falls back to relative URLs. `deploy.yml` wires it from the `SITE_URL` secret.
+
 ## Tests
 
 Vitest 4 is configured for **pure-helper unit tests only** (e.g. `src/lib/stores/toast.test.ts`). Run with `pnpm test` (one-shot) or `pnpm test:watch`. Test files live next to the source as `*.test.ts` and run in Node environment by default — pick up `vitest.config.ts` if a test needs a different env (`jsdom`, `happy-dom`).

@@ -64,6 +64,25 @@
 	// unreachable.
 	const showRegister = $derived(registrationOpen !== false);
 
+	// Optional absolute site origin for canonical + social-card URLs.
+	// Self-hosters leave VITE_SITE_URL unset — relative URLs work for the
+	// major scrapers, and hard-coding a domain would point their cards at
+	// someone else's host. The canonical flakey.io build sets it so the
+	// Open Graph / Twitter cards resolve to absolute URLs everywhere (the
+	// strict scrapers that don't resolve a relative og:image then work too).
+	const siteUrl = (import.meta.env.VITE_SITE_URL ?? '').replace(/\/+$/, '');
+	const ogImage = `${siteUrl}/og-card.png`;
+	const canonical = siteUrl ? `${siteUrl}/welcome` : undefined;
+
+	// Human-readable support labels for the comparison cells. The visual
+	// mark (check / half / dash) is reinforced for screen readers with a
+	// real word instead of the internal "yes" | "partial" | "no" key.
+	const supportLabel: Record<'yes' | 'partial' | 'no', string> = {
+		yes: 'Supported',
+		partial: 'Partial support',
+		no: 'Not supported',
+	};
+
 	// Competitor comparison matrix. Kept declarative so the table stays
 	// scannable and a future row addition doesn't require touching the
 	// markup. Each entry is `[product] -> Map<feature, support>` where
@@ -89,7 +108,7 @@
 		},
 		{
 			label: 'CI-agnostic',
-			description: 'Works with any test framework — Cypress, Playwright, WebdriverIO, Selenium, Jest, JUnit, Postman.',
+			description: 'Works with any test framework — Cypress, Playwright, WebdriverIO, pytest, Selenium, Jest, JUnit, Postman.',
 			cells: {
 				flakey: yes('7 reporters out of the box'),
 				cypressCloud: no('Cypress only'),
@@ -193,8 +212,9 @@
 	<title>Flakey — self-hosted, CI-agnostic test reporting</title>
 	<meta
 		name="description"
-		content="Self-hosted test reporting dashboard. Ingests results from Cypress, Playwright, WebdriverIO, Selenium, Jest, and JUnit. Flaky detection, live streaming, manual-test sign-off, and release readiness in one tool. MIT-licensed."
+		content="Self-hosted test reporting dashboard. Ingests results from Cypress, Playwright, WebdriverIO, pytest, Selenium, Jest, and JUnit. Flaky detection, live streaming, manual-test sign-off, and release readiness in one tool. MIT-licensed."
 	/>
+	{#if canonical}<link rel="canonical" href={canonical} />{/if}
 
 	<!-- Open Graph (Facebook, LinkedIn, Slack, Discord, …) -->
 	<meta property="og:type" content="website" />
@@ -204,7 +224,8 @@
 		property="og:description"
 		content="Ingest results from any reporter. See flaky tests, regressions, and release readiness in one self-hosted dashboard. No SaaS lock-in, no per-test-result pricing. MIT-licensed."
 	/>
-	<meta property="og:image" content="/og-card.png" />
+	{#if canonical}<meta property="og:url" content={canonical} />{/if}
+	<meta property="og:image" content={ogImage} />
 	<meta property="og:image:width" content="1200" />
 	<meta property="og:image:height" content="630" />
 	<meta property="og:image:alt" content="Flakey — self-hosted, CI-agnostic test reporting dashboard" />
@@ -216,7 +237,7 @@
 		name="twitter:description"
 		content="Ingest results from any reporter. Flaky detection, live streaming, manual-test sign-off, and release readiness in one self-hosted, MIT-licensed dashboard."
 	/>
-	<meta name="twitter:image" content="/og-card.png" />
+	<meta name="twitter:image" content={ogImage} />
 	<meta name="twitter:image:alt" content="Flakey — self-hosted, CI-agnostic test reporting dashboard" />
 </svelte:head>
 
@@ -325,7 +346,7 @@
 					</div>
 				{/if}
 				<div class="hero-meta">
-					<span>Works with <strong>Cypress</strong>, <strong>Playwright</strong>, <strong>WebdriverIO</strong>, <strong>Selenium</strong>, <strong>Jest</strong>, <strong>JUnit</strong>, <strong>Postman</strong>.</span>
+					<span>Works with <strong>Cypress</strong>, <strong>Playwright</strong>, <strong>WebdriverIO</strong>, <strong>pytest</strong>, <strong>Selenium</strong>, <strong>Jest</strong>, <strong>JUnit</strong>, <strong>Postman</strong>.</span>
 				</div>
 			</div>
 
@@ -437,7 +458,7 @@
 							<th class="feature-col">Feature</th>
 							<th class="product-col flakey-col">Flakey</th>
 							<th class="product-col">Cypress Cloud</th>
-							<th class="product-col">BrowserStack TO</th>
+							<th class="product-col">BrowserStack</th>
 							<th class="product-col">Currents.dev</th>
 							<th class="product-col">TestRail</th>
 						</tr>
@@ -452,7 +473,7 @@
 								{#each ['flakey', 'cypressCloud', 'browserstack', 'currents', 'testrail'] as key}
 									{@const cell = feature.cells[key as keyof typeof feature.cells]}
 									<td class="cell {cell.kind}" class:flakey-cell={key === 'flakey'}>
-										<span class="cell-mark" role="img" aria-label={cell.kind}>
+										<span class="cell-mark" role="img" aria-label={supportLabel[cell.kind]}>
 											{#if cell.kind === 'yes'}
 												<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 													<path d="M3 8.5l3.5 3.5L13 4.5" />
@@ -1297,6 +1318,38 @@
 			flex-direction: column;
 			gap: 0.5rem;
 			text-align: center;
+		}
+	}
+
+	/* ── Keyboard focus ────────────────────────────────────────────
+	   The page restyles links and buttons, so the UA's default focus
+	   ring is unreliable on them. Give every interactive element a
+	   consistent, visible focus indicator for keyboard users. */
+	.brand:focus-visible,
+	.topnav a:focus-visible,
+	.mobile-nav a:focus-visible,
+	.btn:focus-visible,
+	.compare-footnote a:focus-visible,
+	.footer-inner a:focus-visible {
+		outline: 2px solid var(--link);
+		outline-offset: 2px;
+		border-radius: 6px;
+	}
+
+	/* ── Reduced motion ────────────────────────────────────────────
+	   Honour the OS "reduce motion" setting: drop the hover lift and
+	   press transforms that this page adds for flourish. */
+	@media (prefers-reduced-motion: reduce) {
+		.btn,
+		.feature-card,
+		.nav-toggle,
+		.topnav a {
+			transition: none;
+		}
+
+		.btn:active,
+		.feature-card:hover {
+			transform: none;
 		}
 	}
 </style>

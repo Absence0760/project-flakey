@@ -143,6 +143,10 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: ${{ secrets.API_URL }}
+          # Optional public origin (e.g. https://flakey.io) used to make the
+          # landing page's canonical + Open Graph / Twitter card URLs absolute.
+          # Unset → empty → relative fallback (fine for self-hosted builds).
+          VITE_SITE_URL: ${{ secrets.SITE_URL }}
         run: |
           pnpm install --frozen-lockfile
           pnpm build

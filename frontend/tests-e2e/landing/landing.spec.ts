@@ -99,7 +99,9 @@ test.describe("/welcome — public marketing landing page", () => {
     await expect(page.getByRole("heading", { name: /How Flakey compares/i })).toBeVisible();
 
     // For each must-win row, the Flakey cell should carry the 'yes'
-    // class (rendered as ✓). The cell-mark span has aria-label="yes".
+    // class (rendered as ✓). The cell-mark span's aria-label spells the
+    // support level out for screen readers ("Supported"), not the
+    // internal "yes" key.
     for (const row of [
       "Self-hosted",
       "CI-agnostic",
@@ -109,8 +111,16 @@ test.describe("/welcome — public marketing landing page", () => {
       const rowEl = page.locator("tr", { hasText: row });
       const flakeyCell = rowEl.locator("td.flakey-cell").first();
       const mark = flakeyCell.locator(".cell-mark");
-      await expect(mark).toHaveAttribute("aria-label", "yes");
+      await expect(mark).toHaveAttribute("aria-label", "Supported");
     }
+  });
+
+  test("the 'works with' line advertises pytest — the Python reporter is first-class, not omitted", async ({ page }) => {
+    // Regression guard: pytest has a dedicated reporter package
+    // (packages/flakey-pytest-reporter) and Python is ingested via the
+    // JUnit normalizer, so the supported-framework copy must name it.
+    await page.goto("/welcome");
+    await expect(page.locator(".hero-meta")).toContainText(/pytest/i);
   });
 });
 
