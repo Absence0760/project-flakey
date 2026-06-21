@@ -182,13 +182,19 @@ ingest or the nightly sweep):
 The reopen-on-regression is the one Jira can't do itself — it has no run data.
 
 The transition **names** are configurable per org (Jira workflows name their
-done/todo columns differently). Set them on `PATCH /jira/settings`:
+done/todo columns differently). Set them — and the inbound webhook secret —
+from the UI at **Settings → Integrations & automation → Jira → Two-way sync**
+(owner/admin), or on `PATCH /jira/settings`:
 
 ```bash
 curl -X PATCH http://localhost:3000/jira/settings \
   -H "Authorization: Bearer $FLAKEY_API_KEY" -H "Content-Type: application/json" \
   -d '{ "resolve_transition": "Done", "reopen_transition": "To Do" }'
 ```
+
+In the UI the secret is **write-only** (the form shows only whether one is
+stored, never the value) and saving it does **not** enable the inbound webhook —
+that still requires `FLAKEY_JIRA_WEBHOOK_ENABLED` plus security sign-off.
 
 They default to **"Done"** / **"To Do"** when unset. A transition that isn't
 currently available on the issue (e.g. it's already in that state) is a no-op —

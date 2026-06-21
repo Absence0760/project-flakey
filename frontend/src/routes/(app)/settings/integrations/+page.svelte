@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { authFetch } from '$lib/stores/auth';
 	import { API_URL } from '$lib/utils/config';
+	import { buildJiraSettingsBody } from '$lib/utils/jira-settings';
 
 	// Jira
 	let jira = $state({
@@ -11,8 +12,14 @@
 		jira_issue_type: 'Bug',
 		jira_auto_create: false,
 		has_api_token: false,
+		// Phase 15.4 two-way sync: write-only inbound HMAC secret (surfaced as a
+		// boolean) + the outbound transition names (plain, editable config).
+		has_webhook_secret: false,
+		jira_resolve_transition: '',
+		jira_reopen_transition: '',
 	});
 	let jiraToken = $state('');
+	let jiraWebhookSecret = $state('');
 	let jiraStatus = $state<string | null>(null);
 
 	// PagerDuty
@@ -60,17 +67,32 @@
 
 	async function loadJira() {
 		const res = await authFetch(`${API_URL}/jira/settings`);
-		if (res.ok) jira = { ...jira, ...(await res.json()) };
+		if (!res.ok) return;
+		const data = await res.json();
+		// Nullable transition columns come back as null when unset — normalise to
+		// "" so the text inputs bind cleanly (and an empty box round-trips as a
+		// clear rather than the literal string "null").
+		jira = {
+			...jira,
+			...data,
+			jira_resolve_transition: data.jira_resolve_transition ?? '',
+			jira_reopen_transition: data.jira_reopen_transition ?? '',
+		};
 	}
 	async function saveJira() {
-		const body: Record<string, unknown> = {
-			base_url: jira.jira_base_url,
-			email: jira.jira_email,
-			project_key: jira.jira_project_key,
-			issue_type: jira.jira_issue_type,
-			auto_create: jira.jira_auto_create,
-		};
-		if (jiraToken) body.api_token = jiraToken;
+		const body = buildJiraSettingsBody(
+			{
+				base_url: jira.jira_base_url,
+				email: jira.jira_email,
+				project_key: jira.jira_project_key,
+				issue_type: jira.jira_issue_type,
+				auto_create: jira.jira_auto_create,
+				resolve_transition: jira.jira_resolve_transition,
+				reopen_transition: jira.jira_reopen_transition,
+			},
+			jiraToken,
+			jiraWebhookSecret,
+		);
 		const res = await authFetch(`${API_URL}/jira/settings`, {
 			method: 'PATCH',
 			headers: { 'Content-Type': 'application/json' },
@@ -78,6 +100,7 @@
 		});
 		jiraStatus = res.ok ? 'Saved.' : 'Save failed.';
 		jiraToken = '';
+		jiraWebhookSecret = '';
 		await loadJira();
 	}
 	async function testJira() {
@@ -189,6 +212,23 @@
 		<label>Project key <input bind:value={jira.jira_project_key} placeholder="QA" /></label>
 		<label>Issue type <input bind:value={jira.jira_issue_type} placeholder="Bug" /></label>
 		<label class="check"><input type="checkbox" bind:checked={jira.jira_auto_create} /> Auto-create tickets for new failures</label>
+
+		<h3 class="subhead">Two-way sync</h3>
+		<p class="hint">
+			Outbound reflection is automatic once Jira is configured: a failure going
+			green resolves its linked issue; a fixed failure that regresses reopens it.
+			These transition names must match your Jira workflow.
+		</p>
+		<label>Resolve transition <input bind:value={jira.jira_resolve_transition} placeholder="Done" /></label>
+		<label>Reopen transition <input bind:value={jira.jira_reopen_transition} placeholder="To Do" /></label>
+		<label>Inbound webhook secret <input type="password" bind:value={jiraWebhookSecret} placeholder={jira.has_webhook_secret ? '••• stored' : 'Shared HMAC secret'} /></label>
+		<p class="hint">
+			The inbound webhook (Jira-close → mark fixed) verifies this secret as an
+			HMAC. It stays disabled until an operator sets
+			<code>FLAKEY_JIRA_WEBHOOK_ENABLED</code> and security sign-off is recorded —
+			setting the secret here does not enable it on its own.
+		</p>
+
 		<div class="actions">
 			<button class="btn-primary" onclick={saveJira}>Save</button>
 			<button class="btn-ghost" onclick={testJira}>Test credentials</button>
@@ -293,7 +333,9 @@
 	h1 { margin: 0.5rem 0 1.25rem; }
 	section { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 	section h2 { margin: 0; font-size: 1rem; }
+	.subhead { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--text); border-top: 1px solid var(--border); padding-top: 0.65rem; }
 	.hint { color: var(--text-muted); font-size: 0.82rem; margin: 0 0 0.5rem; }
+	.hint code { font-family: monospace; font-size: 0.78rem; background: var(--bg-hover, rgba(127,127,127,0.12)); padding: 0.05rem 0.3rem; border-radius: 4px; }
 	label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--text-muted); }
 	label.check { flex-direction: row; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text); }
 	input, select { padding: 0.38rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.88rem; }
