@@ -160,6 +160,11 @@ interface TriageRow {
   fingerprint: string;
   target_date: string | null;
   priority: string | null;
+  // GET /errors derives a default priority at read time when none is set
+  // manually (Phase 15.2); `priority_source` distinguishes the two, so an
+  // *unset* manual priority surfaces as a non-null derived value with
+  // source 'derived' rather than null.
+  priority_source: "manual" | "derived";
 }
 
 async function getError(token: string, suite: string, fp: string): Promise<TriageRow> {
@@ -213,10 +218,12 @@ test("PATCHing only priority leaves an existing target_date intact, and null cle
   assert.ok(row.target_date && String(row.target_date).startsWith("2026-08-01"), "target_date survived a priority-only PATCH");
   assert.equal(row.priority, "low");
 
-  // null clears a field without touching the other.
+  // null clears the *manual* priority without touching the other field. Post
+  // Phase 15.2, GET then surfaces a derived priority (source 'derived'), so the
+  // clear is observable via priority_source flipping back off 'manual'.
   await patchTriage(owner.token, fp, { priority: null });
   row = await getError(owner.token, suite, fp);
-  assert.equal(row.priority, null, "null priority clears it");
+  assert.equal(row.priority_source, "derived", "clearing the manual priority hands the chip back to derivation");
   assert.ok(row.target_date && String(row.target_date).startsWith("2026-08-01"), "target_date untouched by the clear");
 });
 
@@ -232,9 +239,11 @@ test("an invalid priority is rejected with 400", async () => {
   const body = (await res.json()) as { error: string };
   assert.match(body.error, /priority/i);
 
-  // Nothing persisted.
+  // Nothing persisted — no manual priority was ever set, so GET reports the
+  // read-time derived value (source 'derived'), never a stored 'urgent'.
   const row = await getError(owner.token, suite, fp);
-  assert.equal(row.priority, null);
+  assert.equal(row.priority_source, "derived");
+  assert.notEqual(row.priority, "urgent");
 });
 
 test("a malformed target_date is rejected with 400", async () => {
