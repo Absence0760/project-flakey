@@ -205,6 +205,35 @@ test("the retention sweep removes an expired quarantine and writes a quarantine.
   assert.equal(row!.detail?.error_fingerprint, FP, "audit detail records the linked fingerprint");
 });
 
+// ── 2b. boundary: a just-past expiry is swept at the DB level ─────────────────
+//
+// The pure predicate pins the exact-instant boundary; this locks that the SWEEP
+// (the SQL `expires_at < NOW()` pre-filter + the predicate-gated DELETE) actually
+// lifts a row that crossed expiry only seconds ago — i.e. the sweep and the
+// predicate agree at the boundary, not just a comfortably-past day.
+test("the sweep removes a quarantine whose expiry passed only seconds ago (boundary)", async () => {
+  const owner = await registerOwner("boundary");
+  const suite = `qexp-boundary-${Date.now()}`;
+  const fullTitle = `${suite} > case 0`;
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const res = await addQuarantine(owner.token, { fullTitle, suiteName: suite, expires_at: future });
+  assert.equal(res.status, 201);
+
+  // Backdate the expiry to just 2 seconds in the past — the tightest "expired"
+  // state prod reaches the instant the clock ticks past a live expiry.
+  await dbAdmin.query(
+    `UPDATE quarantined_tests SET expires_at = NOW() - INTERVAL '2 seconds'
+       WHERE org_id = $1 AND full_title = $2 AND suite_name = $3`,
+    [owner.orgId, fullTitle, suite]
+  );
+
+  await runRetentionCleanup();
+
+  const rows = await listQuarantines(owner.token, suite);
+  assert.equal(rows.length, 0, "a quarantine expired seconds ago must be swept, not just a day-old one");
+});
+
 // ── 3. non-expired quarantines survive the sweep ─────────────────────────────
 
 test("a quarantine with no expiry and one with a future expiry both survive the sweep", async () => {
