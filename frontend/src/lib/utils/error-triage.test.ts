@@ -28,6 +28,7 @@ function group(over: Partial<ErrorGroup>): ErrorGroup {
     recurrence_count: 0,
     last_recurred_at: null,
     note_count: 0,
+    quarantine_suggested: false,
     ...over,
   };
 }

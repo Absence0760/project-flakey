@@ -5,6 +5,7 @@
   import { replaceState } from "$app/navigation";
   import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
+  import { quarantineDisplay } from "$lib/utils/quarantine-display";
 
   let tests = $state<FlakyTest[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -15,7 +16,7 @@
   let aiLoading = $state<Record<string, boolean>>({});
   // Keyed by qKey(); carries source ('manual'|'auto') + reason so a
   // quarantined row can show where it came from and why.
-  type QuarantineMeta = { source: string; reason: string | null };
+  type QuarantineMeta = { source: string; reason: string | null; expires_at: string | null };
   let quarantined = $state<Map<string, QuarantineMeta>>(new Map());
 
   function qKey(t: FlakyTest) { return `${t.full_title}|${t.suite_name}`; }
@@ -133,7 +134,7 @@
       tests = flakyData;
       allRuns = runs;
       aiEnabled = ai;
-      quarantined = new Map(qt.map(q => [`${q.full_title}|${q.suite_name}`, { source: q.source, reason: q.reason }]));
+      quarantined = new Map(qt.map(q => [`${q.full_title}|${q.suite_name}`, { source: q.source, reason: q.reason, expires_at: q.expires_at }]));
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load data";
     } finally {
@@ -236,7 +237,8 @@
   async function quarantineWith(test: FlakyTest, reason: string) {
     const key = qKey(test);
     await quarantineTest(test.full_title, test.file_path, test.suite_name, reason);
-    quarantined.set(key, { source: "manual", reason });
+    // No expiry set from this path — an indefinite mute (surfaced as "no expiry").
+    quarantined.set(key, { source: "manual", reason, expires_at: null });
     quarantined = new Map(quarantined);
   }
 
@@ -474,8 +476,15 @@
                   </div>
                   {#if quarantined.has(qKey(test))}
                     {@const q = quarantined.get(qKey(test))}
+                    {@const exp = quarantineDisplay(q?.expires_at ?? null)}
                     <div class="q-banner">
                       <span class="q-badge" class:auto={q?.source === "auto"}>{q?.source === "auto" ? "Auto" : "Manual"}</span>
+                      <span
+                        class="q-expiry"
+                        class:soon={exp.expiringSoon}
+                        class:expired={exp.state === "expired"}
+                        class:none={exp.state === "none"}
+                      >{exp.label}</span>
                       This test is quarantined{q?.reason ? ` — ${q.reason}` : ""}. CI can skip it via <code>GET /quarantine/check?suite={test.suite_name}</code>
                     </div>
                   {/if}
@@ -706,6 +715,18 @@
   .q-badge.auto {
     background: color-mix(in srgb, #dfb317 18%, transparent); color: #dfb317;
   }
+  /* Quarantine lifecycle (Phase 15.3): "muted, expiring in N days" / "no
+     expiry" / "expired". Neutral by default; amber when expiring soon, red when
+     already expired (the sweep will lift it), muted grey for an indefinite mute
+     so it reads as the "rotting silently" state we want to surface. */
+  .q-expiry {
+    flex-shrink: 0; padding: 0.05rem 0.4rem; border-radius: 10px;
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    background: var(--bg-secondary); color: var(--text-secondary);
+  }
+  .q-expiry.soon { background: color-mix(in srgb, #e8830c 18%, transparent); color: #e8830c; }
+  .q-expiry.expired { background: color-mix(in srgb, var(--color-fail) 18%, transparent); color: var(--color-fail); }
+  .q-expiry.none { background: var(--bg-secondary); color: var(--text-muted); }
   .test-spec  { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .suite-chip {

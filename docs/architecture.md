@@ -137,7 +137,7 @@ Scheduler (internal, advisory-lock coordinated):
 - `GET /tests/slowest` — slowest tests with P50/P95/P99 percentiles, trend direction, and duration timeline
 - `GET /tests/search/list?q=` — type-ahead search for tests
 - `GET /flaky` — list tests classified as flaky (alternating pass/fail across recent runs). Query: `?suite=&runs=&limit=` — `runs` is the recent-run window (default 30, max 500), `limit` caps output rows (default 50, max 200). The JSON body is a plain array; window/cap math is surfaced in response headers (`X-Flaky-Runs-Analyzed`, `X-Flaky-Run-Window-Truncated`, `X-Flaky-Results-Truncated`) so a CI/integrator caller can tell when the classification ran over a truncated window.
-- `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests
+- `GET/POST/DELETE /quarantine` — manage the quarantine list of known-flaky tests. `POST` (viewer-gated) accepts optional `expires_at` (an ISO timestamp; must parse + be in the future — the mute auto-lifts on the nightly retention sweep, which writes a `quarantine.expired` audit row) and `error_fingerprint` (md5-hex; links the mute back to its triage error group). Both surface on the list response.
 - `GET /quarantine/check` — check whether a test is currently quarantined
 
 > **Quarantine is reporter-side only.** Quarantining a test is *advisory*: it

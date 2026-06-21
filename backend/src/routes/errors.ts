@@ -3,6 +3,7 @@ import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { computeFlakyTests } from "../flaky-analysis.js";
 import { deriveErrorPriority } from "../error-automation.js";
+import { shouldSuggestQuarantine } from "../quarantine-lifecycle.js";
 
 const router = Router();
 
@@ -122,23 +123,48 @@ router.get("/", async (req, res) => {
       console.error("GET /errors: flaky-rate lookup failed (deriving without it):", err);
     }
 
+    // Phase 15.3 — flaky → quarantine SUGGESTION (read-side only; never an
+    // action). Pull the org's quarantined test titles so we don't suggest muting
+    // an already-muted test. Keyed by `${full_title}|${suite_name}` to match the
+    // unique quarantine identity. A lookup failure degrades to "suggest nothing"
+    // rather than breaking the list.
+    const quarantinedKeys = new Set<string>();
+    try {
+      const q = await tenantQuery(
+        req.user!.orgId,
+        "SELECT full_title, suite_name FROM quarantined_tests"
+      );
+      for (const r of q.rows) quarantinedKeys.add(`${r.full_title}|${r.suite_name}`);
+    } catch (err) {
+      console.error("GET /errors: quarantine lookup failed (no suggestions):", err);
+    }
+
     const rows = result.rows.map((row) => {
-      const human = row.priority as string | null;
-      if (human) {
-        return { ...row, priority_source: "manual" as const };
-      }
       const titles: string[] = Array.isArray(row.test_titles) ? row.test_titles : [];
       let flakyRate: number | null = null;
       for (const title of titles) {
         const r = flakyByTitle.get(title);
         if (r != null && (flakyRate == null || r > flakyRate)) flakyRate = r;
       }
+
+      // The suggestion is independent of the (manual-or-derived) priority — a
+      // human-set priority shouldn't suppress a flaky-mute hint. Suggest only
+      // when no member test of this group is already quarantined.
+      const alreadyQuarantined = titles.some((t) =>
+        quarantinedKeys.has(`${t}|${row.suite_name}`)
+      );
+      const quarantine_suggested = shouldSuggestQuarantine({ flakyRate, alreadyQuarantined });
+
+      const human = row.priority as string | null;
+      if (human) {
+        return { ...row, priority_source: "manual" as const, quarantine_suggested };
+      }
       const derived = deriveErrorPriority({
         occurrenceCount: Number(row.occurrence_count) || 0,
         affectedRuns: Number(row.affected_runs) || 0,
         flakyRate,
       });
-      return { ...row, priority: derived, priority_source: "derived" as const };
+      return { ...row, priority: derived, priority_source: "derived" as const, quarantine_suggested };
     });
 
     res.json(rows);
