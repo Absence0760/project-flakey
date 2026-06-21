@@ -238,6 +238,66 @@ test("status filter narrows to the requested status and excludes others", async 
   );
 });
 
+// ── status=regressed must return ONLY regressed groups ───────────────────
+//
+// 'regressed' was added to VALID_STATUSES alongside the Phase 15.2 recurrence
+// hook (a fixed fingerprint reappearing auto-flips fixed→regressed). Without a
+// dedicated filter test, a typo/omission in VALID_STATUSES would silently make
+// ?status=regressed fall through the `$N IS NULL` guard and return the WHOLE
+// unfiltered set instead of just the regressed groups — the exact failure mode
+// the JS-after-LIMIT bug had for `fixed`. We create one genuinely-regressed
+// group (upload → fix → re-upload) plus one open group in the same suite and
+// assert the filter returns only the regressed one.
+
+test("status=regressed returns only regressed groups (and not open ones)", async () => {
+  const token = await registerOrg("errstatus-regressed");
+  const suite = `errstatus-regressed-${Date.now()}`;
+
+  // Two distinct error groups in one suite: one we will regress, one we leave open.
+  await uploadFailingRun(token, suite, ["RegressMe", "StayOpen"]);
+  const { rows: seeded } = await getErrors(token, `?suite=${encodeURIComponent(suite)}`);
+  assert.equal(seeded.length, 2, "two distinct error messages → two groups");
+  const regressMe = seeded.find((r) => r.error_message === "RegressMe")!;
+  const stayOpen = seeded.find((r) => r.error_message === "StayOpen")!;
+
+  // Drive RegressMe through fixed → regressed via the ingest recurrence hook:
+  // mark it fixed, then re-upload the SAME fingerprint so it auto-reopens.
+  assert.equal((await setStatus(token, regressMe.fingerprint, "fixed")).status, 200);
+  await uploadFailingRun(token, suite, ["RegressMe"]);
+
+  // Sanity: the suite view now shows RegressMe as regressed, StayOpen as open.
+  const { rows: afterReupload } = await getErrors(token, `?suite=${encodeURIComponent(suite)}`);
+  assert.equal(
+    afterReupload.find((r) => r.fingerprint === regressMe.fingerprint)!.status,
+    "regressed",
+    "the re-uploaded fixed fingerprint auto-reopened to regressed"
+  );
+  assert.equal(
+    afterReupload.find((r) => r.fingerprint === stayOpen.fingerprint)!.status,
+    "open",
+    "the never-fixed group stays open"
+  );
+
+  // The filter under test: ?status=regressed returns the regressed group and
+  // excludes the open one. If 'regressed' were missing from VALID_STATUSES this
+  // would return the unfiltered set (and so include StayOpen) → the assertion
+  // catches the regression.
+  const { rows: regressedRows, res } = await getErrors(token, "?status=regressed");
+  assert.equal(res.status, 200);
+  assert.ok(
+    regressedRows.some((r) => r.fingerprint === regressMe.fingerprint),
+    "the regressed group appears under status=regressed"
+  );
+  assert.ok(
+    !regressedRows.some((r) => r.fingerprint === stayOpen.fingerprint),
+    "the open group must NOT appear under status=regressed"
+  );
+  assert.ok(
+    regressedRows.every((r) => r.status === "regressed"),
+    "no non-regressed groups leak into status=regressed (the filter is active, not a no-op)"
+  );
+});
+
 test("an unknown status value is ignored (returns the unfiltered set)", async () => {
   const token = await registerOrg("errstatus-unknown");
   const suite = `errstatus-unknown-${Date.now()}`;

@@ -251,6 +251,39 @@ test("re-uploading an already-regressed fingerprint does NOT re-bump recurrence_
   assert.equal(Number(after.recurrence_count), 1, "recurrence_count must NOT re-bump while already regressed");
 });
 
+// ── recurrence_count increments across MULTIPLE fixed→regressed cycles ───────
+//
+// The single fixed→regressed edge bumps the counter by exactly one; a second
+// human-fix followed by another reappearance must bump it again (count → 2).
+// This proves the counter is a running tally of how many times THIS failure has
+// come back, not a one-shot boolean — the signal an EM uses to spot a
+// chronically-reopening failure. Each cycle: fix → re-upload → assert.
+
+test("recurrence_count increments once per fixed→regressed cycle (re-fix then re-recur → 2)", async () => {
+  const owner = await registerOwner("multicycle");
+  const suite = `errrecur-multi-${Date.now()}`;
+  const msg = "MultiCycleErr: keeps coming back";
+
+  const fp = await uploadFailingRun(owner.token, suite, msg);
+
+  // Cycle 1: fix → reappear → regressed, count 1.
+  await setStatus(owner.token, fp, "fixed");
+  await uploadFailingRun(owner.token, suite, msg);
+  let row = await getError(owner.token, suite, fp);
+  assert.equal(row.status, "regressed", "cycle 1 reopens to regressed");
+  assert.equal(Number(row.recurrence_count), 1, "cycle 1 bumps recurrence_count to 1");
+
+  // A human fixes it again (regressed → fixed via PATCH).
+  await setStatus(owner.token, fp, "fixed");
+  assert.equal((await getError(owner.token, suite, fp)).status, "fixed", "human re-fix sticks");
+
+  // Cycle 2: reappear → regressed again, count 2 (the counter accumulates).
+  await uploadFailingRun(owner.token, suite, msg);
+  row = await getError(owner.token, suite, fp);
+  assert.equal(row.status, "regressed", "cycle 2 reopens to regressed again");
+  assert.equal(Number(row.recurrence_count), 2, "a second fixed→regressed cycle bumps the count to 2");
+});
+
 // ── a never-fixed group is untouched by the recurrence hook ──────────────────
 
 test("an open (never-fixed) fingerprint reappearing stays open with recurrence_count 0", async () => {
