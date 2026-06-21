@@ -107,6 +107,10 @@ class FlakeyReporter:
         self.api_key = api_key
         self.suite = suite
         self.tests_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        # nodeid -> the buffered entry dict already in tests_by_file, so a rerun
+        # of the same test overwrites in place (final-attempt wins) instead of
+        # appending a second row. See pytest_runtest_logreport.
+        self._entry_by_nodeid: Dict[str, Dict[str, Any]] = {}
         self.started_at = ""
 
     def pytest_sessionstart(self, session):  # noqa: ARG002
@@ -133,6 +137,18 @@ class FlakeyReporter:
         }
         if status == "failed":
             entry["error"] = self._extract_error(report)
+
+        # Dedupe by nodeid so a rerun (pytest-rerunfailures / flaky) of the same
+        # test overwrites its earlier attempt rather than appending a second row.
+        # Without this a single test rerun 3x reports as 3 tests with phantom
+        # failures, corrupting the run's pass/fail counts and flaky detection.
+        # Mirrors the JS reporters' "last/final attempt wins" retry handling.
+        prior = self._entry_by_nodeid.get(report.nodeid)
+        if prior is not None:
+            prior.clear()
+            prior.update(entry)
+            return
+        self._entry_by_nodeid[report.nodeid] = entry
         self.tests_by_file.setdefault(file_path, []).append(entry)
 
     @staticmethod
