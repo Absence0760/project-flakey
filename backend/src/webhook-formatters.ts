@@ -311,6 +311,10 @@ function formatSlack(p: WebhookRunPayload): object {
     ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} test(s) over the flaky-rate threshold in '${run.suite_name}'`
     : p.event === "flaky.detected"
     ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) in '${run.suite_name}'`
+    : p.event === "error.regressed"
+    ? `Regression: a previously-fixed failure reappeared in '${run.suite_name}'`
+    : p.event === "error.autoclosed"
+    ? `Auto-closed: a failure went green in '${run.suite_name}'`
     : `Run #${run.id} failed: ${run.failed}/${run.total} tests failed in '${run.suite_name}'`;
 
   return { text: fallback, blocks };
