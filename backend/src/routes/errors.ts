@@ -5,6 +5,12 @@ import { logAudit } from "../audit.js";
 const router = Router();
 
 const VALID_STATUSES = ["open", "investigating", "known", "fixed", "ignored"];
+const VALID_PRIORITIES = ["low", "medium", "high", "critical"];
+
+// Accept either a bare YYYY-MM-DD date or null/empty (un-set). Rejecting
+// free-form strings keeps a malformed value from reaching the DATE column as a
+// 500 — the route owns the contract the migration's column type implies.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // GET /errors — aggregated error groups with status, first/last seen, affected test count
 router.get("/", async (req, res) => {
@@ -59,7 +65,9 @@ router.get("/", async (req, res) => {
         SELECT ea.*,
           eg.id AS group_id,
           COALESCE(eg.status, 'open') AS status,
-          eg.assigned_to
+          eg.assigned_to,
+          eg.target_date,
+          eg.priority
         FROM error_agg ea
         LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
           AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
@@ -120,6 +128,101 @@ router.patch("/:fingerprint/status", async (req, res) => {
     res.json({ updated: true, group_id: result.rows[0].id, status });
   } catch (err) {
     console.error("PATCH /errors/:fingerprint/status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /errors/:fingerprint — set triage metadata (target_date / priority) on
+// an error group. Mirrors the assign route's shape: org-scoped via tenantQuery,
+// viewer-gated (mutation), lazy upsert of the error_groups row. Status stays on
+// its own PATCH .../status route. Either field may be sent on its own; sending
+// neither is a no-op-but-touch (updates updated_at). null/"" clears a field.
+router.patch("/:fingerprint", async (req, res) => {
+  try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+
+    const orgId = req.user!.orgId;
+    const fingerprint = req.params.fingerprint;
+    const body = req.body ?? {};
+    const hasTargetDate = Object.prototype.hasOwnProperty.call(body, "target_date");
+    const hasPriority = Object.prototype.hasOwnProperty.call(body, "priority");
+
+    if (!hasTargetDate && !hasPriority) {
+      res.status(400).json({ error: "Provide target_date and/or priority" });
+      return;
+    }
+
+    // Normalise + validate each provided field. A field that's null or "" clears
+    // the column; anything else must match the contract or we 400 (never let a
+    // bad value hit the DATE column / CHECK as a 500).
+    let targetDate: string | null | undefined;
+    if (hasTargetDate) {
+      const raw = body.target_date;
+      if (raw === null || raw === "") {
+        targetDate = null;
+      } else if (typeof raw === "string" && DATE_RE.test(raw) && !Number.isNaN(Date.parse(raw))) {
+        targetDate = raw;
+      } else {
+        res.status(400).json({ error: "target_date must be a YYYY-MM-DD date or null" });
+        return;
+      }
+    }
+
+    let priority: string | null | undefined;
+    if (hasPriority) {
+      const raw = body.priority;
+      if (raw === null || raw === "") {
+        priority = null;
+      } else if (typeof raw === "string" && VALID_PRIORITIES.includes(raw)) {
+        priority = raw;
+      } else {
+        res.status(400).json({ error: `Invalid priority. Must be one of: ${VALID_PRIORITIES.join(", ")}` });
+        return;
+      }
+    }
+
+    // Build the upsert from only the fields that were sent, so a PATCH of just
+    // `priority` doesn't clobber an existing target_date (and vice-versa).
+    const cols = ["org_id", "fingerprint"];
+    const vals: (string | number | null)[] = [orgId, fingerprint];
+    const sets: string[] = [];
+    if (hasTargetDate) {
+      cols.push("target_date");
+      vals.push(targetDate ?? null);
+      sets.push(`target_date = $${vals.length}`);
+    }
+    if (hasPriority) {
+      cols.push("priority");
+      vals.push(priority ?? null);
+      sets.push(`priority = $${vals.length}`);
+    }
+    sets.push("updated_at = NOW()");
+    const placeholders = cols.map((_, i) => `$${i + 1}`).join(", ");
+
+    const result = await tenantQuery(orgId,
+      `INSERT INTO error_groups (${cols.join(", ")})
+       VALUES (${placeholders})
+       ON CONFLICT (org_id, fingerprint) DO UPDATE SET ${sets.join(", ")}
+       RETURNING id, target_date, priority`,
+      vals
+    );
+
+    const audit: Record<string, unknown> = {};
+    if (hasTargetDate) audit.target_date = targetDate ?? null;
+    if (hasPriority) audit.priority = priority ?? null;
+    await logAudit(orgId, req.user!.id, "error.triage_update", "error_group", fingerprint, audit);
+
+    res.json({
+      updated: true,
+      group_id: result.rows[0].id,
+      target_date: result.rows[0].target_date,
+      priority: result.rows[0].priority,
+    });
+  } catch (err) {
+    console.error("PATCH /errors/:fingerprint error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
