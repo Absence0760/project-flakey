@@ -181,3 +181,58 @@ test("jest: stripped-then-truncated stack contains no escape bytes even when ove
   assert.ok(!error.stack!.includes(ESC), "no escape byte in the truncated stack");
   assert.equal(error.stack, "d".repeat(2000));
 });
+
+// ── Duration sanitisation (was a bare `?? 0`; now safeDuration) ─────────────
+// Jest was the one normalizer still using a bare `?? 0` for durations, which
+// only guards null/undefined — a NaN (from a buggy custom reporter's
+// perfStats.runtime) or a negative (clock skew) slipped through, poisoned the
+// summed totals, AND a NaN run total tripped `new Date(start + NaN)
+// .toISOString()` → RangeError that 500'd the upload. Bring it in line with
+// mochawesome / playwright / webdriverio.
+
+/** Build a one-suite, one-test report with caller-controlled durations. */
+function reportWithDurations(testDuration: unknown, suiteRuntime: unknown): unknown {
+  return {
+    numTotalTests: 1,
+    numTotalTestSuites: 1,
+    startTime: 0,
+    success: true,
+    wasInterrupted: false,
+    testResults: [
+      {
+        testFilePath: "src/example.test.ts",
+        perfStats: { start: 0, end: 0, runtime: suiteRuntime, slow: false },
+        testResults: [
+          {
+            ancestorTitles: ["Suite"],
+            title: "t",
+            fullName: "Suite t",
+            status: "passed",
+            duration: testDuration,
+            failureMessages: [],
+            failureDetails: [],
+            numPassingAsserts: 1,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+test("jest: a NaN perfStats.runtime does not crash the parser or yield a NaN run total", () => {
+  let out!: NormalizedRun;
+  assert.doesNotThrow(() => { out = parseJest(reportWithDurations(5, NaN), { ...META, finished_at: "" }); },
+    "a NaN suite runtime must not crash via new Date(start + NaN).toISOString()");
+  assert.ok(Number.isFinite(out.stats.duration_ms), "run duration_ms must stay finite, never NaN");
+  assert.doesNotThrow(() => new Date(out.meta.finished_at).toISOString(),
+    "finished_at must be a representable ISO string");
+});
+
+test("jest: a negative test duration is clamped to 0, not summed as negative", () => {
+  // perfStats.runtime is present and valid (10ms), so the spec total comes
+  // from it — but assert the per-test value is clamped regardless.
+  const out = parseJest(reportWithDurations(-3, 10), META);
+  const t = out.specs[0].tests[0];
+  assert.equal(t.duration_ms, 0, "a negative per-test duration must clamp to 0");
+  assert.equal(out.specs[0].stats.duration_ms, 10, "the valid suite runtime drives the spec total");
+});
