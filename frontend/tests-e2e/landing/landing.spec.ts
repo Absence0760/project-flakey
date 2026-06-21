@@ -115,6 +115,16 @@ test.describe("/welcome — public marketing landing page", () => {
     }
   });
 
+  test("hero shows the real dashboard screenshot, fully decoded (not a broken/missing asset)", async ({ page }) => {
+    await page.goto("/welcome");
+    const shot = page.locator("img.preview-shot");
+    await expect(shot).toBeVisible();
+    await expect(shot).toHaveAttribute("alt", /dashboard/i);
+    // naturalWidth > 0 only if the file actually loaded + decoded — guards
+    // against a rename/optimise pass that drops or breaks the static asset.
+    await expect.poll(() => shot.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  });
+
   test("the 'works with' line advertises pytest — the Python reporter is first-class, not omitted", async ({ page }) => {
     // Regression guard: pytest has a dedicated reporter package
     // (packages/flakey-pytest-reporter) and Python is ingested via the

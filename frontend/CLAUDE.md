@@ -57,6 +57,17 @@ and add a matching external subnav link in `settings/+page.svelte`.
 
 `src/routes/(app)/errors/+page.svelte` is the failure-triage surface (Phase 15). An error group is the triage unit: it carries a status, an owner (`AssigneePicker`), a manual `priority` chip, and a `target_date` due date. The detail-pane mutating controls (status / owner / priority / due date) are gated on `canEdit` (`getAuth().user?.orgRole !== 'viewer'`); the backend also 403s the writes, so this is defence-in-depth, not the only gate. The list/filter selection logic ("All failures" / "Assigned to me" / "Overdue") lives as **pure helpers** in `src/lib/utils/error-triage.ts` (`applyTriageFilter`, `isOverdue`, `todayISO`) so it's unit-testable — see `error-triage.test.ts`. The triage filter is a client-side layer on top of the server-side suite/status filters and participates in the URL-state sync (the `triage` param).
 
+## Landing page (`/welcome`)
+
+The hero shows a **real** screenshot of the `/dashboard` route framed in a faux
+browser window, shipped as two theme variants in `static/`
+(`hero-dashboard-light.png` / `hero-dashboard-dark.png`); a `<picture>` swaps to
+the dark capture under `prefers-color-scheme: dark`, matching the app's own
+theming. When the dashboard UI changes materially, regenerate them with
+`node scripts/capture-hero.mjs` (needs the seeded stack up — see the script
+header) so the marketing shot doesn't drift from the product. A landing e2e
+guards that the asset stays present and decodes.
+
 ## Deployment
 
 Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapter-static`. There is no Vercel configuration.

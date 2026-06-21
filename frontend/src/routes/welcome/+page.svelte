@@ -350,33 +350,33 @@
 				</div>
 			</div>
 
-			<!-- CSS-only product-preview placeholder. A real dashboard
-			     screenshot should replace this framed mock before launch. -->
-			<div class="hero-preview" aria-hidden="true">
+			<!-- Real product screenshot of the Flakey dashboard, framed in a
+			     faux browser window. Two theme variants are shipped; the
+			     <picture> swaps to the dark capture when the visitor's OS
+			     prefers dark, matching the app's own prefers-color-scheme
+			     theming. Regenerate with scripts/capture-hero.* if the
+			     dashboard UI changes materially. -->
+			<div class="hero-preview">
 				<div class="preview-frame">
 					<div class="preview-chrome">
 						<span class="preview-dot"></span>
 						<span class="preview-dot"></span>
 						<span class="preview-dot"></span>
-						<span class="preview-url">flakey · runs</span>
+						<span class="preview-url">flakey · dashboard</span>
 					</div>
-					<div class="preview-body">
-						<div class="preview-stats">
-							<div class="preview-stat pass"><span class="preview-stat-num">1,284</span><span class="preview-stat-label">passed</span></div>
-							<div class="preview-stat fail"><span class="preview-stat-num">7</span><span class="preview-stat-label">failed</span></div>
-							<div class="preview-stat skip"><span class="preview-stat-num">12</span><span class="preview-stat-label">flaky</span></div>
-						</div>
-						<div class="preview-rows">
-							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 96%"></span></div>
-							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 82%"></span></div>
-							<div class="preview-row"><span class="preview-state fail"></span><span class="preview-bar" style="width: 67%"></span></div>
-							<div class="preview-row"><span class="preview-state skip"></span><span class="preview-bar" style="width: 74%"></span></div>
-							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 90%"></span></div>
-							<div class="preview-row"><span class="preview-state pass"></span><span class="preview-bar" style="width: 58%"></span></div>
-						</div>
-					</div>
+					<picture>
+						<source srcset="/hero-dashboard-dark.png" media="(prefers-color-scheme: dark)" />
+						<img
+							class="preview-shot"
+							src="/hero-dashboard-light.png"
+							width="1600"
+							height="894"
+							loading="eager"
+							decoding="async"
+							alt="The Flakey dashboard: an at-risk strip flagging suites that need attention, headline pass-rate and failure counts, and per-suite health cards with pass/fail breakdowns."
+						/>
+					</picture>
 				</div>
-				<span class="preview-caption">Illustrative preview</span>
 			</div>
 		</section>
 
@@ -822,12 +822,11 @@
 		font-weight: 600;
 	}
 
-	/* ── Hero product preview (CSS-only placeholder) ───────────── */
+	/* ── Hero product preview (real dashboard screenshot) ──────── */
 	.hero-preview {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.6rem;
 	}
 
 	.preview-frame {
@@ -863,92 +862,12 @@
 		font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 	}
 
-	.preview-body {
-		padding: 1rem;
-	}
-
-	.preview-stats {
-		display: flex;
-		gap: 0.6rem;
-		margin-bottom: 1rem;
-	}
-
-	.preview-stat {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-		padding: 0.6rem 0.7rem;
-		border-radius: 9px;
-		border: 1px solid var(--border-light);
+	.preview-shot {
+		display: block;
+		width: 100%;
+		height: auto;
+		/* The capture's own light/dark background fills the frame body. */
 		background: var(--bg);
-	}
-
-	.preview-stat-num {
-		font-size: 1.15rem;
-		font-weight: 700;
-		line-height: 1;
-	}
-
-	.preview-stat-label {
-		font-size: 0.66rem;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--text-muted);
-	}
-
-	.preview-stat.pass .preview-stat-num {
-		color: var(--color-pass);
-	}
-
-	.preview-stat.fail .preview-stat-num {
-		color: var(--color-fail);
-	}
-
-	.preview-stat.skip .preview-stat-num {
-		color: var(--color-skip);
-	}
-
-	.preview-rows {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.preview-row {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-	}
-
-	.preview-state {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.preview-state.pass {
-		background: var(--color-pass);
-	}
-
-	.preview-state.fail {
-		background: var(--color-fail);
-	}
-
-	.preview-state.skip {
-		background: var(--color-skip);
-	}
-
-	.preview-bar {
-		height: 8px;
-		border-radius: 999px;
-		background: linear-gradient(90deg, color-mix(in srgb, var(--link) 45%, transparent), color-mix(in srgb, var(--link) 12%, transparent));
-	}
-
-	.preview-caption {
-		font-size: 0.72rem;
-		color: var(--text-muted);
 	}
 
 	/* ── Section primitives ────────────────────────────────────── */
