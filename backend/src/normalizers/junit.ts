@@ -70,7 +70,13 @@ function toArray<T>(val: T | T[] | undefined): T[] {
 function parseSeconds(time?: string): number {
   if (!time) return 0;
   const n = parseFloat(time);
-  return isNaN(n) ? 0 : Math.round(n * 1000);
+  // Reject NaN AND negatives. parseFloat("-1.5") is a finite -1.5, not NaN,
+  // so the old isNaN-only guard let a negative @_time through — which then
+  // poisons the summed spec/run duration_ms and, via the <testsuites>@_time
+  // path, can drive finished_at BEFORE started_at (an inverted run window).
+  // Mirrors the `n > 0` clamp the sibling normalizers (mochawesome /
+  // playwright / webdriverio) already apply in their safeDuration().
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : 0;
 }
 
 function getFailureMessage(node: JUnitTestCase["failure"]): { message: string; stack?: string } | undefined {
