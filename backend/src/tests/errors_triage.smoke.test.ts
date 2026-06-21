@@ -293,3 +293,78 @@ test("a successful PATCH writes an error.triage_update audit row", async () => {
   const hit = entries.find((e) => e.action === "error.triage_update" && e.target_id === fp);
   assert.ok(hit, "an error.triage_update audit row should exist for this fingerprint");
 });
+
+// ── tenant isolation: org B can't mutate org A's triage metadata ──────────
+//
+// error_groups is FORCE-RLS with a UNIQUE(org_id, fingerprint). The PATCH
+// upserts on that key under the caller's org context, so an org-B PATCH of an
+// org-A fingerprint can only ever touch org B's own (separate) row — never org
+// A's. This is the load-bearing RLS invariant for the triage surface: a
+// cross-org PATCH must NOT change what org A reads back, and org A's own GET
+// (RLS-scoped) must never surface org B's value. Mirrors the IDOR guard in
+// errors_assign.smoke.test.ts but for the triage PATCH.
+
+test("a PATCH from another org cannot mutate org A's priority (RLS isolation)", async () => {
+  const orgA = await registerOwner("isoA");
+  const orgB = await registerOwner("isoB");
+  // BOTH orgs ingest a run with the SAME suite + error message, so they share
+  // the identical fingerprint (md5(message|suite)) — the only way the two rows
+  // could collide is if RLS failed to scope the upsert.
+  const suite = `errtriage-iso-${Date.now()}`;
+  const msg = "TriageIsoErr: identical across orgs";
+  const fpA = await uploadFailingRun(orgA.token, suite, msg);
+  const fpB = await uploadFailingRun(orgB.token, suite, msg);
+  assert.equal(fpA, fpB, "same message+suite must hash to the same fingerprint across orgs");
+
+  // Org A sets a manual priority of its own.
+  assert.equal((await patchTriage(orgA.token, fpA, { priority: "high" })).status, 200);
+  assert.equal((await getError(orgA.token, suite, fpA)).priority, "high");
+
+  // Org B PATCHes the SAME fingerprint to a different value. This succeeds (org
+  // B owns its own error_groups row for that fingerprint) but must not reach
+  // org A's row.
+  const bRes = await patchTriage(orgB.token, fpB, { priority: "low" });
+  assert.equal(bRes.status, 200, "org B's PATCH operates on its own row");
+
+  // The invariant: org A still reads its OWN value, untouched by org B.
+  const aAfter = await getError(orgA.token, suite, fpA);
+  assert.equal(aAfter.priority, "high", "org A's priority is unchanged by a cross-org PATCH");
+  assert.equal(aAfter.priority_source, "manual");
+  // And org B sees only its own value — no leakage either direction.
+  const bAfter = await getError(orgB.token, suite, fpB);
+  assert.equal(bAfter.priority, "low", "org B reads its own (separate) row");
+});
+
+// ── derived-priority integration: GET /errors applies a band, manual wins ──
+//
+// deriveErrorPriority is unit-tested exhaustively in error_automation.unit; this
+// asserts the READ-side wiring in GET /errors: a group with no manual priority
+// surfaces a non-null DERIVED value with priority_source 'derived', a manual
+// PATCH flips it to 'manual' and pins the chosen value, and clearing hands it
+// back to the derivation. The derived band for a single-run blip is 'low'.
+
+test("GET /errors derives a low-band priority for a one-off, manual PATCH overrides, clear restores derivation", async () => {
+  const owner = await registerOwner("derived");
+  const suite = `errtriage-derived-${Date.now()}`;
+  const fp = await uploadFailingRun(owner.token, suite, "DerivedBandErr");
+
+  // No manual priority yet → GET derives. A single failing run (1 occurrence, 1
+  // affected run, not flaky) lands in the 'low' band per deriveErrorPriority.
+  const derivedRow = await getError(owner.token, suite, fp);
+  assert.equal(derivedRow.priority_source, "derived", "an unset group surfaces a derived priority");
+  assert.equal(derivedRow.priority, "low", "a single-run blip derives to the low band");
+
+  // A manual PATCH NEVER gets overwritten by the derivation: set critical and
+  // confirm the source + value flip and stick.
+  assert.equal((await patchTriage(owner.token, fp, { priority: "critical" })).status, 200);
+  const manualRow = await getError(owner.token, suite, fp);
+  assert.equal(manualRow.priority_source, "manual", "a human value reads back as manual");
+  assert.equal(manualRow.priority, "critical", "the manual value is not clobbered by the derivation");
+
+  // Clearing the manual value hands the chip back to the derivation (the 'low'
+  // band again) — never null.
+  assert.equal((await patchTriage(owner.token, fp, { priority: null })).status, 200);
+  const clearedRow = await getError(owner.token, suite, fp);
+  assert.equal(clearedRow.priority_source, "derived", "clearing restores the derived source");
+  assert.equal(clearedRow.priority, "low", "the derived band is re-applied, never null");
+});
