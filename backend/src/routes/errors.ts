@@ -175,9 +175,21 @@ router.get("/", async (req, res) => {
   }
 });
 
-// PATCH /errors/:fingerprint/status — update error group status
+// PATCH /errors/:fingerprint/status — update error group status.
+//
+// Viewer-gated like the sibling triage mutations (PATCH /:fingerprint and POST
+// /:fingerprint/assign): changing a group's workflow state is a privileged
+// triage action, and a `→ fixed` transition additionally drives outbound Jira
+// resolution. The gate predates the convention that was later applied to the
+// other mutations here, so without this a viewer could move error-group status
+// (and resolve linked Jira issues) — an inconsistent, fail-open privilege hole.
 router.patch("/:fingerprint/status", async (req, res) => {
   try {
+    if (req.user!.orgRole === "viewer") {
+      res.status(403).json({ error: "Admin role required" });
+      return;
+    }
+
     const { status } = req.body;
     if (!VALID_STATUSES.includes(status)) {
       res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` });
