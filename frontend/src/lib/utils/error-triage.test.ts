@@ -85,6 +85,31 @@ describe("applyTriageFilter", () => {
   it("falls back to 'all' for an unknown filter value", () => {
     expect(applyTriageFilter(groups, "bogus" as TriageFilter, opts)).toEqual(groups);
   });
+
+  it("'mine' never matches an unassigned group (assigned_to null !== a real user id)", () => {
+    // Defence against a falsy-comparison regression: null must not equal 0 or
+    // be coerced into "mine".
+    const onlyUnassigned = [unassigned];
+    expect(applyTriageFilter(onlyUnassigned, "mine", opts)).toEqual([]);
+    // …and with currentUserId 0 (a falsy-but-real id), a null assignee still
+    // doesn't match, while a group genuinely assigned to user 0 does.
+    const userZero = group({ fingerprint: "z", assigned_to: 0 });
+    expect(
+      applyTriageFilter([unassigned, userZero], "mine", { currentUserId: 0, today: "2026-06-21" }).map(
+        (g) => g.fingerprint
+      )
+    ).toEqual(["z"]);
+  });
+
+  it("'overdue' returns an empty array when nothing is past due", () => {
+    expect(applyTriageFilter([future, unassigned], "overdue", opts)).toEqual([]);
+  });
+
+  it("returns an empty array unchanged for every filter mode", () => {
+    for (const f of ["all", "mine", "overdue"] as const) {
+      expect(applyTriageFilter([], f, opts)).toEqual([]);
+    }
+  });
 });
 
 describe("todayISO", () => {

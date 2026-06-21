@@ -22,6 +22,9 @@ const BASE = `http://localhost:${PORT}`;
 
 let server: ChildProcess;
 let token = "";
+// A second org used to prove cross-org isolation: org B must never see, patch,
+// delete, or test org A's export config.
+let tokenB = "";
 
 async function waitForHealth(base: string, maxMs = 12000): Promise<void> {
   const start = Date.now();
@@ -73,6 +76,19 @@ before(async () => {
   });
   assert.ok(reg.ok, `register failed: ${reg.status}`);
   token = ((await reg.json()) as { token: string }).token;
+
+  const regB = await fetch(`${BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: `audit-export-b+${Date.now()}@test.local`,
+      password: "testpass123",
+      name: "OtherOwner",
+      org_name: `ExportOrgB-${Date.now()}`,
+    }),
+  });
+  assert.ok(regB.ok, `register B failed: ${regB.status}`);
+  tokenB = ((await regB.json()) as { token: string }).token;
 });
 
 after(async () => {
@@ -82,6 +98,7 @@ after(async () => {
 });
 
 const auth = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token}` });
+const authB = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${tokenB}` });
 
 test("POST /audit/export creates a destination and never returns the token", async () => {
   const res = await fetch(`${BASE}/audit/export`, {
@@ -198,6 +215,104 @@ test("POST default cursor seeds from current max (not 0); from_beginning seeds 0
 
   const scratch = await createHttp({ from_beginning: true });
   assert.equal(String(scratch.last_exported_id), "0", "from_beginning streams the full history");
+});
+
+test("cross-org isolation: org B cannot see, patch, delete, or test org A's config", async () => {
+  // Org A owns a config carrying a distinctive endpoint + secret. enabled:true so
+  // the closing "unchanged" check is meaningful (org B's PATCH would flip it off).
+  const a = await createHttp({
+    enabled: true,
+    endpoint_url: "https://org-a-only.example.com/secret-collector",
+    auth_header_name: "Authorization",
+    auth_token: "Bearer org-a-private-token",
+  });
+
+  // 1. Org B's list never contains org A's row (RLS scopes the SELECT to org B).
+  const bList = await (await fetch(`${BASE}/audit/export`, { headers: authB() })).json();
+  assert.ok(Array.isArray(bList));
+  assert.ok(!bList.some((c: { id: number }) => c.id === a.id), "org B must not see org A's config");
+  // …and org A's endpoint/secret leak nowhere into org B's response body.
+  assert.ok(!JSON.stringify(bList).includes("org-a-only.example.com"));
+  assert.ok(!JSON.stringify(bList).includes("org-a-private-token"));
+
+  // 2. GET-by-side-effect: org B's PATCH targets a real id it doesn't own → 404
+  // (not 403), so the existence of org A's config isn't even confirmed.
+  const bPatch = await fetch(`${BASE}/audit/export/${a.id}`, {
+    method: "PATCH",
+    headers: authB(),
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(bPatch.status, 404, "org B patching org A's config must 404");
+
+  // 3. Org B's DELETE of org A's id → 404, and org A's config survives.
+  const bDel = await fetch(`${BASE}/audit/export/${a.id}`, { method: "DELETE", headers: authB() });
+  assert.equal(bDel.status, 404, "org B deleting org A's config must 404");
+
+  // 4. Org B's /test of org A's id → 404 (can't trigger a delivery on A's behalf).
+  const bTest = await fetch(`${BASE}/audit/export/${a.id}/test`, { method: "POST", headers: authB() });
+  assert.equal(bTest.status, 404, "org B testing org A's config must 404");
+
+  // Org A's config is untouched after all of org B's attempts.
+  const aList = await (await fetch(`${BASE}/audit/export`, { headers: auth() })).json();
+  const still = aList.find((c: { id: number; enabled: boolean }) => c.id === a.id);
+  assert.ok(still, "org A's config must still exist");
+  assert.equal(still.enabled, true, "org A's config must be unchanged (org B's PATCH didn't land)");
+});
+
+test("POST /audit/export/:id/test on a healthy id returns {ok:true} (probe delivered)", async () => {
+  // Stand up a throwaway receiver that 200s, so the synthetic probe succeeds and
+  // the endpoint reports ok:true without advancing the cursor.
+  const { createServer } = await import("node:http");
+  const receiver = createServer((_q, s) => {
+    s.statusCode = 200;
+    s.end("ok");
+  });
+  await new Promise<void>((resolve) => receiver.listen(0, "127.0.0.1", resolve));
+  const addr = receiver.address() as { port: number };
+  try {
+    const cfg = await createHttp({ endpoint_url: `http://127.0.0.1:${addr.port}/collect` });
+    const before = cfg.last_exported_id;
+    const res = await fetch(`${BASE}/audit/export/${cfg.id}/test`, { method: "POST", headers: auth() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    assert.equal(body.ok, true, "a reachable 200 receiver yields ok:true");
+    assert.equal(body.error, undefined, "no error on success");
+    // The probe must NOT advance the export cursor (it's a connectivity test).
+    const list = await (await fetch(`${BASE}/audit/export`, { headers: auth() })).json();
+    const after = list.find((c: { id: number; last_exported_id: string }) => c.id === cfg.id);
+    assert.equal(String(after.last_exported_id), String(before), "test must not advance the cursor");
+  } finally {
+    receiver.close();
+  }
+});
+
+test("POST /audit/export/:id/test on an unreachable destination returns a sanitized error (no URL/token leak)", async () => {
+  // Reserve a port, then close it so the connection is refused. WEBHOOK_ALLOW_
+  // PRIVATE_TARGETS=true lets the loopback target past the SSRF gate, so we get a
+  // genuine connection error rather than a blocked-target rejection.
+  const { createServer } = await import("node:http");
+  const tmp = createServer();
+  await new Promise<void>((resolve) => tmp.listen(0, "127.0.0.1", resolve));
+  const deadPort = (tmp.address() as { port: number }).port;
+  await new Promise<void>((resolve) => tmp.close(() => resolve()));
+
+  const secretToken = "Bearer unreachable-secret-token";
+  const cfg = await createHttp({
+    endpoint_url: `http://127.0.0.1:${deadPort}/collect`,
+    auth_header_name: "Authorization",
+    auth_token: secretToken,
+  });
+  const res = await fetch(`${BASE}/audit/export/${cfg.id}/test`, { method: "POST", headers: auth() });
+  assert.equal(res.status, 200, "a failed probe is a 200 report, not a 500");
+  const body = (await res.json()) as { ok: boolean; error?: string };
+  assert.equal(body.ok, false, "an unreachable destination yields ok:false");
+  assert.equal(typeof body.error, "string");
+  // The error is sanitized: it names a connection problem, never the token,
+  // and never the full endpoint URL/path.
+  assert.ok(!JSON.stringify(body).includes(secretToken), "the auth token must not leak in the error");
+  assert.ok(!JSON.stringify(body).includes("unreachable-secret-token"));
+  assert.ok(!body.error!.includes("/collect"), "the endpoint path must not leak in the error");
+  assert.match(body.error!, /connection error|timed out|delivery failed/i, "error is a sanitized category");
 });
 
 test("GET /audit/verify returns a structured integrity result", async () => {

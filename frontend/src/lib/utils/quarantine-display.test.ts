@@ -50,4 +50,38 @@ describe("quarantineDisplay", () => {
     expect(quarantineDisplay(inDays(3), NOW, 3).expiringSoon).toBe(true);
     expect(quarantineDisplay(inDays(4), NOW, 3).expiringSoon).toBe(false);
   });
+
+  function inHours(n: number): string {
+    return new Date(NOW.getTime() + n * 60 * 60 * 1000).toISOString();
+  }
+
+  it("ceils on the day boundary: 23h and 25h both round up (1 vs 2 days)", () => {
+    // The rounding boundary the comment promises: anything in (0, 24h] reads as
+    // 1 day, anything in (24h, 48h] reads as 2 days. 23h → 1, 25h → 2.
+    expect(quarantineDisplay(inHours(23), NOW).daysRemaining).toBe(1);
+    expect(quarantineDisplay(inHours(25), NOW).daysRemaining).toBe(2);
+  });
+
+  it("treats exactly 24h out as 1 day (ceil of an exact day is that day)", () => {
+    const d = quarantineDisplay(inHours(24), NOW);
+    expect(d.daysRemaining).toBe(1);
+    expect(d.label).toBe("Muted, expiring in 1 day");
+  });
+
+  it("one second past now is still active (1 day), never expired", () => {
+    const d = quarantineDisplay(new Date(NOW.getTime() + 1000).toISOString(), NOW);
+    expect(d.state).toBe("active");
+    expect(d.daysRemaining).toBe(1);
+  });
+
+  it("only the expired state reports daysRemaining 0 (active is always ≥ 1)", () => {
+    expect(quarantineDisplay(inDays(-5), NOW).daysRemaining).toBe(0);
+    expect(quarantineDisplay(inHours(1), NOW).daysRemaining).toBe(1);
+  });
+
+  it("a soonDays of 0 means an active quarantine is never 'soon'", () => {
+    const d = quarantineDisplay(inHours(1), NOW, 0);
+    expect(d.state).toBe("active");
+    expect(d.expiringSoon).toBe(false);
+  });
 });
