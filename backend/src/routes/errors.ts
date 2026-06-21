@@ -3,6 +3,7 @@ import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
 import { computeFlakyTests } from "../flaky-analysis.js";
 import { deriveErrorPriority } from "../error-automation.js";
+import { syncErrorGroupTransition } from "../integrations/jira.js";
 
 const router = Router();
 
@@ -170,6 +171,29 @@ router.patch("/:fingerprint/status", async (req, res) => {
     );
 
     await logAudit(orgId, req.user!.id, "error.status", "error_group", fingerprint, { status });
+
+    // Phase 15.4 outbound sync — a manual → fixed reflects onto the linked Jira
+    // issue (resolve + comment). Best-effort and AFTER the response is
+    // computed: a Jira outage must not fail the status change (the DB
+    // transition already happened). Audited only when Jira actually moved.
+    if (status === "fixed") {
+      void (async () => {
+        const issueKey = await syncErrorGroupTransition(
+          orgId,
+          fingerprint,
+          "fixed",
+          "test marked fixed — auto-resolving the linked issue."
+        );
+        if (issueKey) {
+          await logAudit(orgId, req.user!.id, "jira.issue.transition", "error_group", fingerprint, {
+            issue_key: issueKey,
+            direction: "fixed",
+            trigger: "manual",
+          });
+        }
+      })();
+    }
+
     res.json({ updated: true, group_id: result.rows[0].id, status });
   } catch (err) {
     console.error("PATCH /errors/:fingerprint/status error:", err);

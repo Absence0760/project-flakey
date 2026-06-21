@@ -18,6 +18,8 @@ import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { NormalizedRun } from "./types.js";
 import { dispatchErrorGroupEvent } from "./webhooks.js";
+import { syncErrorGroupTransition } from "./integrations/jira.js";
+import { logAudit } from "./audit.js";
 
 /** md5(error_message || '|' || suite_name) — the stable error-group identity. */
 export function computeFingerprint(errorMessage: string, suiteName: string): string {
@@ -125,4 +127,39 @@ export function dispatchRegressionWebhooks(
       error_message: messages.get(fp) ?? null,
     });
   }
+}
+
+/**
+ * Phase 15.4 outbound sync — reflect each ingest-time → regressed transition
+ * onto its linked Jira issue (reopen + comment). Jira has no run data, so this
+ * auto-reopen is the demo-able "wow." Best-effort + fire-and-forget, called
+ * AFTER the ingest transaction commits (alongside dispatchRegressionWebhooks)
+ * so the regressed row is durable first. syncErrorGroupTransition swallows all
+ * Jira errors internally and returns null on failure, so a Jira outage can
+ * never break ingest. Audits `jira.issue.transition` only when Jira moved.
+ */
+export function syncRegressionsToJira(
+  orgId: number,
+  run: NormalizedRun,
+  regressedFingerprints: string[]
+): void {
+  if (regressedFingerprints.length === 0) return;
+  void (async () => {
+    for (const fp of regressedFingerprints) {
+      const issueKey = await syncErrorGroupTransition(
+        orgId,
+        fp,
+        "regressed",
+        "this test regressed — a previously-fixed failure is back. Reopening."
+      );
+      if (issueKey) {
+        await logAudit(orgId, null, "jira.issue.transition", "error_group", fp, {
+          issue_key: issueKey,
+          direction: "regressed",
+          trigger: "ingest",
+          suite_name: run.meta.suite_name,
+        });
+      }
+    }
+  })();
 }

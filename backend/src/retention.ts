@@ -3,6 +3,7 @@ import { getStorage, type Storage } from "./storage.js";
 import { logAudit } from "./audit.js";
 import { isAutocloseEligible, AUTOCLOSE_ELIGIBLE_STATUSES } from "./error-automation.js";
 import { dispatchErrorGroupEvent } from "./webhooks.js";
+import { syncErrorGroupTransition } from "./integrations/jira.js";
 
 // Delete expired org invites; returns how many rows went. Plain pool.query:
 // org_invites carries no RLS, so no tenant context is needed.
@@ -233,6 +234,25 @@ async function autocloseStaleErrorGroups(
       status: "fixed",
       error_message: row.error_message ?? null,
     });
+
+    // Phase 15.4 outbound sync (additive — keep localized; sibling 15.3 also
+    // edits this file). Reflect the auto-close onto the linked Jira issue.
+    // Best-effort: swallows + returns null on any Jira error so a failure can't
+    // abort the rest of the sweep. Audited only when Jira actually moved.
+    const syncedKey = await syncErrorGroupTransition(
+      org.id,
+      row.fingerprint,
+      "fixed",
+      `test green for ${days} day(s) — auto-resolving.`
+    );
+    if (syncedKey) {
+      await logAudit(org.id, null, "jira.issue.transition", "error_group", row.fingerprint, {
+        issue_key: syncedKey,
+        direction: "fixed",
+        trigger: "autoclose",
+        autoclose_days: days,
+      });
+    }
   }
 
   console.log(`Auto-close: closed ${toClose.length} stale error group(s) for org ${org.id} (window ${days}d)`);
