@@ -271,6 +271,90 @@ test("an opted-in org's stale open group auto-closes on the sweep, with audit + 
   }
 });
 
+// ── 1b. a `regressed` group is also eligible and auto-closes when quiet ──────
+//
+// AUTOCLOSE_ELIGIBLE_STATUSES is open/investigating/regressed — a regression
+// that then goes quiet for the window is itself a candidate to re-close. The
+// happy-path test above exercises `open`; this proves the regressed branch so a
+// future narrowing of the eligible set (e.g. dropping 'regressed') is caught.
+
+test("a stale `regressed` group also auto-closes (regressed is an eligible status)", async () => {
+  const owner = await registerOwner("regressedclose");
+  const suite = `errac-regressed-${Date.now()}`;
+  const fp = await uploadFailingRun(owner.token, suite, "RegressedCloseErr");
+
+  // Drive it to `regressed`: mark fixed, then re-upload the same fingerprint so
+  // the ingest recurrence hook flips fixed→regressed (the real path).
+  await fetch(`${BASE}/errors/${fp}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.token}` },
+    body: JSON.stringify({ status: "fixed" }),
+  });
+  await uploadFailingRun(owner.token, suite, "RegressedCloseErr");
+  assert.equal(await getStatus(owner.token, suite, fp), "regressed",
+    "the re-uploaded fixed fingerprint must be regressed before the sweep");
+
+  // Opt in (3d) and age every run for the suite past the window (10d quiet),
+  // disabling retention so the runs survive for the sweep to read last_seen.
+  await setAutocloseDays(owner, 3);
+  await disableRetention(owner.orgId);
+  await backdateRun(suite, 10);
+
+  await runRetentionCleanup();
+
+  assert.equal(await getStatus(owner.token, suite, fp), "fixed",
+    "a stale regressed group must auto-close to fixed (regressed is eligible)");
+});
+
+// ── 1c. a group with no matching failing test (null last_seen) never closes ──
+//
+// The sweep closes only on POSITIVE evidence of green: a persisted error_groups
+// row whose fingerprint has no matching failing test derives last_seen NULL, and
+// isAutocloseEligible never closes a null last_seen (absence of data is not
+// proof of green). We persist such an orphan row (PATCH a fabricated fingerprint
+// — lazy upsert, no upload) and confirm the sweep leaves it untouched even with
+// autoclose opted in.
+
+test("a persisted group with no matching run (null last_seen) is never auto-closed", async () => {
+  const owner = await registerOwner("nolastseen");
+  // A fabricated fingerprint that no run produces. PATCH status lazily persists
+  // the error_groups row at status 'open' without any failing test behind it.
+  const orphanFp = "feedfacecafebeeffeedfacecafebeef";
+  const persist = await fetch(`${BASE}/errors/${orphanFp}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.token}` },
+    body: JSON.stringify({ status: "open" }),
+  });
+  assert.equal(persist.status, 200, "the orphan group row is persisted at open");
+
+  // Opt in hard (1-day window) so ONLY the null-last_seen guard keeps it open.
+  await setAutocloseDays(owner, 1);
+  await disableRetention(owner.orgId);
+
+  await runRetentionCleanup();
+
+  // It must still be open: with no failing test, last_seen is NULL and the
+  // sweep refuses to close on absence of data.
+  const res = await fetch(`${BASE}/errors?status=open&limit=1000`, {
+    headers: { Authorization: `Bearer ${owner.token}` },
+  });
+  const rows = (await res.json()) as Array<{ fingerprint: string; status: string }>;
+  // The orphan won't appear in GET /errors (which aggregates from failing tests,
+  // and there are none), so assert it was NOT moved to fixed by inspecting the
+  // audit log: no error.autoclosed row may exist for this fingerprint.
+  const auditRes = await fetch(`${BASE}/audit?action=error.autoclosed&limit=1000`, {
+    headers: { Authorization: `Bearer ${owner.token}` },
+  });
+  const auditRows = (await auditRes.json()) as Array<{ target_id: string }>;
+  assert.ok(
+    !auditRows.some((r) => r.target_id === orphanFp),
+    "a null-last_seen group must never be auto-closed (no error.autoclosed audit row)"
+  );
+  // (rows is unused beyond confirming the call succeeds; the audit check is the
+  // authoritative assertion since an orphan never surfaces in GET /errors.)
+  assert.ok(Array.isArray(rows), "GET /errors?status=open responded");
+});
+
 // ── 2. a fresh group (inside the window) is NOT closed ───────────────────────
 
 test("a group whose last_seen is INSIDE the window is not auto-closed", async () => {
