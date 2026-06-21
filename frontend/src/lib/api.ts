@@ -853,3 +853,117 @@ export async function fetchAuditLog(filters?: AuditLogFilters): Promise<AuditEnt
   if (!res.ok) throw new Error(`Failed to fetch audit log: ${res.status}`);
   return res.json();
 }
+
+// --- Audit export / SIEM streaming config (Phase 16) ---
+//
+// Mirrors backend/src/routes/audit.ts (`/audit/export*`) + the publicConfig()
+// projection (auth token is never returned — only `auth_token_set`). All routes
+// are admin+ and 404 when the instance kill-switch FLAKEY_AUDIT_EXPORT_ENABLED
+// is off, so callers treat a 404 from listConfigs() as "feature disabled"
+// (same convention as SSO's GET /sso/config). Shapes are HAND-SYNCED with
+// AuditExportConfigRow + the route bodies; keep them in lockstep.
+
+// Server-safe view of an export destination (token redacted to a boolean).
+export interface AuditExportConfig {
+  id: number;
+  destination: "http" | "s3";
+  enabled: boolean;
+  endpoint_url: string | null;
+  auth_header_name: string | null;
+  auth_token_set: boolean;
+  s3_bucket: string | null;
+  s3_prefix: string | null;
+  last_exported_id: string; // bigint as string
+  last_success_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Create body. destination is required; endpoint_url is required for "http",
+// s3_bucket for "s3". from_beginning streams the full history (default: only
+// events newer than "now"). auth_token is write-only.
+export interface AuditExportCreate {
+  destination: "http" | "s3";
+  enabled?: boolean;
+  from_beginning?: boolean;
+  endpoint_url?: string;
+  auth_header_name?: string;
+  auth_token?: string;
+  s3_bucket?: string;
+  s3_prefix?: string;
+}
+
+// Patch body — only supplied fields change. The destination type is immutable.
+// auth_token semantics: omit = keep, "" / null = clear, non-empty = rotate.
+export interface AuditExportUpdate {
+  enabled?: boolean;
+  endpoint_url?: string;
+  auth_header_name?: string;
+  auth_token?: string | null;
+  s3_bucket?: string;
+  s3_prefix?: string;
+}
+
+// Distinguishes "feature off on this instance" (404 kill-switch) from a real
+// error, so the UI can render an explanatory disabled state instead of a toast.
+export class AuditExportDisabledError extends Error {
+  constructor() {
+    super("Audit export is not enabled on this instance");
+    this.name = "AuditExportDisabledError";
+  }
+}
+
+// GET /audit/export — list this org's destinations. Throws
+// AuditExportDisabledError when the instance flag is off (404).
+export async function listAuditExportConfigs(): Promise<AuditExportConfig[]> {
+  const res = await authFetch(`${API_URL}/audit/export`);
+  if (res.status === 404) throw new AuditExportDisabledError();
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to load audit export config"));
+  return res.json();
+}
+
+// POST /audit/export — create a destination (201).
+export async function createAuditExportConfig(body: AuditExportCreate): Promise<AuditExportConfig> {
+  const res = await authFetch(`${API_URL}/audit/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to create destination"));
+  return res.json();
+}
+
+// PATCH /audit/export/:id — update supplied fields.
+export async function updateAuditExportConfig(
+  id: number,
+  body: AuditExportUpdate
+): Promise<AuditExportConfig> {
+  const res = await authFetch(`${API_URL}/audit/export/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to update destination"));
+  return res.json();
+}
+
+// DELETE /audit/export/:id — 204 No Content on success.
+export async function deleteAuditExportConfig(id: number): Promise<void> {
+  const res = await authFetch(`${API_URL}/audit/export/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await errorMessage(res, "Failed to delete destination"));
+  }
+}
+
+// POST /audit/export/:id/test — send one synthetic event without advancing the
+// cursor. Returns { ok, error? } with a SANITIZED error (no upstream body/URL/
+// token); a non-2xx HTTP status is itself a server/auth failure to surface.
+export async function testAuditExportConfig(
+  id: number
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await authFetch(`${API_URL}/audit/export/${id}/test`, { method: "POST" });
+  if (!res.ok) throw new Error(await errorMessage(res, "Test delivery failed"));
+  return res.json();
+}
