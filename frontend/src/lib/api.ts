@@ -246,6 +246,10 @@ export interface ErrorGroup {
   status: string;
   assigned_to: number | null;
   assigned_to_email: string | null;
+  // Triage metadata (Phase 15.1): a due date (the SLA hook) and a manual
+  // priority. Both nullable — null = unset. target_date is a bare YYYY-MM-DD.
+  target_date: string | null;
+  priority: "low" | "medium" | "high" | "critical" | null;
   note_count: number;
 }
 
@@ -334,6 +338,20 @@ export async function updateErrorStatus(fingerprint: string, status: string): Pr
     body: JSON.stringify({ status }),
   });
   if (!res.ok) throw new Error(`Failed to update status: ${res.status}`);
+}
+
+// Set triage metadata (due date and/or priority) on an error group. Pass null
+// for a field to clear it; omit a field to leave it untouched.
+export async function updateErrorTriage(
+  fingerprint: string,
+  patch: { target_date?: string | null; priority?: ErrorGroup["priority"] }
+): Promise<void> {
+  const res = await authFetch(`${API_URL}/errors/${fingerprint}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed to update triage: ${res.status}`);
 }
 
 // Assign (or un-assign, with userId = null) an owner to an error group.
