@@ -363,6 +363,8 @@ test("GET /webhooks/events returns every dispatchable event with a friendly labe
   const dispatchable = [
     "run.failed", "run.passed", "run.completed",
     "new.failures", "flaky.detected", "flaky.threshold.exceeded",
+    // Phase 15.2 error-group lifecycle events.
+    "error.regressed", "error.autoclosed",
   ];
   for (const ev of dispatchable) {
     assert.ok(returned.has(ev), `GET /webhooks/events must include dispatchable event '${ev}'`);

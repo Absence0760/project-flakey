@@ -661,3 +661,58 @@ test("formatPayload: empty platform string falls through to generic format", () 
   const out = formatPayload("", basePayload()) as { text?: string };
   assert.ok(out.text);
 });
+
+// ── Phase 15.2: error-group lifecycle events (error.regressed / autoclosed) ──
+//
+// These carry an `error_group` block (not a run failure list). Every platform
+// must produce serializable output, surface a sensible title that names the
+// regression / auto-close, render the fingerprint's message + new status, and
+// NOT fall through to the generic "Run … failed" wording.
+
+function errorGroupPayload(event: "error.regressed" | "error.autoclosed", over: Partial<WebhookRunPayload> = {}): WebhookRunPayload {
+  return basePayload({
+    event,
+    failed_tests: [],
+    error_group: {
+      fingerprint: "abc123fingerprint",
+      suite_name: "checkout",
+      status: event === "error.regressed" ? "regressed" : "fixed",
+      error_message: "AssertionError: expected 200 got 500",
+      recurrence_count: event === "error.regressed" ? 2 : undefined,
+      url: "http://localhost:7778/errors?suite=checkout",
+    },
+    ...over,
+  });
+}
+
+for (const platform of PLATFORMS) {
+  test(`${platform}: error.regressed renders the regressed group and not a generic failure`, () => {
+    const out = formatPayload(platform, errorGroupPayload("error.regressed"));
+    const json = JSON.stringify(out);
+    assert.ok(json.length > 0, `${platform}: produced empty output`);
+    JSON.parse(json);
+
+    const blob = collectStrings(out).join("\n");
+    // Names the regression, carries the error message.
+    assert.match(blob, /regress/i, `${platform}: error.regressed must name the regression`);
+    assert.ok(blob.includes("AssertionError: expected 200 got 500"), `${platform}: error message missing`);
+    // Must NOT claim a run failed (the run block is a stub for these events).
+    assert.ok(!/\bRun #42 failed\b/i.test(blob), `${platform}: error.regressed must not render the run-failed text`);
+  });
+
+  test(`${platform}: error.autoclosed renders the auto-closed group`, () => {
+    const out = formatPayload(platform, errorGroupPayload("error.autoclosed"));
+    const json = JSON.stringify(out);
+    assert.ok(json.length > 0);
+    JSON.parse(json);
+
+    const blob = collectStrings(out).join("\n");
+    assert.match(blob, /auto-?clos|went green/i, `${platform}: error.autoclosed must name the auto-close`);
+  });
+
+  test(`${platform}: error events without an error_group block do not crash`, () => {
+    const out = formatPayload(platform, basePayload({ event: "error.regressed", failed_tests: [], error_group: undefined }));
+    JSON.stringify(out);
+    assert.ok(out);
+  });
+}
