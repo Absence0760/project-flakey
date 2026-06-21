@@ -53,6 +53,12 @@ describe("validateEndpointUrl", () => {
     expect(validateEndpointUrl("ftp://host/x")).toMatch(/http or https/i);
     expect(validateEndpointUrl("javascript:alert(1)")).toMatch(/http or https/i);
   });
+  it("rejects a scheme with no host (URL parse throws)", () => {
+    // `new URL("http://")` throws — the helper promises an absolute URL, so a
+    // host-less scheme is rejected as unparseable, not waved through.
+    expect(validateEndpointUrl("http://")).toMatch(/valid absolute/i);
+    expect(validateEndpointUrl("https://")).toMatch(/valid absolute/i);
+  });
   it("trims surrounding whitespace before validating", () => {
     expect(validateEndpointUrl("  https://ok.example.com/  ")).toBeNull();
   });
@@ -85,6 +91,17 @@ describe("validateS3Bucket", () => {
     expect(validateS3Bucket("My_Bucket")).toMatch(/valid S3 bucket/i);
     expect(validateS3Bucket(".bad")).toMatch(/valid S3 bucket/i);
     expect(validateS3Bucket("a")).toMatch(/valid S3 bucket/i); // too short for the pattern
+  });
+  it("rejects a trailing dot / a 2-char name (must end on alnum, ≥3 chars)", () => {
+    expect(validateS3Bucket("ab.")).toMatch(/valid S3 bucket/i);
+    expect(validateS3Bucket("ab")).toMatch(/valid S3 bucket/i);
+  });
+  it("accepts the minimum (3-char) length", () => {
+    expect(validateS3Bucket("abc")).toBeNull();
+  });
+  it("accepts a 63-char name but rejects 64 (the DNS-label length cap)", () => {
+    expect(validateS3Bucket("a".repeat(63))).toBeNull();
+    expect(validateS3Bucket("a".repeat(64))).toMatch(/valid S3 bucket/i);
   });
 });
 
@@ -162,6 +179,26 @@ describe("draftToUpdateBody", () => {
     const body = draftToUpdateBody({ ...emptyDraft("s3"), s3Bucket: "b" });
     expect("destination" in body).toBe(false);
   });
+  it("sends trimmed bucket + prefix on the s3 branch, and a blank prefix as '' (clears it)", () => {
+    const body = draftToUpdateBody({
+      ...emptyDraft("s3"),
+      enabled: true,
+      s3Bucket: "  acme-archive  ",
+      s3Prefix: "  ",
+    });
+    expect(body).toEqual({ enabled: true, s3_bucket: "acme-archive", s3_prefix: "" });
+    // No auth_token leaks into an s3 update body even if a stray token sat on the draft.
+    expect("auth_token" in body).toBe(false);
+  });
+  it("always sends auth_header_name on the http branch (trimmed, '' clears it)", () => {
+    const body = draftToUpdateBody({
+      ...emptyDraft("http"),
+      endpointUrl: "https://siem/x",
+      authHeaderName: "  ",
+    });
+    expect(body.auth_header_name).toBe("");
+    expect("auth_header_name" in body).toBe(true);
+  });
 });
 
 describe("draftFromConfig", () => {
@@ -175,6 +212,16 @@ describe("draftFromConfig", () => {
     const d = draftFromConfig(cfg({ destination: "s3", endpoint_url: null, s3_bucket: "b", s3_prefix: null }));
     expect(d.s3Bucket).toBe("b");
     expect(d.s3Prefix).toBe("");
+  });
+  it("always resets fromBeginning to false (cursor is already seeded post-create)", () => {
+    // The cursor was seeded at create time, so editing must never re-offer a
+    // 'replay from the beginning' that would dump the whole history.
+    const d = draftFromConfig(cfg({ enabled: true }));
+    expect(d.fromBeginning).toBe(false);
+  });
+  it("carries enabled through from the saved config", () => {
+    expect(draftFromConfig(cfg({ enabled: false })).enabled).toBe(false);
+    expect(draftFromConfig(cfg({ enabled: true })).enabled).toBe(true);
   });
 });
 
