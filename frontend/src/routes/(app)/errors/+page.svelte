@@ -592,6 +592,12 @@
                     title={err.priority_source === "derived" ? "Derived from occurrences, breadth and flaky rate — set a priority to override" : "Priority set manually"}
                   >{err.priority_source === "derived" ? "~" : ""}{PRIORITY_META[err.priority].label}</span>{/if}
                 {#if err.target_date && err.target_date < todayISO()}<span class="overdue-tag" title="Due {formatDate(err.target_date)}">Overdue</span>{/if}
+                {#if err.quarantine_suggested}<a
+                    class="quarantine-suggest"
+                    href={safeHref(`/flaky?suite=${encodeURIComponent(err.suite_name)}`)}
+                    onclick={(e) => e.stopPropagation()}
+                    title="A member test is flaky enough to consider muting. Review on the Flaky page — quarantining is a human decision; Flakey never auto-mutes."
+                  >Quarantine?</a>{/if}
                 <span class="error-suite">{err.suite_name}</span>
                 <span class="error-tests">{err.affected_tests}t</span>
                 {#if err.note_count > 0}<span class="notes-count" title="{err.note_count} notes">{err.note_count}n</span>{/if}
@@ -1034,6 +1040,18 @@
     border: 1px solid color-mix(in srgb, var(--color-fail) 30%, transparent);
     white-space: nowrap;
   }
+
+  /* Phase 15.3 — flaky→quarantine SUGGESTION chip (read-side only, never an
+     action). Amber hint that links to the Flaky page where a human confirms. */
+  .quarantine-suggest {
+    padding: 0.05rem 0.4rem; border-radius: 8px;
+    font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: #e8830c; text-decoration: none;
+    background: color-mix(in srgb, #e8830c 14%, transparent);
+    border: 1px solid color-mix(in srgb, #e8830c 30%, transparent);
+    white-space: nowrap;
+  }
+  .quarantine-suggest:hover { background: color-mix(in srgb, #e8830c 24%, transparent); }
 
   .due-date-input {
     padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px;

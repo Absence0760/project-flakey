@@ -266,6 +266,11 @@ export interface ErrorGroup {
   recurrence_count: number;
   last_recurred_at: string | null;
   note_count: number;
+  // Phase 15.3: a read-side SUGGESTION (never an action) that this flaky group
+  // is a quarantine candidate — true when a member test is flaky above the
+  // threshold and not already quarantined. A human confirms in the UI; the
+  // server never auto-mutes (that would let the dashboard hide a regression).
+  quarantine_suggested: boolean;
 }
 
 // A member of the current org — the assignable-user list behind every
@@ -784,6 +789,11 @@ export interface QuarantinedTest {
   source: string;
   quarantined_by_name: string;
   created_at: string;
+  // Phase 15.3 lifecycle fields. expires_at: when the mute auto-lifts (null =
+  // indefinite — the rot risk we surface). error_fingerprint: optional md5 link
+  // to the triage error group this quarantine relates to.
+  expires_at: string | null;
+  error_fingerprint: string | null;
 }
 
 export async function fetchQuarantinedTests(suite?: string): Promise<QuarantinedTest[]> {
@@ -793,11 +803,28 @@ export async function fetchQuarantinedTests(suite?: string): Promise<Quarantined
   return res.json();
 }
 
-export async function quarantineTest(fullTitle: string, filePath: string, suiteName: string, reason?: string): Promise<void> {
+export async function quarantineTest(
+  fullTitle: string,
+  filePath: string,
+  suiteName: string,
+  reason?: string,
+  // Phase 15.3 — optional lifecycle: an ISO `expires_at` (the mute auto-lifts on
+  // the nightly sweep) and an md5 `error_fingerprint` linking back to a triage
+  // error group. Both omitted = an indefinite, unlinked quarantine (the legacy
+  // behaviour).
+  opts?: { expiresAt?: string | null; errorFingerprint?: string | null }
+): Promise<void> {
   await authFetch(`${API_URL}/quarantine`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fullTitle, filePath, suiteName, reason }),
+    body: JSON.stringify({
+      fullTitle,
+      filePath,
+      suiteName,
+      reason,
+      expires_at: opts?.expiresAt ?? undefined,
+      error_fingerprint: opts?.errorFingerprint ?? undefined,
+    }),
   });
 }
 

@@ -1088,6 +1088,24 @@ export interface components {
             status?: components["schemas"]["ErrorStatus"];
             assigned_to?: number | null;
             assigned_to_email?: string | null;
+            /** @description YYYY-MM-DD due date (Phase 15.1), or null. */
+            target_date?: string | null;
+            /**
+             * @description Triage priority (Phase 15.1/15.2). Always populated on the response — a human value or a read-time derived default; see priority_source.
+             * @enum {string|null}
+             */
+            priority?: "low" | "medium" | "high" | "critical" | null;
+            /**
+             * @description Whether `priority` is a human decision ('manual') or a read-time derived default ('derived', never stored).
+             * @enum {string}
+             */
+            priority_source?: "manual" | "derived";
+            /** @description How many times a `fixed` group came back (Phase 15.2 ingest recurrence hook). */
+            recurrence_count?: number;
+            /** Format: date-time */
+            last_recurred_at?: string | null;
+            /** @description Read-side SUGGESTION (never an action): a member test is flaky above the threshold and not already quarantined, so the triage view offers a 'Quarantine?' hint a human confirms (Phase 15.3). The server never auto-mutes. */
+            quarantine_suggested?: boolean;
             note_count?: number;
         };
         AffectedTest: {
