@@ -3,13 +3,20 @@
   import { timeAgo } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
-  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "$lib/api";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, updateErrorTriage, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "$lib/api";
   import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
   import AssigneePicker from "$lib/components/inputs/AssigneePicker.svelte";
   import { classificationLabels } from "$lib/utils/ai";
   import { toast, toastInfo, toastError } from "$lib/stores/toast";
   import { safeHref } from "$lib/utils/safe-url";
+  import { getAuth } from "$lib/stores/auth";
+  import { applyTriageFilter, todayISO, PRIORITY_META, type TriageFilter } from "$lib/utils/error-triage";
+
+  // Viewers see the triage surface read-only — assignee, status, priority and
+  // due-date controls are hidden for them (the backend also 403s the writes).
+  const canEdit = $derived(getAuth().user?.orgRole !== "viewer");
+  const currentUserId = $derived(getAuth().user?.id ?? null);
 
   let errors = $state<ErrorGroup[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -40,6 +47,9 @@
   let selectedSuite = $state("all");
   let selectedStatus = $state("all");
   let searchQuery = $state("");
+  // Triage list filter — layered client-side on top of the server-side
+  // suite/status filters (see filteredErrors). "all" = no triage filter.
+  let triageFilter = $state<TriageFilter>("all");
 
   let suites = $derived([...new Set(allRuns.map((r) => r.suite_name))].sort());
 
@@ -48,6 +58,7 @@
     const set = (k: string, v: string, def: string) => { if (v !== def) url.searchParams.set(k, v); else url.searchParams.delete(k); };
     set("suite", selectedSuite, "all");
     set("status", selectedStatus, "all");
+    set("triage", triageFilter, "all");
     set("q", searchQuery, "");
     replaceState(url, {});
   }
@@ -55,10 +66,12 @@
     const p = $page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     selectedStatus = p.get("status") ?? "all";
+    const t = p.get("triage");
+    triageFilter = t === "mine" || t === "overdue" ? t : "all";
     searchQuery = p.get("q") ?? "";
   }
   let mounted = $state(false);
-  $effect(() => { selectedSuite; selectedStatus; searchQuery; if (mounted) syncUrl(); });
+  $effect(() => { selectedSuite; selectedStatus; triageFilter; searchQuery; if (mounted) syncUrl(); });
 
   // Selected error — drives the right-hand detail pane (master /
   // detail split). Auto-selects the first error on load so the right
@@ -70,13 +83,27 @@
     errors.find((e) => e.fingerprint === selectedFingerprint) ?? null
   );
 
-  // Client-side search filter. Suite + status are sent server-side
-  // (see applyFilters) so the local filter only narrows the rendered
-  // set by free-text match on the error message.
+  // Client-side filters. Suite + status are sent server-side (see applyFilters);
+  // the triage filter ("mine"/"overdue") and the free-text search narrow the
+  // rendered set locally. applyTriageFilter is a pure helper (unit-tested in
+  // utils/error-triage.test.ts).
   const filteredErrors = $derived.by(() => {
+    let out = applyTriageFilter(errors, triageFilter, { currentUserId, today: todayISO() });
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return errors;
-    return errors.filter((e) => e.error_message.toLowerCase().includes(q));
+    if (q) out = out.filter((e) => e.error_message.toLowerCase().includes(q));
+    return out;
+  });
+
+  // Triage-filter counts for the tab badges — computed off the full set so the
+  // numbers don't change as the active filter narrows the view.
+  const triageCounts = $derived.by(() => {
+    const today = todayISO();
+    let mine = 0, overdue = 0;
+    for (const e of errors) {
+      if (currentUserId !== null && e.assigned_to === currentUserId) mine++;
+      if (e.target_date && e.target_date < today) overdue++;
+    }
+    return { mine, overdue };
   });
 
   // Page-level summary tiles. "New this week" counts fingerprints
@@ -102,7 +129,7 @@
   const hasMoreErrors = $derived(visibleErrors.length < filteredErrors.length);
 
   $effect(() => {
-    selectedSuite; selectedStatus; searchQuery; // tracked deps
+    selectedSuite; selectedStatus; triageFilter; searchQuery; // tracked deps
     visibleCount = PAGE_SIZE;
   });
 
@@ -317,9 +344,44 @@
   }
 
 
+  // Set the manual priority on an error group (null clears it). Optimistic —
+  // reverts to server state on failure (the PATCH rejects invalid values / viewers).
+  async function changePriority(err: ErrorGroup, priority: ErrorGroup["priority"]) {
+    const prev = err.priority;
+    err.priority = priority;
+    errors = [...errors];
+    try {
+      await updateErrorTriage(err.fingerprint, { priority });
+    } catch {
+      err.priority = prev;
+      errors = [...errors];
+    }
+  }
+
+  // Set / clear the due date. The native date input emits "" when cleared.
+  async function changeTargetDate(err: ErrorGroup, value: string) {
+    const next = value || null;
+    const prev = err.target_date;
+    err.target_date = next;
+    errors = [...errors];
+    try {
+      await updateErrorTriage(err.fingerprint, { target_date: next });
+    } catch {
+      err.target_date = prev;
+      errors = [...errors];
+    }
+  }
+
   function formatDate(iso: string): string {
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
+
+  const PRIORITY_OPTIONS = [
+    { value: "critical", ...PRIORITY_META.critical },
+    { value: "high", ...PRIORITY_META.high },
+    { value: "medium", ...PRIORITY_META.medium },
+    { value: "low", ...PRIORITY_META.low },
+  ] as const;
 </script>
 
 <div class="page" data-ready={!loading ? "true" : undefined}>
@@ -369,6 +431,19 @@
           <span class="dot" style="background: {s.color}"></span> {s.label}
         </button>
       {/each}
+    </div>
+    <!-- Triage filters — layered on top of suite/status. "Mine" needs a
+         signed-in user; "Overdue" surfaces groups past their due date. -->
+    <div class="filter-tabs triage-tabs" role="group" aria-label="Triage filter">
+      <button class="filter-tab" class:active={triageFilter === "all"} onclick={() => triageFilter = "all"}>
+        All failures
+      </button>
+      <button class="filter-tab" class:active={triageFilter === "mine"} onclick={() => triageFilter = "mine"}>
+        Assigned to me{#if triageCounts.mine > 0}<span class="tab-count">{triageCounts.mine}</span>{/if}
+      </button>
+      <button class="filter-tab" class:active={triageFilter === "overdue"} class:overdue={triageCounts.overdue > 0} onclick={() => triageFilter = "overdue"}>
+        Overdue{#if triageCounts.overdue > 0}<span class="tab-count">{triageCounts.overdue}</span>{/if}
+      </button>
     </div>
     <div class="filter-spacer"></div>
     <div class="search-box">
@@ -490,6 +565,8 @@
                   class="status-chip status-{err.status}"
                   style="--chip-color: {statusInfo(err.status).color}"
                 >{statusInfo(err.status).label}</span>
+                {#if err.priority}<span class="priority-chip mini" style="--priority-color: {PRIORITY_META[err.priority].color}">{PRIORITY_META[err.priority].label}</span>{/if}
+                {#if err.target_date && err.target_date < todayISO()}<span class="overdue-tag" title="Due {formatDate(err.target_date)}">Overdue</span>{/if}
                 <span class="error-suite">{err.suite_name}</span>
                 <span class="error-tests">{err.affected_tests}t</span>
                 {#if err.note_count > 0}<span class="notes-count" title="{err.note_count} notes">{err.note_count}n</span>{/if}
@@ -522,16 +599,20 @@
           <div class="detail-row">
             <div class="detail-section">
               <h4>Status</h4>
-              <div class="status-controls">
-                {#each statuses as s}
-                  <button
-                    class="status-btn"
-                    class:active={err.status === s.value}
-                    style="--status-color: {s.color}"
-                    onclick={() => changeStatus(err, s.value)}
-                  >{s.label}</button>
-                {/each}
-              </div>
+              {#if canEdit}
+                <div class="status-controls">
+                  {#each statuses as s}
+                    <button
+                      class="status-btn"
+                      class:active={err.status === s.value}
+                      style="--status-color: {s.color}"
+                      onclick={() => changeStatus(err, s.value)}
+                    >{s.label}</button>
+                  {/each}
+                </div>
+              {:else}
+                <span class="status-chip status-{err.status}" style="--chip-color: {statusInfo(err.status).color}">{statusInfo(err.status).label}</span>
+              {/if}
             </div>
             <div class="detail-section">
               <h4>Owner</h4>
@@ -542,7 +623,45 @@
                 onFocus={loadMembers}
                 onChange={(userId) => assignOwner(err, userId)}
                 label="Assign owner"
+                disabled={!canEdit}
               />
+            </div>
+            <div class="detail-section">
+              <h4>Priority</h4>
+              {#if canEdit}
+                <div class="priority-controls">
+                  {#each PRIORITY_OPTIONS as p}
+                    <button
+                      class="priority-btn"
+                      class:active={err.priority === p.value}
+                      style="--priority-color: {p.color}"
+                      onclick={() => changePriority(err, err.priority === p.value ? null : p.value)}
+                      title={err.priority === p.value ? "Click to clear" : `Set ${p.label}`}
+                    >{p.label}</button>
+                  {/each}
+                </div>
+              {:else if err.priority}
+                <span class="priority-chip" style="--priority-color: {PRIORITY_META[err.priority].color}">{PRIORITY_META[err.priority].label}</span>
+              {:else}
+                <span class="dim">None</span>
+              {/if}
+            </div>
+            <div class="detail-section">
+              <h4>Due date</h4>
+              {#if canEdit}
+                <input
+                  class="due-date-input"
+                  class:overdue={err.target_date && err.target_date < todayISO()}
+                  type="date"
+                  value={err.target_date ?? ""}
+                  onchange={(e) => changeTargetDate(err, (e.target as HTMLInputElement).value)}
+                  aria-label="Due date"
+                />
+              {:else if err.target_date}
+                <span class="due-date-label" class:overdue={err.target_date < todayISO()}>{formatDate(err.target_date)}</span>
+              {:else}
+                <span class="dim">None</span>
+              {/if}
             </div>
             <div class="detail-section">
               <h4>Details</h4>
@@ -834,6 +953,53 @@
   }
   .status-btn:hover { border-color: var(--status-color); color: var(--status-color); }
   .status-btn.active { background: var(--status-color); color: #fff; border-color: var(--status-color); }
+
+  /* Priority + due-date controls — same affordance language as status. */
+  .priority-controls { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+  .priority-btn {
+    padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg); color: var(--text-secondary); font-size: 0.72rem; cursor: pointer;
+  }
+  .priority-btn:hover { border-color: var(--priority-color); color: var(--priority-color); }
+  .priority-btn.active { background: var(--priority-color); color: #fff; border-color: var(--priority-color); }
+
+  .priority-chip {
+    padding: 0.1rem 0.45rem; border-radius: 8px;
+    font-size: 0.68rem; font-weight: 600;
+    color: var(--priority-color);
+    background: color-mix(in srgb, var(--priority-color) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--priority-color) 30%, transparent);
+    white-space: nowrap;
+  }
+  .priority-chip.mini {
+    padding: 0.05rem 0.4rem; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  .overdue-tag {
+    padding: 0.05rem 0.4rem; border-radius: 8px;
+    font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--color-fail);
+    background: color-mix(in srgb, var(--color-fail) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-fail) 30%, transparent);
+    white-space: nowrap;
+  }
+
+  .due-date-input {
+    padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font: inherit; font-size: 0.78rem;
+  }
+  .due-date-input.overdue { border-color: var(--color-fail); color: var(--color-fail); }
+  .due-date-label { font-size: 0.82rem; color: var(--text); }
+  .due-date-label.overdue { color: var(--color-fail); font-weight: 600; }
+  .dim { color: var(--text-muted); font-size: 0.8rem; }
+
+  /* The triage filter group sits inline with the status tabs. The overdue
+     tab tints red when there's anything overdue, to draw the eye. */
+  .triage-tabs .tab-count {
+    margin-left: 0.35rem; font-variant-numeric: tabular-nums;
+    font-size: 0.7rem; font-weight: 600;
+  }
+  .triage-tabs .filter-tab.overdue:not(.active) { color: var(--color-fail); }
 
   .detail-facts { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--text-secondary); }
   .detail-facts strong { color: var(--text); }
