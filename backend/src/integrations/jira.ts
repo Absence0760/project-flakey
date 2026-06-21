@@ -12,7 +12,16 @@ export interface JiraConfig {
   projectKey: string;
   issueType: string;
   autoCreate: boolean;
+  // Phase 15.4 two-way sync. Transition NAMEs (matched case-insensitively
+  // against /transitions) the outbound sync drives a linked issue through.
+  resolveTransition: string; // → fixed (manual or auto-close-on-green)
+  reopenTransition: string; // → regressed (ingest auto-reopen)
 }
+
+// Defaults when an org hasn't customised the transition names (NULL columns).
+// "Done" / "To Do" are the out-of-the-box Jira workflow state names.
+const DEFAULT_RESOLVE_TRANSITION = "Done";
+const DEFAULT_REOPEN_TRANSITION = "To Do";
 
 export interface JiraIssueResult {
   key: string;
@@ -29,7 +38,8 @@ export async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
   // before any tenant work begins).
   const result = await pool.query(
     `SELECT jira_base_url, jira_email, jira_api_token, jira_project_key,
-            jira_issue_type, jira_auto_create
+            jira_issue_type, jira_auto_create,
+            jira_resolve_transition, jira_reopen_transition
      FROM organizations WHERE id = $1`,
     [orgId]
   );
@@ -44,6 +54,8 @@ export async function getJiraConfig(orgId: number): Promise<JiraConfig | null> {
     projectKey: row.jira_project_key,
     issueType: row.jira_issue_type ?? "Bug",
     autoCreate: !!row.jira_auto_create,
+    resolveTransition: row.jira_resolve_transition || DEFAULT_RESOLVE_TRANSITION,
+    reopenTransition: row.jira_reopen_transition || DEFAULT_REOPEN_TRANSITION,
   };
 }
 
@@ -266,6 +278,186 @@ export async function autoCreateIssuesForRun(
     // safeLog so an attacker-influenced message can't inject a fake log line
     // (CWE-117), matching the convention in uploads.ts / runs.ts.
     console.error("autoCreateIssuesForRun error:", safeLog(err));
+  }
+}
+
+// ── Phase 15.4: outbound two-way sync ────────────────────────────────────
+//
+// When a Flakey error group transitions, reflect it onto the linked Jira issue
+// (best-effort egress over the existing Jira client's auth + timeout):
+//   • → fixed     (manual PATCH or auto-close-on-green): drive the issue
+//                 through `resolveTransition` and comment that the test is
+//                 green for N runs.
+//   • → regressed (ingest-time auto-reopen): drive the issue through
+//                 `reopenTransition` and comment that the failure is back.
+// Jira itself has no run data, so the regressed-reopen is the demo-able "wow."
+//
+// Every primitive throws on HTTP error; the high-level syncErrorGroupTransition
+// swallows + logs so a Jira outage can never break ingest or the retention
+// sweep (the DB transition already happened — Jira reflection is best-effort,
+// matching the outbound-webhook dispatch convention).
+
+export interface JiraTransition {
+  id: string;
+  name: string;
+}
+
+/**
+ * List the transitions currently available on an issue (workflow-state +
+ * permission dependent — so we always fetch live rather than cache an id).
+ * Throws on HTTP error.
+ */
+export async function fetchIssueTransitions(
+  cfg: JiraConfig,
+  issueKey: string
+): Promise<JiraTransition[]> {
+  const res = await fetch(
+    `${cfg.baseUrl}/rest/api/2/issue/${encodeURIComponent(issueKey)}/transitions`,
+    {
+      headers: { Authorization: authHeader(cfg), Accept: "application/json" },
+      signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`Jira transitions fetch failed: ${res.status}`, body);
+    throw new Error(`Jira transitions fetch failed: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { transitions?: Array<{ id: string; name: string }> };
+  return (data.transitions ?? []).map((t) => ({ id: t.id, name: t.name }));
+}
+
+/**
+ * Add a plain-text comment to an issue. Throws on HTTP error.
+ */
+export async function addIssueComment(
+  cfg: JiraConfig,
+  issueKey: string,
+  body: string
+): Promise<void> {
+  const res = await fetch(
+    `${cfg.baseUrl}/rest/api/2/issue/${encodeURIComponent(issueKey)}/comment`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(cfg),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ body }),
+      signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
+    }
+  );
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    console.error(`Jira comment failed: ${res.status}`, errBody);
+    throw new Error(`Jira comment failed: HTTP ${res.status}`);
+  }
+}
+
+/**
+ * Drive an issue through the named transition (case-insensitive match against
+ * its currently-available transitions). Returns false (without throwing) when
+ * no transition with that name is currently available — a common, benign case
+ * (the issue is already in the target state, or the workflow doesn't expose it
+ * from the current state). Throws only on an actual HTTP failure.
+ */
+export async function transitionIssue(
+  cfg: JiraConfig,
+  issueKey: string,
+  transitionName: string
+): Promise<boolean> {
+  const transitions = await fetchIssueTransitions(cfg, issueKey);
+  const needle = transitionName.trim().toLowerCase();
+  const match = transitions.find((t) => t.name.trim().toLowerCase() === needle);
+  if (!match) return false;
+
+  const res = await fetch(
+    `${cfg.baseUrl}/rest/api/2/issue/${encodeURIComponent(issueKey)}/transitions`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(cfg),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ transition: { id: match.id } }),
+      signal: AbortSignal.timeout(JIRA_TIMEOUT_MS),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`Jira transition failed: ${res.status}`, body);
+    throw new Error(`Jira transition failed: HTTP ${res.status}`);
+  }
+  return true;
+}
+
+/**
+ * The linked Jira issue for an (org, fingerprint), or null when none is
+ * tracked. RLS-scoped via tenantQuery — only this org's linkage is visible.
+ */
+export async function getLinkedIssue(
+  orgId: number,
+  fingerprint: string
+): Promise<JiraIssueResult | null> {
+  const r = await tenantQuery(
+    orgId,
+    "SELECT issue_key, issue_url FROM failure_jira_issues WHERE org_id = $1 AND fingerprint = $2",
+    [orgId, fingerprint]
+  );
+  if (r.rows.length === 0) return null;
+  return { key: r.rows[0].issue_key, url: r.rows[0].issue_url };
+}
+
+export type JiraSyncDirection = "fixed" | "regressed";
+
+/**
+ * Reflect a Flakey error-group transition onto its linked Jira issue.
+ *
+ * Best-effort and RESILIENT: any failure (no config, no linkage, Jira down) is
+ * swallowed + logged and returns null — it must NEVER break the caller (ingest
+ * or the retention sweep), because the DB transition already committed. Returns
+ * the linked issue key on a successful reflection, null otherwise, so the
+ * caller can audit only when Jira actually moved.
+ *
+ * `note` is a human-readable reason woven into the comment (e.g.
+ * "test green for 3 runs"). The comment is always prefixed "Flakey:".
+ */
+export async function syncErrorGroupTransition(
+  orgId: number,
+  fingerprint: string,
+  direction: JiraSyncDirection,
+  note: string
+): Promise<string | null> {
+  try {
+    const cfg = await getJiraConfig(orgId);
+    if (!cfg) return null;
+
+    const linked = await getLinkedIssue(orgId, fingerprint);
+    if (!linked) return null;
+
+    const transitionName =
+      direction === "fixed" ? cfg.resolveTransition : cfg.reopenTransition;
+
+    // Transition first, then comment. A failed transition still lets us record
+    // the comment so the trail isn't lost, but we surface (return) only when at
+    // least the comment lands — the caller audits on a non-null return.
+    const moved = await transitionIssue(cfg, linked.key, transitionName);
+    await addIssueComment(cfg, linked.key, `Flakey: ${note}`);
+
+    if (!moved) {
+      console.warn(
+        `Jira sync: transition "${transitionName}" not available on ${linked.key} ` +
+        `(org ${orgId}, fingerprint ${fingerprint}) — left a comment only.`
+      );
+    }
+    return linked.key;
+  } catch (err) {
+    // A Jira fetch error can carry the configured jira_base_url; wrap in safeLog
+    // so an attacker-influenced message can't inject a fake log line (CWE-117).
+    console.error("syncErrorGroupTransition error:", safeLog(err));
+    return null;
   }
 }
 

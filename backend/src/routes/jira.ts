@@ -15,7 +15,9 @@ router.get("/settings", async (req, res) => {
       req.user!.orgId,
       `SELECT jira_base_url, jira_email, jira_project_key, jira_issue_type,
               jira_auto_create,
-              jira_api_token IS NOT NULL AS has_api_token
+              jira_api_token IS NOT NULL AS has_api_token,
+              jira_resolve_transition, jira_reopen_transition,
+              jira_webhook_secret IS NOT NULL AS has_webhook_secret
        FROM organizations WHERE id = $1`,
       [req.user!.orgId]
     );
@@ -33,7 +35,11 @@ router.patch("/settings", async (req, res) => {
       res.status(403).json({ error: "Admin role required" });
       return;
     }
-    const { base_url, email, api_token, project_key, issue_type, auto_create } = req.body;
+    const {
+      base_url, email, api_token, project_key, issue_type, auto_create,
+      // Phase 15.4 two-way sync config.
+      webhook_secret, resolve_transition, reopen_transition,
+    } = req.body;
 
     // Same SSRF gate as POST /webhooks: base_url is dispatched to via
     // fetch() in jira.ts and integrations/jira.ts, so a tenant admin
@@ -67,6 +73,12 @@ router.patch("/settings", async (req, res) => {
     if (project_key !== undefined) push("jira_project_key", "project_key", project_key || null);
     if (issue_type !== undefined) push("jira_issue_type", "issue_type", issue_type || "Bug");
     if (auto_create !== undefined) push("jira_auto_create", "auto_create", !!auto_create);
+    // Phase 15.4 — inbound HMAC secret (encrypted, like api_token: field NAME
+    // only in the audit, never the value) + outbound transition names (plain
+    // config; NULL/"" clears → the client falls back to its defaults).
+    if (webhook_secret !== undefined) push("jira_webhook_secret", "webhook_secret", webhook_secret ? encryptSecret(webhook_secret) : null);
+    if (resolve_transition !== undefined) push("jira_resolve_transition", "resolve_transition", resolve_transition || null);
+    if (reopen_transition !== undefined) push("jira_reopen_transition", "reopen_transition", reopen_transition || null);
 
     if (sets.length === 0) {
       res.status(400).json({ error: "Nothing to update" });
@@ -160,6 +172,10 @@ router.post("/issues", async (req, res) => {
         projectKey: row.jira_project_key,
         issueType: row.jira_issue_type ?? "Bug",
         autoCreate: false,
+        // createJiraIssue ignores these, but JiraConfig requires them; fall
+        // back to the client defaults rather than reading the columns here.
+        resolveTransition: row.jira_resolve_transition || "Done",
+        reopenTransition: row.jira_reopen_transition || "To Do",
       },
       summary,
       description

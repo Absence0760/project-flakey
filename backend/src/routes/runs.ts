@@ -3,7 +3,7 @@ import { tenantQuery, tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
-import { recordErrorRecurrence, dispatchRegressionWebhooks } from "../error-recurrence.js";
+import { recordErrorRecurrence, dispatchRegressionWebhooks, syncRegressionsToJira } from "../error-recurrence.js";
 import { postPRComment } from "../git-providers/index.js";
 import { evaluateAutoQuarantine } from "../auto-quarantine.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
@@ -180,6 +180,8 @@ router.post("/", async (req, res) => {
     // each fingerprint back to its error message for the payload.
     if (regressedFingerprints.length > 0) {
       dispatchRegressionWebhooks(req.user!.orgId, run, regressedFingerprints);
+      // Phase 15.4 — reflect each reopen onto the linked Jira issue (best-effort).
+      syncRegressionsToJira(req.user!.orgId, run, regressedFingerprints);
     }
 
     // Only dispatch webhooks and PR comments after final merge

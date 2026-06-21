@@ -5,7 +5,7 @@ import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
-import { recordErrorRecurrence, dispatchRegressionWebhooks } from "../error-recurrence.js";
+import { recordErrorRecurrence, dispatchRegressionWebhooks, syncRegressionsToJira } from "../error-recurrence.js";
 import { postPRComment } from "../git-providers/index.js";
 import { autoCreateIssuesForRun } from "../integrations/jira.js";
 import { maybeTriggerPagerDutyForRun } from "../integrations/pagerduty.js";
@@ -379,6 +379,8 @@ router.post("/", uploadFields, async (req, res) => {
     // Phase 15.2 (a) — error.regressed for groups that reopened on this ingest.
     if (regressedFingerprints.length > 0) {
       dispatchRegressionWebhooks(req.user!.orgId, run, regressedFingerprints);
+      // Phase 15.4 — reflect each reopen onto the linked Jira issue (best-effort).
+      syncRegressionsToJira(req.user!.orgId, run, regressedFingerprints);
     }
 
     dispatchRunFailed(req.user!.orgId, runId!, run);
