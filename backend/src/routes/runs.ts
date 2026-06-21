@@ -3,6 +3,7 @@ import { tenantQuery, tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
+import { recordErrorRecurrence, dispatchRegressionWebhooks } from "../error-recurrence.js";
 import { postPRComment } from "../git-providers/index.js";
 import { evaluateAutoQuarantine } from "../auto-quarantine.js";
 import { findOrCreateRun, recalculateRunStats } from "../run-merge.js";
@@ -39,6 +40,9 @@ router.post("/", async (req, res) => {
     const orgId = req.user!.orgId;
     let runId: number;
     let merged = false;
+    // Fingerprints whose error group flipped fixed → regressed on this ingest.
+    // Captured inside the tenant tx, dispatched as error.regressed AFTER commit.
+    let regressedFingerprints: string[] = [];
 
     // `client` inside this block is already org-scoped — tenantTransaction
     // sets app.current_org_id at transaction start, so every client.query
@@ -120,6 +124,15 @@ router.post("/", async (req, res) => {
         await recalculateRunStats(client, runId);
       }
 
+      // Phase 15.2 (a) — recurrence → auto-reopen. After this run's failing
+      // tests are recorded, flip any error group we'd marked `fixed` whose
+      // fingerprint reappeared back to `regressed` (bump recurrence_count,
+      // stamp last_recurred_at). Same org-scoped tx as the upsert above, so the
+      // UPDATE is RLS-enforced. The returned fingerprints fire error.regressed
+      // after commit. This is the single ingest-time recurrence path — see
+      // src/error-recurrence.ts (don't add a second).
+      regressedFingerprints = await recordErrorRecurrence(client, orgId, run);
+
       // Optional: attach run to a release. The reporter/CLI sends
       // `meta.release` when FLAKEY_RELEASE is set. We upsert the release by
       // (org_id, version) with draft defaults — this matches the CI-native
@@ -160,6 +173,13 @@ router.post("/", async (req, res) => {
       await evaluateAutoQuarantine(req.user!.orgId, run.meta.suite_name);
     } catch (err) {
       console.error("auto-quarantine evaluation error:", safeLog(err));
+    }
+
+    // Phase 15.2 (a) — fire error.regressed for each group that reopened on
+    // this ingest. After-commit so the row is durable before we notify. Map
+    // each fingerprint back to its error message for the payload.
+    if (regressedFingerprints.length > 0) {
+      dispatchRegressionWebhooks(req.user!.orgId, run, regressedFingerprints);
     }
 
     // Only dispatch webhooks and PR comments after final merge

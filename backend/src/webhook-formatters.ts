@@ -31,6 +31,17 @@ export interface WebhookRunPayload {
     fail_count: number;
     total_runs: number;
   }>;
+  // Phase 15.2 — carried by the error-group lifecycle events (error.regressed,
+  // error.autoclosed). Identifies the triage unit (fingerprint) and its new
+  // state. Absent on run-centric events.
+  error_group?: {
+    fingerprint: string;
+    suite_name: string;
+    status: string;
+    error_message: string | null;
+    recurrence_count?: number;
+    url: string;
+  };
   trend: string;
 }
 
@@ -128,6 +139,10 @@ function formatGeneric(p: WebhookRunFailedPayload): object {
     ? `Run #${p.run.id}: ${p.flaky_tests?.length ?? 0} test(s) exceeded the flaky-rate threshold in '${p.run.suite_name}'`
     : p.event === "flaky.detected"
     ? `Run #${p.run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) detected in '${p.run.suite_name}'`
+    : p.event === "error.regressed"
+    ? `Regression: a previously-fixed failure reappeared in '${p.run.suite_name}'`
+    : p.event === "error.autoclosed"
+    ? `Auto-closed: a failure went green for the configured window in '${p.run.suite_name}'`
     : `Run #${p.run.id} failed: ${p.run.failed}/${p.run.total} tests failed in suite '${p.run.suite_name}'`;
   return {
     text,
@@ -135,6 +150,7 @@ function formatGeneric(p: WebhookRunFailedPayload): object {
     run: p.run,
     failed_tests: p.failed_tests,
     ...(p.flaky_tests ? { flaky_tests: p.flaky_tests } : {}),
+    ...(p.error_group ? { error_group: p.error_group } : {}),
     trend: p.trend,
   };
 }
@@ -152,6 +168,10 @@ function headerForEvent(p: WebhookRunPayload): { emoji: string; title: string } 
       return { emoji: "\ud83c\udfb2", title: `\ud83c\udfb2 Flaky Tests Detected \u2014 Run #${run.id} ${run.suite_name}` };
     case "flaky.threshold.exceeded":
       return { emoji: "\u26a0\ufe0f", title: `\u26a0\ufe0f Flaky Rate Threshold Exceeded \u2014 Run #${run.id} ${run.suite_name}` };
+    case "error.regressed":
+      return { emoji: "\ud83d\udd01", title: `\ud83d\udd01 Regression \u2014 a fixed failure came back in ${run.suite_name}` };
+    case "error.autoclosed":
+      return { emoji: "\u2705", title: `\u2705 Auto-closed \u2014 a failure went green in ${run.suite_name}` };
     case "run.completed":
       return run.failed > 0
         ? { emoji: "\u274c", title: `\u274c Run #${run.id} Completed \u2014 ${run.suite_name}` }
@@ -227,6 +247,23 @@ function formatSlack(p: WebhookRunPayload): object {
     });
   }
 
+  // Error-group lifecycle events (regressed / autoclosed) — render the triage
+  // unit, not a run failure list.
+  if ((p.event === "error.regressed" || p.event === "error.autoclosed") && p.error_group) {
+    const eg = p.error_group;
+    const heading = p.event === "error.regressed"
+      ? `*\ud83d\udd01 A previously-fixed failure reappeared*`
+      : `*\u2705 A failure went green and was auto-closed*`;
+    const lines = [
+      `${truncate(eg.error_message ?? "(no message)", 200)}`,
+      `\`${truncate(eg.suite_name, 60)}\` — now *${eg.status}*`
+        + (eg.recurrence_count ? ` (recurred ${eg.recurrence_count}×)` : ""),
+    ];
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: heading } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: truncate(lines.join("\n"), SLACK_SECTION_TEXT_LIMIT) } });
+  }
+
   if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected" && p.event !== "flaky.threshold.exceeded") {
     const failureLines = p.failed_tests.slice(0, SLACK_LIST_CAP).map((t) => {
       const err = t.error_message ? `\n> ${truncate(t.error_message, 150)}` : "";
@@ -256,10 +293,13 @@ function formatSlack(p: WebhookRunPayload): object {
     }
   }
 
+  // Error-group events deep-link to the triage unit; run events to the run.
+  const actionUrl = p.error_group?.url ?? run.url;
+  const actionLabel = p.error_group ? "View Error Group" : "View Run";
   blocks.push({
     type: "actions",
     elements: [
-      { type: "button", text: { type: "plain_text", text: "View Run" }, url: run.url },
+      { type: "button", text: { type: "plain_text", text: actionLabel }, url: actionUrl },
     ],
   });
 
@@ -271,6 +311,10 @@ function formatSlack(p: WebhookRunPayload): object {
     ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} test(s) over the flaky-rate threshold in '${run.suite_name}'`
     : p.event === "flaky.detected"
     ? `Run #${run.id}: ${p.flaky_tests?.length ?? 0} flaky test(s) in '${run.suite_name}'`
+    : p.event === "error.regressed"
+    ? `Regression: a previously-fixed failure reappeared in '${run.suite_name}'`
+    : p.event === "error.autoclosed"
+    ? `Auto-closed: a failure went green in '${run.suite_name}'`
     : `Run #${run.id} failed: ${run.failed}/${run.total} tests failed in '${run.suite_name}'`;
 
   return { text: fallback, blocks };
@@ -343,6 +387,25 @@ function formatTeams(p: WebhookRunPayload): object {
     if (more) body.push(more);
   }
 
+  if ((p.event === "error.regressed" || p.event === "error.autoclosed") && p.error_group) {
+    const eg = p.error_group;
+    body.push({
+      type: "TextBlock",
+      text: p.event === "error.regressed"
+        ? "**\ud83d\udd01 A previously-fixed failure reappeared**"
+        : "**\u2705 A failure went green and was auto-closed**",
+      weight: "Bolder",
+      spacing: "Medium",
+    });
+    body.push({
+      type: "TextBlock",
+      text: `${truncate(eg.error_message ?? "(no message)", 200)}\n\n\`${truncate(eg.suite_name, 60)}\` — now **${eg.status}**`
+        + (eg.recurrence_count ? ` (recurred ${eg.recurrence_count}×)` : ""),
+      wrap: true,
+      size: "Small",
+    });
+  }
+
   if (p.failed_tests.length > 0 && p.event !== "run.passed" && p.event !== "flaky.detected" && p.event !== "flaky.threshold.exceeded") {
     body.push({
       type: "TextBlock",
@@ -374,7 +437,11 @@ function formatTeams(p: WebhookRunPayload): object {
         fallbackText: `${title}`,
         body,
         actions: [
-          { type: "Action.OpenUrl", title: "View Run", url: run.url },
+          {
+            type: "Action.OpenUrl",
+            title: p.error_group ? "View Error Group" : "View Run",
+            url: p.error_group?.url ?? run.url,
+          },
         ],
       },
     }],
@@ -387,8 +454,10 @@ function formatDiscord(p: WebhookRunPayload): object {
   const { run } = p;
   const { title } = headerForEvent(p);
   const embedColor = p.event === "run.passed" ? 0x22863a
+    : p.event === "error.autoclosed" ? 0x22863a
     : p.event === "flaky.detected" ? 0xf59e0b
     : p.event === "flaky.threshold.exceeded" ? 0xf59e0b
+    : p.event === "error.regressed" ? 0xff8800
     : p.event === "new.failures" ? 0xff8800
     : 0xff4444;
 
@@ -437,6 +506,13 @@ function formatDiscord(p: WebhookRunPayload): object {
       if (moreAll) allLines.push(moreAll);
       description += allLines.join("\n");
     }
+  } else if ((p.event === "error.regressed" || p.event === "error.autoclosed") && p.error_group) {
+    const eg = p.error_group;
+    const heading = p.event === "error.regressed"
+      ? "**\ud83d\udd01 A previously-fixed failure reappeared:**"
+      : "**\u2705 A failure went green and was auto-closed:**";
+    const recur = eg.recurrence_count ? ` (recurred ${eg.recurrence_count}\u00d7)` : "";
+    description = `${heading}\n${truncate(eg.error_message ?? "(no message)", 100)}\n\`${truncate(eg.suite_name, 60)}\` \u2014 now **${eg.status}**${recur}`;
   } else if (p.failed_tests.length > 0 && p.event !== "run.passed") {
     const lines = p.failed_tests.slice(0, DISCORD_LIST_CAP).map((t) => {
       const err = t.error_message ? ` \u2014 ${truncate(t.error_message, 100)}` : "";
@@ -455,7 +531,7 @@ function formatDiscord(p: WebhookRunPayload): object {
     embeds: [{
       title: truncate(title, DISCORD_TITLE_LIMIT),
       color: embedColor,
-      url: run.url,
+      url: p.error_group?.url ?? run.url,
       description,
       fields,
       footer: { text: "Flakey" },

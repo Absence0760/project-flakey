@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { tenantQuery } from "../db.js";
 import { logAudit } from "../audit.js";
+import { computeFlakyTests } from "../flaky-analysis.js";
+import { deriveErrorPriority } from "../error-automation.js";
 
 const router = Router();
 
-const VALID_STATUSES = ["open", "investigating", "known", "fixed", "ignored"];
+const VALID_STATUSES = ["open", "investigating", "known", "fixed", "ignored", "regressed"];
 const VALID_PRIORITIES = ["low", "medium", "high", "critical"];
 
 // Accept either a bare YYYY-MM-DD date or null/empty (un-set). Rejecting
@@ -67,7 +69,10 @@ router.get("/", async (req, res) => {
           COALESCE(eg.status, 'open') AS status,
           eg.assigned_to,
           eg.target_date,
-          eg.priority
+          eg.priority,
+          -- Phase 15.2: recurrence bookkeeping (NULL group → 0 / null).
+          COALESCE(eg.recurrence_count, 0) AS recurrence_count,
+          eg.last_recurred_at
         FROM error_agg ea
         LEFT JOIN error_groups eg ON eg.fingerprint = ea.fingerprint
           AND eg.org_id = (SELECT current_setting('app.current_org_id', true)::int)
@@ -96,7 +101,47 @@ router.get("/", async (req, res) => {
       params
     );
 
-    res.json(result.rows);
+    // Phase 15.2 (c) — derived priority. When a group has no human-set
+    // `priority`, compute a default at READ time from data already in the row
+    // (occurrence_count, affected_runs) plus the test's flaky rate. Never
+    // stored, never overwrites a human value. `priority_source` tells the
+    // frontend whether the chip is a human decision ('manual') or a derived
+    // hint ('derived') so it can render the difference.
+    //
+    // Flaky rate is looked up from the shared windowed detector once for the
+    // whole org (keyed by full_title); a group's rate is the max over its
+    // member test titles. A non-flaky fingerprint simply gets null → the
+    // derivation falls back to the occurrence/breadth signals.
+    let flakyByTitle = new Map<string, number>();
+    try {
+      const flaky = await computeFlakyTests(req.user!.orgId, { suite, runWindow: 30 });
+      flakyByTitle = new Map(flaky.map((t) => [t.full_title, t.flaky_rate]));
+    } catch (err) {
+      // A flaky-lookup failure must not break the errors list — derive from
+      // occurrence/breadth alone (flakyRate null).
+      console.error("GET /errors: flaky-rate lookup failed (deriving without it):", err);
+    }
+
+    const rows = result.rows.map((row) => {
+      const human = row.priority as string | null;
+      if (human) {
+        return { ...row, priority_source: "manual" as const };
+      }
+      const titles: string[] = Array.isArray(row.test_titles) ? row.test_titles : [];
+      let flakyRate: number | null = null;
+      for (const title of titles) {
+        const r = flakyByTitle.get(title);
+        if (r != null && (flakyRate == null || r > flakyRate)) flakyRate = r;
+      }
+      const derived = deriveErrorPriority({
+        occurrenceCount: Number(row.occurrence_count) || 0,
+        affectedRuns: Number(row.affected_runs) || 0,
+        flakyRate,
+      });
+      return { ...row, priority: derived, priority_source: "derived" as const };
+    });
+
+    res.json(rows);
   } catch (err) {
     console.error("GET /errors error:", err);
     res.status(500).json({ error: "Internal server error" });

@@ -69,6 +69,62 @@ export async function dispatchWebhooks(orgId: number, event: string, payload: We
 }
 
 /**
+ * The error-group identity carried by error.regressed / error.autoclosed.
+ */
+export interface ErrorGroupEvent {
+  fingerprint: string;
+  suite_name: string;
+  status: string;
+  error_message: string | null;
+  recurrence_count?: number;
+}
+
+/**
+ * Phase 15.2 — dispatch an error-group lifecycle webhook (error.regressed /
+ * error.autoclosed). These are NOT run-centric, but the dispatcher + formatters
+ * are keyed on the WebhookRunPayload shape, so we fill the `run` block with a
+ * minimal stub (id 0 / suite carried) and attach the real signal under
+ * `error_group`. The formatters branch on `event` + `error_group` to render the
+ * triage unit and deep-link to it, never a run failure list. Best-effort, like
+ * the rest of dispatch — a delivery failure must never break ingest or the
+ * nightly sweep. `suite_name` is only used for the message text + deep link.
+ */
+export async function dispatchErrorGroupEvent(
+  orgId: number,
+  event: "error.regressed" | "error.autoclosed",
+  group: ErrorGroupEvent
+): Promise<void> {
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:7778";
+  const payload: WebhookRunPayload = {
+    event,
+    run: {
+      id: 0,
+      suite_name: group.suite_name,
+      branch: "",
+      commit_sha: "",
+      duration_ms: 0,
+      total: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      pending: 0,
+      url: `${frontendUrl}/errors`,
+    },
+    failed_tests: [],
+    error_group: {
+      fingerprint: group.fingerprint,
+      suite_name: group.suite_name,
+      status: group.status,
+      error_message: group.error_message,
+      recurrence_count: group.recurrence_count,
+      url: `${frontendUrl}/errors?suite=${encodeURIComponent(group.suite_name)}`,
+    },
+    trend: "",
+  };
+  await dispatchWebhooks(orgId, event, payload);
+}
+
+/**
  * Dispatch all relevant webhook events for a completed run.
  */
 export async function dispatchRunEvents(orgId: number, runId: number, run: NormalizedRun): Promise<void> {

@@ -5,6 +5,7 @@ import { tenantTransaction } from "../db.js";
 import { normalize } from "../normalizers/index.js";
 import { logAudit } from "../audit.js";
 import { dispatchRunFailed } from "../webhooks.js";
+import { recordErrorRecurrence, dispatchRegressionWebhooks } from "../error-recurrence.js";
 import { postPRComment } from "../git-providers/index.js";
 import { autoCreateIssuesForRun } from "../integrations/jira.js";
 import { maybeTriggerPagerDutyForRun } from "../integrations/pagerduty.js";
@@ -96,6 +97,9 @@ router.post("/", uploadFields, async (req, res) => {
     const orgId = req.user!.orgId;
     let runId: number;
     let merged = false;
+    // Phase 15.2 (a): fingerprints that flipped fixed → regressed on this
+    // ingest (captured in-tx, dispatched as error.regressed after commit).
+    let regressedFingerprints: string[] = [];
 
     // Move uploaded files before the transaction
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
@@ -359,6 +363,11 @@ router.post("/", uploadFields, async (req, res) => {
       if (merged) {
         await recalculateRunStats(client, runId);
       }
+
+      // Phase 15.2 (a) — recurrence → auto-reopen. Same single ingest-time
+      // path as POST /runs (src/error-recurrence.ts): flip any `fixed` group
+      // whose fingerprint reappeared to `regressed`, in this org-scoped tx.
+      regressedFingerprints = await recordErrorRecurrence(client, orgId, run);
     });
 
     // Awaited (not fire-and-forget): logAudit now appends into the per-org hash
@@ -366,6 +375,11 @@ router.post("/", uploadFields, async (req, res) => {
     // pile up pool connections + serialized lock waits under concurrent same-org
     // uploads. It swallows internally — the await only costs the round-trip.
     await logAudit(req.user!.orgId, req.user!.id, "run.upload", "run", String(runId!), { suite: run.meta.suite_name, total: run.stats.total, failed: run.stats.failed, merged });
+
+    // Phase 15.2 (a) — error.regressed for groups that reopened on this ingest.
+    if (regressedFingerprints.length > 0) {
+      dispatchRegressionWebhooks(req.user!.orgId, run, regressedFingerprints);
+    }
 
     dispatchRunFailed(req.user!.orgId, runId!, run);
     postPRComment(req.user!.orgId, runId!, run);

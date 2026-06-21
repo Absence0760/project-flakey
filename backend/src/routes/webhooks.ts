@@ -8,7 +8,7 @@ import { formatPayload, type WebhookRunFailedPayload } from "../webhook-formatte
 
 const router = Router();
 
-const VALID_EVENTS = ["run.failed", "run.passed", "run.completed", "new.failures", "flaky.detected", "flaky.threshold.exceeded"];
+const VALID_EVENTS = ["run.failed", "run.passed", "run.completed", "new.failures", "flaky.detected", "flaky.threshold.exceeded", "error.regressed", "error.autoclosed"];
 const VALID_PLATFORMS = ["generic", "slack", "teams", "discord"];
 
 // Friendly labels for the selectable webhook events. VALID_EVENTS is the single
@@ -21,6 +21,8 @@ const EVENT_LABELS: Record<string, string> = {
   "new.failures": "New failures",
   "flaky.detected": "Flaky detected",
   "flaky.threshold.exceeded": "Flaky rate threshold exceeded",
+  "error.regressed": "Error group regressed (fixed failure came back)",
+  "error.autoclosed": "Error group auto-closed (went green)",
 };
 
 function labelForEvent(event: string): string {

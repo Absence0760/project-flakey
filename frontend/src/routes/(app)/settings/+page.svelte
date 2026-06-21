@@ -311,15 +311,31 @@
   let retentionDays = $state<string>("");
   let retentionSaved = $state(false);
 
+  // Phase 15.2 (b): triage auto-close window. Empty = OFF (the conservative
+  // default — silently flipping triage state is opt-in). Same nightly pass as
+  // retention, hence co-located here.
+  let triageAutocloseDays = $state<string>("");
+  let triageAutocloseSaved = $state(false);
+
   async function loadRetention() {
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`);
-    if (res.ok) { const data = await res.json(); retentionDays = data.retention_days != null ? String(data.retention_days) : ""; }
+    if (res.ok) {
+      const data = await res.json();
+      retentionDays = data.retention_days != null ? String(data.retention_days) : "";
+      triageAutocloseDays = data.triage_autoclose_days != null ? String(data.triage_autoclose_days) : "";
+    }
   }
   async function saveRetention() {
     const value = retentionDays === "" ? null : Number(retentionDays);
     const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retention_days: value }) });
     if (res.ok) { toast("Retention settings saved"); retentionSaved = true; setTimeout(() => retentionSaved = false, 2000); }
     else toastError("Failed to save retention settings");
+  }
+  async function saveTriageAutoclose() {
+    const value = triageAutocloseDays === "" ? null : Number(triageAutocloseDays);
+    const res = await authFetch(`${apiUrl}/orgs/${orgId}/settings`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ triage_autoclose_days: value }) });
+    if (res.ok) { toast("Auto-close settings saved"); triageAutocloseSaved = true; setTimeout(() => triageAutocloseSaved = false, 2000); }
+    else toastError("Failed to save auto-close settings");
   }
 
   // --- Flaky automation (migration 060) ---
@@ -971,6 +987,24 @@
               <input type="number" bind:value={retentionDays} placeholder="Days (empty = keep forever)" min="1" max="365" />
               <button class="btn-primary" onclick={saveRetention}>{retentionSaved ? "Saved" : "Save"}</button>
               <span class="muted" style="font-size:0.78rem">{retentionDays ? `Runs older than ${retentionDays} days will be deleted daily` : "Keeping all data forever"}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══ Triage auto-close (Phase 15.2) ═══ -->
+        <section id="triage-autoclose" class="settings-section">
+          <header class="section-header">
+            <div>
+              <h2 class="section-title">Auto-close stale failures</h2>
+              <p class="section-subtitle">Automatically mark an open, investigating, or regressed error group as fixed when its failure stops reappearing for a set number of days. Off by default — every auto-close is audited.</p>
+            </div>
+          </header>
+
+          <div class="card">
+            <div class="row-form">
+              <input type="number" bind:value={triageAutocloseDays} placeholder="Days (empty = off)" min="1" max="365" />
+              <button class="btn-primary" onclick={saveTriageAutoclose}>{triageAutocloseSaved ? "Saved" : "Save"}</button>
+              <span class="muted" style="font-size:0.78rem">{triageAutocloseDays ? `Failures not seen for ${triageAutocloseDays} days auto-close to fixed nightly` : "Auto-close is off — statuses only change manually"}</span>
             </div>
           </div>
         </section>
