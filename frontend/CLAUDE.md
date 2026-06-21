@@ -34,6 +34,22 @@ When deciding whether to write a param, compare against the **default only** (`i
 
 Because the sidebar links are bare paths (`/runs`), a round-trip through the nav would otherwise drop those query strings. `src/lib/stores/section-views.svelte.ts` (a Svelte 5 rune store, localStorage-backed) remembers each section's last query string; the `(app)` layout captures it as the user filters and points each sidebar link at `item.href + viewFor(item.href)` so filters survive away-and-back navigation, reloads, new tabs, and later visits in the same browser. New top-level filterable pages get this for free as long as they keep their filters in the URL.
 
+## Admin / settings pages
+
+Org-level configuration lives under `src/routes/(app)/settings/`. The main page
+(`+page.svelte`) holds in-page sections (scroll-spy subnav); feature areas that
+warrant their own route are external subnav links: `settings/integrations`,
+`settings/sso`, and `settings/audit-export`. Each subpage follows the same
+shape — owner/admin-gated (`auth.user?.orgRole`), feature-flag-aware (a 404 from
+the backend's kill-switch renders an explanatory *disabled* state, not a broken
+form), and write-only for secrets (the API returns only a boolean "is a secret
+set", never the value). `settings/audit-export` (Phase 16) drives the SIEM
+audit-export config (`/audit/export*`); its pure form logic — URL/header/bucket
+validation and delivery-health derivation — is in `src/lib/utils/audit-export.ts`
+with vitest coverage in the sibling `.test.ts`. When adding a settings subpage,
+copy `settings/sso/+page.svelte` and add a matching external subnav link in
+`settings/+page.svelte`.
+
 ## Deployment
 
 Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapter-static`. There is no Vercel configuration.

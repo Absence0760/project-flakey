@@ -83,10 +83,17 @@ Off by default: the flusher no-ops and the `/audit/export` routes return 404
 until this is set. When on, a flush runs every 60s (single-flight across
 instances via an advisory lock).
 
-### Configure a destination (org admin/owner, via the API)
+### Configure a destination (org admin/owner)
 
-There is no UI yet — destinations are configured via the API (e.g. from your
-IaC). All routes are admin+ and 404 when the instance flag is off.
+Two ways, same routes underneath:
+
+- **Admin UI** — **Settings → Audit export (SIEM)** (`/settings/audit-export`).
+  Owner/admin can add/edit/enable/delete destinations and run a test delivery;
+  viewers see it read-only; if the instance flag is off the page renders an
+  explanatory disabled state instead of a broken form. The auth token is
+  write-only (the page shows only whether one is set), mirroring the SSO page.
+- **API / IaC** — the same routes directly (e.g. from Terraform). All routes are
+  admin+ and 404 when the instance flag is off.
 
 **HTTP (customer SIEM — Splunk HEC, Datadog, Sumo, a collector of your own):**
 
