@@ -34,6 +34,10 @@ When deciding whether to write a param, compare against the **default only** (`i
 
 Because the sidebar links are bare paths (`/runs`), a round-trip through the nav would otherwise drop those query strings. `src/lib/stores/section-views.svelte.ts` (a Svelte 5 rune store, localStorage-backed) remembers each section's last query string; the `(app)` layout captures it as the user filters and points each sidebar link at `item.href + viewFor(item.href)` so filters survive away-and-back navigation, reloads, new tabs, and later visits in the same browser. New top-level filterable pages get this for free as long as they keep their filters in the URL.
 
+## The /errors triage surface
+
+`src/routes/(app)/errors/+page.svelte` is the failure-triage surface (Phase 15). An error group is the triage unit: it carries a status, an owner (`AssigneePicker`), a manual `priority` chip, and a `target_date` due date. The detail-pane mutating controls (status / owner / priority / due date) are gated on `canEdit` (`getAuth().user?.orgRole !== 'viewer'`); the backend also 403s the writes, so this is defence-in-depth, not the only gate. The list/filter selection logic ("All failures" / "Assigned to me" / "Overdue") lives as **pure helpers** in `src/lib/utils/error-triage.ts` (`applyTriageFilter`, `isOverdue`, `todayISO`) so it's unit-testable — see `error-triage.test.ts`. The triage filter is a client-side layer on top of the server-side suite/status filters and participates in the URL-state sync (the `triage` param).
+
 ## Deployment
 
 Production deploy targets S3/CloudFront via `deploy.yml` using `@sveltejs/adapter-static`. There is no Vercel configuration.

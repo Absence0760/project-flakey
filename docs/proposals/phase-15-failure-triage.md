@@ -1,6 +1,6 @@
 # Proposal: Failure triage workflow (the lifecycle Jira can't drive)
 
-**Status:** Partially implemented — the **assignee** slice of 15.1 shipped (`error_groups.assigned_to`, migration `063`; `POST /errors/:fingerprint/assign`; `assigned_to`/`assigned_to_email` on `GET /errors`; `GET /releases/:id/errors` so a release is the triage lens; shared `AssigneePicker` on the errors detail pane + a release "Failures to triage" list). **Not yet built:** `target_date` / `priority` (rest of 15.1), and 15.2–15.4.
+**Status:** Partially implemented — **all of 15.1 has shipped**: the assignee slice (`error_groups.assigned_to`, migration `063`; `POST /errors/:fingerprint/assign`; `assigned_to`/`assigned_to_email` on `GET /errors`; `GET /releases/:id/errors` so a release is the triage lens; shared `AssigneePicker`), plus the remainder — `target_date` / `priority` (migration `067`; `PATCH /errors/:fingerprint`, audited `error.triage_update`), the priority chip + due-date control on the errors detail pane, and the "assigned to me" / "overdue" list filters. **Not yet built:** 15.2–15.4.
 **Area:** backend `error_groups` + `/errors` route, `quarantined_tests`, `failure_jira_issues`, the upload/ingest pipeline, the nightly retention pass; frontend `/errors` page (becomes the triage surface)
 **Effort:** Medium, phased (15.1 small/additive → 15.4 introduces a new inbound trust boundary)
 
@@ -262,8 +262,10 @@ behavior → backend smoke; recurrence via the Phase-13 replay CLI. No phase is
 - [x] **15.1** An error group can be assigned to an org member (org-member
       validated, viewer-gated, audited `error.assign`), surfaced on the `/errors`
       detail pane and per-release via `GET /releases/:id/errors`.
-- [ ] **15.1** (remaining) due date + priority on an error group; "assigned to
-      me" / "overdue" list filters.
+- [x] **15.1** (remaining) due date + priority on an error group
+      (`target_date` / `priority`, migration `067`; `PATCH /errors/:fingerprint`,
+      viewer-gated + audited `error.triage_update`); "assigned to me" / "overdue"
+      list filters on the `/errors` page (pure `applyTriageFilter` helper).
 - [ ] **15.2** A fixed fingerprint reappearing on ingest auto-transitions to
       `regressed`, bumps `recurrence_count`, and fires `error.regressed`.
 - [ ] **15.2** With `triage_autoclose_days` set, a stale open group auto-closes on
