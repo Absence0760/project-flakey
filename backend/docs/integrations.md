@@ -6,6 +6,7 @@ integrations that hook into the upload flow or run on a schedule:
 | Integration | Triggered by | Purpose |
 |---|---|---|
 | Jira | Run upload (if auto-create enabled) or manual button | Auto-create or open Jira issues for test failures |
+| Jira two-way sync | Error-group transition (outbound) / Jira issue event (inbound, flag-gated) | Reflect fixed/regressed onto the linked issue; reflect a Jira-close back to `fixed` |
 | PagerDuty | Run upload (if auto-trigger enabled) | Fire on-call incidents for failing runs |
 | Coverage gating | Coverage upload | Post pass/fail PR commit status based on a threshold |
 | Scheduled reports | Internal scheduler tick (every 30 min) | Deliver daily/weekly test digests via email, Slack, or webhook |
@@ -160,6 +161,80 @@ curl http://localhost:3000/jira/issues \
 ```
 
 Returns every fingerprint → issue mapping the org has created.
+
+### 6. Two-way sync (Phase 15.4)
+
+Once a failure is linked to a Jira issue (auto-created or via `POST
+/jira/issues`), Flakey keeps the issue in step with the failure's triage
+lifecycle in **both** directions.
+
+#### Outbound (Flakey → Jira) — on by default once Jira is configured
+
+Whenever an error group's status transitions, Flakey reflects it onto the
+linked issue (best-effort: a Jira outage logs + continues, it never breaks
+ingest or the nightly sweep):
+
+| Flakey transition | Jira action | Audit action |
+|---|---|---|
+| → `fixed` (manual `PATCH /errors/:fp/status`, or the 15.2 auto-close-on-green sweep) | drive the issue through the **resolve** transition + comment "Flakey: …" | `jira.issue.transition` (`direction: fixed`) |
+| → `regressed` (the 15.2 ingest-time auto-reopen) | drive the issue through the **reopen** transition + comment "Flakey: …" | `jira.issue.transition` (`direction: regressed`) |
+
+The reopen-on-regression is the one Jira can't do itself — it has no run data.
+
+The transition **names** are configurable per org (Jira workflows name their
+done/todo columns differently). Set them on `PATCH /jira/settings`:
+
+```bash
+curl -X PATCH http://localhost:3000/jira/settings \
+  -H "Authorization: Bearer $FLAKEY_API_KEY" -H "Content-Type: application/json" \
+  -d '{ "resolve_transition": "Done", "reopen_transition": "To Do" }'
+```
+
+They default to **"Done"** / **"To Do"** when unset. A transition that isn't
+currently available on the issue (e.g. it's already in that state) is a no-op —
+Flakey still leaves the comment.
+
+#### Inbound (Jira → Flakey) — **flag-gated OFF by default**
+
+`POST /jira/webhook` accepts Jira issue events and, on an issue moving into the
+**done** status category, flips the linked error group to `fixed`.
+
+This is a **new external trust boundary**, so it is **disabled unless an
+operator explicitly turns it on after security sign-off**:
+
+- **`FLAKEY_JIRA_WEBHOOK_ENABLED`** (default `false`). When unset/false the
+  route returns a clean **404** — same kill-switch shape as
+  `FLAKEY_SSO_ENABLED`. **Enabling it requires CISO / Security-analyst sign-off**
+  (inbound webhooks that transition our triage state from a customer's external
+  system are a SOC 2 / GovRAMP-relevant change to an integration's egress/ingress
+  posture).
+- **HMAC-verified, fail closed.** Every request must carry
+  `X-Hub-Signature: sha256=<hex HMAC-SHA256 of the raw body>` keyed by the org's
+  webhook secret. Missing / malformed / mismatched / wrong-length signature →
+  **401**. No secret configured for the resolved org → **401** (can't verify ⇒
+  reject). The compare is constant-time over the **exact raw bytes**.
+- **Never trusts the payload's org.** The owning org is resolved **server-side**
+  from the issue key via the `failure_jira_issues` link (a narrow
+  `SECURITY DEFINER` lookup, the same pattern as SCIM token auth), and the HMAC
+  is checked against **that** org's secret. An attacker who knows an issue key
+  but not the secret can't forge a request. An unlinked issue is a benign 204.
+- **Rate-limited** at the mount (`JIRA_WEBHOOK_RATE_LIMIT_MAX`, default 120/min).
+- The status flip and an `jira.webhook.issue_closed` audit row run under the
+  resolved org's RLS context.
+
+Configure the shared secret (encrypted at rest, like the API token):
+
+```bash
+curl -X PATCH http://localhost:3000/jira/settings \
+  -H "Authorization: Bearer $FLAKEY_API_KEY" -H "Content-Type: application/json" \
+  -d '{ "webhook_secret": "a-long-random-string" }'
+```
+
+Then in Jira, register a webhook pointing at
+`https://<your-flakey-host>/jira/webhook` and configure it to sign with the same
+secret (Jira's webhook "secret" → `X-Hub-Signature`). Only enable the
+`FLAKEY_JIRA_WEBHOOK_ENABLED` flag in the backend environment **after** security
+review.
 
 ---
 
@@ -492,6 +567,8 @@ Every integration mutation writes an entry to the `audit_log` table:
 
 - `jira.settings.update` — settings saved
 - `jira.issue.create` — issue opened (manually or auto)
+- `jira.issue.transition` — outbound two-way sync moved a linked issue (`direction`: `fixed` | `regressed`; `trigger`: `manual` | `autoclose` | `ingest`)
+- `jira.webhook.issue_closed` — inbound webhook flipped a linked error group to `fixed`
 - `pagerduty.settings.update`
 - `coverage.settings.update`
 - `coverage.upload`

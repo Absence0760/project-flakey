@@ -286,9 +286,19 @@ behavior → backend smoke; recurrence via the Phase-13 replay CLI. No phase is
 - [ ] **15.3** Quarantines support `expires_at`, expire on the nightly sweep, link
       to a fingerprint, and surface "expiring/no-expiry" in the triage view; flaky
       signal *suggests* (never auto-applies) quarantine.
-- [ ] **15.4** Manual/auto fix transitions and regressions reflect onto the linked
-      Jira issue; an HMAC-verified inbound webhook reflects Jira-close back; CISO
-      sign-off recorded before 15.4 lands.
+- [x] **15.4 (build)** Manual/auto fix transitions and regressions reflect onto the
+      linked Jira issue (outbound, best-effort, audited `jira.issue.transition`); an
+      HMAC-verified, fail-closed inbound `POST /jira/webhook` reflects Jira-close back
+      to `fixed` (org resolved server-side via the link, never the payload). Both
+      directions are smoke-tested with a mocked Jira; HMAC verification is unit-tested.
+      Migration `070`.
+- [x] **15.4 (inbound flag-gated OFF)** The inbound webhook receiver ships **disabled
+      by default** behind `FLAKEY_JIRA_WEBHOOK_ENABLED` (route 404s when unset), so the
+      code can merge safely without any live external call until enabled.
+- [ ] **15.4 (operator gate)** **CISO / Security-analyst sign-off recorded BEFORE
+      `FLAKEY_JIRA_WEBHOOK_ENABLED` is turned on in any environment** (inbound webhook
+      transitioning customer Jira state is a SOC 2 / GovRAMP-relevant ingress). The
+      build is merge-safe with the flag off; enabling it is the operator's call.
 
 ## Open questions
 
