@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from flakey_pytest_reporter.plugin import parse_nodeid, resolve_meta, build_run
+from flakey_pytest_reporter.plugin import parse_nodeid, resolve_meta, build_run, FlakeyReporter
 from flakey_pytest_reporter import uploader
 
 
@@ -92,6 +92,86 @@ def test_build_run_empty():
     assert run["stats"]["total"] == 0
     assert run["specs"] == []
     assert run["stats"]["pending"] == 0   # pytest has no pending; always 0
+
+
+# ── logreport buffering / rerun dedupe ──────────────────────────────────────
+
+class _FakeReport:
+    """Minimal stand-in for a pytest TestReport for the recording hook."""
+    def __init__(self, nodeid, when, outcome, duration=0.01):
+        self.nodeid = nodeid
+        self.when = when
+        self.outcome = outcome
+        self.duration = duration
+        self.skipped = outcome == "skipped"
+        self.failed = outcome == "failed"
+        self.longrepr = None
+
+    @property
+    def longreprtext(self):
+        return "boom" if self.failed else ""
+
+
+def _reporter():
+    return FlakeyReporter("http://x", "k", "s")
+
+
+def test_logreport_rerun_is_deduped_to_final_attempt():
+    # pytest-rerunfailures re-runs the same nodeid, firing a fresh call-phase
+    # report each attempt. A flaky test that fails twice then passes must
+    # report as ONE passed test, not three tests with two phantom failures.
+    r = _reporter()
+    nid = "tests/test_x.py::test_flaky"
+    r.pytest_runtest_logreport(_FakeReport(nid, "call", "failed"))
+    r.pytest_runtest_logreport(_FakeReport(nid, "call", "failed"))
+    r.pytest_runtest_logreport(_FakeReport(nid, "call", "passed"))
+
+    run = build_run(r.tests_by_file, resolve_meta("s", "t0", "t1"))
+    assert run["stats"]["total"] == 1
+    assert run["stats"]["passed"] == 1
+    assert run["stats"]["failed"] == 0
+    tests = r.tests_by_file["tests/test_x.py"]
+    assert len(tests) == 1
+    assert tests[0]["status"] == "passed"
+    # The final (passing) attempt must not carry the earlier failure's error.
+    assert "error" not in tests[0]
+
+
+def test_logreport_rerun_ending_in_failure_keeps_error():
+    r = _reporter()
+    nid = "tests/test_x.py::test_still_broken"
+    r.pytest_runtest_logreport(_FakeReport(nid, "call", "failed"))
+    r.pytest_runtest_logreport(_FakeReport(nid, "call", "failed"))
+
+    run = build_run(r.tests_by_file, resolve_meta("s", "t0", "t1"))
+    assert run["stats"]["total"] == 1
+    assert run["stats"]["failed"] == 1
+    tests = r.tests_by_file["tests/test_x.py"]
+    assert len(tests) == 1
+    assert tests[0]["status"] == "failed"
+    assert tests[0]["error"]["message"] == "boom"
+
+
+def test_logreport_distinct_tests_are_not_collapsed():
+    # Dedupe is per-nodeid: two different tests in the same file stay distinct,
+    # and insertion order is preserved.
+    r = _reporter()
+    r.pytest_runtest_logreport(_FakeReport("a.py::test_one", "call", "passed"))
+    r.pytest_runtest_logreport(_FakeReport("a.py::test_two", "call", "failed"))
+
+    run = build_run(r.tests_by_file, resolve_meta("s", "t0", "t1"))
+    assert run["stats"]["total"] == 2
+    assert [t["title"] for t in r.tests_by_file["a.py"]] == ["test_one", "test_two"]
+
+
+def test_logreport_setup_skip_then_no_call_records_once():
+    # A test skipped at setup (no call phase) records exactly one skipped row.
+    r = _reporter()
+    r.pytest_runtest_logreport(_FakeReport("a.py::test_skipped", "setup", "skipped"))
+
+    run = build_run(r.tests_by_file, resolve_meta("s", "t0", "t1"))
+    assert run["stats"] == {"total": 1, "passed": 0, "failed": 0, "skipped": 1,
+                            "pending": 0, "duration_ms": 10}
 
 
 # ── uploader ────────────────────────────────────────────────────────────────

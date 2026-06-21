@@ -42,7 +42,12 @@ Cypress/Playwright reporters, it needs **no backend normalizer** (the
   source file.
 - **Buffering:** `pytest_runtest_logreport` records once per test — the `call`
   phase for pass/fail, the `setup` phase only for skips / setup-errors (which
-  never reach `call`). This avoids double-counting across phases.
+  never reach `call`). This avoids double-counting across phases. Entries are
+  also keyed by `nodeid`, so a **rerun** (`pytest-rerunfailures` / `flaky`) of
+  the same test overwrites its earlier attempt in place rather than appending a
+  second row — final-attempt-wins, matching the JS reporters' retry handling.
+  Without this a flaky test rerun 3× would report as 3 tests with phantom
+  failures, corrupting the run's pass/fail counts and flaky detection.
 - **Status:** pytest `passed`/`failed`/`skipped` map 1:1; there is no pending, so
   `stats.pending` is always 0.
 - **Errors:** message from `longrepr.reprcrash.message` (falling back to the first
