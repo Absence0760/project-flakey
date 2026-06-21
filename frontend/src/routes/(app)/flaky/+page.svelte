@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
@@ -110,7 +110,19 @@
 
   $effect(() => {
     selectedSuite; sortBy; runWindow; searchQuery; // tracked deps
-    visibleCount = PAGE_SIZE;
+    // Read the open-panel state untracked so this fires ONLY on a
+    // filter/sort/window change — not on every expand/collapse (which
+    // would wipe the user's "load more" depth). If a panel is open and
+    // the new ordering pushed its test past the reset slice, widen the
+    // slice to keep it rendered — otherwise the open panel silently
+    // vanishes when its test paginates out of view after a re-sort.
+    untrack(() => {
+      visibleCount = PAGE_SIZE;
+      if (expandedKey) {
+        const idx = sorted.findIndex((t) => qKey(t) === expandedKey);
+        if (idx >= PAGE_SIZE) visibleCount = Math.min(idx + 10, sorted.length);
+      }
+    });
   });
 
   // Resolve a ?expanded=<key> deep link once data has loaded and the

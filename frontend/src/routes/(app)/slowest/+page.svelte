@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { timeAgo, absoluteDate } from "$lib/utils/format";
   import { page } from "$app/stores";
   import { replaceState } from "$app/navigation";
@@ -94,7 +94,18 @@
 
   $effect(() => {
     selectedSuite; sortBy; searchQuery; // tracked deps
-    visibleCount = PAGE_SIZE;
+    // Read the open-panel state untracked so this fires ONLY on a
+    // filter/sort change — not on every expand/collapse (which would
+    // wipe "load more" depth). Keep an open panel's test within the
+    // reset slice if the new ordering pushed it past PAGE_SIZE, or the
+    // open card silently vanishes when its test paginates out of view.
+    untrack(() => {
+      visibleCount = PAGE_SIZE;
+      if (expandedKey) {
+        const idx = sorted.findIndex((t) => rowKey(t) === expandedKey);
+        if (idx >= PAGE_SIZE) visibleCount = Math.min(idx + 10, sorted.length);
+      }
+    });
   });
 
   function loadMoreSlowest() {
