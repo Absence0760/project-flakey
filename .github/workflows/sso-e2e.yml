@@ -76,7 +76,7 @@ jobs:
           --health-retries 10
           --tmpfs /var/lib/postgresql/data
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Bring up the IdP stack from the SAME compose definitions devs use
       # locally (`pnpm idp:up` / `pnpm idp:scim:up`) — single source of truth.
@@ -91,7 +91,7 @@ jobs:
           docker compose --profile idp --profile idp-scim up -d --wait \
             keycloak authentik-server authentik-worker scim-target
 
-      - uses: pnpm/action-setup@6854221e62e0759fe8deffc48ccb9c91daf8f9b0 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           version: 9
           run_install: false
