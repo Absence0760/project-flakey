@@ -31,15 +31,16 @@ test.describe("/errors", () => {
     await expect(suiteSelect).toBeVisible();
     await expect(suiteSelect).toHaveValue("all");
 
-    // Status filter: "All" + 5 status tabs (open / investigating /
-    // known / fixed / ignored, per src/routes/(app)/errors/+page.svelte).
-    // "All" is active by default.
+    // Status filter: "All" + 6 status tabs (open / investigating /
+    // regressed / known / fixed / ignored, per
+    // src/routes/(app)/errors/+page.svelte — `regressed` added by Phase
+    // 15.2 auto-reopen, migration 068). "All" is active by default.
     const allTab = page.locator(".filter-tabs .filter-tab", { hasText: "All" }).first();
     await expect(allTab).toHaveClass(/active/);
 
-    // The five concrete-status tabs all have a colour dot inside.
+    // The six concrete-status tabs all have a colour dot inside.
     const statusTabs = page.locator(".filter-tabs .filter-tab .dot");
-    await expect(statusTabs).toHaveCount(5);
+    await expect(statusTabs).toHaveCount(6);
   });
 
   test("page settles to either the error list or the empty pane (no stuck Loading...)", async ({
