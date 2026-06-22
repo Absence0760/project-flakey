@@ -220,9 +220,14 @@ test("POST default cursor seeds from current max (not 0); from_beginning seeds 0
 test("cross-org isolation: org B cannot see, patch, delete, or test org A's config", async () => {
   // Org A owns a config carrying a distinctive endpoint + secret. enabled:true so
   // the closing "unchanged" check is meaningful (org B's PATCH would flip it off).
+  // The endpoint carries an opaque canary in its path (not a bare hostname — a
+  // hostname substring check reads to CodeQL as an incomplete URL sanitizer) so
+  // the leak assertion below keys off a unique marker that can only originate
+  // from org A's stored endpoint_url.
+  const orgAEndpointCanary = "org-a-endpoint-canary-7f3a2b";
   const a = await createHttp({
     enabled: true,
-    endpoint_url: "https://org-a-only.example.com/secret-collector",
+    endpoint_url: `https://org-a-only.example.com/secret-collector/${orgAEndpointCanary}`,
     auth_header_name: "Authorization",
     auth_token: "Bearer org-a-private-token",
   });
@@ -232,7 +237,7 @@ test("cross-org isolation: org B cannot see, patch, delete, or test org A's conf
   assert.ok(Array.isArray(bList));
   assert.ok(!bList.some((c: { id: number }) => c.id === a.id), "org B must not see org A's config");
   // …and org A's endpoint/secret leak nowhere into org B's response body.
-  assert.ok(!JSON.stringify(bList).includes("org-a-only.example.com"));
+  assert.ok(!JSON.stringify(bList).includes(orgAEndpointCanary), "org A's endpoint must not leak into org B's response");
   assert.ok(!JSON.stringify(bList).includes("org-a-private-token"));
 
   // 2. GET-by-side-effect: org B's PATCH targets a real id it doesn't own → 404
