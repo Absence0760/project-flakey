@@ -10,6 +10,17 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    # Optional: only exercised when var.sops_secrets_file is set (the opt-in
+    # path that sources the app secrets from a sops-encrypted file instead of
+    # generating them with random_*). `terraform init` downloads the plugin
+    # either way, but the data source is count-gated to 0 when unused, so a
+    # self-hoster who leaves sops off never invokes it. Pinned + hash-locked
+    # in .terraform.lock.hcl since carlpett/sops is a community (non-HashiCorp)
+    # provider.
+    sops = {
+      source  = "carlpett/sops"
+      version = "~> 1.1"
+    }
   }
 
   backend "s3" {

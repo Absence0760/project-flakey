@@ -13,10 +13,30 @@ module "ecr" {
   environment = var.environment
 }
 
+# Opt-in: source the three app secrets from a sops-encrypted file instead of
+# generating them. Count-gated to 0 when var.sops_secrets_file is empty (the
+# default), so a self-hoster who doesn't use sops never invokes the provider.
+# Decryption happens in-memory at plan/apply via the AWS credential chain —
+# nothing is written to disk. The encrypted file lives in the private
+# infra-secrets repo; see docs/operations/secrets-sops.md.
+data "sops_file" "secrets" {
+  count       = var.sops_secrets_file != "" ? 1 : 0
+  source_file = var.sops_secrets_file
+}
+
+locals {
+  # Flat top-level keys only — sops flattens nested maps into dotted keys.
+  sops_secrets = var.sops_secrets_file != "" ? data.sops_file.secrets[0].data : {}
+}
+
 module "secrets" {
   source      = "./modules/secrets"
   app_name    = var.app_name
   environment = var.environment
+  # Empty string ⇒ the module generates the secret with random_* (default).
+  jwt_secret_override      = try(local.sops_secrets["jwt_secret"], "")
+  encryption_key_override  = try(local.sops_secrets["encryption_key"], "")
+  db_app_password_override = try(local.sops_secrets["db_app_password"], "")
 }
 
 module "s3" {

@@ -115,6 +115,16 @@ variable "cloudfront_aliases" {
   default     = []
 }
 
+variable "sops_secrets_file" {
+  description = "Optional path to a sops-encrypted file holding the three app secrets (flat YAML/JSON keys: jwt_secret, encryption_key, db_app_password). Empty (default) = generate them with random_* (the zero-config self-hoster path). When set, those values are used instead — typically a path into a checkout of your private secrets repo, e.g. \"../../infra-secrets/flakey/production.sops.yaml\". Decrypted in-memory at plan/apply via the carlpett/sops provider + your AWS credential chain (needs kms:Decrypt on the key that encrypted the file). See docs/operations/secrets-sops.md."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.sops_secrets_file == "" || !can(regex("[<>]", var.sops_secrets_file))
+    error_message = "sops_secrets_file contains a <placeholder> — set it to a real path or leave it empty to auto-generate secrets."
+  }
+}
+
 variable "public_app_url" {
   description = "Public origin the dashboard SPA is served from, e.g. \"https://app.your-domain.com\". Drives the backend's CORS_ORIGINS + FRONTEND_URL. Leave empty to use the default *.cloudfront.net domain (only correct when you have NO custom domain — once you set cloudfront_aliases, the browser's Origin is the alias, so this MUST be set to the same https://alias or every API fetch is blocked by CORS and the dashboard renders blank)."
   type        = string
