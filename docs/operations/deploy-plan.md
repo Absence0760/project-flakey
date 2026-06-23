@@ -212,12 +212,14 @@ tag-scoped `cloudfront:CreateInvalidation` works for any `app_name`.
 These came out of the infra audit sweep and are intentionally deferred — none
 block a correct deploy:
 
-- **Helm chart `chart/values.yaml` ships `jwtSecret: "change-me-in-production"`.**
-  A naive `helm install` runs prod with a guessable JWT signing key. If you use
-  the Kubernetes chart instead of ECS, you **must** override `auth.jwtSecret`
-  (or set `auth.existingSecret`). The ECS path is unaffected (secrets are
-  Secrets-Manager-generated). Durable fix: make the chart template `fail` when
-  neither is set, mirroring its `smtp.password` handling.
+- **Helm chart `chart/values.yaml` carries `jwtSecret: "change-me-in-production"`**
+  — but it is **not** silently deployable. `chart/templates/_helpers.tpl`'s
+  `flakey.validateValues` (invoked at the top of `deployment.yaml`) `fail`s the
+  render when the default is left unchanged and no `auth.existingSecret` is set,
+  and likewise requires `app.encryptionKey`. A naive `helm install` therefore
+  aborts with a clear message rather than shipping a guessable key — the residual
+  is cosmetic (a placeholder string in `values.yaml`); no action needed. The ECS
+  path is unaffected (secrets are Secrets-Manager-generated).
 - **`backend/src/retention.ts` has no advisory lock.** With >1 ECS task, the
   nightly retention pass can double-emit `error.autoclosed` / `quarantine.expired`
   webhooks. Fix: wrap in `pg_try_advisory_xact_lock` like `scheduled-reports.ts`
