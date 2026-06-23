@@ -143,6 +143,7 @@ jobs:
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE_BACKEND" \
             --region "$AWS_REGION" \
+            --output json \
             --query 'services[0].deployments[?status==`PRIMARY`] | [0]' )
           LIVE_TD=$(echo "$PRIMARY" | jq -r '.taskDefinition')
           ROLLOUT=$(echo "$PRIMARY" | jq -r '.rolloutState')
