@@ -103,6 +103,14 @@ public_app_url                 = "https://app.your-domain.com"        # drives C
 > and the dashboard renders blank. Set `public_app_url` to the same origin as
 > your alias.
 
+> **Optional — sops-managed secrets.** By default the three app secrets are
+> auto-generated into Secrets Manager. To instead manage them in a durable,
+> version-controlled sops-encrypted file (in your private `infra-secrets` repo),
+> set `sops_secrets_file` and follow
+> [secrets-sops.md](./secrets-sops.md) — **including the zero-downtime adopt
+> procedure if flakey is already deployed** (reuse current values; never
+> regenerate the encryption key).
+
 ```bash
 cd infra
 terraform init

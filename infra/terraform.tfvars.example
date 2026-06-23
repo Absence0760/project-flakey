@@ -59,3 +59,11 @@ csp_connect_src = ["https://api.<your-domain>"]
 
 # Passwords are auto-generated and stored in AWS Secrets Manager.
 # No manual secrets to configure.
+#
+# OPTIONAL — source the three app secrets (jwt_secret, encryption_key,
+# db_app_password) from a sops-encrypted file instead of generating them.
+# Leave unset for the zero-config default (random_* → Secrets Manager). When
+# set, point it at a checkout of your private secrets repo. The carlpett/sops
+# provider decrypts it in-memory at apply (needs kms:Decrypt on the key that
+# encrypted it). See docs/operations/secrets-sops.md for the full workflow.
+# sops_secrets_file = "../../infra-secrets/flakey/production.sops.yaml"
