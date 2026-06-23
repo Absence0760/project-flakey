@@ -2,6 +2,8 @@
 
 Terraform configuration for deploying Flakey to AWS. Designed to be as touchless as possible — secrets are auto-generated, migrations run automatically on deploy, and monitoring is built in.
 
+> **Deploying it:** the ordered, end-to-end procedure (bootstrap → preflight → apply → seed first image → release → rollback) is in [docs/operations/deploy-plan.md](../docs/operations/deploy-plan.md). This README is the per-variable reference; the plan is the runbook.
+>
 > **Operating it:** backup/restore, disaster recovery, and the encryption-at-rest + secret-rotation posture are documented in [docs/operations/backup-and-dr.md](../docs/operations/backup-and-dr.md).
 
 ## Architecture
@@ -81,7 +83,14 @@ Save the output `github_actions_role_arn` — you'll need it for GitHub secrets.
 
 ```bash
 cd infra
+# Default app_name=flakey: a bare `terraform init` works. For a non-default
+# app_name the state bucket/table names differ (Terraform backend blocks can't
+# use variables), so init with explicit backend config:
+#   terraform init \
+#     -backend-config="bucket=<app_name>-terraform-state" \
+#     -backend-config="dynamodb_table=<app_name>-terraform-locks"
 terraform init
+./scripts/preflight.sh   # or `pnpm infra:preflight` — read-only readiness gate
 terraform plan
 terraform apply
 ```
@@ -90,6 +99,25 @@ terraform apply
 have no defaults in `variables.tf` — `terraform plan`/`apply` fails until you
 supply all three (via `terraform.tfvars`). No passwords to configure — they're
 auto-generated and stored in Secrets Manager.
+
+**Custom dashboard domain:** when you set `cloudfront_aliases`, also set
+`public_app_url` to the same `https://` origin — it drives the backend's
+`CORS_ORIGINS`/`FRONTEND_URL`. Left empty, those default to the
+`*.cloudfront.net` domain, and a browser loading the SPA from your alias gets
+every API fetch CORS-blocked (blank dashboard).
+
+> **First apply leaves the service without a pullable image.** The task
+> definition points at `<ecr-repo>:latest`, which the immutable repo never
+> receives (the pipeline pushes only per-SHA tags). On a fresh account ECS
+> loops on `CannotPullContainerError` until the first release. Close the window
+> immediately after `apply` by seeding the first image:
+>
+> ```bash
+> ./scripts/seed-first-image.sh    # or `pnpm infra:seed-image`
+> ```
+>
+> It builds + pushes the first backend image and rolls the service onto it.
+> After that, deploy via `app@<version>` releases as normal.
 
 ### 3. Set up GitHub secrets
 
@@ -143,6 +171,7 @@ points at your resources:
 | `ECS_CLUSTER` | `flakey-production` | ECS cluster name (`<app_name>-<environment>`) |
 | `ECS_SERVICE_BACKEND` | `flakey-production-backend` | ECS service name |
 | `TASK_FAMILY` | `flakey-production-backend` | ECS task-definition family |
+| `AWS_REGION` | `ap-southeast-2` | Region the stack is deployed to. Set this whenever you deploy outside `ap-southeast-2` (it's independent of `app_name`) — otherwise every `aws` call in `deploy.yml` targets the wrong region. |
 
 Each is read as `${{ vars.NAME || '<default>' }}`, so leaving a variable unset
 keeps the `app_name=flakey` behavior unchanged.
@@ -227,6 +256,13 @@ half-migrated DB. You do not run migrations as a separate step; deploying the
 image *is* the migration.
 
 ### Rolling back
+
+**Automatic, for a bad rollout:** the ECS service runs with a
+`deployment_circuit_breaker { rollback = true }` (`modules/ecs/main.tf`). If a
+new revision's tasks never pass the health check (crash loop, failed migration,
+missing secret), ECS reverts to the last-good revision on its own. `deploy.yml`
+asserts the live revision after waiting, so an auto-rollback turns the workflow
+**red** — you're told, rather than the job going green on a reverted deploy.
 
 Frontend rollbacks are clean: re-sync the prior `frontend/build` to the bucket
 and invalidate CloudFront.
