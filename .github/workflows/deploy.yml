@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: ap-southeast-2
+  # Region the stack is deployed to. Defaults to the infra/variables.tf
+  # default (ap-southeast-2); override via a repo-level Actions variable
+  # when you deploy elsewhere — otherwise every aws call here targets the
+  # wrong region and fails with NoSuchCluster / repository-not-found.
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
   # Resource names default to the app_name=flakey naming; override via
   # repo-level Actions `vars` (Settings > Secrets and variables > Actions >
   # Variables) when you deploy with a non-default `app_name`. See
@@ -110,11 +114,14 @@ jobs:
             --cli-input-json file:///tmp/td.json \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
+          rm -f /tmp/td.json
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE_BACKEND" \
             --task-definition "$NEW_TD" \
             --region "$AWS_REGION"
+          # Stash the intended revision for the post-wait assertion below.
+          echo "NEW_TD=$NEW_TD" >> "$GITHUB_ENV"
 
       - name: Wait for deployment
         run: |
@@ -122,6 +129,29 @@ jobs:
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE_BACKEND \
             --region $AWS_REGION
+
+      - name: Verify the new revision actually went live (not rolled back)
+        run: |
+          # The service now has deployment_circuit_breaker { rollback = true }
+          # (infra/modules/ecs). On a failed rollout ECS auto-reverts to the
+          # last-good task def and the service still reaches "stable" — so
+          # `wait services-stable` succeeding is NOT proof the new image shipped.
+          # Assert the PRIMARY deployment is the revision we registered and that
+          # it COMPLETED; otherwise a silent rollback would look green.
+          set -euo pipefail
+          PRIMARY=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE_BACKEND" \
+            --region "$AWS_REGION" \
+            --query 'services[0].deployments[?status==`PRIMARY`] | [0]' )
+          LIVE_TD=$(echo "$PRIMARY" | jq -r '.taskDefinition')
+          ROLLOUT=$(echo "$PRIMARY" | jq -r '.rolloutState')
+          echo "Intended: $NEW_TD"
+          echo "Live PRIMARY: $LIVE_TD (rolloutState=$ROLLOUT)"
+          if [ "$LIVE_TD" != "$NEW_TD" ] || [ "$ROLLOUT" != "COMPLETED" ]; then
+            echo "::error::Deployment did not converge on the new revision — ECS circuit breaker likely rolled it back. Check the ECS service events and CloudWatch logs for the failing task." >&2
+            exit 1
+          fi
 
   deploy-frontend:
     needs: [check-tag, deploy-backend]
@@ -148,6 +178,14 @@ jobs:
           # Unset → empty → relative fallback (fine for self-hosted builds).
           VITE_SITE_URL: ${{ secrets.SITE_URL }}
         run: |
+          # Fail loudly if the API_URL secret is missing/empty. GitHub injects
+          # an unset secret as "" (not undefined), so the frontend's `?? localhost`
+          # fallback would NOT catch it — the SPA would bake an empty origin and
+          # ship a blank, every-fetch-fails dashboard. Guard before the build.
+          if [ -z "${VITE_API_URL// }" ]; then
+            echo "::error::API_URL secret is unset/empty — refusing to build a frontend with no API origin. Set the API_URL secret to your https:// backend origin." >&2
+            exit 1
+          fi
           pnpm install --frozen-lockfile
           pnpm build
 
