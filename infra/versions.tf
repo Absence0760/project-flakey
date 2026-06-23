@@ -25,8 +25,12 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
+    # Project MUST equal var.app_name: the bootstrap deploy role gates
+    # cloudfront:CreateInvalidation on aws:ResourceTag/Project = app_name.
+    # Hardcoding "flakey" here silently breaks every frontend cache
+    # invalidation for any fork that picks a non-default app_name.
     tags = {
-      Project     = "flakey"
+      Project     = var.app_name
       Environment = var.environment
       ManagedBy   = "terraform"
     }
@@ -43,7 +47,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "flakey"
+      Project     = var.app_name
       Environment = var.environment
       ManagedBy   = "terraform"
     }

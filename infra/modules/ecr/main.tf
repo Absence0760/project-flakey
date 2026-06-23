@@ -72,6 +72,22 @@ resource "aws_ecr_lifecycle_policy" "backend" {
           countNumber    = 10
         }
         action = { type = "expire" }
+      },
+      {
+        # deploy.yml pushes one immutable per-SHA tag per release. Those
+        # match neither rule above (not untagged, not v*), so without this
+        # rule they accumulate forever. Keep the most recent 20 as rollback
+        # headroom and expire older ones. Evaluated after the v* rule, so
+        # semver release images are claimed there first and are not at risk.
+        rulePriority = 3
+        description  = "Expire per-SHA deploy images beyond the last 20"
+        selection = {
+          tagStatus      = "tagged"
+          tagPatternList = ["*"]
+          countType      = "imageCountMoreThan"
+          countNumber    = 20
+        }
+        action = { type = "expire" }
       }
     ]
   })

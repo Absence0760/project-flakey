@@ -37,6 +37,15 @@ csp_connect_src = ["https://api.<your-domain>"]
 # csp_img_src   = ["https://artifacts.<your-domain>"]
 # csp_media_src = ["https://artifacts.<your-domain>"]
 
+# Custom dashboard domain (recommended for prod). The CloudFront cert MUST
+# live in us-east-1 regardless of the stack region. When you set an alias,
+# also set public_app_url to the SAME https:// origin — it drives the backend's
+# CORS_ORIGINS/FRONTEND_URL; leave it empty and the browser's alias Origin gets
+# CORS-blocked (blank dashboard). Leave all three unset to use *.cloudfront.net.
+# cloudfront_acm_certificate_arn = "arn:aws:acm:us-east-1:<acct>:certificate/..."
+# cloudfront_aliases             = ["app.<your-domain>"]
+# public_app_url                 = "https://app.<your-domain>"
+
 # Optional cost-incurring toggles (defaults shown):
 # rds_multi_az = true                  # set false on staging/dev to halve cost
 # enable_performance_insights = false  # ~$7/mo

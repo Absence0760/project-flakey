@@ -1,8 +1,7 @@
-output "jwt_secret" {
-  value     = random_password.jwt.result
-  sensitive = true
-}
-
+# Only ARNs are exported: the ECS task reads each secret's *value* from
+# Secrets Manager at runtime via valueFrom, so Terraform never needs to
+# hand the plaintext to a consumer. Exporting the raw value as an output
+# put a second plaintext copy in state for no consumer — removed.
 output "jwt_secret_arn" {
   value = aws_secretsmanager_secret.jwt_secret.arn
 }

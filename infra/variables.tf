@@ -115,6 +115,16 @@ variable "cloudfront_aliases" {
   default     = []
 }
 
+variable "public_app_url" {
+  description = "Public origin the dashboard SPA is served from, e.g. \"https://app.your-domain.com\". Drives the backend's CORS_ORIGINS + FRONTEND_URL. Leave empty to use the default *.cloudfront.net domain (only correct when you have NO custom domain — once you set cloudfront_aliases, the browser's Origin is the alias, so this MUST be set to the same https://alias or every API fetch is blocked by CORS and the dashboard renders blank)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.public_app_url == "" || can(regex("^https://[^<> ]+$", var.public_app_url))
+    error_message = "public_app_url must be empty or a full https:// origin with no <placeholder> text (e.g. \"https://app.acme.com\")."
+  }
+}
+
 variable "enable_flow_logs" {
   description = "VPC Flow Logs (REJECT-only) to CloudWatch with KMS encryption. ~$5-15/mo at low volume; needed for security-investigation cadence, otherwise audit-trail bloat."
   type        = bool

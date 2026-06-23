@@ -65,16 +65,21 @@ module "budget" {
 }
 
 module "ecs" {
-  source              = "./modules/ecs"
-  app_name            = var.app_name
-  environment         = var.environment
-  aws_region          = var.aws_region
-  vpc_id              = module.networking.vpc_id
-  vpc_cidr            = module.networking.vpc_cidr
-  public_subnet_ids   = module.networking.public_subnet_ids
-  private_subnet_ids  = module.networking.private_subnet_ids
-  backend_image       = "${module.ecr.backend_repository_url}:latest"
-  frontend_url        = "https://${module.s3.cloudfront_domain}"
+  source             = "./modules/ecs"
+  app_name           = var.app_name
+  environment        = var.environment
+  aws_region         = var.aws_region
+  vpc_id             = module.networking.vpc_id
+  vpc_cidr           = module.networking.vpc_cidr
+  public_subnet_ids  = module.networking.public_subnet_ids
+  private_subnet_ids = module.networking.private_subnet_ids
+  backend_image      = "${module.ecr.backend_repository_url}:latest"
+  # CORS_ORIGINS + FRONTEND_URL must match the origin the browser actually
+  # loads the SPA from. module.s3.cloudfront_domain is the *.cloudfront.net
+  # name; when the dashboard is served from a custom domain (cloudfront_aliases)
+  # the browser's Origin header is that alias, so default the API's allowed
+  # origin to public_app_url when set, falling back to the CloudFront domain.
+  frontend_url        = var.public_app_url != "" ? var.public_app_url : "https://${module.s3.cloudfront_domain}"
   db_host             = module.rds.db_host
   db_port             = module.rds.db_port
   db_name             = module.rds.db_name

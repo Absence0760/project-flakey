@@ -393,6 +393,23 @@ resource "aws_ecs_service" "backend" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
+  # Give a freshly-placed task time to run migrations + boot before the
+  # ALB health check starts counting failures against it. Without this,
+  # the unhealthy-threshold (3 × 30s) can trip during a slow migration
+  # and ECS kills a task that was about to come up healthy.
+  health_check_grace_period_seconds = 120
+
+  # Auto-roll-back a bad rollout instead of leaving the service stuck on
+  # a crash-looping revision. ECS watches the new deployment's health; if
+  # the new tasks never go healthy it reverts to the last-good task def
+  # and marks the deployment FAILED. deploy.yml asserts the post-deploy
+  # rolloutState so a silent rollback still turns the CI job red (a
+  # rolled-back deploy reaching "stable" would otherwise look green).
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
   network_configuration {
     subnets          = var.private_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
