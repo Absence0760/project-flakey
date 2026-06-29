@@ -14,11 +14,11 @@
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.105.0",
-    "@aws-sdk/client-s3": "^3.1073.0",
-    "@aws-sdk/s3-request-presigner": "^3.1073.0",
+    "@anthropic-ai/sdk": "^0.106.0",
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "@node-saml/node-saml": "^5.1.0",
-    "@smithy/node-http-handler": "^4.8.1",
+    "@smithy/node-http-handler": "^4.8.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^5.2.1",
