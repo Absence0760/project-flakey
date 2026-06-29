@@ -23,7 +23,7 @@
 		"@sveltejs/adapter-static": "3.0.10",
 		"@sveltejs/kit": "2.66.0",
 		"@sveltejs/vite-plugin-svelte": "7.1.2",
-		"@types/node": "25.9.2",
+		"@types/node": "26.0.1",
 		"@vitest/ui": "4.1.9",
 		"mdsvex": "^0.12.7",
 		"normalize.css": "8.0.1",
