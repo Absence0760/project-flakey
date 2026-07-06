@@ -259,7 +259,7 @@ jobs:
       # We chose pnpm above (frontend is the heavier install) — cache
       # ~/.npm separately so the backend `npm ci` below hits warm too.
       - name: Cache npm (backend)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('backend/package-lock.json') }}
@@ -290,7 +290,7 @@ jobs:
       # Playwright browsers. Cached by version so repeated runs don't
       # re-download Chromium.
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -431,7 +431,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - name: Cache npm (backend)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('backend/package-lock.json') }}
@@ -451,7 +451,7 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile --ignore-workspace
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
