@@ -27,7 +27,7 @@
 		"@vitest/ui": "4.1.9",
 		"mdsvex": "^0.12.7",
 		"normalize.css": "8.0.1",
-		"svelte": "5.56.3",
+		"svelte": "5.56.4",
 		"svelte-check": "4.6.0",
 		"typescript": "6.0.3",
 		"unplugin-icons": "23.0.1",
