@@ -1,0 +1,18 @@
+name: CI gate (docs)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - ".claude/**"
+      - "LICENSE"
+permissions:
+  contents: read
+jobs:
+  ci-gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only change — functional CI skipped, gate passes
+        run: echo "Docs-only PR; functional workflows skipped by paths-ignore. CI gate passes trivially."
