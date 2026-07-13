@@ -14,16 +14,16 @@
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
-    "@aws-sdk/client-s3": "^3.1079.0",
-    "@aws-sdk/s3-request-presigner": "^3.1079.0",
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@aws-sdk/client-s3": "^3.1085.0",
+    "@aws-sdk/s3-request-presigner": "^3.1085.0",
     "@node-saml/node-saml": "^5.1.0",
     "@smithy/node-http-handler": "^4.8.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
-    "fast-xml-parser": "^5.9.3",
+    "fast-xml-parser": "^5.10.0",
     "helmet": "^8.3.0",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.3",
@@ -40,7 +40,7 @@
     "@types/multer": "^2.2.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.11.10",
-    "tsx": "^4.23.0",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.3"
   },
   "overrides": {
