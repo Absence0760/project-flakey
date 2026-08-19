@@ -70,6 +70,15 @@ jobs:
     # exfiltrate.
     steps:
       # codeql[actions/untrusted-checkout/medium]
+      #
+      # NOTE: that marker does NOT suppress anything on its own — CodeQL has
+      # no comment-suppression for the Actions extractor, so this alert (and
+      # the equivalent one on the push job's fetch) has to be dismissed
+      # through the code-scanning API or UI in each repo. The marker is here
+      # so the reasoning travels with the code, and so
+      # `advanced-security/dismiss-alerts` could automate the dismissal later
+      # if this becomes tedious.
+      #
       # Checking out the PR head is the whole point of this job, and it is
       # safe here for reasons CodeQL's heuristic cannot see: the job runs on
       # `pull_request` (not `pull_request_target`), inherits the workflow's
