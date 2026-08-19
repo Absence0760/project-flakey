@@ -1,0 +1,146 @@
+# STARTER — rename to deploy.yml and customise per stack before use.
+#
+# Three-gate deploy pattern. Production deploys must clear all three gates
+# before they reach AWS:
+#
+#   1. Tag filter           — only deploy from non-prerelease `<prefix>-v*` tags
+#                             (so feature tags or python-tool tags don't fire
+#                             this workflow). Implemented as a `guard` job
+#                             with a tiny bash check.
+#   2. Concurrency group    — `deploy-production` with `cancel-in-progress:
+#                             false`. Stops two concurrent releases from
+#                             racing each other to the same Lambda.
+#   3. `environment:        — required reviewer + branch restriction +
+#       production`           OIDC `:sub` claim alignment. Set up in
+#                             GitHub Settings -> Environments. EVERY deploy job
+#                             must set `environment: production`; an environment
+#                             with no required reviewer defeats the gate. The
+#                             templates estate scripts provision it:
+#                             `new-project-account.sh` for new in-org projects,
+#                             `backfill-prod-environment.sh` for existing repos.
+#
+# OIDC: every deploy job assumes the IAM role created by the bootstrap.
+# No long-lived AWS keys ever land in the repo. `AWS_DEPLOY_ROLE_ARN` is a
+# GitHub *secret* (because it embeds the account ID); `AWS_REGION` and
+# resource names are GitHub *variables* (non-sensitive). Both populated by
+# `templates/scripts/export-tf-vars.sh` after `terraform apply`.
+
+name: Deploy (release-gated)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (must start with <prefix>-v).'
+        required: true
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  # CUSTOMISE: tag prefix that gates this workflow (e.g. `web` -> `web-v0.2.0`).
+  TAG_PREFIX: web
+
+jobs:
+  # Gate 1: tag filter. Cheap pre-check that runs before any environment
+  # gate, so a wrong tag doesn't burn a required-reviewer approval.
+  guard:
+    name: Tag filter
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+    steps:
+      - id: check
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          tag="$RELEASE_TAG"
+          if [[ -z "$tag" ]]; then
+            echo "No tag — refusing to deploy." >&2
+            echo "should_deploy=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if [[ "$tag" != ${TAG_PREFIX}-v* ]]; then
+            echo "Tag '$tag' isn't a deploy tag (expected '${TAG_PREFIX}-v*')." >&2
+            echo "should_deploy=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            echo "Prerelease '$tag' — skipping production deploy." >&2
+            echo "should_deploy=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "Deploying '$tag'."
+          echo "should_deploy=true" >>"$GITHUB_OUTPUT"
+
+  # Gate 3 (the heavy one): `environment: production` triggers the required
+  # reviewer prompt in GitHub and pins the OIDC `:sub` claim that the deploy
+  # role's trust policy expects. Without this, the deploy role refuses to
+  # assume even with a valid OIDC token.
+  deploy-backend:
+    name: Deploy backend
+    needs: guard
+    if: needs.guard.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      # CUSTOMISE: build steps per stack (python build, go compile, jar, etc.)
+
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: deploy-backend-${{ env.RELEASE_TAG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # CUSTOMISE: AWS update step per stack.
+      # Example for Lambda:
+      #   - name: Update Lambda code
+      #     run: |
+      #       aws lambda update-function-code \
+      #         --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+      #         --zip-file fileb://backend/lambda.zip --publish
+      #       aws lambda wait function-updated \
+      #         --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}"
+
+  # Frontend deploys after the backend so the static site never points at
+  # a stale API contract during the rollout window.
+  deploy-frontend:
+    name: Deploy frontend
+    needs: [guard, deploy-backend]
+    if: needs.guard.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      # CUSTOMISE: frontend build (pnpm build, vite build, hugo, zola, etc.)
+
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: deploy-frontend-${{ env.RELEASE_TAG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # CUSTOMISE: sync + invalidate per stack.
+      # Example for S3 + CloudFront:
+      #   - run: |
+      #       aws s3 sync build/ "s3://${{ vars.FRONTEND_BUCKET }}/" --delete
+      #       inv=$(aws cloudfront create-invalidation \
+      #         --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+      #         --paths '/*' --query 'Invalidation.Id' --output text)
+      #       aws cloudfront wait invalidation-completed \
+      #         --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+      #         --id "$inv"
