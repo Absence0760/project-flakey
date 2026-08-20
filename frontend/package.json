@@ -18,7 +18,7 @@
 		"test:e2e:verify": "playwright test --config=tests-e2e/verify-required/playwright.verify.config.ts"
 	},
 	"devDependencies": {
-		"@iconify-json/material-symbols": "1.2.88",
+		"@iconify-json/material-symbols": "1.2.89",
 		"@playwright/test": "1.62.1",
 		"@sveltejs/adapter-static": "3.0.10",
 		"@sveltejs/kit": "2.70.2",
