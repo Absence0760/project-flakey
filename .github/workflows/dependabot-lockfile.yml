@@ -1,7 +1,7 @@
 name: Dependabot lockfile sync
 
 # Dependabot updates <workspace>/package.json but never touches the root
-# pnpm-lock.yaml, which breaks ci.yml's `pnpm install --frozen-lockfile`. This
+# pnpm-lock.yaml, which breaks tests.yml's `pnpm install --frozen-lockfile`. This
 # workflow regenerates the lockfile on every Dependabot PR and commits the
 # result back, which retriggers CI and lets the PR go green without manual
 # intervention.
@@ -21,14 +21,14 @@ name: Dependabot lockfile sync
 # read secrets from the regular Actions store — only from the separate
 # Dependabot secrets store. A PAT stashed under Settings → Actions
 # secrets is invisible to this workflow when Dependabot opens a PR;
-# the gate step below sees an empty value and skips, ci.yml then
+# the gate step below sees an empty value and skips, tests.yml then
 # fails --frozen-lockfile, and the PR has to be landed manually.
 # `gh api repos/:owner/:repo/dependabot/secrets` lists the right store.
 #
 # Why a PAT and not GITHUB_TOKEN: pushes made with GITHUB_TOKEN do not retrigger
 # workflows — GitHub blocks that path to prevent infinite loops. A PAT push is
 # attributed to the token owner and does retrigger `pull_request` events, so
-# ci.yml re-runs on the synced branch.
+# tests.yml re-runs on the synced branch.
 #
 # ---- Two-job split (closes CodeQL actions/untrusted-checkout) ----
 #
@@ -40,7 +40,7 @@ name: Dependabot lockfile sync
 #
 #   - regenerate: NO secrets. Runs `pnpm install --lockfile-only` against the
 #     PR-head code. The worst a malicious bump could do here is produce a
-#     bogus pnpm-lock.yaml — which would then fail ci.yml's frozen-lockfile
+#     bogus pnpm-lock.yaml — which would then fail tests.yml's frozen-lockfile
 #     check on the next run, so a human notices.
 #
 #   - push: NO PR-head code in the working tree. Has the PAT. Downloads the
@@ -69,6 +69,23 @@ jobs:
     # install somehow executed attacker code, there's nothing here to
     # exfiltrate.
     steps:
+      # codeql[actions/untrusted-checkout/medium]
+      #
+      # NOTE: that marker does NOT suppress anything on its own — CodeQL has
+      # no comment-suppression for the Actions extractor, so this alert (and
+      # the equivalent one on the push job's fetch) has to be dismissed
+      # through the code-scanning API or UI. The marker is here to mark the
+      # reviewed spot, not to silence the scanner.
+      #
+      # Checking out the PR head is the whole point of this job, and it is
+      # safe here for reasons CodeQL's heuristic cannot see: the job runs on
+      # `pull_request` (not `pull_request_target`), inherits the workflow's
+      # `contents: read`, is passed no secret at all, discards the token with
+      # `persist-credentials: false`, and the only thing it runs against the
+      # tree is `pnpm install --lockfile-only --ignore-scripts` — which
+      # executes no lifecycle scripts. The credential-bearing half of this
+      # workflow is the separate `push` job below, and that one never writes
+      # the PR-head tree to disk.
       - name: Checkout PR branch (no credentials)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -186,31 +203,53 @@ jobs:
             exit 1
           fi
 
-          # Fresh clone (no PR-head code in the working tree). We
-          # clone the BASE branch (main), copy in the lockfile artifact,
-          # then push as a single commit onto the PR-head ref. No code
-          # from the PR-head ever executes in this step.
+          # The PR-head tree is NEVER written to the working directory in
+          # this job. It holds the PAT, so materialising attacker-controlled
+          # files beside the credential in .git/config is a window worth not
+          # having — even though nothing here executes them. The commit is
+          # assembled with plumbing instead: read the fetched tree into the
+          # index, swap the two lockfile blobs, write it back.
           mkdir push-workspace && cd push-workspace
           git init -q
-          git config user.name "dependabot[bot]"
-          git config user.email "49699333+dependabot[bot]@users.noreply.github.com"
           git remote add origin "https://x-access-token:${DEPENDABOT_LOCKFILE_PAT}@github.com/${REPO}.git"
           git fetch origin "$PR_HEAD_REF" --depth 1
-          git checkout "$PR_HEAD_SHA"
 
-          # Replace each lockfile with its regenerated version. The
-          # artifact preserves relative paths, so the source files sit
-          # at $GITHUB_WORKSPACE/pnpm-lock.yaml and
-          # $GITHUB_WORKSPACE/frontend/pnpm-lock.yaml (i.e. ../ from
-          # push-workspace/). The frontend/ directory already exists
-          # in the PR-head checkout, so no mkdir is needed.
-          cp ../pnpm-lock.yaml ./pnpm-lock.yaml
-          cp ../frontend/pnpm-lock.yaml ./frontend/pnpm-lock.yaml
+          # Refuse to push if the head moved while we were regenerating —
+          # otherwise this force-lands a lockfile derived from a manifest
+          # that is no longer what the branch says.
+          fetched=$(git rev-parse FETCH_HEAD)
+          if [ "$fetched" != "$PR_HEAD_SHA" ]; then
+            echo "::error::PR head moved during the run ($fetched != $PR_HEAD_SHA) — refusing to push a stale lockfile." >&2
+            exit 1
+          fi
 
-          if git diff --quiet pnpm-lock.yaml frontend/pnpm-lock.yaml; then
+          # Both lockfiles: the root one (packages/* workspace) and
+          # frontend/pnpm-lock.yaml, which is a standalone pnpm project
+          # outside that workspace and so has its own lockfile. The
+          # artifact preserved relative paths, so the regenerated files sit
+          # at ../pnpm-lock.yaml and ../frontend/pnpm-lock.yaml.
+          git read-tree "$PR_HEAD_SHA"
+          changed=false
+          for lock in pnpm-lock.yaml frontend/pnpm-lock.yaml; do
+            existing=$(git rev-parse "${PR_HEAD_SHA}:${lock}" 2>/dev/null || echo none)
+            blob=$(git hash-object -w "../${lock}")
+            if [ "$existing" != "$blob" ]; then
+              git update-index --add --cacheinfo "100644,${blob},${lock}"
+              changed=true
+            fi
+          done
+
+          if [ "$changed" = false ]; then
             echo "Lockfiles already in sync after fetch — nothing to commit."
             exit 0
           fi
-          git add pnpm-lock.yaml frontend/pnpm-lock.yaml
-          git commit -m "chore: sync pnpm lockfiles"
-          git push origin "HEAD:${PR_HEAD_REF}"
+
+          tree=$(git write-tree)
+          commit=$(
+            GIT_AUTHOR_NAME="dependabot[bot]" \
+            GIT_AUTHOR_EMAIL="49699333+dependabot[bot]@users.noreply.github.com" \
+            GIT_COMMITTER_NAME="dependabot[bot]" \
+            GIT_COMMITTER_EMAIL="49699333+dependabot[bot]@users.noreply.github.com" \
+            git commit-tree "$tree" -p "$PR_HEAD_SHA" -m "chore: sync pnpm lockfiles"
+          )
+          git push origin "${commit}:refs/heads/${PR_HEAD_REF}"
