@@ -53,7 +53,7 @@ jobs:
   # the specs (matrix of 14 but `--shard=N/4` → ~71% of tests never
   # run, yet the job goes green). Fail fast and loud instead.
   workflow-consistency:
-    name: Workflow consistency (e2e shards)
+    name: Workflow consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,6 +76,61 @@ jobs:
             exit 1
           fi
           echo "OK: $count shards, --shard=N/${denoms[0]}"
+
+      - name: Assert the dependabot lockfile sync cannot silently no-op
+        # A sync workflow that reports success while disabled is
+        # indistinguishable from one that works — that is exactly how an
+        # inert DEPENDABOT_LOCKFILE_PAT hid for three weeks while #118 sat
+        # red. These assertions pin the fail-loud shape so it cannot be
+        # quietly reverted to a skip.
+        run: |
+          python3 - <<'EOF'
+          import sys, yaml
+
+          f = ".github/workflows/dependabot-lockfile.yml"
+          wf = yaml.safe_load(open(f))
+          jobs = wf["jobs"]
+          errs = []
+
+          regen, push = jobs.get("regenerate", {}), jobs.get("push", {})
+
+          # The push job can only tell "nothing to sync" from "cannot sync"
+          # if the regenerate job reports which one it is.
+          if "changed" not in (regen.get("outputs") or {}):
+              errs.append("regenerate job must expose a `changed` output")
+
+          steps = push.get("steps", [])
+          gate = next((s for s in steps if s.get("id") == "gate"), None)
+          if gate is None:
+              errs.append("push job must have a step with id: gate")
+          else:
+              run = gate.get("run", "")
+              if "::error" not in run or "exit 1" not in run:
+                  errs.append(
+                      "the gate step must FAIL (::error + exit 1) when a sync is "
+                      "needed but the PAT is missing — not set skip and go green"
+                  )
+              wired = "needs.regenerate.outputs.changed" in (
+                  run + " " + " ".join(str(v) for v in (gate.get("env") or {}).values())
+              )
+              if not wired:
+                  errs.append("the gate step must read needs.regenerate.outputs.changed")
+
+          # Swallowing a step failure re-creates the same defect one layer down.
+          for s in steps:
+              if s.get("continue-on-error") in (True, "true"):
+                  errs.append(
+                      f"push step {s.get('name') or s.get('id')!r} sets "
+                      "continue-on-error — a swallowed failure means a green job "
+                      "that pushed nothing"
+                  )
+
+          for e in errs:
+              print(f"::error file={f}::{e}")
+          if errs:
+              sys.exit(1)
+          print("OK: lockfile sync fails loudly when it cannot do its job")
+          EOF
 
   backend:
     name: Backend tests (node --test)
