@@ -15,15 +15,22 @@ name: Dependabot lockfile sync
 #      secret. NOT the Actions tab.
 #      CLI: `gh secret set DEPENDABOT_LOCKFILE_PAT --app dependabot`
 #
-# Why the Dependabot store (gotcha that bit us once already): GitHub
+# Why the Dependabot store (gotcha that has bitten twice): GitHub
 # treats Dependabot-authored PRs as forks for permission purposes.
 # Workflows triggered by them get a read-only GITHUB_TOKEN and CANNOT
 # read secrets from the regular Actions store — only from the separate
 # Dependabot secrets store. A PAT stashed under Settings → Actions
-# secrets is invisible to this workflow when Dependabot opens a PR;
-# the gate step below sees an empty value and skips, tests.yml then
-# fails --frozen-lockfile, and the PR has to be landed manually.
-# `gh api repos/:owner/:repo/dependabot/secrets` lists the right store.
+# secrets is invisible to this workflow when Dependabot opens a PR.
+# `gh api repos/:owner/:repo/dependabot/secrets` lists the right store;
+# an empty list means this workflow is inert no matter how green it looks.
+#
+# The second time it bit, nothing said so: the gate step below simply set
+# skip=true and the job went green, so an entirely disabled sync was
+# indistinguishable from a working one. PR #118 sat red on
+# ERR_PNPM_OUTDATED_LOCKFILE from 2026-07-27 to 2026-08-20 with a green
+# lockfile-sync run against it the whole time. The gate now fails the job
+# when a sync is needed and the PAT is missing, and only warns when there
+# was nothing to sync anyway.
 #
 # Why a PAT and not GITHUB_TOKEN: pushes made with GITHUB_TOKEN do not retrigger
 # workflows — GitHub blocks that path to prevent infinite loops. A PAT push is
@@ -64,6 +71,10 @@ jobs:
     # Only run on Dependabot-authored PRs. github.actor is the bot username.
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    outputs:
+      # Whether a sync is actually needed. The push job uses this to tell
+      # "nothing to do" apart from "could not do it" — see its gate step.
+      changed: ${{ steps.diff.outputs.changed }}
     # No `permissions:` override — this job inherits the workflow-level
     # `contents: read` AND has no access to any secret. Even if pnpm
     # install somehow executed attacker code, there's nothing here to
@@ -159,33 +170,52 @@ jobs:
       # artifact download API.
       contents: read
     steps:
-      - name: Skip if PAT is unset
+      # A missing PAT used to set skip=true and let this job go green. That
+      # made "the sync is disabled" indistinguishable from "the sync ran",
+      # and it hid a completely inert workflow for weeks: #118 sat red on
+      # ERR_PNPM_OUTDATED_LOCKFILE from 2026-07-27 while every run of this
+      # workflow reported success. The gate now separates the two cases —
+      # nothing to do is fine, unable to do it is not.
+      - name: Gate on the PAT
         id: gate
         env:
           PAT: ${{ secrets.DEPENDABOT_LOCKFILE_PAT }}
+          CHANGED: ${{ needs.regenerate.outputs.changed }}
         run: |
-          if [ -z "$PAT" ]; then
-            echo "DEPENDABOT_LOCKFILE_PAT is not configured — skipping lockfile sync." >&2
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ -n "$PAT" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          # No PAT. Whether that is a problem depends entirely on whether
+          # this PR actually needs its lockfiles synced.
+          if [ "$CHANGED" = "true" ]; then
+            echo "::error title=Lockfile sync is disabled::This PR needs a lockfile sync but DEPENDABOT_LOCKFILE_PAT is not configured, so it cannot be pushed. The PR will fail its frozen-lockfile install until someone regenerates the lockfiles by hand. Fix: create a fine-grained PAT scoped to this repo with Contents: Write, then 'gh secret set DEPENDABOT_LOCKFILE_PAT --app dependabot'. It must live in the Dependabot secrets store, NOT the Actions store — Dependabot-authored PRs cannot read Actions secrets."
+            exit 1
+          fi
+
+          echo "::warning title=Lockfile sync is disabled::DEPENDABOT_LOCKFILE_PAT is not configured. This PR happens not to need a lockfile sync, so nothing is broken right now, but the automation is inert and the next bump that does need one will fail."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      # Gated on the regenerate job's own verdict rather than on whether the
+      # download happened to work. This step used to carry
+      # `continue-on-error: true` with the next step keyed off
+      # `steps.download.outcome == 'success'`, which was the same silent-skip
+      # defect as the PAT gate above: an artifact that genuinely failed to
+      # download — expired, throttled, API error — skipped the push and left
+      # the job green. `changed == 'true'` means the artifact was uploaded, so
+      # a failure here is a real failure and should stop the job.
       - name: Download lockfile artifact
-        if: steps.gate.outputs.skip == 'false'
-        # actions/download-artifact returns a non-fatal error when the
-        # artifact doesn't exist — that's the "no change" path from
-        # the regenerate job. The artifact preserves relative paths,
-        # so this drops pnpm-lock.yaml at CWD root and
-        # frontend/pnpm-lock.yaml under a frontend/ subdir.
+        if: steps.gate.outputs.skip == 'false' && needs.regenerate.outputs.changed == 'true'
+        # The artifact preserves relative paths, so this drops pnpm-lock.yaml
+        # at CWD root and frontend/pnpm-lock.yaml under a frontend/ subdir.
         id: download
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
         with:
           name: pnpm-locks
 
       - name: Validate + push lockfile
-        if: steps.gate.outputs.skip == 'false' && steps.download.outcome == 'success'
+        if: steps.gate.outputs.skip == 'false' && needs.regenerate.outputs.changed == 'true'
         env:
           DEPENDABOT_LOCKFILE_PAT: ${{ secrets.DEPENDABOT_LOCKFILE_PAT }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
