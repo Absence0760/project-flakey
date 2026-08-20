@@ -4,6 +4,7 @@ Project-curated extensions Claude Code loads when invoked from this repo:
 
 - **Agents** (`.claude/agents/`) — specialised personas with their own tool allowlists. You don't invoke these directly; the slash commands delegate to them.
 - **Slash commands** (`.claude/commands/`) — typed at the prompt as `/audit/<name>` (or `/<name>` at the top level). Each is a self-contained task that loads the file body as instructions.
+- **Hooks** (`.claude/hooks/`) — scripts the harness runs automatically, wired up in `.claude/settings.json`. See [Hooks](#hooks) below.
 
 This folder ships with:
 
@@ -39,9 +40,21 @@ Like `/audit-and-fix`, these are proactive (no diff needed) and **land scoped co
 | **`/bug-hunt [scope]`** | Correctness bugs across the codebase — inconsistent logic across sibling paths, idempotency/at-least-once, structural-recursion gaps, URL/state asymmetry, edge cases, gate signals that fail open. Multi-round; **proves each with a runnable probe** before believing it, then sweeps sibling paths sharing the shape. | Root-cause fix + regression test (fails on old code) per bug, scoped commits | Single named area → `/audit-and-fix`; read-only security/invariant sweep → `/audit/*` |
 | **`/ux-hunt [scope]`** | Interaction defects in the SvelteKit app — dead-ends, broken back/forward + URL round-trip, state-coercion no-ops, missing/wrong empty·loading·error·stale states, filter/count inconsistency, keyboard traps. Fixes the **objective** defects; reports the judgment calls. | Fix + e2e for objective bugs; write-up for subjective ones | Visual layout/archetype redesign → `/polish-ui`; role-POV read-only audit → `/persona`; a11y conformance depth → `/audit/accessibility` |
 | **`/perf-hunt [scope]`** | Performance problems that bite at realistic scale — N+1 queries, missing/unused indexes, O(n²) loops, per-event recompute storms, oversized payloads, render thrash. **Measures before and after**; reverts a change that doesn't move a number. | Root-cause fix (index migration / batched query / hoist / paginate / memoize) + before→after numbers + a structural guard | Read-only index/query catalog → `/audit/db-performance` |
+| **`/a11y-hunt [surface]`** | Accessibility violations in the SvelteKit app that fail a **nameable, measurable** WCAG 2.2 AA criterion — text + non-text contrast, target size, reflow at 200% / 320px, missing name/role/value, focus + keyboard traps. **Computes every ratio and size** before touching code, in both themes, and fixes at the shared token / component. | Root-cause fix + a guard (Playwright e2e or source-scan) in the same commit, with before→after numbers | Read-only conformance report → `/audit/accessibility`; assistive-tech walkthrough → `persona-accessibility-user`; subjective layout calls → `/ux-hunt` |
 | **`/coverage-hunt [scope]`** | Behaviour that *works but isn't tested* — branches, error paths, documented invariants, edges. Proactively hardens an area; the deliverable **is** the coverage gap (no bug required, but fix one if found). | Tests at the right layer (unit/smoke/e2e) that can actually fail | Diff-scoped test review before commit → `test-gap-checker` (via `/check`) |
 
-Scope is optional for all four — omit it and the command ranks high-yield targets itself (logic-dense × under-covered × hot-path). Name a path, route, feature, or layer to focus it.
+Scope is optional for all five — omit it and the command ranks high-yield targets itself (logic-dense × under-covered × hot-path). Name a path, route, feature, or layer to focus it.
+
+## Workflow commands
+
+Neither a diff gate nor a hunt — these two drive a piece of work end to end.
+
+| Command | Use when… | Deliverable |
+|---|---|---|
+| **`/fix-ci <run URL or ID>`** | A GitHub Actions job went red and you want the real cause, not a green re-run. Pulls the failing job + step, classifies it honestly (genuine defect / test bug / infra flake), reproduces locally with the **same** command CI ran, fixes at the root, and lands coverage so it can't return silently. Band-aids — timeout bumps, added retries, `.skip`, loosened assertions — are explicitly out of bounds. | Root-cause fix + coverage in one scoped commit, plus the local repro evidence |
+| **`/improve-round [area]`** | "Do another round" — you want one genuinely useful improvement to an area, built to the project's bar. Picks (or takes) a target, builds it in path-scoped per-piece commits with tests and docs, then audits its own work with `code-reviewer` and fixes every finding. Hard cap at 2 review cycles. | Per-piece commits (code + test + docs together) and a resolved findings list |
+
+Both commit scoped and **never push**. Neither is for migrations — use `/safe-migration`.
 
 ## Audit commands
 
@@ -158,6 +171,15 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 
 ---
 
+## Hooks
+
+Wired in [`.claude/settings.json`](settings.json). Unlike commands and agents, these run automatically — you don't invoke them.
+
+| Hook | Fires on | What it does |
+|---|---|---|
+| [`git-scope-guard.py`](hooks/git-scope-guard.py) | `PreToolUse` (Bash) | Blocks whole-tree git operations — bare `git commit`, `git add -A/.`, `git commit -a`. Concurrent sessions share one checkout, so an unscoped commit sweeps up another session's staged work (this has happened). Denials name the scoped alternative to use instead. Covered by [`git-scope-guard.test.py`](hooks/git-scope-guard.test.py). |
+| [`unmerged-worktree-check.sh`](hooks/unmerged-worktree-check.sh) | `SessionStart` | Lists local branches holding commits not yet on `main`, with the worktree path where one exists, so work committed in a per-session worktree (`claude --worktree`) isn't silently stranded. Silent when everything is on `main`; fail-open — any error exits 0 with no output, so it can never wedge startup. Because `main` is sealed (PR + green `CI gate`, no direct pushes), it points at rebase-and-open-a-PR rather than a local merge. |
+
 ## Conventions
 
 - **Read-only by default.** The deliverable is a findings report, not a diff. Don't apply fixes without explicit confirmation.
@@ -189,4 +211,7 @@ You don't invoke this agent directly; the audit commands do. If you want to writ
 | Periodic broad sweep over the whole repo against one trust boundary | `/audit/<name>` |
 | Proactively harden one corner of the app — audit it, fix real bugs, ship tests | `/audit-and-fix [area]` |
 | Pre-release confidence pass | `/audit/all` |
+| A CI job is red and you need the actual root cause | `/fix-ci <run URL>` |
+| "Do another round" on some area — one real improvement, self-reviewed | `/improve-round [area]` |
+| A measurable WCAG failure to fix and guard (not just report) | `/a11y-hunt [surface]` |
 | Typo / comment / single-line dep bump | none — just commit |

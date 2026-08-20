@@ -40,7 +40,7 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 | Command | What it checks |
 |---|---|
-| [/audit/accessibility](accessibility.md) | WCAG 2.2 AA + EU EAA + ADA pass across web / mobile / watch surfaces (delegates to `compliance-auditor`) |
+| [/audit/accessibility](accessibility.md) | WCAG 2.2 AA + EU EAA + ADA pass on the SvelteKit app (delegates to `compliance-auditor`); `/a11y-hunt` is its fix side |
 | [/audit/pii-in-logs](pii-in-logs.md) | SOC 2 / GovRAMP — PII or secrets leaking into log lines or HTTP error responses across the backend's logging + error-handling paths (delegates to `compliance-auditor`) |
 
 ### Health

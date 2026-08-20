@@ -74,6 +74,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/unmerged-worktree-check.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking for unmerged branches"
+          }
+        ]
+      }
     ]
   }
 }
