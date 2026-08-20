@@ -52,8 +52,8 @@ jobs:
   # would leave them out of sync and silently run only a fraction of
   # the specs (matrix of 14 but `--shard=N/4` → ~71% of tests never
   # run, yet the job goes green). Fail fast and loud instead.
-  workflow-consistency:
-    name: Workflow consistency
+  consistency:
+    name: Repo consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -130,6 +130,36 @@ jobs:
           if errs:
               sys.exit(1)
           print("OK: lockfile sync fails loudly when it cannot do its job")
+          EOF
+
+      - name: Assert no pnpm workspace member carries its own lockfile
+        # The root pnpm-lock.yaml is authoritative for every packages/*
+        # member, and backend/ is npm (package-lock.json). A second lockfile
+        # inside either is dead weight that goes stale silently: three of
+        # them survived from an April refactor until 2026-08-20, long enough
+        # to make the real lockfile inventory unreadable. frontend/ and
+        # examples/* are deliberately standalone and keep their own.
+        run: |
+          python3 - <<'EOF'
+          import glob, os, sys, yaml
+
+          ws = yaml.safe_load(open("pnpm-workspace.yaml")) or {}
+          members = [d for g in ws.get("packages", []) for d in glob.glob(g) if os.path.isdir(d)]
+
+          errs = []
+          for d in sorted(members):
+              lock = os.path.join(d, "pnpm-lock.yaml")
+              if os.path.exists(lock):
+                  errs.append(f"{lock} — {d} is a pnpm workspace member; the root pnpm-lock.yaml already owns it")
+
+          if os.path.exists("backend/pnpm-lock.yaml"):
+              errs.append("backend/pnpm-lock.yaml — backend/ is npm (see CLAUDE.md); package-lock.json is authoritative")
+
+          for e in errs:
+              print(f"::error::{e}")
+          if errs:
+              sys.exit(1)
+          print(f"OK: {len(members)} workspace members, none carrying a stray lockfile")
           EOF
 
   backend:
@@ -576,7 +606,7 @@ jobs:
     name: CI gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [workflow-consistency, backend, packages, frontend-check, e2e, e2e-verify-required]
+    needs: [consistency, backend, packages, frontend-check, e2e, e2e-verify-required]
     steps:
       - name: Require every upstream job to have passed
         env:
