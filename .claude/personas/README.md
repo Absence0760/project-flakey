@@ -8,7 +8,7 @@ gaps that a generic code review never surfaces because it has no human stake.
 
 Personas complement, not replace, the other reviewers:
 
-- `code-reviewer` / `repo-security-auditor` ask *"is this code correct and safe?"*
+- `code-reviewer` / `flakey-auditor` ask *"is this code correct and safe?"*
 - A persona asks *"does this app actually work for **me**, and would it embarrass
   me / lock me out / leak my data / let me cheat it?"*
 
