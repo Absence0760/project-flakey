@@ -28,7 +28,7 @@ Deep-audit a single area of project-flakey, fix the real issues you find, and sh
 
 ### 2. Audit for real issues
 
-- Use a recon pass to **map the area before judging it**: the data model / call sites / invariants it must hold. For anything non-trivial, spawn an `Explore` agent (or the `auditor` agent for a strict written review) to map callers, schema, and the invariants — don't guess at a hot path's contract.
+- Use a recon pass to **map the area before judging it**: the data model / call sites / invariants it must hold. For anything non-trivial, spawn an `Explore` agent (or the `flakey-auditor` agent for a strict written review) to map callers, schema, and the invariants — don't guess at a hot path's contract.
 - Hunt for **correctness** bugs first (wrong results, broken invariants, race conditions, inconsistent logic across paths, edge cases: null/empty/overflow/unicode/concurrent), then security/tenancy, then robustness. Stylistic nits are out of scope unless they hide a bug.
 - For each candidate finding, **confirm it's real** by tracing the code — read the schema/migration/caller, don't assert from a single file. Discard plausible-but-wrong findings.
 
