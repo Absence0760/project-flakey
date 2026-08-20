@@ -1,4 +1,28 @@
+# Companion to the `CI gate` jobs in tests.yml and sso-e2e.yml. `CI gate` is
+# the single required status check on `main`, but tests.yml is skipped
+# wholesale on docs-only PRs (its `paths-ignore`), which would leave the
+# required context pending forever and block those PRs from merging. This
+# workflow triggers on exactly the inverse path set and reports an
+# identically named `CI gate` context as passing, so the required check is
+# always satisfied.
+#
+# A PR that touches both code and docs triggers both workflows; both emit a
+# `CI gate` check and GitHub requires all of them green — the real gate in
+# tests.yml still does the gating, this one passes trivially.
+#
+# Keep the job name `CI gate` in lock-step with the ci-gate job in tests.yml,
+# and keep the paths here as the exact inverse of tests.yml's `paths-ignore`
+# — including `LICENSE`. Dropping an entry here while tests.yml still ignores
+# it means a PR touching only that path triggers neither workflow, so the
+# required context is never reported and the PR can never merge.
+#
+# `branches: [main]` is deliberate and must stay in lock-step with the same
+# filter on tests.yml and sso-e2e.yml. Removing it here alone would make this
+# the only `CI gate` emitter on a PR based off a non-main branch, reporting a
+# trivially green required context with no functional CI behind it. If the
+# base filter is ever dropped, drop it from all three together.
 name: CI gate (docs)
+
 on:
   pull_request:
     branches: [main]
@@ -7,8 +31,10 @@ on:
       - "docs/**"
       - ".claude/**"
       - "LICENSE"
+
 permissions:
   contents: read
+
 jobs:
   ci-gate:
     name: CI gate
