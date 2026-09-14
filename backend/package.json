@@ -28,7 +28,7 @@
     "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.3",
     "pg": "^8.23.0",
     "undici": "^8.10.2"
   },
