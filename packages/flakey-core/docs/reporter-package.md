@@ -317,6 +317,8 @@ export class ApiClient {
 
 Each reporter package only has a peer dependency on its own framework.
 
+The monorepo's root `.npmrc` sets `auto-install-peers=false`, so a peer is **not** installed in the dev workspace just because a package declares it. If the package's own build or tests import the framework, list it in `devDependencies` too (as `flakey-cypress-snapshots` does with `cypress`).
+
 ---
 
 ## Why this is better than normalizing

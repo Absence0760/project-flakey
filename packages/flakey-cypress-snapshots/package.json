@@ -58,6 +58,7 @@
     "@badeball/cypress-cucumber-preprocessor": ">=20.0.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.6",
     "@badeball/cypress-cucumber-preprocessor": "^27.0.0",
     "@types/node": "^26.5.1",
     "cypress": "^15.0.0",
