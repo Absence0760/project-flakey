@@ -20,14 +20,23 @@ name: gitleaks
 # AND git history, with a built-in rule set tuned for common token
 # shapes (AWS, GCP, Slack, GitHub, OpenAI, Stripe, npm, etc.).
 #
-# False positives go in `.gitleaks.toml` at the repo root (not yet
-# created — add it on first false hit rather than pre-empt).
+# Reviewed findings go in `.gitleaksignore` at the repo root, as one
+# fingerprint (<commit>:<file>:<rule>:<line>) per finding, so nothing
+# beyond that exact finding is silenced. Only add one after confirming
+# the value grants no access (revoke a real credential first); see the
+# header of that file. For a false positive still present at HEAD, an
+# inline `gitleaks:allow` comment on the line keeps push/PR scans quiet.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual full-history scan, the same one the schedule runs. Use it to
+  # confirm a .gitleaksignore change without waiting for Monday: a re-run of
+  # a failed scheduled run replays its original commit, which predates the
+  # change.
+  workflow_dispatch:
   schedule:
     # Weekly full-history sweep. The push / PR triggers above only
     # diff against the base, so a secret that landed on a forgotten
