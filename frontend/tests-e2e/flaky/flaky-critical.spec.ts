@@ -172,14 +172,20 @@ test.describe("/flaky — critical correctness", () => {
   });
 
   test("suite + sort + window survive a hard reload (URL-state round-trip)", async ({ page }) => {
-    // Pick a concrete non-default suite from the filter so the round-trip
-    // proves a real value persists (not just the default).
+    // Pick a concrete non-default suite so the round-trip proves a real
+    // value persists (not just the default). Take it from a rendered flaky
+    // row rather than the first <option>: the dropdown lists every suite
+    // with a recent run, and whether a given suite has any flaky tests is
+    // down to the seed's random pass/fail rolls. The alphabetically-first
+    // option (api-tests) has none in roughly 1 seed in 20, which left this
+    // test clicking a sort tab on a page with no flaky rows.
     const suiteSelect = page.locator(".filters select").first();
     const opts = await suiteSelect
       .locator("option")
       .evaluateAll((els) => (els as HTMLOptionElement[]).map((o) => o.value));
-    const suiteChoice = opts.find((o) => o !== "all") ?? "all";
-    expect(suiteChoice).not.toBe("all");
+    const rowSuites = await page.locator("tr.flaky-row .suite-chip").allTextContents();
+    const suiteChoice = rowSuites.map((s) => s.trim()).find((s) => s !== "" && opts.includes(s)) ?? "";
+    expect(suiteChoice, "no flaky row's suite is selectable in the suite filter").not.toBe("");
 
     await suiteSelect.selectOption(suiteChoice);
     await page.locator(".sort-bar .filter-tab", { hasText: "Failures" }).click();
@@ -211,6 +217,21 @@ test.describe("/flaky — critical correctness", () => {
     await expect(page).toHaveURL(/sort=fail_count/);
     await expect(page).toHaveURL(/window=50/);
   });
+
+  test("a suite filter that matches no flaky tests shows the filtered-empty state, not the org-wide one", async ({ page }) => {
+    // Narrowing to a suite with nothing alternating is a filter result:
+    // the page must say so and keep the sort/search toolbar, not claim
+    // the org has no flaky tests. A suite name no run carries is the
+    // deterministic way to get there — whether a seeded suite has flaky
+    // tests depends on the seed's random pass/fail rolls.
+    await page.goto("/flaky?suite=e2e-no-such-suite");
+    await expect(page.locator(READY)).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator(".empty.filtered-empty")).toBeVisible();
+    await expect(page.locator(".empty")).not.toContainText(/No flaky tests detected/i);
+    await expect(page.locator(".sort-bar")).toBeVisible();
+    await expect(page.locator("tr.flaky-row")).toHaveCount(0);
+  });
 });
 
 test.describe("/flaky — empty org", () => {
@@ -229,7 +250,7 @@ test.describe("/flaky — empty org", () => {
     await expect(empty).toBeVisible();
     await expect(empty).toContainText(/No flaky tests detected/i);
     // It's the true-empty state, not the filtered-empty one (which only
-    // appears when a search/suite narrows a non-empty set).
+    // appears while a search or suite filter is active).
     await expect(page.locator(".empty.filtered-empty")).toHaveCount(0);
 
     // No table, no summary strip, no error.
