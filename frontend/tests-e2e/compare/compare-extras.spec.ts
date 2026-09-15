@@ -89,10 +89,13 @@ test.describe("/compare — Change returns to a usable selection card", () => {
 
     // The suite dropdown must end up populated with real suites (runs
     // were lazily fetched), not just the "Select a suite..." placeholder.
+    // Wait for the picked suite's own option, not on the option count:
+    // while Change's fetch is in flight the card renders a loading line
+    // with no <select> at all, and those zero options satisfied a
+    // `not.toHaveCount(1)` wait immediately — the count then raced the
+    // fetch and read 0.
     const suiteSelect = page.locator(".select-card select").first();
-    await expect(suiteSelect.locator("option")).not.toHaveCount(1, { timeout: 5_000 });
-    const optionCount = await suiteSelect.locator("option").count();
-    expect(optionCount).toBeGreaterThan(1);
+    await expect(suiteSelect.getByRole("option", { name: suite, exact: true })).toHaveCount(1);
 
     // Stale comparison params are gone from the URL.
     const url = new URL(page.url());
