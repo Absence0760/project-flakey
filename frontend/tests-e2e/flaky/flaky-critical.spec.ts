@@ -195,6 +195,11 @@ test.describe("/flaky — critical correctness", () => {
     await expect(page.locator(READY)).toBeVisible({ timeout: 10_000 });
 
     await expect(suiteSelect).toHaveValue(suiteChoice);
+    // The list itself must be filtered to that suite, not just the
+    // dropdown: the initial load used to ignore ?suite= and render every
+    // suite's flaky tests under the rehydrated <select>.
+    const exactSuite = new RegExp(`^\\s*${suiteChoice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+    await expect(page.locator("tr.flaky-row .suite-chip").filter({ hasNotText: exactSuite })).toHaveCount(0);
     await expect(
       page.locator(".sort-bar .filter-tab", { hasText: "Failures" }),
     ).toHaveClass(/active/);

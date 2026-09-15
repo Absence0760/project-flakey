@@ -145,7 +145,7 @@
     readUrl();
     try {
       const [flakyData, runs, ai, qt] = await Promise.all([
-        fetchFlakyTests({ runs: runWindow }),
+        fetchFlakyTests(flakyQuery()),
         fetchRuns(),
         checkAIEnabled(),
         fetchQuarantinedTests(),
@@ -200,14 +200,19 @@
     },
   };
 
+  // GET /flaky filters from the current page state. Shared by onMount and
+  // reload() so a deep-linked ?suite= reaches the first fetch too — the
+  // initial load used to send only the run window, so /flaky?suite=X showed
+  // X in the dropdown over every suite's flaky tests.
+  function flakyQuery() {
+    return { suite: selectedSuite !== "all" ? selectedSuite : undefined, runs: runWindow };
+  }
+
   async function reload() {
     loading = true;
     error = null;
     try {
-      tests = await fetchFlakyTests({
-        suite: selectedSuite !== "all" ? selectedSuite : undefined,
-        runs: runWindow,
-      });
+      tests = await fetchFlakyTests(flakyQuery());
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load data";
     } finally {
