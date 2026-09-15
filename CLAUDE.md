@@ -104,6 +104,7 @@ One reference so new services don't collide. Defaults — override via env where
 
 - **Frontend + packages**: pnpm (workspace root is `packages/*`, see `pnpm-workspace.yaml`).
 - **Backend**: uses its own `npm` lockfile. Don't run pnpm inside `backend/`.
+- **Peers aren't auto-installed in the workspace.** The root `.npmrc` sets `auto-install-peers=false`. Every `@flakeytesting/*` package declares its framework (webdriverio, `@playwright/test`, cypress) as a peer the consumer brings, and auto-installing those pulled whole unused framework trees, and their audit findings (#121), into the dev workspace. A package whose own build or tests need a peer lists it in `devDependencies` as well. `pnpm-lock.yaml` records the setting, so both pnpm 9 (`tests.yml`) and pnpm 10 (`audit.yml`, `publish.yml`, the Dependabot lockfile sync) fail a frozen install if `.npmrc` and the lockfile disagree: change it only together with a regenerated lockfile.
 
 ## Gotchas
 
