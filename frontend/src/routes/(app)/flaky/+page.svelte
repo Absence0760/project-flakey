@@ -349,7 +349,12 @@
     <p class="status-text">Loading...</p>
   {:else if error}
     <p class="status-text err">{error}</p>
-  {:else if tests.length === 0}
+  {:else if tests.length === 0 && selectedSuite === "all"}
+    <!-- Genuine empty: nothing in the run window alternates. A suite
+         filter that narrows to zero is a different state — it falls
+         through to the toolbar + filtered-empty branch below, so the
+         user is told the filter excluded everything (and keeps the
+         sort/search chrome) instead of that the org has no flaky tests. -->
     <div class="empty">
       <p>No flaky tests detected.</p>
       <p class="hint">Flaky tests appear when a test passes in some runs and fails in others.</p>
@@ -424,7 +429,7 @@
     {#if sorted.length === 0}
       <div class="empty filtered-empty">
         <p>No flaky tests match the current filter.</p>
-        <p class="hint">Try clearing the search or widening the run window.</p>
+        <p class="hint">Try clearing the search, switching suites, or widening the run window.</p>
       </div>
     {:else}
     <div class="flaky-heatmap">
