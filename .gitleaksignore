@@ -1,0 +1,50 @@
+# gitleaks ignore list: one fingerprint per reviewed finding, in the form
+# <commit>:<file>:<rule>:<line>. A fingerprint pins exactly one historical
+# finding, so a new secret in the same file, or the same value re-added in a
+# later commit, still fails the scan.
+#
+# Before adding an entry, confirm the value grants access to nothing. A real
+# credential gets revoked first, and its entry says so. For a false positive
+# that is still present at HEAD, prefer an inline `gitleaks:allow` comment on
+# the line itself, so push/PR scans stay quiet if the line is edited or moved.
+
+# Backend smoke-test encryption-key fixtures (the throwaway
+# FLAKEY_ENCRYPTION_KEY the smoke tests boot the app with). 067f50b later
+# marked these lines `gitleaks:allow`; these are the two earlier commits.
+cc9a91f72bff15bbaa5dc69679ae9b7111a87dac:backend/src/tests/cors_prod.smoke.test.ts:generic-api-key:70
+cc9a91f72bff15bbaa5dc69679ae9b7111a87dac:backend/src/tests/http_security_baseline.smoke.test.ts:generic-api-key:63
+cc9a91f72bff15bbaa5dc69679ae9b7111a87dac:backend/src/tests/ssrf.smoke.test.ts:generic-api-key:126
+804c75b3914dadc28ad797c8418c1f66b6b10175:backend/src/tests/cors_prod.smoke.test.ts:generic-api-key:70
+804c75b3914dadc28ad797c8418c1f66b6b10175:backend/src/tests/encryption_key_boot.smoke.test.ts:generic-api-key:71
+804c75b3914dadc28ad797c8418c1f66b6b10175:backend/src/tests/http_security_baseline.smoke.test.ts:generic-api-key:63
+804c75b3914dadc28ad797c8418c1f66b6b10175:backend/src/tests/ssrf.smoke.test.ts:generic-api-key:126
+
+# E2E request payloads: the new-password body sent to the auth endpoints in
+# the password-reset "→ 400" tests (the file now lives at
+# frontend/tests-e2e/login/auth-flows.spec.ts).
+a7f806d96be0bc31c4c1ab420fd57d2acac3692b:frontend/tests-e2e/auth-flows.spec.ts:generic-api-key:91
+a7f806d96be0bc31c4c1ab420fd57d2acac3692b:frontend/tests-e2e/auth-flows.spec.ts:generic-api-key:267
+a7f806d96be0bc31c4c1ab420fd57d2acac3692b:frontend/tests-e2e/auth-flows.spec.ts:generic-api-key:279
+
+# Documentation curl examples with placeholder tokens ("Create an API key and
+# use curl" in run-locally.md; "Smart spec balancing", now in
+# packages/flakey-cli/docs/uploading-results.md).
+e3e5c74def9aa7a959553c8f5a7615fde49e6f6f:docs/run-locally.md:curl-auth-header:106
+5bb14ea63388f84dbb830170217d2a2001f28832:docs/uploading-results.md:curl-auth-header:545
+
+# SSO e2e workflow, "Wait for Authentik" step: the seeded bootstrap token of
+# the ephemeral Authentik container that only exists for the CI job or the
+# opt-in local IdP stack.
+49093defd5b215671bbf5f65c958adac10544b11:.github/workflows/sso-e2e.yml:curl-auth-header:160
+
+# reviews/examples-and-infra.md, finding H5 ("Real API keys present in local
+# .env files across five examples"), quoted in a review doc that was tracked
+# from 23fee6d until db89830 untracked reviews/. These were local-dev API keys:
+# every example targets FLAKEY_API_URL=http://localhost:3000, and the backend
+# mints each key from crypto.randomBytes and stores only a bcrypt hash in the
+# api_keys table of the database that issued it, so a key authenticates
+# nowhere else. The owner confirmed they were local-only on 2026-09-15.
+23fee6d04a344173d30e0bf82667cb3c99db2b1c:reviews/examples-and-infra.md:generic-api-key:233
+23fee6d04a344173d30e0bf82667cb3c99db2b1c:reviews/examples-and-infra.md:generic-api-key:236
+23fee6d04a344173d30e0bf82667cb3c99db2b1c:reviews/examples-and-infra.md:generic-api-key:240
+23fee6d04a344173d30e0bf82667cb3c99db2b1c:reviews/examples-and-infra.md:curl-auth-header:245
