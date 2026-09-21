@@ -14,9 +14,9 @@
     "test": "node --import tsx --test 'src/tests/**/*.test.ts'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
-    "@aws-sdk/client-s3": "^3.1130.0",
-    "@aws-sdk/s3-request-presigner": "^3.1130.0",
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@aws-sdk/client-s3": "^3.1135.0",
+    "@aws-sdk/s3-request-presigner": "^3.1135.0",
     "@node-saml/node-saml": "^5.1.0",
     "@smithy/node-http-handler": "^4.12.1",
     "bcryptjs": "^3.0.3",
@@ -27,8 +27,8 @@
     "helmet": "^8.3.0",
     "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.3.0",
-    "nodemailer": "^10.0.3",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.10",
     "pg": "^8.23.0",
     "undici": "^8.10.2"
   },
@@ -38,7 +38,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
-    "@types/nodemailer": "^8.0.1",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
