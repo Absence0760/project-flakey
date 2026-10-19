@@ -30,7 +30,7 @@
 		"svelte": "5.57.2",
 		"svelte-check": "4.7.6",
 		"typescript": "6.0.3",
-		"unplugin-icons": "23.0.1",
+		"unplugin-icons": "24.0.0",
 		"vite": "8.3.4",
 		"vitest": "4.1.10"
 	},
