@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
-    "@aws-sdk/client-s3": "^3.1148.0",
-    "@aws-sdk/s3-request-presigner": "^3.1148.0",
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@aws-sdk/s3-request-presigner": "^3.1156.0",
     "@node-saml/node-saml": "^5.1.0",
     "@smithy/node-http-handler": "^4.12.1",
     "bcryptjs": "^3.0.3",
@@ -25,12 +25,12 @@
     "express-rate-limit": "^8.7.1",
     "fast-xml-parser": "^5.11.2",
     "helmet": "^8.3.0",
-    "jose": "^6.2.12",
+    "jose": "^6.2.13",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0",
-    "nodemailer": "^10.0.16",
+    "multer": "^2.5.0",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
-    "undici": "^8.11.2"
+    "undici": "^8.12.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
