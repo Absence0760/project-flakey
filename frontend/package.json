@@ -18,12 +18,12 @@
 		"test:e2e:verify": "playwright test --config=tests-e2e/verify-required/playwright.verify.config.ts"
 	},
 	"devDependencies": {
-		"@iconify-json/material-symbols": "1.2.95",
+		"@iconify-json/material-symbols": "1.2.97",
 		"@playwright/test": "1.64.1",
 		"@sveltejs/adapter-static": "3.0.10",
 		"@sveltejs/kit": "2.70.3",
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
-		"@types/node": "26.6.5",
+		"@types/node": "26.6.6",
 		"@vitest/ui": "4.1.10",
 		"mdsvex": "^0.12.8",
 		"normalize.css": "8.0.1",
