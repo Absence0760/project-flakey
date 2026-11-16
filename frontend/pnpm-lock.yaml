@@ -13,8 +13,8 @@ importers:
         version: 3.22.0
     devDependencies:
       '@iconify-json/material-symbols':
-        specifier: 1.2.97
-        version: 1.2.97
+        specifier: 1.2.99
+        version: 1.2.99
       '@playwright/test':
         specifier: 1.65.0
         version: 1.65.0
@@ -120,8 +120,8 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@iconify-json/material-symbols@1.2.97':
-    resolution: {integrity: sha512-MbE4QHrH4Z4eoerBFrzFSPqHw2NwVGwwOwGZdJym5l5N5loqEUThimlQpK9VJA6mvgWvj5jl43b8bZnqzOxNRQ==}
+  '@iconify-json/material-symbols@1.2.99':
+    resolution: {integrity: sha512-c7CBI249CmvZDeT7sml1iwKEjsbiB8NUG2Bg1KPd7jnvLQ/8iQv7TQWnqq9a2357SkPjnyVTxxTgkWO2rlUtCw==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -1023,7 +1023,7 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@iconify-json/material-symbols@1.2.97':
+  '@iconify-json/material-symbols@1.2.99':
     dependencies:
       '@iconify/types': 2.0.0
 
