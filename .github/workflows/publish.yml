@@ -271,8 +271,11 @@ jobs:
   # Python package — publishes to PyPI via Trusted Publishing (OIDC), so there
   # is no long-lived token secret to manage. One-time PyPI setup is required:
   # add a "pending publisher" for project `flakey-pytest-reporter` pointing at
-  # repo Absence0760/project-flakey, workflow `publish.yml`, environment
-  # `production` (the same environment the npm jobs use). See
+  # owner jaredhoward-dev, repo project-flakey, workflow `publish.yml`,
+  # environment `production` (the same environment the npm jobs use). The repo
+  # moved there from the Absence0760 account (project-mgmt#14); PyPI binds a
+  # publisher to the owner's ID, so one registered for Absence0760 stops
+  # matching at the move. See
   # https://docs.pypi.org/trusted-publishers/adding-a-publisher/
   publish-pytest-reporter:
     needs: [detect-package]
