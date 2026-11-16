@@ -49,9 +49,14 @@ re-reporting it), see:
 - `docs/architecture.md` § 4 (auth hardening: per-account lockout,
   bcrypt-bounded response time, refresh-token rotation, per-request
   org-membership re-validation).
-- The `.github/workflows/security.yml`, `gitleaks.yml`, `scorecard.yml`,
-  and `terraform.yml` workflows surface CodeQL / Trivy / Scorecard /
-  gitleaks findings to the GitHub Security tab on every PR + weekly.
+- The `.github/workflows/security.yml`, `scorecard.yml` and
+  `terraform.yml` workflows surface CodeQL / Trivy / Scorecard findings
+  to the GitHub Security tab on every PR + weekly.
+- `.github/workflows/secret-scan.yml` runs TruffleHog on every push and
+  PR plus a weekly full-history sweep. It reports in the job's
+  annotations and summary, not the Security tab; a verified (live) or
+  unverifiable credential fails it. The gitleaks pre-commit hook
+  (`.pre-commit-config.yaml`, `.gitleaksignore`) is the local layer.
 - The four trust boundaries documented in `CLAUDE.md` (auth gating,
   tenant isolation via Postgres RLS, server-only secret scoping, fail-
   closed defaults).
