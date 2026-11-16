@@ -24,6 +24,17 @@ variable "github_repo" {
   }
 }
 
+variable "github_subject_prefix" {
+  description = "Optional. The literal OIDC `sub` prefix GitHub issues for the repo, without the trailing `:environment:...`, read with `gh api repos/<org>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix`. Set it when that returns the immutable form `repo:<org>@<org_id>/<repo>@<repo_id>` (every repo transferred or renamed after 2026-07-15 does, upstream included since its move to jaredhoward-dev): the name-shaped `repo:<github_repo>` never matches that. Null (the default) trusts `repo:<github_repo>`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.github_subject_prefix == null ? true : can(regex("^repo:[^/@:*?]+(@[0-9]+)?/[^/@:*?]+(@[0-9]+)?$", var.github_subject_prefix))
+    error_message = "github_subject_prefix must be repo:<org>[@<org_id>]/<repo>[@<repo_id>], with no wildcards and no trailing :environment:..."
+  }
+}
+
 variable "app_name" {
   description = "Resource-prefix for every named AWS resource the stack creates (ECR repo, ECS cluster + service, log groups, security groups). Change this for your fork — `flakey` is the upstream default."
   default     = "flakey"
@@ -203,10 +214,12 @@ resource "aws_iam_role" "github_actions" {
         # deploy.yml's jobs declare `environment: production`, GitHub sets the
         # token sub to `repo:<repo>:environment:production`, so that's the only
         # subject we trust. Override `github_deploy_subjects` if a second
-        # environment ever needs deploy access.
+        # environment ever needs deploy access. The prefix is
+        # github_subject_prefix when set (a repo on immutable subject claims
+        # sends repo:<org>@<org_id>/<repo>@<repo_id>), else repo:<github_repo>.
         StringLike = {
           "token.actions.githubusercontent.com:sub" = [
-            for s in var.github_deploy_subjects : "repo:${var.github_repo}:${s}"
+            for s in var.github_deploy_subjects : "${coalesce(var.github_subject_prefix, "repo:${var.github_repo}")}:${s}"
           ]
         }
       }
