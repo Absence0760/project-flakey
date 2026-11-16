@@ -1,6 +1,6 @@
 # @flakeytesting/mcp-server
 
-Model Context Protocol (MCP) server for the [Flakey](https://github.com/Absence0760/project-flakey) test reporting dashboard. Lets AI coding agents — Claude Code, Claude Desktop, Cursor, Windsurf, Zed — query test results, find flaky tests, drill into failure history, and look up runs from the editor without leaving the conversation.
+Model Context Protocol (MCP) server for the [Flakey](https://github.com/jaredhoward-dev/project-flakey) test reporting dashboard. Lets AI coding agents — Claude Code, Claude Desktop, Cursor, Windsurf, Zed — query test results, find flaky tests, drill into failure history, and look up runs from the editor without leaving the conversation.
 
 ## Install
 
@@ -102,6 +102,6 @@ The MCP server uses the same API keys the CLI does — create one in the Flakey 
 ## Links
 
 - [Model Context Protocol spec](https://spec.modelcontextprotocol.io/)
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

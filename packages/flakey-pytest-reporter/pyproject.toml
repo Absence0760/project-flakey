@@ -10,8 +10,8 @@ keywords = ["pytest", "testing", "test-reporting", "flakey", "ci"]
 
 [project.urls]
 Homepage = "https://flakey.io"
-Repository = "https://github.com/Absence0760/project-flakey"
-Issues = "https://github.com/Absence0760/project-flakey/issues"
+Repository = "https://github.com/jaredhoward-dev/project-flakey"
+Issues = "https://github.com/jaredhoward-dev/project-flakey/issues"
 
 [project.entry-points.pytest11]
 flakey = "flakey_pytest_reporter.plugin"

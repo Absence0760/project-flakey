@@ -1,6 +1,6 @@
 # @flakeytesting/cli
 
-CLI for uploading test results, coverage, accessibility scans, visual diffs, and UI-coverage data to the [Flakey](https://github.com/Absence0760/project-flakey) dashboard. The reporters do the same upload at end-of-test; the CLI is for cases where you don't have a reporter (Selenium, custom runners) or you want to ship reports from CI separately from the test run.
+CLI for uploading test results, coverage, accessibility scans, visual diffs, and UI-coverage data to the [Flakey](https://github.com/jaredhoward-dev/project-flakey) dashboard. The reporters do the same upload at end-of-test; the CLI is for cases where you don't have a reporter (Selenium, custom runners) or you want to ship reports from CI separately from the test run.
 
 ## Install
 
@@ -100,6 +100,6 @@ flakey-upload [upload]
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

@@ -396,7 +396,7 @@ Flakey is MIT-licensed and the entire stack — backend, frontend, reporters, in
 ### Local / single-VM (Docker Compose)
 
 ```bash
-git clone https://github.com/Absence0760/project-flakey.git
+git clone https://github.com/jaredhoward-dev/project-flakey.git
 cd project-flakey
 pnpm setup                       # install frontend + packages (pnpm) and backend (npm)
 pnpm dev:all                     # infra (Postgres + Mailpit, waited healthy) + backend :3000 + frontend :7778

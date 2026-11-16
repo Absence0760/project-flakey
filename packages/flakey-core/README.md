@@ -1,6 +1,6 @@
 # @flakeytesting/core
 
-Internal shared utilities used by the [Flakey](https://github.com/Absence0760/project-flakey) reporter packages:
+Internal shared utilities used by the [Flakey](https://github.com/jaredhoward-dev/project-flakey) reporter packages:
 
 - [`@flakeytesting/cypress-reporter`](https://www.npmjs.com/package/@flakeytesting/cypress-reporter)
 - [`@flakeytesting/playwright-reporter`](https://www.npmjs.com/package/@flakeytesting/playwright-reporter)
@@ -28,6 +28,6 @@ Breaking changes here cascade to every reporter. The reporters and core are bump
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

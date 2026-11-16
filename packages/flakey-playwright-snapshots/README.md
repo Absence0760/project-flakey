@@ -1,6 +1,6 @@
 # @flakeytesting/playwright-snapshots
 
-Internal helper used by [`@flakeytesting/playwright-reporter`](https://www.npmjs.com/package/@flakeytesting/playwright-reporter). Parses Playwright `.zip` trace files to extract DOM snapshots and command logs that the [Flakey](https://github.com/Absence0760/project-flakey) dashboard renders as a step-by-step scrubber.
+Internal helper used by [`@flakeytesting/playwright-reporter`](https://www.npmjs.com/package/@flakeytesting/playwright-reporter). Parses Playwright `.zip` trace files to extract DOM snapshots and command logs that the [Flakey](https://github.com/jaredhoward-dev/project-flakey) dashboard renders as a step-by-step scrubber.
 
 ## Install
 
@@ -36,6 +36,6 @@ For both, the exported `parseTrace(filePath: string): Promise<SnapshotBundle>` i
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

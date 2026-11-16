@@ -19,7 +19,7 @@ Each subdirectory has its own `CLAUDE.md` with the conventions specific to that 
 ## Local setup
 
 ```bash
-git clone https://github.com/Absence0760/project-flakey.git
+git clone https://github.com/jaredhoward-dev/project-flakey.git
 cd project-flakey
 pnpm setup                              # install frontend + packages (pnpm) and backend (npm)
                                         # env: committed backend/.env.development works as-is;

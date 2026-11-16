@@ -2,9 +2,9 @@
 
 ## Reporting a vulnerability
 
-This policy applies to the upstream [Flakey](https://github.com/Absence0760/project-flakey)
+This policy applies to the upstream [Flakey](https://github.com/jaredhoward-dev/project-flakey)
 project. If you've found an issue here, please report it via the
-**[GitHub security advisory form](https://github.com/Absence0760/project-flakey/security/advisories/new)**.
+**[GitHub security advisory form](https://github.com/jaredhoward-dev/project-flakey/security/advisories/new)**.
 
 Please include enough detail to reproduce the issue: affected route /
 component, expected vs. actual behaviour, and a minimal proof-of-concept if
