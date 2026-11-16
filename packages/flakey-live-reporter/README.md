@@ -1,6 +1,6 @@
 # @flakeytesting/live-reporter
 
-Framework-agnostic adapters that stream live test events (start, pass, fail, abort) from your test runner to the [Flakey](https://github.com/Absence0760/project-flakey) backend in real time. Pairs with the framework-specific reporters in `@flakeytesting/{cypress,playwright,webdriverio}-reporter`.
+Framework-agnostic adapters that stream live test events (start, pass, fail, abort) from your test runner to the [Flakey](https://github.com/jaredhoward-dev/project-flakey) backend in real time. Pairs with the framework-specific reporters in `@flakeytesting/{cypress,playwright,webdriverio}-reporter`.
 
 The result: open the dashboard while a long suite is still running and watch tests turn green or red the moment each one finishes.
 
@@ -111,6 +111,6 @@ Disable with `heartbeatIntervalMs: 0` if you have a different keep-alive strateg
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

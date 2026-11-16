@@ -41,7 +41,7 @@ no decrypted file is ever written to disk.
 
 ## One-time setup
 
-1. **Create the private secrets repo.** Create `Absence0760/infra-secrets`
+1. **Create the private secrets repo.** Create `jaredhoward-dev/infra-secrets`
    (private) on GitHub. Push the scaffold from `~/github/infra-secrets/`.
 2. **Create the KMS key.** From a checkout of that repo, authenticated to the
    **flakey** AWS account:

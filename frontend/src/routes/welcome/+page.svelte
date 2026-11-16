@@ -266,7 +266,7 @@
 				<a href="#features">Features</a>
 				<a href="#compare">Compare</a>
 				<a href="#how-it-works">How it works</a>
-				<a href="https://github.com/Absence0760/project-flakey#self-host" rel="noopener" target="_blank">Self-host ↗</a>
+				<a href="https://github.com/jaredhoward-dev/project-flakey#self-host" rel="noopener" target="_blank">Self-host ↗</a>
 				<a href="/login" class="topnav-cta" onclick={go('/login')}>Sign in →</a>
 			</nav>
 
@@ -296,7 +296,7 @@
 				<a href="#compare" onclick={() => (menuOpen = false)}>Compare</a>
 				<a href="#how-it-works" onclick={() => (menuOpen = false)}>How it works</a>
 				<a
-					href="https://github.com/Absence0760/project-flakey#self-host"
+					href="https://github.com/jaredhoward-dev/project-flakey#self-host"
 					rel="noopener"
 					target="_blank"
 					onclick={() => (menuOpen = false)}
@@ -323,7 +323,7 @@
 						<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{/if}
 					<a
-						href="https://github.com/Absence0760/project-flakey#self-host"
+						href="https://github.com/jaredhoward-dev/project-flakey#self-host"
 						rel="noopener"
 						target="_blank"
 						class="btn ghost"
@@ -499,7 +499,7 @@
 			</div>
 			<p class="compare-footnote">
 				Cells claim what each vendor publicly documents at the time of writing. If something's wrong or outdated, please
-				<a href="https://github.com/Absence0760/project-flakey/issues" rel="noopener" target="_blank">open an issue</a> — we'd rather correct the table than fudge it.
+				<a href="https://github.com/jaredhoward-dev/project-flakey/issues" rel="noopener" target="_blank">open an issue</a> — we'd rather correct the table than fudge it.
 			</p>
 		</section>
 
@@ -545,7 +545,7 @@
 					{:else}
 						<a href="/login" class="btn primary" onclick={go('/login')}>Sign in</a>
 					{/if}
-					<a href="https://github.com/Absence0760/project-flakey" rel="noopener" target="_blank" class="btn ghost">
+					<a href="https://github.com/jaredhoward-dev/project-flakey" rel="noopener" target="_blank" class="btn ghost">
 						GitHub <span class="external-arrow">↗</span>
 					</a>
 				</div>
@@ -554,7 +554,7 @@
 
 		<footer class="footer">
 			<div class="footer-inner">
-				<span>© Flakey · MIT · <a href="https://github.com/Absence0760/project-flakey" rel="noopener" target="_blank">github.com/Absence0760/project-flakey</a></span>
+				<span>© Flakey · MIT · <a href="https://github.com/jaredhoward-dev/project-flakey" rel="noopener" target="_blank">github.com/jaredhoward-dev/project-flakey</a></span>
 				<a href="/login" onclick={go('/login')}>Sign in →</a>
 			</div>
 		</footer>

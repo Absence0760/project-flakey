@@ -1,6 +1,6 @@
 # @flakeytesting/cypress-snapshots
 
-Cypress plugin that captures DOM snapshots at each command step so you can replay a failing test in the [Flakey](https://github.com/Absence0760/project-flakey) dashboard without re-running it. Each snapshot bundle records the serialised DOM, viewport size, scroll position, and per-step metadata — rendered as a step-by-step scrubber in the dashboard.
+Cypress plugin that captures DOM snapshots at each command step so you can replay a failing test in the [Flakey](https://github.com/jaredhoward-dev/project-flakey) dashboard without re-running it. Each snapshot bundle records the serialised DOM, viewport size, scroll position, and per-step metadata — rendered as a step-by-step scrubber in the dashboard.
 
 ## Install
 
@@ -76,6 +76,6 @@ When `FLAKEY_API_URL`, `FLAKEY_API_KEY`, and `FLAKEY_LIVE_RUN_ID` are all set in
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
 - License: MIT

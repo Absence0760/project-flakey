@@ -1,6 +1,6 @@
 # @flakeytesting/cypress-reporter
 
-Cypress reporter + plugin + support bundle for the [Flakey](https://github.com/Absence0760/project-flakey) test reporting dashboard. Uploads results, screenshots, videos, and (with `@flakeytesting/cypress-snapshots`) DOM snapshots, and streams per-test events live as the suite runs.
+Cypress reporter + plugin + support bundle for the [Flakey](https://github.com/jaredhoward-dev/project-flakey) test reporting dashboard. Uploads results, screenshots, videos, and (with `@flakeytesting/cypress-snapshots`) DOM snapshots, and streams per-test events live as the suite runs.
 
 ## Install
 
@@ -88,7 +88,7 @@ Each PNG written by Cypress is POSTed to `/live/:runId/screenshot` the moment `a
 
 ## Links
 
-- [Documentation site](https://github.com/Absence0760/project-flakey/blob/main/README.md)
-- [Source + issues](https://github.com/Absence0760/project-flakey)
-- [Changelog (GitHub releases)](https://github.com/Absence0760/project-flakey/releases)
+- [Documentation site](https://github.com/jaredhoward-dev/project-flakey/blob/main/README.md)
+- [Source + issues](https://github.com/jaredhoward-dev/project-flakey)
+- [Changelog (GitHub releases)](https://github.com/jaredhoward-dev/project-flakey/releases)
 - License: MIT
