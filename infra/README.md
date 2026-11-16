@@ -54,6 +54,7 @@ Terraform configuration for deploying Flakey to AWS. Designed to be as touchless
 | `allow_registration` | `true` for SaaS-style self-serve; `false` (default) for invite-only. |
 | `budget_alert_email` | Where the monthly-budget alarm sends mail. |
 | `github_repo` (bootstrap stack only) | Your `<org>/<repo>` for the OIDC trust subject. The deploy IAM role's trust policy is scoped to this — no other repo can assume it. |
+| `github_subject_prefix` (bootstrap stack only, optional) | The OIDC `sub` prefix GitHub actually issues, from `gh api repos/<org>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix`. Set it when that is the immutable form `repo:<org>@<org_id>/<repo>@<repo_id>` (any repo transferred or renamed since 2026-07-15); otherwise the trust uses `repo:<github_repo>` and never matches. |
 
 Copy `terraform.tfvars.example` → `terraform.tfvars`, fill in each `<placeholder>`, then `terraform apply`. The validation blocks in `variables.tf` will refuse to plan if you leave a placeholder in place.
 
@@ -70,6 +71,17 @@ terraform init
 # deploy IAM role's trust policy is StringLike-pinned to this exact
 # value — a fork that never set this won't be assumable.
 terraform apply -var="github_repo=<your-github-org>/<your-repo>"
+```
+
+Check the subject your repo actually sends first:
+`gh api repos/<your-github-org>/<your-repo>/actions/oidc/customization/sub --jq .sub_claim_prefix`.
+If it carries numeric IDs (`repo:<org>@<id>/<repo>@<id>`), pass it as well, or
+the role never matches. Upstream (`jaredhoward-dev/project-flakey`, on
+immutable claims since its move into the org):
+
+```bash
+terraform apply -var="github_repo=jaredhoward-dev/project-flakey" \
+  -var="github_subject_prefix=repo:jaredhoward-dev@357177875/project-flakey@1203019782"
 ```
 
 This creates:
