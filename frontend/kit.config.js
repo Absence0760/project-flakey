@@ -2,7 +2,10 @@ import adapter from "@sveltejs/adapter-static";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import { mdsvex } from 'mdsvex';
 
-export default defineConfig();
+// SvelteKit 3 no longer reads svelte.config.js: options are passed to the
+// sveltekit() plugin in vite.config.ts, which calls this. It stays a separate
+// module so kit.config.test.ts can guard the CSP without loading Vite.
+export default defineConfig;
 
 // The API origin (VITE_API_URL) — a different origin from the page in
 // both dev (`http://localhost:3000` vs the :7778 dev server) and prod
@@ -34,6 +37,10 @@ function apiOrigin() {
 // presigned URLs live on the bucket origin, not the API) extend the list
 // without patching this file: PUBLIC_CSP_CONNECT_SRC / PUBLIC_CSP_IMG_SRC /
 // PUBLIC_CSP_MEDIA_SRC.
+/**
+ * @param {string[]} base
+ * @param {string} envVar
+ */
 function cspSources(base, envVar) {
 	const sources = new Set(base);
 	const api = apiOrigin();
@@ -45,7 +52,7 @@ function cspSources(base, envVar) {
 	return [...sources];
 }
 
-/** @type {() => import('@sveltejs/kit').Config} */
+/** @type {() => import('@sveltejs/kit/vite').Config} */
 function defineConfig() {
 	return {
 		extensions: ['.svelte', '.md'],
@@ -53,40 +60,39 @@ function defineConfig() {
 			modernAst: true,
 			warningFilter,
 		},
-		// Consult https://kit.svelte.dev/docs/integrations#preprocessors
+		// Consult https://svelte.dev/docs/kit/integrations#preprocessors
 		// for more information about preprocessors
 		preprocess: [vitePreprocess(), mdsvex({ extensions: ['.md'] })],
 
-		kit: {
-			// See https://kit.svelte.dev/docs/adapters for more information about adapters.
-			adapter: adapter({
-				fallback: "index.html",
-				prerender: { default: true },
-			}),
-			paths: {
-				base: process.env.BASE_PATH || '',
-			},
-			inlineStyleThreshold: 0,
-			// CSP injected as a <meta> tag in every prerendered HTML page.
-			// Complements the CloudFront response_headers_policy that
-			// applies the same gate at the response-header layer; both
-			// run in browsers and the most-restrictive directives win.
-			// `script-src 'self'` rejects inline + remote scripts; the
-			// hash-mode lets SvelteKit auto-add hashes for any inline
-			// hydration script the framework emits.
-			csp: {
-				mode: 'hash',
-				directives: {
-					'default-src': ['self'],
-					'img-src': cspSources(["'self'", 'data:', 'blob:'], 'PUBLIC_CSP_IMG_SRC'),
-					'media-src': cspSources(["'self'", 'blob:'], 'PUBLIC_CSP_MEDIA_SRC'),
-					'style-src': ['self', 'unsafe-inline'],
-					'script-src': ['self'],
-					'connect-src': cspSources(["'self'"], 'PUBLIC_CSP_CONNECT_SRC'),
-					'frame-ancestors': ['none'],
-					'base-uri': ['self'],
-					'form-action': ['self'],
-				},
+		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
+		adapter: adapter({
+			fallback: "index.html",
+		}),
+		paths: {
+			// Typed as '' or a leading-slash path; BASE_PATH is an optional
+			// override for serving under a sub-path.
+			base: /** @type {'' | `/${string}`} */ (process.env.BASE_PATH || ''),
+		},
+		inlineStyleThreshold: 0,
+		// CSP injected as a <meta> tag in every prerendered HTML page.
+		// Complements the CloudFront response_headers_policy that
+		// applies the same gate at the response-header layer; both
+		// run in browsers and the most-restrictive directives win.
+		// `script-src 'self'` rejects inline + remote scripts; the
+		// hash-mode lets SvelteKit auto-add hashes for any inline
+		// hydration script the framework emits.
+		csp: {
+			mode: 'hash',
+			directives: {
+				'default-src': ['self'],
+				'img-src': cspSources(["'self'", 'data:', 'blob:'], 'PUBLIC_CSP_IMG_SRC'),
+				'media-src': cspSources(["'self'", 'blob:'], 'PUBLIC_CSP_MEDIA_SRC'),
+				'style-src': ['self', 'unsafe-inline'],
+				'script-src': ['self'],
+				'connect-src': cspSources(["'self'"], 'PUBLIC_CSP_CONNECT_SRC'),
+				'frame-ancestors': ['none'],
+				'base-uri': ['self'],
+				'form-action': ['self'],
 			},
 		},
 	};
@@ -95,7 +101,7 @@ function defineConfig() {
 /**
  * Filter out noisy deprecation warnings from the compiled code.
  * Hopefully by svelte 5's release, this will no longer be needed.
- * @type {NonNullable<NonNullable<import('@sveltejs/kit').Config['compilerOptions']>['warningFilter']>}
+ * @type {NonNullable<NonNullable<import('@sveltejs/kit/vite').Config['compilerOptions']>['warningFilter']>}
  */
 function warningFilter(warning) {
 	const ignorePatterns = [/node_modules/, /\.svelte-kit/];

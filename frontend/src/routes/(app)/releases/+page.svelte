@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { absoluteDate, calendarDate } from "$lib/utils/format";
-	import { page } from '$app/stores';
-	import { replaceState } from '$app/navigation';
-	import { authFetch } from '$lib/stores/auth';
-	import { API_URL } from '$lib/utils/config';
-	import { toast, toastError } from '$lib/stores/toast';
+	import { absoluteDate, calendarDate } from "#lib/utils/format.ts";
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { authFetch } from '#lib/stores/auth.ts';
+	import { API_URL } from '#lib/utils/config.ts';
+	import { toast, toastError } from '#lib/stores/toast.ts';
 
 	interface ReleaseSummary {
 		id: number;
@@ -49,10 +49,10 @@
 		set('status', filterStatus, 'all');
 		set('sort', sortBy, 'target');
 		set('q', searchQuery, '');
-		replaceState(url, {});
+		goto(url, { shallow: true, replace: true });
 	}
 	function readUrl() {
-		const p = $page.url.searchParams;
+		const p = page.url.searchParams;
 		filterStatus = (p.get('status') as StatusKey) ?? 'all';
 		sortBy = (p.get('sort') as SortKey) ?? 'target';
 		searchQuery = p.get('q') ?? '';

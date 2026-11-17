@@ -5,9 +5,9 @@
   // then continue to the originally-requested page.
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
-  import { page } from "$app/stores";
-  import { setAuth, type User } from "$lib/stores/auth";
-  import { API_URL } from "$lib/utils/config";
+  import { page } from "$app/state";
+  import { setAuth, type User } from "#lib/stores/auth.ts";
+  import { API_URL } from "#lib/utils/config.ts";
 
   let error = $state<string | null>(null);
 
@@ -17,7 +17,7 @@
   }
 
   onMount(async () => {
-    const returnTo = safeReturn($page.url.searchParams.get("returnTo"));
+    const returnTo = safeReturn(page.url.searchParams.get("returnTo"));
     try {
       const res = await fetch(`${API_URL}/auth/sso/session`, { credentials: "include" });
       if (!res.ok) throw new Error("session");

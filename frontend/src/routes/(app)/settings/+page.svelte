@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { timeAgo, absoluteDate } from "$lib/utils/format";
-  import { getAuth, subscribe } from "$lib/stores/auth";
-  import { authFetch } from "$lib/stores/auth";
-  import { toast, toastError } from "$lib/stores/toast";
-  import { API_URL as apiUrl } from "$lib/utils/config";
-  import { fetchAuditLog, fetchFlakyAutomationSettings, updateFlakyAutomationSettings, fetchWebhookEvents, type AuditEntry, type AuditLogFilters, type FlakyAutomationSettings, type WebhookEventOption } from "$lib/api";
+  import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
+  import { getAuth, subscribe } from "#lib/stores/auth.ts";
+  import { authFetch } from "#lib/stores/auth.ts";
+  import { toast, toastError } from "#lib/stores/toast.ts";
+  import { API_URL as apiUrl } from "#lib/utils/config.ts";
+  import { fetchAuditLog, fetchFlakyAutomationSettings, updateFlakyAutomationSettings, fetchWebhookEvents, type AuditEntry, type AuditLogFilters, type FlakyAutomationSettings, type WebhookEventOption } from "#lib/api.ts";
 
   // Reactive auth state — re-reads after refresh or org switch so that
   // orgId, isOwner, and isAdmin never go stale.

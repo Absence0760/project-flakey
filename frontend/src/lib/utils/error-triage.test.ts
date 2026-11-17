@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyTriageFilter, isOverdue, todayISO, PRIORITY_META, type TriageFilter } from "./error-triage.js";
-import type { ErrorGroup } from "$lib/api";
+import type { ErrorGroup } from "#lib/api.ts";
 
 // Minimal ErrorGroup factory — only the fields the triage filters read matter;
 // the rest are filled with inert defaults so the type is satisfied.

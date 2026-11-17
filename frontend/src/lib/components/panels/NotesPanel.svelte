@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { timeAgo, absoluteDate } from "$lib/utils/format";
+  import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
   import DOMPurify from "isomorphic-dompurify";
-  import { fetchNotes, addNote, type Note } from "$lib/api";
+  import { fetchNotes, addNote, type Note } from "#lib/api.ts";
 
   interface Props {
     targetType: string;

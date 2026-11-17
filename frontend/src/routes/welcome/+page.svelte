@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { restoreAuth, getAuth } from '$lib/stores/auth';
-	import { API_URL } from '$lib/utils/config';
+	import { restoreAuth, getAuth } from '#lib/stores/auth.ts';
+	import { API_URL } from '#lib/utils/config.ts';
 
 	// Show a brief loading frame while the auth check decides whether
 	// to redirect — without this, returning visitors see a flash of

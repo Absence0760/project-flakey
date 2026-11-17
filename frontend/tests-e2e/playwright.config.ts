@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  * The frontend dev server is auto-started by the webServer block below.
  *
  * Why `vite dev` instead of `vite build && vite preview`:
- *   adapter-static + `fallback: "index.html"` in svelte.config.js
+ *   adapter-static + `fallback: "index.html"` in kit.config.js
  *   produces a SPA shell for unmatched routes. `vite preview` doesn't
  *   serve the fallback for client-side-routed deep links (e.g.
  *   /runs/<id>) — production papers over this with a CloudFront

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '$lib/stores/auth';
-	import { rememberView, viewFor } from '$lib/stores/section-views.svelte';
-	import { API_URL } from '$lib/utils/config';
-	import Toasts from '$lib/components/overlays/Toasts.svelte';
+	import { restoreAuth, getAuth, subscribe, logout, fetchOrgs, switchOrg, type User, type Org } from '#lib/stores/auth.ts';
+	import { rememberView, viewFor } from '#lib/stores/section-views.svelte.ts';
+	import { API_URL } from '#lib/utils/config.ts';
+	import Toasts from '#lib/components/overlays/Toasts.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children?: Snippet } = $props();
@@ -35,8 +35,8 @@
 	// Only the exact list-page paths the sidebar links to are tracked, so a
 	// detail page like /runs/123 doesn't clobber the remembered /runs filters.
 	$effect(() => {
-		const path = $page.url.pathname;
-		const search = $page.url.search;
+		const path = page.url.pathname;
+		const search = page.url.search;
 		if (nav.some((n) => n.href === path)) rememberView(path, search);
 	});
 
@@ -171,7 +171,7 @@
 					<a
 						href={item.href + viewFor(item.href)}
 						class="nav-item"
-						class:active={isActive(item.href, $page.url.pathname)}
+						class:active={isActive(item.href, page.url.pathname)}
 					>
 						<span class="nav-icon">{item.icon}</span>
 						{item.label}

@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { API_URL } from '$lib/utils/config';
+  import { API_URL } from '#lib/utils/config.ts';
 
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let error = $state('');
 
   onMount(async () => {
-    const token = $page.params.token;
+    const token = page.params.token;
     try {
       const res = await fetch(`${API_URL}/auth/verify-email`, {
         method: 'POST',

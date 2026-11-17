@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { authFetch } from '$lib/stores/auth';
-	import { API_URL } from '$lib/utils/config';
-	import { buildJiraSettingsBody } from '$lib/utils/jira-settings';
+	import { authFetch } from '#lib/stores/auth.ts';
+	import { API_URL } from '#lib/utils/config.ts';
+	import { buildJiraSettingsBody } from '#lib/utils/jira-settings.ts';
 
 	// Jira
 	let jira = $state({

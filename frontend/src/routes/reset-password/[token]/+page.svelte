@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { API_URL } from '$lib/utils/config';
+  import { API_URL } from '#lib/utils/config.ts';
 
   let password = $state('');
   let confirmPassword = $state('');
@@ -27,7 +27,7 @@
       const res = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: $page.params.token, password }),
+        body: JSON.stringify({ token: page.params.token, password }),
       });
 
       if (!res.ok) {

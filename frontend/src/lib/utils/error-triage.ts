@@ -1,6 +1,6 @@
 // Pure helpers for the /errors triage surface (Phase 15.1). Kept free of Svelte
 // and the API client so the list/filter logic is unit-testable in isolation.
-import type { ErrorGroup } from "$lib/api";
+import type { ErrorGroup } from "#lib/api.ts";
 
 // The triage-specific list filters layered on top of the server-side
 // suite/status filters. "all" = no triage filter applied.

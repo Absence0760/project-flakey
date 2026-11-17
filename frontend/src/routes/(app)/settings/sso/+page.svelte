@@ -3,9 +3,9 @@
   // The client secret is write-only — the API never returns it, only whether
   // one is stored (hasClientSecret).
   import { onMount } from "svelte";
-  import { authFetch, getAuth } from "$lib/stores/auth";
-  import { API_URL } from "$lib/utils/config";
-  import { toast, toastError } from "$lib/stores/toast";
+  import { authFetch, getAuth } from "#lib/stores/auth.ts";
+  import { API_URL } from "#lib/utils/config.ts";
+  import { toast, toastError } from "#lib/stores/toast.ts";
 
   interface SsoConfig {
     configured: boolean;

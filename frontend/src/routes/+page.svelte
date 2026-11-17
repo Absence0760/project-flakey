@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { restoreAuth, getAuth } from '$lib/stores/auth';
+	import { restoreAuth, getAuth } from '#lib/stores/auth.ts';
 
 	// The root URL is an auth-aware redirect, NOT a page of its own.
 	// Signed-in visitors drop straight into the product; signed-out

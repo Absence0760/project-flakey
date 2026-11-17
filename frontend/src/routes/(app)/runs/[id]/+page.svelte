@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchRun, type RunDetail, type Spec } from "$lib/api";
-  import { getAuth, authFetch } from "$lib/stores/auth";
-  import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
-  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
-  import RunExtras from "$lib/components/panels/RunExtras.svelte";
-  import PassRateRing from "$lib/components/status/PassRateRing.svelte";
-  import { passRate } from "$lib/utils/stats";
-  import { API_URL } from "$lib/utils/config";
+  import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
+  import { fetchRun, type RunDetail, type Spec } from "#lib/api.ts";
+  import { getAuth, authFetch } from "#lib/stores/auth.ts";
+  import ErrorModal from "#lib/components/overlays/ErrorModal.svelte";
+  import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
+  import RunExtras from "#lib/components/panels/RunExtras.svelte";
+  import PassRateRing from "#lib/components/status/PassRateRing.svelte";
+  import { passRate } from "#lib/utils/stats.ts";
+  import { API_URL } from "#lib/utils/config.ts";
 
   let run = $state<RunDetail | null>(null);
   // Previous run (for the "new failures since previous run" band).
@@ -167,7 +167,7 @@
     const url = new URL(window.location.href);
     if (value === "all") url.searchParams.delete("status");
     else url.searchParams.set("status", value);
-    replaceState(url, {});
+    goto(url, { shallow: true, replace: true });
   }
 
   // Mirror the test-search box into the URL (?q=) so it survives reloads
@@ -178,7 +178,7 @@
     const url = new URL(window.location.href);
     if (searchQuery) url.searchParams.set("q", searchQuery);
     else url.searchParams.delete("q");
-    replaceState(url, {});
+    goto(url, { shallow: true, replace: true });
   }
   let mounted = $state(false);
   $effect(() => {
@@ -193,28 +193,28 @@
     modalTestId = id;
     const url = new URL(window.location.href);
     url.searchParams.set("test", String(id));
-    replaceState(url, {});
+    goto(url, { shallow: true, replace: true });
   }
 
   function closeTest() {
     modalTestId = null;
     const url = new URL(window.location.href);
     url.searchParams.delete("test");
-    replaceState(url, {});
+    goto(url, { shallow: true, replace: true });
   }
 
   onMount(async () => {
-    const id = Number($page.params.id);
+    const id = Number(page.params.id);
 
     nowTimer = setInterval(() => { now = Date.now(); }, 1000);
 
     // Feature 5: read URL filter param
-    const urlStatus = $page.url.searchParams.get("status");
+    const urlStatus = page.url.searchParams.get("status");
     const urlStatusExplicit = !!urlStatus && ["all", "passed", "failed", "skipped", "pending"].includes(urlStatus);
     if (urlStatusExplicit) {
       statusFilter = urlStatus!;
     }
-    searchQuery = $page.url.searchParams.get("q") ?? "";
+    searchQuery = page.url.searchParams.get("q") ?? "";
 
     try {
       run = await fetchRun(id);
@@ -234,7 +234,7 @@
         // Deep link: ?test=<id> opens that test's modal on load, but only if
         // the id actually belongs to this run — a stale id from an old link
         // should leave the modal closed rather than open an empty one.
-        const urlTest = Number($page.url.searchParams.get("test"));
+        const urlTest = Number(page.url.searchParams.get("test"));
         if (Number.isFinite(urlTest) && urlTest > 0
             && run.specs.some((s) => s.tests.some((t) => t.id === urlTest))) {
           modalTestId = urlTest;

@@ -9,9 +9,9 @@
   // the token, so the form's token field starts blank and a blank value means
   // "leave the stored token untouched". This mirrors settings/sso/+page.svelte.
   import { onMount } from "svelte";
-  import { getAuth } from "$lib/stores/auth";
-  import { toast, toastError } from "$lib/stores/toast";
-  import StatusDot from "$lib/components/status/StatusDot.svelte";
+  import { getAuth } from "#lib/stores/auth.ts";
+  import { toast, toastError } from "#lib/stores/toast.ts";
+  import StatusDot from "#lib/components/status/StatusDot.svelte";
   import {
     listAuditExportConfigs,
     createAuditExportConfig,
@@ -20,7 +20,7 @@
     testAuditExportConfig,
     AuditExportDisabledError,
     type AuditExportConfig,
-  } from "$lib/api";
+  } from "#lib/api.ts";
   import {
     emptyDraft,
     draftFromConfig,
@@ -32,7 +32,7 @@
     destinationSummary,
     type ExportDraft,
     type ExportHealth,
-  } from "$lib/utils/audit-export";
+  } from "#lib/utils/audit-export.ts";
 
   const auth = getAuth();
   const isAdmin = auth.user?.orgRole === "owner" || auth.user?.orgRole === "admin";

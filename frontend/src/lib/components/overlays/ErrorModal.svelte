@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { fetchTest, fetchTestHistory, checkAIEnabled, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "$lib/api";
-  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
-  import { authFetch } from "$lib/stores/auth";
-  import { toast as toastSuccess, toastInfo } from "$lib/stores/toast";
+  import { fetchTest, fetchTestHistory, checkAIEnabled, UPLOADS_URL, artifactSrc, type TestDetail, type TestHistoryEntry } from "#lib/api.ts";
+  import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
+  import { authFetch } from "#lib/stores/auth.ts";
+  import { toast as toastSuccess, toastInfo } from "#lib/stores/toast.ts";
   import {
     snapshotIdxForCommandGroup as snapshotIdxForCommandGroupPure,
     snapshotIdxForCommandChild as snapshotIdxForCommandChildPure,
@@ -14,7 +14,7 @@
     type CommandGroup as PureCommandGroup,
     type ConsoleEntryLite,
     type NetworkEntryLite,
-  } from "$lib/utils/snapshot-match";
+  } from "#lib/utils/snapshot-match.ts";
   import Lightbox from "../media/Lightbox.svelte";
   import SnapshotViewer from "../media/SnapshotViewer.svelte";
   import NotesPanel from "../panels/NotesPanel.svelte";

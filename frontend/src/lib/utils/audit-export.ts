@@ -3,7 +3,7 @@
 // validation rules mirror backend/src/routes/audit.ts (`validateExportBody`,
 // HTTP_FIELD_NAME, S3_BUCKET_NAME) so the form rejects bad input before a round
 // trip — the backend re-validates as the source of truth, this is just early UX.
-import type { AuditExportConfig } from "$lib/api";
+import type { AuditExportConfig } from "#lib/api.ts";
 
 // RFC 7230 field-name (token chars). Matches HTTP_FIELD_NAME on the backend.
 const HTTP_FIELD_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
@@ -102,7 +102,7 @@ export function validateDraft(d: ExportDraft): string | null {
 
 // Map a draft to the POST /audit/export create body — trims, drops blank
 // optionals, and only sends the fields relevant to the chosen destination.
-export function draftToCreateBody(d: ExportDraft): import("$lib/api").AuditExportCreate {
+export function draftToCreateBody(d: ExportDraft): import("#lib/api.ts").AuditExportCreate {
   if (d.destination === "http") {
     return {
       destination: "http",
@@ -127,7 +127,7 @@ export function draftToCreateBody(d: ExportDraft): import("$lib/api").AuditExpor
 // a non-blank value rotates it. (Clearing a token isn't exposed in the form —
 // the create-then-rotate flow covers the real use case; a token is only ever
 // set or rotated, never deliberately removed while keeping the destination.)
-export function draftToUpdateBody(d: ExportDraft): import("$lib/api").AuditExportUpdate {
+export function draftToUpdateBody(d: ExportDraft): import("#lib/api.ts").AuditExportUpdate {
   if (d.destination === "http") {
     return {
       enabled: d.enabled,

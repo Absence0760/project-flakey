@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "$lib/api";
-  import DateRangePicker from "$lib/components/inputs/DateRangePicker.svelte";
-  import TrendChart from "$lib/components/charts/TrendChart.svelte";
-  import BarChart from "$lib/components/charts/BarChart.svelte";
-  import { passRate } from "$lib/utils/stats";
+  import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
+  import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "#lib/api.ts";
+  import DateRangePicker from "#lib/components/inputs/DateRangePicker.svelte";
+  import TrendChart from "#lib/components/charts/TrendChart.svelte";
+  import BarChart from "#lib/components/charts/BarChart.svelte";
+  import { passRate } from "#lib/utils/stats.ts";
 
   let stats = $state<DashboardStats | null>(null);
   let trends = $state<TrendsData | null>(null);
@@ -29,10 +29,10 @@
     const url = new URL(window.location.href);
     if (fromDate) url.searchParams.set("from", fromDate); else url.searchParams.delete("from");
     if (toDate) url.searchParams.set("to", toDate); else url.searchParams.delete("to");
-    replaceState(url, {});
+    goto(url, { shallow: true, replace: true });
   }
   function readUrl() {
-    const p = $page.url.searchParams;
+    const p = page.url.searchParams;
     const f = p.get("from");
     const t = p.get("to");
     if (f) fromDate = f;

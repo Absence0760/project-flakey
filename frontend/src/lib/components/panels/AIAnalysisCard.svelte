@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { analyzeTest, type AIAnalysis } from "$lib/api";
-  import { classificationLabel } from "$lib/utils/ai";
+  import { analyzeTest, type AIAnalysis } from "#lib/api.ts";
+  import { classificationLabel } from "#lib/utils/ai.ts";
 
   interface Props {
     // The failed test to analyze. The backend resolves this to the shared
