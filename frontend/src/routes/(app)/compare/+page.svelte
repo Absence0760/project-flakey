@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { timeAgo, formatDuration } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchCompare, fetchRuns, type CompareResult, type CompareEntry, type Run } from "$lib/api";
+  import { timeAgo, formatDuration } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
+  import { fetchCompare, fetchRuns, type CompareResult, type CompareEntry, type Run } from "#lib/api.ts";
 
   let result = $state<CompareResult | null>(null);
   let loading = $state(true);
@@ -25,13 +25,13 @@
     const url = new URL(window.location.href);
     if (categoryFilter !== "all") url.searchParams.set("category", categoryFilter);
     else url.searchParams.delete("category");
-    replaceState(url, {});
+    replaceUrl(url);
   }
 
   onMount(async () => {
-    const a = $page.url.searchParams.get("a");
-    const b = $page.url.searchParams.get("b");
-    categoryFilter = $page.url.searchParams.get("category") ?? "all";
+    const a = page.url.searchParams.get("a");
+    const b = page.url.searchParams.get("b");
+    categoryFilter = page.url.searchParams.get("category") ?? "all";
 
     if (a && b) {
       await loadComparison(Number(a), Number(b));
@@ -71,7 +71,7 @@
     url.searchParams.delete("b");
     url.searchParams.delete("category");
     categoryFilter = "all";
-    replaceState(url, {});
+    replaceUrl(url);
     await loadRuns();
   }
 
@@ -93,7 +93,7 @@
     const url = new URL(window.location.href);
     url.searchParams.set("a", selectedA);
     url.searchParams.set("b", selectedB);
-    replaceState(url, {});
+    replaceUrl(url);
     loadComparison(Number(selectedA), Number(selectedB));
   }
 

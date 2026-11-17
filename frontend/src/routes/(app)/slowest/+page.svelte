@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
-  import { timeAgo, absoluteDate } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchSlowestTests, fetchRuns, type SlowestTest } from "$lib/api";
-  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
+  import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
+  import { fetchSlowestTests, fetchRuns, type SlowestTest } from "#lib/api.ts";
+  import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
 
   let tests = $state<SlowestTest[]>([]);
   let loading = $state(true);
@@ -20,10 +20,10 @@
     set("suite", selectedSuite, "all");
     set("sort", sortBy, "avg_duration_ms");
     set("q", searchQuery, "");
-    replaceState(url, {});
+    replaceUrl(url);
   }
   function readUrl() {
-    const p = $page.url.searchParams;
+    const p = page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     sortBy = (p.get("sort") as typeof sortBy) ?? "avg_duration_ms";
     searchQuery = p.get("q") ?? "";

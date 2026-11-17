@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { authFetch } from "$lib/stores/auth";
-  import { UPLOADS_URL } from "$lib/api";
+  import { authFetch } from "#lib/stores/auth.ts";
+  import { UPLOADS_URL } from "#lib/api.ts";
   import {
     failureStepIndex,
     stepDurationsMs,
     slowStepIndices,
-  } from "$lib/utils/snapshot-match";
-  import { formatDuration } from "$lib/utils/format";
+  } from "#lib/utils/snapshot-match.ts";
+  import { formatDuration } from "#lib/utils/format.ts";
 
   type Props = {
     snapshotPath: string;

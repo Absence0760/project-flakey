@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { authFetch } from '$lib/stores/auth';
-	import { absoluteDate, timeAgo } from "$lib/utils/format";
-	import { API_URL } from '$lib/utils/config';
+	import { authFetch } from '#lib/stores/auth.ts';
+	import { absoluteDate, timeAgo } from "#lib/utils/format.ts";
+	import { API_URL } from '#lib/utils/config.ts';
 
 	interface Props {
 		value: string;

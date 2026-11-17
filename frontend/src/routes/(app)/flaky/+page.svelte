@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
-  import { timeAgo, absoluteDate } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "$lib/api";
-  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
-  import { quarantineDisplay } from "$lib/utils/quarantine-display";
+  import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
+  import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "#lib/api.ts";
+  import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
+  import { quarantineDisplay } from "#lib/utils/quarantine-display.ts";
 
   let tests = $state<FlakyTest[]>([]);
   let allRuns = $state<Run[]>([]);
@@ -36,10 +36,10 @@
     set("sort", sortBy, "flaky_rate");
     set("window", String(runWindow), "30");
     set("q", searchQuery, "");
-    replaceState(url, {});
+    replaceUrl(url);
   }
   function readUrl() {
-    const p = $page.url.searchParams;
+    const p = page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     sortBy = (p.get("sort") as typeof sortBy) ?? "flaky_rate";
     const w = Number(p.get("window"));
@@ -271,7 +271,7 @@
     const url = new URL(window.location.href);
     if (key) url.searchParams.set("expanded", key);
     else url.searchParams.delete("expanded");
-    replaceState(url, {});
+    replaceUrl(url);
   }
 
   function expandRow(test: FlakyTest) {

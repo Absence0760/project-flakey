@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { OrgMember } from '$lib/api';
+	import type { OrgMember } from '#lib/api.ts';
 
 	// A compact assignee control: shows the current assignee as a chip (or
 	// "Unassigned") with an invisible <select> overlaid for picking. Used for

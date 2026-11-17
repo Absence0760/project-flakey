@@ -28,7 +28,7 @@ Auth state is a plain singleton in `src/lib/stores/auth.ts` (not a Svelte store)
 
 ## URL-state sync pattern
 
-Several pages keep filter state in the URL using `$page.url.searchParams` and write it back with SvelteKit's `replaceState` from `$app/navigation`. This avoids full navigation for filter changes while keeping views bookmarkable and shareable. See `src/routes/(app)/flaky/+page.svelte` for the canonical example.
+Several pages keep filter state in the URL, read it from `page.url.searchParams` (`$app/state`) and write it back with `replaceUrl(url)` from `#lib/utils/url-state.ts` (a shallow, replacing `goto` that skips no-op writes; SvelteKit 3 removed `replaceState`, and an unconditional shallow `goto` on mount can hijack a back navigation). This avoids full navigation for filter changes while keeping views bookmarkable and shareable. See `src/routes/(app)/flaky/+page.svelte` for the canonical example.
 
 When deciding whether to write a param, compare against the **default only** (`if (v !== def)`), never truthiness (`if (v && v !== def)`). An empty string can be a deliberate, non-default selection (e.g. a run with a blank suite name); the truthiness form silently drops it from the URL so it never persists across reload/round-trip. A search box whose default *is* `""` still drops correctly because `"" === def`. (This was a real bug — see the empty-value regression test in `tests-e2e/cross-cutting/url-state-bookmarks.spec.ts`.)
 

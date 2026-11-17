@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import { goto } from "$app/navigation";
-  import { isLoggedIn, acceptInvite, restoreAuth } from "$lib/stores/auth";
+  import { isLoggedIn, acceptInvite, restoreAuth } from "#lib/stores/auth.ts";
 
   let status = $state<"loading" | "success" | "error">("loading");
   let orgName = $state("");
   let errorMsg = $state("");
 
-  const token = $derived($page.params.token);
+  const token = $derived(page.params.token);
 
   $effect(() => {
     if (!token) return;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { AuditExportConfig } from "$lib/api";
+import type { AuditExportConfig } from "#lib/api.ts";
 import {
   emptyDraft,
   draftFromConfig,

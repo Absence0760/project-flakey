@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Structural guard for the CSP directives in svelte.config.js.
+ * Structural guard for the CSP directives in kit.config.js.
  *
  * Artifacts and API data are served from the API origin — a DIFFERENT
  * origin from the SPA (api.* vs the CloudFront host in prod; :3000 vs :7778
@@ -35,15 +35,15 @@ async function loadDirectives(
   delete process.env.PUBLIC_CSP_MEDIA_SRC;
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
   try {
-    const mod = await import("./svelte.config.js");
-    // @ts-expect-error — kit.csp.directives is loosely typed in the config.
-    return mod.default.kit.csp.directives as Record<string, string[]>;
+    const mod = await import("./kit.config.js");
+    // @ts-expect-error — csp.directives is loosely typed in the config.
+    return mod.default().csp.directives as Record<string, string[]>;
   } finally {
     process.env = saved;
   }
 }
 
-describe("svelte.config.js CSP directives", () => {
+describe("kit.config.js CSP directives", () => {
   afterEach(() => vi.resetModules());
 
   // The core invariant: every API-loading directive carries the API origin.

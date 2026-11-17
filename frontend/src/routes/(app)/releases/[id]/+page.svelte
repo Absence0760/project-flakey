@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { timeAgo, absoluteDate, calendarDate } from "$lib/utils/format";
-	import { page } from '$app/stores';
-	import { authFetch } from '$lib/stores/auth';
-	import { API_URL } from '$lib/utils/config';
-	import { fetchOrgMembers, fetchReleaseErrors, assignError, type OrgMember, type ErrorGroup } from '$lib/api';
-	import AssigneePicker from '$lib/components/inputs/AssigneePicker.svelte';
-	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '$lib/utils/safe-url';
+	import { timeAgo, absoluteDate, calendarDate } from "#lib/utils/format.ts";
+	import { page } from '$app/state';
+	import { authFetch } from '#lib/stores/auth.ts';
+	import { API_URL } from '#lib/utils/config.ts';
+	import { fetchOrgMembers, fetchReleaseErrors, assignError, type OrgMember, type ErrorGroup } from '#lib/api.ts';
+	import AssigneePicker from '#lib/components/inputs/AssigneePicker.svelte';
+	import { isHttpUrl, absoluteAttachmentUrl as absoluteAttachmentUrlImpl } from '#lib/utils/safe-url.ts';
 
 	interface ChecklistItem {
 		id: number;
@@ -195,7 +195,7 @@
 		issues?: JiraIssue[];
 	}
 
-	const releaseId = $derived($page.params.id);
+	const releaseId = $derived(page.params.id);
 
 	let release = $state<Release | null>(null);
 	let readiness = $state<Readiness | null>(null);

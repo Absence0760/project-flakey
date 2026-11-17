@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { timeAgo, absoluteDate } from "$lib/utils/format";
-	import { page } from '$app/stores';
-	import { replaceState } from '$app/navigation';
-	import { authFetch, getAuth } from '$lib/stores/auth';
-	import AutomatedTestPicker from '$lib/components/inputs/AutomatedTestPicker.svelte';
-	import { API_URL } from '$lib/utils/config';
-	import { isHttpUrl } from '$lib/utils/safe-url';
+	import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
+	import { page } from '$app/state';
+	import { replaceUrl } from '#lib/utils/url-state.ts';
+	import { authFetch, getAuth } from '#lib/stores/auth.ts';
+	import AutomatedTestPicker from '#lib/components/inputs/AutomatedTestPicker.svelte';
+	import { API_URL } from '#lib/utils/config.ts';
+	import { isHttpUrl } from '#lib/utils/safe-url.ts';
 
 	interface ManualTest {
 		id: number;
@@ -93,11 +93,11 @@
 		set('group', filterGroup, 'all');
 		set('flaky', filterFlakyOnly ? '1' : '0', '0');
 		set('q', searchQuery, '');
-		replaceState(url, {});
+		replaceUrl(url);
 	}
 
 	function readUrl() {
-		const p = $page.url.searchParams;
+		const p = page.url.searchParams;
 		const s = p.get('status');
 		if (s === 'all' || s === 'not_run' || s === 'passed' || s === 'failed' || s === 'blocked' || s === 'skipped') {
 			filterStatus = s;

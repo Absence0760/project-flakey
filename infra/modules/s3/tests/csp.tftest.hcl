@@ -1,5 +1,5 @@
 # Structural guard for the CloudFront CSP assembled in this module — the
-# Terraform counterpart of frontend/svelte.config.test.ts. Artifacts are
+# Terraform counterpart of frontend/kit.config.test.ts. Artifacts are
 # served from the API / bucket origin (a different origin from the SPA), so
 # img-src and media-src must carry that origin or the browser silently
 # blocks every screenshot / video. This is the exact bug class fixed in

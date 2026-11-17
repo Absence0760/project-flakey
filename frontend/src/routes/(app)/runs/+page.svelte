@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
-  import { timeAgo, absoluteDate, formatDuration } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { goto, replaceState } from "$app/navigation";
-  import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "$lib/api";
-  import { getAuth } from "$lib/stores/auth";
-  import { API_URL } from "$lib/utils/config";
-  import StatusDot from "$lib/components/status/StatusDot.svelte";
-  import { passRate } from "$lib/utils/stats";
+  import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
+  import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "#lib/api.ts";
+  import { getAuth } from "#lib/stores/auth.ts";
+  import { API_URL } from "#lib/utils/config.ts";
+  import StatusDot from "#lib/components/status/StatusDot.svelte";
+  import { passRate } from "#lib/utils/stats.ts";
 
   function focusOnMount(node: HTMLElement) {
     node.focus();
@@ -61,11 +62,11 @@
     set("status", selectedStatus, "all");
     set("date", selectedDate, "7d");
     set("q", searchQuery, "");
-    replaceState(url, {});
+    replaceUrl(url);
   }
 
   function readFiltersFromUrl() {
-    const p = $page.url.searchParams;
+    const p = page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     selectedBranch = p.get("branch") ?? "all";
     selectedEnv = p.get("env") ?? "all";

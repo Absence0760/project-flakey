@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { login, register } from "$lib/stores/auth";
+  import { login, register } from "#lib/stores/auth.ts";
   import { goto } from "$app/navigation";
-  import { page } from "$app/stores";
-  import { API_URL } from "$lib/utils/config";
+  import { page } from "$app/state";
+  import { API_URL } from "#lib/utils/config.ts";
 
   let mode = $state<"login" | "register" | "forgot" | "sso">("login");
   let email = $state("");
@@ -18,7 +18,7 @@
   // the backend's OIDC/SAML start endpoint (a full-page redirect to the IdP).
   let orgSlug = $state("");
   // Surfaced when the SSO callback bounced back here with ?sso_error=.
-  const ssoError = $derived($page.url.searchParams.get("sso_error"));
+  const ssoError = $derived(page.url.searchParams.get("sso_error"));
 
   function startSso() {
     const slug = orgSlug.trim().toLowerCase();
@@ -43,8 +43,8 @@
     }
   });
 
-  const inviteToken = $derived($page.url.searchParams.get("invite"));
-  const initialMode = $derived($page.url.searchParams.get("mode"));
+  const inviteToken = $derived(page.url.searchParams.get("invite"));
+  const initialMode = $derived(page.url.searchParams.get("mode"));
 
   // Default to register mode when:
   //   - the URL carries an invite token (existing behaviour), OR

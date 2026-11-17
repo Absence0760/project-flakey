@@ -1,17 +1,17 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { timeAgo } from "$lib/utils/format";
-  import { page } from "$app/stores";
-  import { replaceState } from "$app/navigation";
-  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, updateErrorTriage, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "$lib/api";
-  import ErrorModal from "$lib/components/overlays/ErrorModal.svelte";
-  import NotesPanel from "$lib/components/panels/NotesPanel.svelte";
-  import AssigneePicker from "$lib/components/inputs/AssigneePicker.svelte";
-  import { classificationLabels } from "$lib/utils/ai";
-  import { toast, toastInfo, toastError } from "$lib/stores/toast";
-  import { safeHref } from "$lib/utils/safe-url";
-  import { getAuth } from "$lib/stores/auth";
-  import { applyTriageFilter, todayISO, PRIORITY_META, type TriageFilter } from "$lib/utils/error-triage";
+  import { timeAgo } from "#lib/utils/format.ts";
+  import { page } from "$app/state";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
+  import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, updateErrorTriage, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "#lib/api.ts";
+  import ErrorModal from "#lib/components/overlays/ErrorModal.svelte";
+  import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
+  import AssigneePicker from "#lib/components/inputs/AssigneePicker.svelte";
+  import { classificationLabels } from "#lib/utils/ai.ts";
+  import { toast, toastInfo, toastError } from "#lib/stores/toast.ts";
+  import { safeHref } from "#lib/utils/safe-url.ts";
+  import { getAuth } from "#lib/stores/auth.ts";
+  import { applyTriageFilter, todayISO, PRIORITY_META, type TriageFilter } from "#lib/utils/error-triage.ts";
 
   // Viewers see the triage surface read-only — assignee, status, priority and
   // due-date controls are hidden for them (the backend also 403s the writes).
@@ -60,10 +60,10 @@
     set("status", selectedStatus, "all");
     set("triage", triageFilter, "all");
     set("q", searchQuery, "");
-    replaceState(url, {});
+    replaceUrl(url);
   }
   function readUrl() {
-    const p = $page.url.searchParams;
+    const p = page.url.searchParams;
     selectedSuite = p.get("suite") ?? "all";
     selectedStatus = p.get("status") ?? "all";
     const t = p.get("triage");

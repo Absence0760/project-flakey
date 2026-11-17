@@ -13,7 +13,7 @@ import { expect, test, type APIRequestContext, type Page } from "../fixtures/tes
  * A CSP-blocked <img> still mounts and is "visible" — its naturalWidth is
  * 0. So visibility is not enough; we assert the image actually DECODED
  * (naturalWidth > 0), which is what the user sees as "the screenshot
- * loaded". See frontend/svelte.config.js (kit.csp.directives.img-src) and
+ * loaded". See frontend/kit.config.js (csp.directives.img-src) and
  * infra/modules/s3/main.tf (the prod CloudFront CSP).
  *
  * Self-contained: it creates its own run + uploads a real screenshot, so it
