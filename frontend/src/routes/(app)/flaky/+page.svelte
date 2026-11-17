@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchFlakyTests, fetchRuns, checkAIEnabled, analyzeFlakyTest, fetchQuarantinedTests, quarantineTest, unquarantineTest, type FlakyTest, type Run, type FlakyAnalysis } from "#lib/api.ts";
   import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
   import { quarantineDisplay } from "#lib/utils/quarantine-display.ts";
@@ -36,7 +36,7 @@
     set("sort", sortBy, "flaky_rate");
     set("window", String(runWindow), "30");
     set("q", searchQuery, "");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
   function readUrl() {
     const p = page.url.searchParams;
@@ -271,7 +271,7 @@
     const url = new URL(window.location.href);
     if (key) url.searchParams.set("expanded", key);
     else url.searchParams.delete("expanded");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   function expandRow(test: FlakyTest) {

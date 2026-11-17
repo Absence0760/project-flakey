@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchRun, type RunDetail, type Spec } from "#lib/api.ts";
   import { getAuth, authFetch } from "#lib/stores/auth.ts";
   import ErrorModal from "#lib/components/overlays/ErrorModal.svelte";
@@ -167,7 +167,7 @@
     const url = new URL(window.location.href);
     if (value === "all") url.searchParams.delete("status");
     else url.searchParams.set("status", value);
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   // Mirror the test-search box into the URL (?q=) so it survives reloads
@@ -178,7 +178,7 @@
     const url = new URL(window.location.href);
     if (searchQuery) url.searchParams.set("q", searchQuery);
     else url.searchParams.delete("q");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
   let mounted = $state(false);
   $effect(() => {
@@ -193,14 +193,14 @@
     modalTestId = id;
     const url = new URL(window.location.href);
     url.searchParams.set("test", String(id));
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   function closeTest() {
     modalTestId = null;
     const url = new URL(window.location.href);
     url.searchParams.delete("test");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   onMount(async () => {

@@ -3,6 +3,7 @@
   import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchRunsWithSummary, fetchSavedViews, createSavedView, deleteSavedView, type Run, type RunsSummary, type SavedView } from "#lib/api.ts";
   import { getAuth } from "#lib/stores/auth.ts";
   import { API_URL } from "#lib/utils/config.ts";
@@ -61,7 +62,7 @@
     set("status", selectedStatus, "all");
     set("date", selectedDate, "7d");
     set("q", searchQuery, "");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   function readFiltersFromUrl() {

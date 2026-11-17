@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchSlowestTests, fetchRuns, type SlowestTest } from "#lib/api.ts";
   import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
 
@@ -20,7 +20,7 @@
     set("suite", selectedSuite, "all");
     set("sort", sortBy, "avg_duration_ms");
     set("q", searchQuery, "");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
   function readUrl() {
     const p = page.url.searchParams;

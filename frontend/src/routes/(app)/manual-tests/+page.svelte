@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { timeAgo, absoluteDate } from "#lib/utils/format.ts";
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { replaceUrl } from '#lib/utils/url-state.ts';
 	import { authFetch, getAuth } from '#lib/stores/auth.ts';
 	import AutomatedTestPicker from '#lib/components/inputs/AutomatedTestPicker.svelte';
 	import { API_URL } from '#lib/utils/config.ts';
@@ -93,7 +93,7 @@
 		set('group', filterGroup, 'all');
 		set('flaky', filterFlakyOnly ? '1' : '0', '0');
 		set('q', searchQuery, '');
-		goto(url, { shallow: true, replace: true });
+		replaceUrl(url);
 	}
 
 	function readUrl() {

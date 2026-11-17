@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { timeAgo } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchErrors, fetchRuns, updateErrorStatus, fetchAffectedTests, checkAIEnabled, analyzeError, findSimilarErrors, fetchErrorClusters, createFixPr, assignError, updateErrorTriage, fetchOrgMembers, type ErrorGroup, type AffectedTest, type Run, type AIAnalysis, type SimilarError, type ErrorCluster, type FixPrResult, type OrgMember } from "#lib/api.ts";
   import ErrorModal from "#lib/components/overlays/ErrorModal.svelte";
   import NotesPanel from "#lib/components/panels/NotesPanel.svelte";
@@ -60,7 +60,7 @@
     set("status", selectedStatus, "all");
     set("triage", triageFilter, "all");
     set("q", searchQuery, "");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
   function readUrl() {
     const p = page.url.searchParams;

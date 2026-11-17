@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { timeAgo, formatDuration } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchCompare, fetchRuns, type CompareResult, type CompareEntry, type Run } from "#lib/api.ts";
 
   let result = $state<CompareResult | null>(null);
@@ -25,7 +25,7 @@
     const url = new URL(window.location.href);
     if (categoryFilter !== "all") url.searchParams.set("category", categoryFilter);
     else url.searchParams.delete("category");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
 
   onMount(async () => {
@@ -71,7 +71,7 @@
     url.searchParams.delete("b");
     url.searchParams.delete("category");
     categoryFilter = "all";
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
     await loadRuns();
   }
 
@@ -93,7 +93,7 @@
     const url = new URL(window.location.href);
     url.searchParams.set("a", selectedA);
     url.searchParams.set("b", selectedB);
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
     loadComparison(Number(selectedA), Number(selectedB));
   }
 

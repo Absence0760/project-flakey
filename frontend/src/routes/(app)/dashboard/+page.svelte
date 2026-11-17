@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { timeAgo, absoluteDate, formatDuration } from "#lib/utils/format.ts";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
+  import { replaceUrl } from "#lib/utils/url-state.ts";
   import { fetchStats, fetchTrends, fetchSuiteComparisons, type DashboardStats, type TrendsData, type SuiteComparison } from "#lib/api.ts";
   import DateRangePicker from "#lib/components/inputs/DateRangePicker.svelte";
   import TrendChart from "#lib/components/charts/TrendChart.svelte";
@@ -29,7 +29,7 @@
     const url = new URL(window.location.href);
     if (fromDate) url.searchParams.set("from", fromDate); else url.searchParams.delete("from");
     if (toDate) url.searchParams.set("to", toDate); else url.searchParams.delete("to");
-    goto(url, { shallow: true, replace: true });
+    replaceUrl(url);
   }
   function readUrl() {
     const p = page.url.searchParams;
