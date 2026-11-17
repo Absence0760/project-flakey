@@ -31,6 +31,9 @@ function apiOrigin() {
 	}
 }
 
+// The CSP source-list type (kit doesn't export it by name).
+/** @typedef {NonNullable<NonNullable<NonNullable<import('@sveltejs/kit/vite').Config['csp']>['directives']>['img-src']>} CspSourceList */
+
 // Build a CSP source list at config-load time: a fixed `base` + the API
 // origin + any space-separated extras from `envVar`. The env hook lets ops
 // who serve artifacts from a separate CDN / S3 bucket (e.g. STORAGE=s3
@@ -40,6 +43,7 @@ function apiOrigin() {
 /**
  * @param {string[]} base
  * @param {string} envVar
+ * @returns {CspSourceList}
  */
 function cspSources(base, envVar) {
 	const sources = new Set(base);
@@ -49,7 +53,7 @@ function cspSources(base, envVar) {
 		.split(/\s+/)
 		.filter(Boolean);
 	for (const e of extras) sources.add(e);
-	return [...sources];
+	return /** @type {CspSourceList} */ ([...sources]);
 }
 
 /** @type {() => import('@sveltejs/kit/vite').Config} */
